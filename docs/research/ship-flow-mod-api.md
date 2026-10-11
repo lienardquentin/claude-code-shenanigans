@@ -2,7 +2,7 @@
 
 Findings from building ticket 02 of `ship-flow` on Claude Code 2.1.296. Each is marked by how it is known:
 **declared** (read in the engine's type declarations), **tested** (seen through `claude plugin test`), or **live**
-(seen in a real session). Nothing here is marked live yet: see "Still to prove".
+(seen in a real session; see "The live run" at the end).
 
 ## The engine's `$` stays in the hooks module (tested)
 
@@ -61,8 +61,20 @@ object of closures over `$` in `register.ts` and writes every other module again
   and watches from the `tool.check` and `turn.complete` hooks, which are different hooks. Ticket 03 will spawn the
   next ticket from inside `turn.complete` and must check that the next subagent's end is still seen.
 
-## Still to prove
+## The live run
 
-A live run of `/ship resume` on one ticket, to confirm in a real session: the registered type spawns on the asked
-model, `tool.check` decides the implementer's calls with no prompt, the verification command runs through the
-shell, the commit is made, and the usage reading is non-empty.
+On 2026-10-11, `/ship resume trial` built a one-ticket run in a real terminal session on Windows (commit
+`f977232`, "trial: The trial file exists"). It showed, live:
+
+- The registered type `ship-flow:implementer` spawns from a `command.run` hook, on the asked model: the answer
+  named `claude-sonnet-5-5`, the alias `sonnet` resolved.
+- The implementer's end reaches the mod's `turn.complete` hook with its `agentId`, and the run found its record by
+  that id.
+- A verification command handed to `cmd /d /s /c` runs and its exit code is read.
+- Git started through `$.process.run` commits under the repo's configured author.
+- `$.session.usage()` answers the main window's fill and both quota windows, `five_hour` and `seven_day`, each
+  with its reset time.
+- A `/ship` answer is shown under the mod's name, so its text reads `ship-flow: <feature>: ...`.
+
+Not shown by that run: whether the implementer's id came from the spawn's answer or from the agent list (the run
+accepts either), and a refused command, since the implementer tried none.
