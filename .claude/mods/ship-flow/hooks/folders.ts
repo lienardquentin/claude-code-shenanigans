@@ -25,15 +25,18 @@ export const readFolders = async (host: Host): Promise<Folder[]> => {
       files.map(async file => parseTicket(file, await host.read(`${issues}/${file}`))),
     )
 
-    folders.push({ feature, tickets })
+    const record = await readRecord(host, feature)
+
+    folders.push({ feature, tickets, ...(record ? { record } : {}) })
   }
 
   return folders
 }
 
 /** A feature's run record, or undefined when it has none yet. */
-export const readRecord = async (host: Host, feature: string): Promise<RunRecord | undefined> =>
-  (await host.exists(recordOf(feature))) ? parseRecord(await host.read(recordOf(feature))) : undefined
+export async function readRecord(host: Host, feature: string): Promise<RunRecord | undefined> {
+  return (await host.exists(recordOf(feature))) ? parseRecord(await host.read(recordOf(feature))) : undefined
+}
 
 export const writeRecord = (host: Host, record: RunRecord): Promise<void> =>
   host.write(recordOf(record.feature), recordText(record))

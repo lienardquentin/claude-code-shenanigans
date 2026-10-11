@@ -1,8 +1,9 @@
+import type { RunRecord } from './run'
 import { frontier, label, problemsOf } from './tickets'
 import type { Problem, Ticket } from './tickets'
 
-/** One feature's ticket folder as read: the tickets of `.scratch/<feature>/issues/`. */
-export type Folder = { feature: string; tickets: readonly Ticket[] }
+/** One feature's ticket folder as read: the tickets of `.scratch/<feature>/issues/`, and its run record if any. */
+export type Folder = { feature: string; tickets: readonly Ticket[]; record?: RunRecord }
 
 const NOTES: Readonly<Record<string, string>> = {
   blocked: 'fix its ticket file, set it back to ready',
@@ -12,10 +13,27 @@ const NOTES: Readonly<Record<string, string>> = {
 const problemLine = (problem: Problem): string =>
   `  ${problem.number !== undefined ? label(problem.number) : problem.file} ${problem.reason}`
 
-const ticketLine = (ticket: Ticket, takeable: ReadonlySet<Ticket>, widths: { status: number; title: number }): string => {
+// Where the run stands, as the end of the feature's line: what it builds now, or why it does not build
+const standing = (record: RunRecord | undefined): string => {
+  if (!record) return ''
+  if (record.phase === 'unattended') return ` · building ${label(record.ticket ?? 0)}`
+
+  return ` · ${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`
+}
+
+const ticketLine = (
+  ticket: Ticket,
+  takeable: ReadonlySet<Ticket>,
+  widths: { status: number; title: number },
+  record: RunRecord | undefined,
+): string => {
+  const attempts = record?.attempts[label(ticket.number ?? 0)] ?? 0
+  const failure = record?.failure?.ticket === ticket.number && ticket.status !== 'done' ? record?.failure : undefined
   const notes = [
     ticket.blockers.length > 0 ? `blocked by ${ticket.blockers.map(label).join(', ')}` : '',
     ticket.model !== undefined ? `model ${ticket.model}` : '',
+    attempts > 1 ? `attempt ${attempts}` : '',
+    failure ? `failed: ${failure.reason}` : '',
     takeable.has(ticket) ? 'takeable now' : (NOTES[ticket.status ?? ''] ?? ''),
   ].filter(note => note !== '')
 
@@ -31,7 +49,7 @@ const ticketLine = (ticket: Ticket, takeable: ReadonlySet<Ticket>, widths: { sta
 }
 
 /** What `/ship status` says about one feature: its problems when the graph is broken, else each ticket. */
-export const folderText = ({ feature, tickets }: Folder): string => {
+export const folderText = ({ feature, tickets, record }: Folder): string => {
   const problems = problemsOf(tickets)
 
   if (problems.length > 0) {
@@ -47,10 +65,10 @@ export const folderText = ({ feature, tickets }: Folder): string => {
   }
 
   return [
-    `${feature}: ${done} of ${tickets.length} tickets done, ${takeable.size} takeable now`,
+    `${feature}: ${done} of ${tickets.length} tickets done, ${takeable.size} takeable now${standing(record)}`,
     ...[...tickets]
       .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-      .map(ticket => ticketLine(ticket, takeable, widths)),
+      .map(ticket => ticketLine(ticket, takeable, widths, record)),
   ].join('\n')
 }
 

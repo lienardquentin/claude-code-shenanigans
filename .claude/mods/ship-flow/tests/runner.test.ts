@@ -4,9 +4,12 @@ import type { TestBody } from 'claude-code/testing'
 import { answerRepo, spec, ticket } from './repo'
 
 type Engine = Parameters<TestBody>[0]
+type Repo = ReturnType<typeof answerRepo>
 
 const CART = '.scratch/checkout/issues/01-cart.md'
 const PAY = '.scratch/checkout/issues/02-pay.md'
+const TAX = '.scratch/checkout/issues/03-tax.md'
+const RECORD = '.scratch/checkout/run.json'
 
 const checkout = (commands: readonly string[] = ['npm test', 'npm run typecheck']) => ({
   '.scratch/checkout/spec.md': spec(commands),
@@ -14,10 +17,20 @@ const checkout = (commands: readonly string[] = ['npm test', 'npm run typecheck'
   [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** ready']),
 })
 
+// A third ticket that hangs off nothing: the run can take it whatever happens to the other two
+const withTax = () => ({
+  ...checkout(),
+  [TAX]: ticket('03', 'Tax is added', ['**Blocked by:** None', '**Status:** ready']),
+})
+
 const ship = async ($: Engine, args: string) => (await $.command.run({ command: 'ship', args } as never)).text ?? ''
 
-const ends = ($: Engine, agentId: string, reason = 'answer') =>
-  $.turn.complete({ answer: 'Built.', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', agentId, reason } as never)
+// The implementer's turn ends, having left `changes` in the working tree
+const ends = async ($: Engine, repo: Repo, agentId: string, { reason = 'answer', changes = ' M src/cart.ts\n' } = {}) => {
+  repo.change(changes)
+  repo.ran.length = 0
+  await $.turn.complete({ answer: 'Built.', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', agentId, reason } as never)
+}
 
 const checks = async ($: Engine, agentId: string, tool: string, input: unknown) =>
   (await $.tool.check({ tool, input, agentId, tool_use_id: 'call-1' } as never)).decision
@@ -44,6 +57,7 @@ describe('/ship resume', () => {
 
     expect(await ship($, 'resume')).toMatch(/uncommitted changes/)
     expect(repo.spawned).toEqual([])
+    expect(repo.ran).not.toContain('git reset --hard HEAD')
     expect(repo.statusOf(CART)).toBe('ready')
   })
 
@@ -117,7 +131,7 @@ describe('/ship resume', () => {
     expect(repo.spawned[0]?.model).toBe('opus')
   })
 
-  test('says so when no ticket can be taken', async ($, on) => {
+  test('says how the run stands when no ticket can be taken', async ($, on) => {
     answerRepo(on, {
       files: {
         ...checkout(),
@@ -125,20 +139,44 @@ describe('/ship resume', () => {
       },
     })
 
-    expect(await ship($, 'resume')).toMatch(/no ticket can be taken now/)
+    expect(await ship($, 'resume')).toBe('checkout: no ticket left to take: 0 of 2 done, 2 blocked.')
   })
-})
 
-describe('when the implementer has finished', () => {
-  test('the run runs each verification command itself, commits once and marks the ticket done', async ($, on) => {
+  test('takes up a run that was cut off mid-ticket: what the ticket left is discarded and it is built anew', async ($, on) => {
+    const repo = answerRepo(on, {
+      porcelain: ' M src/cart.ts\n?? src/half.ts\n',
+      files: {
+        ...checkout(),
+        [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** in-progress']),
+        [RECORD]: JSON.stringify({ feature: 'checkout', branch: 'checkout-feature', phase: 'unattended', ticket: 1, agentId: 'gone', attempts: { '01': 2 } }),
+      },
+    })
+
+    expect(await ship($, 'resume')).toMatch(/building 01 A cart holds items/)
+    expect(repo.ran).toContain('git reset --hard HEAD')
+    expect(repo.ran).toContain('git clean -fd')
+    expect(repo.statusOf(CART)).toBe('in-progress')
+    expect(repo.record('checkout')).toMatchObject({ agentId: 'agent-1', attempts: { '01': 1 } })
+  })
+
+  test('does not start a second implementer while one is building', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
-    repo.change(' M src/cart.ts\n')
-    repo.ran.length = 0
-    await ends($, 'agent-1')
 
-    expect(repo.ran).toEqual([
+    expect(await ship($, 'resume')).toBe('checkout: ticket 01 is being built now.')
+    expect(repo.spawned).toHaveLength(1)
+  })
+})
+
+describe('when an implementer has finished', () => {
+  test('the run runs each verification command itself, commits once, marks the ticket done and takes the next', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout() })
+
+    await ship($, 'resume')
+    await ends($, repo, 'agent-1')
+
+    expect(repo.ran.slice(0, 6)).toEqual([
       'sh -c npm test',
       'sh -c npm run typecheck',
       'git status --porcelain',
@@ -147,71 +185,150 @@ describe('when the implementer has finished', () => {
       'git rev-parse --short HEAD',
     ])
     expect(repo.statusOf(CART)).toBe('done')
-    expect(repo.record('checkout')).toMatchObject({ phase: 'paused', attempts: { '01': 1 } })
-    expect(repo.record('checkout').agentId).toBeUndefined()
+    expect(repo.statusOf(PAY)).toBe('in-progress')
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01', 'Build ticket 02'])
+    expect(repo.record('checkout')).toMatchObject({ phase: 'unattended', ticket: 2, agentId: 'agent-2', attempts: { '01': 1, '02': 1 } })
   })
 
-  test('the transcript gets exactly one line for the ticket', async ($, on) => {
+  test('the transcript gets one line a ticket, and the run stops when every ticket is done', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
-    repo.change(' M src/cart.ts\n')
-    await ends($, 'agent-1')
+    await ends($, repo, 'agent-1')
+    await ends($, repo, 'agent-2')
 
-    expect(repo.logged).toEqual(['ship-flow: 01 A cart holds items is done (abc1234).'])
+    expect(repo.logged).toEqual([
+      'checkout: 01 A cart holds items is done (abc1234); building 02 A cart is paid on sonnet, on branch checkout-feature.',
+      'checkout: 02 A cart is paid is done (abc1234); no ticket left to take: 2 of 2 done.',
+    ])
+    expect(repo.record('checkout')).toMatchObject({ phase: 'paused', pause: 'every ticket is done' })
+    expect(repo.spawned).toHaveLength(2)
   })
 
-  test('a failing verification command discards the work, blocks the ticket and keeps what the command said', async ($, on) => {
+  test('a failed attempt is discarded and the ticket tried once more, by an implementer told what failed', async ($, on) => {
     const repo = answerRepo(on, { files: checkout(), exits: { 'npm run typecheck': 2 } })
 
     await ship($, 'resume')
-    repo.change(' M src/cart.ts\n')
-    repo.ran.length = 0
-    await ends($, 'agent-1')
+    await ends($, repo, 'agent-1')
 
-    expect(repo.ran).toEqual(['sh -c npm test', 'sh -c npm run typecheck', 'git reset --hard HEAD', 'git clean -fd'])
-    expect(repo.statusOf(CART)).toBe('blocked')
-    expect(repo.record('checkout')).toMatchObject({
-      phase: 'paused',
-      failure: { ticket: 1, reason: '`npm run typecheck` failed', output: 'expected 2 but got 3' },
-    })
+    expect(repo.ran.slice(0, 4)).toEqual(['sh -c npm test', 'sh -c npm run typecheck', 'git reset --hard HEAD', 'git clean -fd'])
+    expect(repo.statusOf(CART)).toBe('in-progress')
+    expect(repo.spawned[1]?.prompt.split('\n')).toEqual([
+      'Build the ticket .scratch/checkout/issues/01-cart.md of the spec .scratch/checkout/spec.md.',
+      '',
+      'A first attempt at this ticket was discarded: `npm run typecheck` failed. Nothing of it is left in the working tree.',
+      'What the failure said:',
+      '',
+      'expected 2 but got 3',
+    ])
+    expect(repo.record('checkout')).toMatchObject({ ticket: 1, agentId: 'agent-2', attempts: { '01': 2 } })
     expect(repo.logged).toEqual([
-      'ship-flow: 01 A cart holds items failed: `npm run typecheck` failed. Its changes were discarded and it is marked blocked.',
+      'checkout: 01 A cart holds items failed (`npm run typecheck` failed) and its changes were discarded; once more: building 01 A cart holds items on sonnet, on branch checkout-feature.',
     ])
   })
 
-  test('an implementer that changed nothing has not built the ticket', async ($, on) => {
-    const repo = answerRepo(on, { files: checkout() })
+  test('a retry that passes is committed like any other, and the run goes on', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout(), exits: { 'npm test': 1 } })
 
     await ship($, 'resume')
-    await ends($, 'agent-1')
+    await ends($, repo, 'agent-1')
+    repo.exits['npm test'] = 0
+    await ends($, repo, 'agent-2')
 
-    expect(repo.statusOf(CART)).toBe('blocked')
-    expect(repo.record('checkout')).toMatchObject({ failure: { reason: 'the implementer changed nothing' } })
+    expect(repo.statusOf(CART)).toBe('done')
+    expect(repo.statusOf(PAY)).toBe('in-progress')
   })
 
-  test('a turn that was interrupted is a failure, and nothing is verified or committed', async ($, on) => {
+  test('a second failure blocks the ticket and those that hang off it, and the run goes on with the rest', async ($, on) => {
+    const repo = answerRepo(on, { files: withTax(), exits: { 'npm test': 1 } })
+
+    await ship($, 'resume')
+    await ends($, repo, 'agent-1')
+    await ends($, repo, 'agent-2')
+
+    expect(repo.statusOf(CART)).toBe('blocked')
+    expect(repo.statusOf(PAY)).toBe('blocked')
+    expect(repo.statusOf(TAX)).toBe('in-progress')
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01', 'Build ticket 01', 'Build ticket 03'])
+    expect(repo.record('checkout')).toMatchObject({ ticket: 3, failure: { ticket: 1, reason: '`npm test` failed' } })
+    expect(repo.logged[1]).toBe(
+      'checkout: 01 A cart holds items failed again (`npm test` failed) and is marked blocked; building 03 Tax is added on sonnet, on branch checkout-feature.',
+    )
+  })
+
+  test('the run ends on what could not be built, and says how to go on', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout(), exits: { 'npm test': 1 } })
+
+    await ship($, 'resume')
+    await ends($, repo, 'agent-1')
+    await ends($, repo, 'agent-2')
+
+    expect(repo.logged[1]).toBe(
+      'checkout: 01 A cart holds items failed again (`npm test` failed) and is marked blocked; no ticket left to take: 0 of 2 done, 2 blocked.',
+    )
+    expect(repo.record('checkout')).toMatchObject({
+      phase: 'paused',
+      pause: 'no ticket can be taken: fix the blocked tickets, then /ship resume',
+    })
+  })
+
+  test('a ticket the person set back to ready gets both its attempts again', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout(), exits: { 'npm test': 1 } })
+
+    await ship($, 'resume')
+    await ends($, repo, 'agent-1')
+    await ends($, repo, 'agent-2')
+    repo.files[CART] = ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready'])
+    repo.files[PAY] = ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** ready'])
+    repo.change('')
+    await ship($, 'resume')
+
+    expect(repo.record('checkout')).toMatchObject({ ticket: 1, agentId: 'agent-3', attempts: { '01': 1 } })
+  })
+
+  test('an implementer that changed nothing, or whose turn was cut short, has not built the ticket', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
-    repo.change(' M src/cart.ts\n')
-    repo.ran.length = 0
-    await ends($, 'agent-1', 'aborted')
+    await ends($, repo, 'agent-1', { changes: '' })
 
-    expect(repo.ran).toEqual(['git reset --hard HEAD', 'git clean -fd'])
+    expect(repo.record('checkout')).toMatchObject({ failure: { reason: 'the implementer changed nothing' } })
+
+    await ends($, repo, 'agent-2', { reason: 'aborted' })
+
+    expect(repo.ran.slice(0, 2)).toEqual(['git reset --hard HEAD', 'git clean -fd'])
     expect(repo.statusOf(CART)).toBe('blocked')
+    expect(repo.record('checkout')).toMatchObject({ failure: { reason: "the implementer's turn ended with aborted" } })
   })
 
   test('the end of any other agent\'s turn changes nothing', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
-    repo.ran.length = 0
-    await ends($, 'someone-else')
+    await ends($, repo, 'someone-else')
 
     expect(repo.ran).toEqual([])
     expect(repo.statusOf(CART)).toBe('in-progress')
     expect(repo.logged).toEqual([])
+  })
+
+  test('/ship status says what the run is building, and which attempt a ticket is on', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout(), exits: { 'npm test': 1 } })
+
+    await ship($, 'resume')
+    await ends($, repo, 'agent-1')
+
+    expect((await ship($, 'status')).split('\n')).toEqual([
+      'checkout: 0 of 2 tickets done, 0 takeable now · building 01',
+      '  01  in-progress  A cart holds items  attempt 2 · failed: `npm test` failed',
+      '  02  ready        A cart is paid      blocked by 01',
+    ])
+
+    await ends($, repo, 'agent-2')
+
+    expect((await ship($, 'status')).split('\n')[0]).toBe(
+      'checkout: 0 of 2 tickets done, 0 takeable now · paused: no ticket can be taken: fix the blocked tickets, then /ship resume',
+    )
   })
 })
 
@@ -225,7 +342,7 @@ describe('what the implementer may call', () => {
     expect(await checks($, 'agent-1', 'Bash', { command: 'npm run typecheck' })).toBe('allow')
   })
 
-  test('no other command: it is refused, never asked, and the ticket has failed', async ($, on) => {
+  test('no other command: it is refused, never asked, and the attempt has failed', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
@@ -235,14 +352,23 @@ describe('what the implementer may call', () => {
     expect(await checks($, 'agent-1', 'Bash', { command: 'git push' })).toBe('deny')
     expect(await checks($, 'agent-1', 'WebFetch', { url: 'https://example.com' })).toBe('deny')
 
-    repo.change(' M src/cart.ts\n')
-    repo.ran.length = 0
-    await ends($, 'agent-1')
+    await ends($, repo, 'agent-1')
 
-    expect(repo.ran).toEqual(['git reset --hard HEAD', 'git clean -fd'])
+    expect(repo.ran.slice(0, 2)).toEqual(['git reset --hard HEAD', 'git clean -fd'])
     expect(repo.record('checkout')).toMatchObject({
       failure: { reason: 'the implementer tried a command it may not run: git push' },
     })
+  })
+
+  test('a refusal does not follow the ticket into its retry', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout() })
+
+    await ship($, 'resume')
+    await checks($, 'agent-1', 'Bash', { command: 'git push' })
+    await ends($, repo, 'agent-1')
+    await ends($, repo, 'agent-2')
+
+    expect(repo.statusOf(CART)).toBe('done')
   })
 
   test('another agent\'s calls are left to the session to decide', async ($, on) => {
