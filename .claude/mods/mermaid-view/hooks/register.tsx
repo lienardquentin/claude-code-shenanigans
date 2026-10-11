@@ -17,6 +17,7 @@ import { tonedText } from './kit/toned-text'
 import { OS_NAMES, detectHost, detectOs, detectTerminal, drawsPixels, gaps, recommended, rowFor, tableFor, toneOfValue } from './guide'
 import type { Env, Os } from './guide'
 import { READ_ON } from './terminals'
+import { onlineAddresses } from './online'
 import { rasterize } from './pixels'
 import { vectorSvg } from './svg'
 import { clipDrawing, drawingWidth, spanOfNode, wheelOffset, windowFor } from './window'
@@ -333,6 +334,7 @@ const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
 const browserRow = async ($: Engine, e: Drawn, source: string, fallback: (() => string) | undefined): Promise<RenderElement[]> => {
   const { Box, Button, Link } = $.ui.resolve(e)
   const written = await read($, page)
+  const online = onlineAddresses(source)
 
   return [
     <Box key="page-row" flexDirection="row" gap={2}>
@@ -352,6 +354,21 @@ const browserRow = async ($: Engine, e: Drawn, source: string, fallback: (() => 
       </Button>
       {written !== '' && !written.startsWith('error:') ? <Link href={written}>{written}</Link> : null}
     </Box>,
+    // The addresses that draw it on a hosted Mermaid: https links, so they open from any machine, ssh or not, and on
+    // any surface. Opening one sends the diagram's text to that service, which the line says.
+    ...(online === undefined
+      ? []
+      : [
+          <Box key="online-row" flexDirection="row" gap={2}>
+            {tonedText({ text: 'Online:', tone: 'info' })}
+            <Link href={online.view}>View on mermaid.ink</Link>
+            <Link href={online.edit}>Edit on mermaid.live</Link>
+          </Box>,
+          tonedText({
+            text: 'These work from any machine, over ssh too. Opening one sends the diagram text to that service.',
+            tone: 'neutral',
+          }),
+        ]),
     ...(written.startsWith('error:')
       ? [badge({ label: `Could not write the page: ${written.slice('error:'.length)}`, tone: 'warning' })]
       : written !== ''

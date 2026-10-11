@@ -72,7 +72,11 @@ What it does so far:
   more than the pane draws, and the browser's own wheel, scroll bars and zoom. If the library cannot be loaded or the
   source does not parse, the page shows the mod's own drawing instead, where there is one. It is offered for a
   diagram the pane cannot draw too. On the desktop app the address is shown as text to open, as that surface only
-  draws `https` links.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
+  draws `https` links.- Online addresses, for when the session runs somewhere else (over ssh) and a file on that machine is no use: next
+  to the page button are `View on mermaid.ink` and `Edit on mermaid.live`, plain `https` links that a browser on
+  your own machine opens (and every surface draws), with the diagram in the address. Opening one **sends the
+  diagram's text to that service**, which the line under them says. A `Link` takes at most 2048 characters and the
+  address carries the text uncompressed, so they are offered for diagrams up to about 1,000 characters of source.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
   closed up, and then labels are wrapped to narrower and narrower boxes (at spaces, dashes and slashes, and inside a
   word only when nothing wider fits) until it fits. A node's label is wrapped onto more rows, and selecting it
   still names the whole label. What cannot be made narrow enough is shown through the window above.

@@ -19,6 +19,10 @@ const mountPane = (
     requestId: 'mermaid-view',
   })
 
+// The link of a pane that goes to an address starting with `prefix`: the pane has several (the page, the hosted
+// drawings, a node's own)
+const linkWith = async (pane: Awaited<ReturnType<typeof mountPane>>, prefix: string) =>
+  (await pane.findAll({ type: 'Link' })).find(link => String(link.props.href).startsWith(prefix))
 // Stands for the engine: a pane the mod opens is placed
 const answerOpen = (on: Parameters<Parameters<typeof test>[1]>[1]) =>
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
@@ -691,7 +695,7 @@ describe('mermaid-view', () => {
       const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\someone\\AppData\\Local\\Temp' })
 
       expect(made).toHaveLength(0)
-      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+      expect(await linkWith(pane, 'file://')).toBeUndefined()
 
       await pane.press({ key: 'page' })
 
@@ -750,13 +754,48 @@ describe('mermaid-view', () => {
       // the mod has no drawing of it to fall back to
       expect(made[0]?.text).toContain('<div id="fallback"></div>')
     })
+    test('has https addresses that draw it on a hosted Mermaid, which open from any machine', async ($, on) => {
+      writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      const links = await pane.findAll({ type: 'Link' })
+      const hrefs = links.map(link => String(link.props.href))
+
+      expect(hrefs.some(href => /^https:\/\/mermaid\.ink\/svg\/pako:[A-Za-z0-9_-]+$/.test(href))).toBe(true)
+      expect(hrefs.some(href => /^https:\/\/mermaid\.live\/edit#pako:[A-Za-z0-9_-]+$/.test(href))).toBe(true)
+      expect(await pane.find({ text: /sends the diagram text to that service/ })).toBeDefined()
+    })
+
+    test('has them on the other surfaces too, where https links are drawn', async ($, on) => {
+      writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' }, 'desktop')
+
+      const hrefs = (await pane.findAll({ type: 'Link' })).map(link => String(link.props.href))
+
+      expect(hrefs.some(href => href.startsWith('https://mermaid.ink/svg/pako:'))).toBe(true)
+    })
+
+    test('has them for a diagram the pane cannot draw, and not for one too long for an address', async ($, on) => {
+      writes(on)
+      mock.env(on, { HOME: '/home/someone' })
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'sequenceDiagram\nA->>B: hello' })
+      const pane = await mountPane($)
+
+      expect((await pane.findAll({ type: 'Link' })).length).toBe(2)
+
+      const long = `graph TD; ${Array.from({ length: 400 }, (_, index) => `N${index} --> N${index + 1}`).join('; ')}`
+      await $.command.run({ command: 'mermaid-view', args: long })
+
+      expect(await linkWith(pane, 'file://')).toBeUndefined()
+    })
     test('is linked by its file address', async ($, on) => {
       writes(on)
       const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\some one\\Temp' })
 
       await pane.press({ key: 'page' })
 
-      const link = await pane.find({ type: 'Link' })
+      const link = await linkWith(pane, 'file://')
       expect(link?.props.href).toBe('file:///C:/Users/some%20one/Temp/mermaid-view.html')
     })
 
@@ -768,7 +807,7 @@ describe('mermaid-view', () => {
 
       // (the engine hands the hook an absolute path, which on Windows has a drive)
       expect(made[0]?.path.replace(/\\/g, '/')).toMatch(/\/tmp\/mermaid-view\.html$/)
-      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('file:///tmp/mermaid-view.html')
+      expect((await linkWith(pane, 'file://'))?.props.href).toBe('file:///tmp/mermaid-view.html')
     })
 
     test('a page that cannot be written is said so, and no link is offered', async ($, on) => {
@@ -783,7 +822,7 @@ describe('mermaid-view', () => {
       await pane.press({ key: 'page' })
 
       expect(await pane.find({ text: /Could not write the page:/ })).toBeDefined()
-      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+      expect(await linkWith(pane, 'file://')).toBeUndefined()
     })
 
     test('is forgotten when another diagram is shown', async ($, on) => {
@@ -791,11 +830,11 @@ describe('mermaid-view', () => {
       const pane = await open($, on, { HOME: '/home/someone' })
 
       await pane.press({ key: 'page' })
-      expect(await pane.find({ type: 'Link' })).toBeDefined()
+      expect(await linkWith(pane, 'file://')).toBeDefined()
 
       await $.command.run({ command: 'mermaid-view', args: 'graph TD; X --> Y' })
 
-      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+      expect(await linkWith(pane, 'file://')).toBeUndefined()
     })
 
     test('is offered on the other surfaces too, where the address is shown as text to open', async ($, on) => {
@@ -1172,11 +1211,11 @@ describe('mermaid-view', () => {
       const pane = await show($, 'graph TD; A[Docs] --> B; click A "https://example.com/docs"')
 
       expect(await pane.find({ text: /│ Docs ↗ │/ })).toBeDefined()
-      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+      expect(await linkWith(pane, 'https://example.com')).toBeUndefined()
 
       await pane.press({ key: 'node-A' })
 
-      const link = await pane.find({ type: 'Link' })
+      const link = await linkWith(pane, 'https://example.com')
       expect(link?.props.href).toBe('https://example.com/docs')
     })
 
@@ -1186,7 +1225,7 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'node-A' })
 
-      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('https://example.com/x')
+      expect((await linkWith(pane, 'https://example.com'))?.props.href).toBe('https://example.com/x')
       expect(await pane.find({ text: /Open the docs/ })).toBeUndefined()
     })
 
@@ -1228,7 +1267,7 @@ describe('mermaid-view', () => {
       await pane.press({ key: 'node-N3' })
 
       expect(await pane.find({ text: /Not followed: \.\.\/secrets\.txt/ })).toBeDefined()
-      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+      expect(await linkWith(pane, 'https://example.com')).toBeUndefined()
     })
 
     test('a callback is reported as not drawn yet, with its line', async ($, on) => {
@@ -1247,7 +1286,7 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'node-A' })
 
-      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('https://example.com/d')
+      expect((await linkWith(pane, 'https://example.com'))?.props.href).toBe('https://example.com/d')
     })
 
     test('Send to Claude fills the prompt with a line about the selected node', async ($, on) => {
