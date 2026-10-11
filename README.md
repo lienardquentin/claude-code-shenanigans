@@ -54,8 +54,14 @@ plan.
 
 What it does so far:
 
-- `/mermaid-view <diagram text>` opens the pane and draws a top-down flowchart in the terminal: `graph TD; A[Start]
+- `/mermaid-view <diagram text>` opens the pane and draws a flowchart in the terminal: `graph TD; A[Start]
   --> B[Process]; B --> C[End]`. Statements are separated by `;` or a new line.
+- `/mermaid-view <path>` shows the diagram in a file: a `.mmd` file whole, a markdown file by each of its
+  ` ```mermaid ` blocks (the first is shown).
+- A ` ```mermaid ` block in one of Claude's own replies is shown as soon as the reply ends (what a subagent hands back
+  is not).
+- The diagrams of the session are listed under the drawing, newest last, each told apart by its first node labels;
+  press one to show it. The list keeps the last twenty, and lives only as long as the session.
 - Directions: `TD` and `TB` (the default), `BT`, `LR` and `RL`.
 - Nodes are `A`, or with a label (quoted or not) in the shape of the brackets: `A[Label]` rectangle, `A(Label)`
   rounded, `A([Label])` stadium, `A{Label}` diamond, `A((Label))` circle. A label may hold `;`, `&` or `-->`.

@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { MAX_NODES, parseDiagram } from './diagram'
+import type { HistoryEntry } from '../types'
+import { MAX_NODES, looksLikeDiagram, mermaidBlocks, parseDiagram } from './diagram'
 import type { Diagram, ParseResult } from './diagram'
 import { drawDiagram } from './draw'
 import { actionLabel } from './kit/action-label'
@@ -21,6 +22,42 @@ type Drawn = Parameters<Engine['ui']['resolve']>[0]
 const source = atom({ plugin: 'mermaid-view', key: 'source' } as const, '')
 // The node the viewer selected: also the pane's own
 const selected = atom({ plugin: 'mermaid-view', key: 'selected' } as const, '')
+// The diagrams seen this session, oldest first: from the command, from a file and from the replies
+const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as HistoryEntry[])
+
+const MAX_HISTORY = 20
+
+// How a diagram is told apart in the list: its first node labels, or the first line of source it could not read
+const titleOf = (text: string): string => {
+  const parsed = parseDiagram(text)
+
+  if (parsed.ok) {
+    const labels = parsed.diagram.nodes.slice(0, 3).map(node => node.label)
+    const more = parsed.diagram.nodes.length - labels.length
+
+    return `${labels.join(', ')}${more > 0 ? ` +${more}` : ''}`
+  }
+
+  const first = Array.from(text.split('\n')[0] ?? '')
+
+  return first.length > 30 ? `${first.slice(0, 29).join('')}…` : first.join('')
+}
+
+// Puts diagrams in the list and shows the last of them: one already there moves to the newest place, the list keeps
+// the most recent few, and nothing selected carries over to a different diagram
+const remember = async ($: Engine, sources: readonly string[]): Promise<void> => {
+  const fresh = sources.map(text => text.trim()).filter(text => text !== '')
+  const last = fresh[fresh.length - 1]
+  if (last === undefined) return
+
+  await update($, history, entries => {
+    const kept = entries.filter(entry => !fresh.includes(entry.source))
+
+    return [...kept, ...fresh.map(text => ({ source: text, title: titleOf(text) }))].slice(-MAX_HISTORY)
+  })
+  await update($, source, () => last)
+  await update($, selected, () => '')
+}
 
 // A press on a node selects it; a press on the selected node clears the selection
 const toggle = ($: Engine, id: string): Promise<void> =>
@@ -175,21 +212,76 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The argument is diagram text, or the path of a file: a ```mermaid block of a markdown file, each one, or the
+  // whole file when it has none
   on('command.run', { command: 'mermaid-view' }, async ($, e) => {
-    if (e.args.trim() !== '') {
-      await update($, source, () => e.args.trim())
-      await update($, selected, () => '')
+    const argument = e.args.trim()
+
+    if (argument !== '' && looksLikeDiagram(argument)) {
+      await remember($, [argument])
+    } else if (argument !== '') {
+      let text: string
+
+      try {
+        text = String(await $.fs.read(argument))
+      } catch (error) {
+        return { text: `Could not read ${argument}: ${error instanceof Error ? error.message : String(error)}` }
+      }
+
+      const blocks = mermaidBlocks(text)
+      // The first block ends as the newest, so it is the one shown
+      await remember($, blocks.length > 0 ? [...blocks].reverse() : [text])
     }
+
     await $.ui.open({ id: PANE, title: 'Mermaid diagram' })
 
     return { text: 'Mermaid diagram pane opened.' }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) =>
-    card({
+  // A diagram a reply of Claude's holds is put in the list and shown, so the pane has what was just drawn
+  // Only the main loop's own answer: what a subagent hands back is its spawner's to say
+  on('turn.complete', async ($, e, next) => {
+    const blocks = e.agentId === undefined ? mermaidBlocks(e.answer) : []
+
+    if (blocks.length > 0) await remember($, blocks)
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Button } = $.ui.resolve(e)
+    const entries = await read($, history)
+    const shown = await read($, source)
+
+    // The diagrams of the session, newest first, when there is more than one to choose between
+    const list =
+      entries.length > 1
+        ? [
+            badge({ label: 'Diagrams this session', tone: 'neutral' }),
+            <Box key="history" flexDirection="column">
+              {[...entries.entries()].reverse().map(([index, entry]) => (
+                <Button
+                  key={`history-${index}`}
+                  plain
+                  onPress={async () => {
+                    await update($, source, () => entry.source)
+                    await update($, selected, () => '')
+                  }}
+                >
+                  {tonedText({
+                    text: `${entry.source === shown ? '▸' : ' '} ${index + 1}. ${entry.title}`,
+                    ...(entry.source === shown ? { tone: 'accent' as const } : {}),
+                  })}
+                </Button>
+              ))}
+            </Box>,
+          ]
+        : []
+
+    return card({
       width: e.props.bodyColumns ?? 80,
       title: 'Mermaid diagram',
-      children: content($, e, await read($, source), await read($, selected)),
-    }),
-  )
+      children: [...content($, e, shown, await read($, selected)), ...list],
+    })
+  })
 }

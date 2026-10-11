@@ -37,6 +37,20 @@ export type ParseResult =
 /** The most nodes a diagram may have to be drawn: past it the pane shows the source, with a note. */
 export const MAX_NODES = 200
 
+/** The source of each ```mermaid fenced block in a text, in order. */
+export const mermaidBlocks = (text: string): string[] =>
+  [...text.matchAll(/```mermaid[^\n]*\n([\s\S]*?)```/gi)]
+    .map(match => (match[1] as string).trim())
+    .filter(block => block !== '')
+
+/**
+ * Whether an argument to the command is diagram text rather than the path of a file: it has several statements or
+ * lines, an edge, or opens with a diagram keyword.
+ */
+export const looksLikeDiagram = (argument: string): boolean =>
+  /[;\n]|-->|---|==>/.test(argument) ||
+  /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|journey|mindmap)\b/i.test(argument)
+
 const HEADER = /^(?:graph|flowchart)(?:\s+(TD|TB|BT|LR|RL))?$/i
 const NODE = /^([\p{L}\p{N}_-]+)(?:(\(\(|\(\[|\[|\(|\{)(.*?)(\)\)|\]\)|\]|\)|\}))?(?::::([\p{L}\p{N}_-]+))?$/u
 const NAME = '[\\p{L}\\p{N}_-]+'

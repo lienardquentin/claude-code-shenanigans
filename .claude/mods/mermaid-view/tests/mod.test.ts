@@ -475,6 +475,170 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('sources and history', () => {
+    type TestOn = Parameters<Parameters<typeof test>[1]>[1]
+
+    // Stands for the file system the mod reads files from: what a test "writes" is an entry in the map
+    const memoryFs = (on: TestOn) => {
+      const files = new Map<string, string>()
+
+      on('fs.read', (_$, e) => {
+        const path = e.path.replace(/\\/g, '/')
+        const key = [...files.keys()].find(name => path.endsWith(name))
+        if (key === undefined) throw new Error(`ENOENT: ${e.path}`)
+
+        return { value: files.get(key) } as never
+      })
+
+      return files
+    }
+
+    const run = ($: Parameters<Parameters<typeof test>[1]>[0], args: string) =>
+      $.command.run({ command: 'mermaid-view', args })
+
+    test('a file path as the argument shows that file\'s diagram', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on).set('flow.mmd', 'graph TD; A[One] --> B[Two]')
+
+      await run($, 'flow.mmd')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ One │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Two │/ })).toBeDefined()
+    })
+
+    test('a markdown file gives each of its mermaid blocks, the first one shown', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on).set(
+        'notes.md',
+        'Intro\n```mermaid\ngraph TD; A[First] --> B\n```\ntext\n```mermaid\ngraph TD; X[Second] --> Y\n```\n',
+      )
+
+      await run($, 'notes.md')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ First │/ })).toBeDefined()
+      expect(await pane.find({ text: /Diagrams this session/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-0' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-1' })).toBeDefined()
+    })
+
+    test('a file that cannot be read is said so, and the pane keeps what it had', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on)
+      await run($, 'graph TD; K[Kept] --> L')
+
+      const result = await run($, 'missing.mmd')
+      const pane = await mountPane($)
+
+      expect(result.text).toMatch(/Could not read missing\.mmd/)
+      expect(await pane.find({ text: /│ Kept │/ })).toBeDefined()
+    })
+
+    // Stands for the engine: what answers a turn that ends. Registered first, before the test uses `$`.
+    const engineEnds = (on: TestOn) => on('turn.complete', (_$, e) => ({ text: (e as { answer: string }).answer }) as never)
+
+    const answerWith = ($: Parameters<Parameters<typeof test>[1]>[0], answer: string, agentId?: string) =>
+      $.turn.complete({ reason: 'answer', answer, ...(agentId !== undefined ? { agentId } : {}) } as never)
+
+    test('a mermaid block in a reply is shown, and added to the list', async ($, on) => {
+      answerOpen(on)
+      engineEnds(on)
+      await run($, 'graph TD; K[Kept] --> L')
+
+      await answerWith($, 'Here it is:\n```mermaid\ngraph TD; R[Reply] --> S\n```\nHope it helps.')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ Reply │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-0', text: /Kept, L/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-1', text: /Reply, S/ })).toBeDefined()
+    })
+
+    test('a reply with no diagram changes nothing', async ($, on) => {
+      answerOpen(on)
+      engineEnds(on)
+      await run($, 'graph TD; K[Kept] --> L')
+
+      await answerWith($, 'No diagram here.')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ Kept │/ })).toBeDefined()
+    })
+
+    test('what a subagent hands back is not taken as a diagram of its own', async ($, on) => {
+      answerOpen(on)
+      engineEnds(on)
+      await run($, 'graph TD; K[Kept] --> L')
+
+      await answerWith($, '```mermaid\ngraph TD; S[Sub] --> T\n```', 'agent-1')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ Kept │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Sub │/ })).toBeUndefined()
+    })
+
+    test('the newest diagram is the one shown, and a list lets the others be chosen', async ($, on) => {
+      answerOpen(on)
+      await run($, 'graph TD; A[Alpha] --> B')
+      await run($, 'graph TD; C[Beta] --> D')
+      await run($, 'graph TD; E[Gamma] --> F')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /│ Gamma │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Alpha │/ })).toBeUndefined()
+
+      await pane.press({ key: 'history-0' })
+
+      expect(await pane.find({ text: /│ Alpha │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Gamma │/ })).toBeUndefined()
+    })
+
+    test('each entry of the list is told apart by its first node labels', async ($, on) => {
+      answerOpen(on)
+      await run($, 'graph TD; A[Alpha] --> B[Bravo]; B --> C[Charlie]; C --> D[Delta]')
+      await run($, 'graph TD; X[Xray] --> Y')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ type: 'Button', key: 'history-0', text: /Alpha, Bravo, Charlie \+1/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-1', text: /Xray, Y/ })).toBeDefined()
+    })
+
+    test('choosing another diagram clears the selection', async ($, on) => {
+      answerOpen(on)
+      await run($, 'graph TD; A[Alpha] --> B')
+      await run($, 'graph TD; C[Beta] --> D')
+      const pane = await mountPane($)
+
+      await pane.press({ key: 'node-C' })
+      expect(await pane.find({ text: /Selected: Beta/ })).toBeDefined()
+
+      await pane.press({ key: 'history-0' })
+
+      expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+    })
+
+    test('one diagram has no list, and the same diagram twice is one entry', async ($, on) => {
+      answerOpen(on)
+      await run($, 'graph TD; A --> B')
+      await run($, 'graph TD; A --> B')
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /Diagrams this session/ })).toBeUndefined()
+    })
+
+    test('the list keeps the most recent twenty', async ($, on) => {
+      answerOpen(on)
+      for (let index = 0; index < 25; index += 1) await run($, `graph TD; N${index} --> M${index}`)
+      const pane = await mountPane($)
+
+      expect(await pane.find({ type: 'Button', key: 'history-19' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-20' })).toBeUndefined()
+      // the five oldest were dropped: the list begins at the sixth diagram, and ends at the last
+      expect(await pane.find({ type: 'Button', key: 'history-0', text: /N5, M5/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'history-19', text: /N24, M24/ })).toBeDefined()
+    })
+  })
+
   describe('what it cannot draw', () => {
     const show = async (
       $: Parameters<Parameters<typeof test>[1]>[0],
