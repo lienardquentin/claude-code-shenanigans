@@ -29,8 +29,15 @@ const LINE: Record<number, string> = {
   [UP | RIGHT | DOWN | LEFT]: '┼',
 }
 
-// `solid` is a character a node's box drew: a line never overwrites it
-type Cell = { sides: number; solid?: string }
+// `solid` is a character a node's box or an arrowhead drew: a line never overwrites it. `node` and `row` say which
+// node's box (and which of its three rows) a cell belongs to; `hot` marks what belongs to the selection.
+type Cell = { sides: number; solid?: string; node?: string; row?: number; hot?: boolean }
+
+/**
+ * A run of cells on one line of the drawing that is drawn alike: a piece of a node's box (the `node` it belongs to
+ * and which `row` of its box it is) or a stretch of lines and spaces, `hot` when it belongs to the selection.
+ */
+export type Segment = { text: string; hot: boolean; node?: string; row?: number }
 
 type PlacedNode = { id: string; label: string; layer: number; x: number; top: number; width: number }
 
@@ -96,9 +103,9 @@ const assignRows = (runs: readonly Run[]): { rowOf: number[]; rowsIn: Map<number
  * Draws a diagram top-down as lines of box-drawing characters: one box per node, the nodes of a layer side by side,
  * an edge as a line from the bottom of its source to an arrowhead above its target. An edge that does not join
  * neighbouring layers (it skips one, goes back up, or loops) runs down a lane to the right of every node, so it never
- * crosses one.
+ * crosses one. The drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`.
  */
-export const drawDiagram = (diagram: Diagram): string[] => {
+export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
   if (diagram.nodes.length === 0) return []
 
   const layers = layerOf(diagram)
@@ -187,27 +194,37 @@ export const drawDiagram = (diagram: Diagram): string[] => {
   const grid: Cell[][] = Array.from({ length: height }, () => Array.from({ length: width }, (): Cell => ({ sides: 0 })))
   const at = (x: number, y: number): Cell | undefined => grid[y]?.[x]
 
-  const setSolid = (x: number, y: number, char: string): void => {
+  const setSolid = (x: number, y: number, char: string, hot: boolean, node?: { id: string; row: number }): void => {
     const target = at(x, y)
-    if (target !== undefined) target.solid = char
+    if (target === undefined) return
+
+    target.solid = char
+    target.hot = hot
+    if (node !== undefined) {
+      target.node = node.id
+      target.row = node.row
+    }
   }
 
-  const addSides = (x: number, y: number, sides: number): void => {
+  const addSides = (x: number, y: number, sides: number, hot: boolean): void => {
     const target = at(x, y)
-    if (target !== undefined && target.solid === undefined) target.sides |= sides
+    if (target === undefined || target.solid !== undefined) return
+
+    target.sides |= sides
+    target.hot = target.hot === true || hot
   }
 
   // A straight run of line between two cells along a row or a column, both ends included
-  const drawRun = (x1: number, y1: number, x2: number, y2: number): void => {
+  const drawRun = (x1: number, y1: number, x2: number, y2: number, hot: boolean): void => {
     if (y1 === y2) {
       for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x += 1) {
-        if (x > Math.min(x1, x2)) addSides(x, y1, LEFT)
-        if (x < Math.max(x1, x2)) addSides(x, y1, RIGHT)
+        if (x > Math.min(x1, x2)) addSides(x, y1, LEFT, hot)
+        if (x < Math.max(x1, x2)) addSides(x, y1, RIGHT, hot)
       }
     } else {
       for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y += 1) {
-        if (y > Math.min(y1, y2)) addSides(x1, y, UP)
-        if (y < Math.max(y1, y2)) addSides(x1, y, DOWN)
+        if (y > Math.min(y1, y2)) addSides(x1, y, UP, hot)
+        if (y < Math.max(y1, y2)) addSides(x1, y, DOWN, hot)
       }
     }
   }
@@ -216,7 +233,9 @@ export const drawDiagram = (diagram: Diagram): string[] => {
     const inner = '─'.repeat(node.width - 2)
 
     ;[`┌${inner}┐`, `│ ${node.label} │`, `└${inner}┘`].forEach((text, row) => {
-      Array.from(text).forEach((char, column) => setSolid(node.x + column, node.top + row, char))
+      Array.from(text).forEach((char, column) =>
+        setSolid(node.x + column, node.top + row, char, node.id === selected, { id: node.id, row }),
+      )
     })
   }
 
@@ -238,31 +257,47 @@ export const drawDiagram = (diagram: Diagram): string[] => {
     const endY = to.top - 1
     const outRun = runs[route.out] as Run
     const outY = busY(outRun.gap, rowOf[route.out] as number)
+    // An edge that touches the selected node is part of the selection
+    const hot = selected !== '' && (edge.from === selected || edge.to === selected)
 
-    drawRun(startX, startY, startX, outY)
+    drawRun(startX, startY, startX, outY, hot)
 
     if (!route.aside) {
-      drawRun(startX, outY, endX, outY)
-      drawRun(endX, outY, endX, endY)
+      drawRun(startX, outY, endX, outY, hot)
+      drawRun(endX, outY, endX, endY, hot)
     } else {
       const intoRun = runs[route.into] as Run
       const intoY = busY(intoRun.gap, rowOf[route.into] as number)
       const laneX = widest + LANE_START + lane * 2
       lane += 1
 
-      drawRun(startX, outY, laneX, outY)
-      drawRun(laneX, outY, laneX, intoY)
-      drawRun(laneX, intoY, endX, intoY)
-      drawRun(endX, intoY, endX, endY)
+      drawRun(startX, outY, laneX, outY, hot)
+      drawRun(laneX, outY, laneX, intoY, hot)
+      drawRun(laneX, intoY, endX, intoY, hot)
+      drawRun(endX, intoY, endX, endY, hot)
     }
 
-    setSolid(endX, endY, '▼')
+    setSolid(endX, endY, '▼', hot)
   })
 
-  return grid.map(row =>
-    row
-      .map(cell => cell.solid ?? LINE[cell.sides] ?? ' ')
-      .join('')
-      .replace(/\s+$/, ''),
-  )
+  // Each grid row becomes segments: cells drawn alike and, for a node's box, belonging to the same node, are one
+  return grid.map(row => {
+    const segments: Segment[] = []
+
+    for (const cell of row) {
+      const text = cell.solid ?? LINE[cell.sides] ?? ' '
+      const hot = cell.hot === true
+      const last = segments[segments.length - 1]
+
+      if (last !== undefined && last.node === cell.node && last.hot === hot) last.text += text
+      else segments.push({ text, hot, ...(cell.node !== undefined ? { node: cell.node, row: cell.row } : {}) })
+    }
+
+    // Nothing is drawn after the last line or box of a row
+    const end = segments[segments.length - 1]
+    if (end !== undefined && end.node === undefined) end.text = end.text.replace(/\s+$/, '')
+    if (end !== undefined && end.text === '') segments.pop()
+
+    return segments
+  })
 }

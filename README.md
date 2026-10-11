@@ -60,8 +60,14 @@ What it does so far:
 - Edges that skip a layer or go back up run down a lane to the right of the nodes, so they never cross a node.
 - Source it cannot read (another direction such as `graph LR`, other syntax) is shown with the statement it stopped
   at, instead of a wrong picture.
+- Press a node (click, or Tab to it and Enter) to select it: it and the edges that touch it are drawn in the accent
+  color, and the lines under the drawing list what it leads to and where it is reached from. Press it again, or
+  `Clear`, to clear the selection.
 
-Not yet: other directions and node shapes, subgraphs, clicking nodes, the desktop app, a terminal guide.
+Each row of a node's box is a plain `Button`, so the same press works on every surface that draws buttons; there is no
+separate pointer handling.
+
+Not yet: other directions and node shapes, subgraphs, click directives, a terminal guide.
 
 Known limits of the drawing: a diagram wider than the pane is not scrolled or fitted; when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is

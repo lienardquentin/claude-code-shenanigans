@@ -44,7 +44,7 @@ describe('mermaid-view', () => {
     const pane = await mountPane($)
 
     // the two boxes of one layer sit on the same row, and the line from Start splits above them
-    expect(await pane.find({ type: 'Text', text: /│ Left │\s+│ Right │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ Left │\s+│ Right │/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /┌────┴─────┐/ })).toBeDefined()
     // Left joins End's column on one row, and Right joins it from the other side on the row below
     expect(await pane.find({ type: 'Text', text: /└────┐/ })).toBeDefined()
@@ -60,7 +60,7 @@ describe('mermaid-view', () => {
     const pane = await mountPane($)
 
     // B's box is intact, with the lane at its right
-    expect(await pane.find({ type: 'Text', text: /│ B │  │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ B │  │/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /├────┐/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /├────┘/ })).toBeDefined()
   })
@@ -70,8 +70,8 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B; B --> A' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ type: 'Text', text: /│ A │/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /│ B │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ A │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ B │/ })).toBeDefined()
     // the edge comes back to A from above: an arrowhead over A, besides the one over B
     expect(await pane.findAll({ type: 'Text', text: /▼/ })).toHaveLength(2)
   })
@@ -81,7 +81,7 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> A' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ type: 'Text', text: /│ A │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ A │/ })).toBeDefined()
     expect(await pane.findAll({ type: 'Text', text: /▼/ })).toHaveLength(1)
   })
 
@@ -90,8 +90,8 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'flowchart TD\nA --> B\nB[Done]' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ type: 'Text', text: /│ A │/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /│ Done │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ A │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ Done │/ })).toBeDefined()
   })
 
   test('source it cannot read is shown with the line it stopped at, never a wrong picture', async ($, on) => {
@@ -128,8 +128,8 @@ describe('mermaid-view', () => {
     })
     const pane = await mountPane($)
 
-    expect(await pane.find({ type: 'Text', text: /│ Read; then --> write │/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /│ Done │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ Read; then --> write │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ Done │/ })).toBeDefined()
     expect(await pane.findAll({ type: 'Text', text: /▼/ })).toHaveLength(1)
   })
 
@@ -143,8 +143,103 @@ describe('mermaid-view', () => {
     const pane = await mountPane($)
 
     // S stands under P and R under Q, and no line joins the two edges
-    expect(await pane.find({ type: 'Text', text: /│ S │\s+│ R │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ S │\s+│ R │/ })).toBeDefined()
     expect(await pane.findAll({ type: 'Text', text: /[├┤┬┴┼]/ })).toHaveLength(0)
+  })
+
+  describe('selecting a node', () => {
+    const CHAIN = 'graph TD; A[Start] --> B[Process]; B --> C[End]'
+
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args: string,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($)
+    }
+
+    const colored = async (pane: Awaited<ReturnType<typeof mountPane>>, text: RegExp) =>
+      (await pane.findAll({ type: 'Text', text })).some(found => found.props.color === 'claude')
+
+    test('pressing a node selects it and lists what it leads to and where it is reached from', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+
+      await pane.press({ key: 'node-B' })
+
+      expect(await pane.find({ text: /Selected: Process/ })).toBeDefined()
+      expect(await pane.find({ text: /Leads to: End/ })).toBeDefined()
+      expect(await pane.find({ text: /Reached from: Start/ })).toBeDefined()
+    })
+
+    test('any row of a node\'s box selects it', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      await pane.press({ key: 'node-C-top' })
+      expect(await pane.find({ text: /Selected: End/ })).toBeDefined()
+
+      await pane.press({ key: 'node-A-bottom' })
+      expect(await pane.find({ text: /Selected: Start/ })).toBeDefined()
+    })
+
+    test('the selected node and the edges that touch it are drawn in the accent color, no others', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      expect(await colored(pane, /Process/)).toBe(false)
+
+      await pane.press({ key: 'node-A' })
+
+      expect(await colored(pane, /Start/)).toBe(true)
+      expect(await colored(pane, /Process/)).toBe(false)
+      // A leads to B: the arrowhead above Process is accented, the one above End is not
+      const arrows = await pane.findAll({ type: 'Text', text: /▼/ })
+      expect(arrows.filter(arrow => arrow.props.color === 'claude')).toHaveLength(1)
+    })
+
+    test('a node with no edges says none', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A[Start] --> B[Process]; Z[Alone]')
+
+      await pane.press({ key: 'node-Z' })
+
+      expect(await pane.find({ text: /Leads to: none/ })).toBeDefined()
+      expect(await pane.find({ text: /Reached from: none/ })).toBeDefined()
+    })
+
+    test('pressing another node moves the selection', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      await pane.press({ key: 'node-A' })
+      await pane.press({ key: 'node-C' })
+
+      expect(await pane.find({ text: /Selected: End/ })).toBeDefined()
+      expect(await pane.find({ text: /Selected: Start/ })).toBeUndefined()
+    })
+
+    test('pressing the selected node again, or Clear, clears the selection', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      await pane.press({ key: 'node-B' })
+      await pane.press({ key: 'node-B' })
+      expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+
+      await pane.press({ key: 'node-B' })
+      await pane.press({ key: 'clear-selection' })
+      expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+      expect(await colored(pane, /Process/)).toBe(false)
+    })
+
+    test('a new diagram clears the selection', async ($, on) => {
+      const pane = await open($, on, CHAIN)
+
+      await pane.press({ key: 'node-B' })
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; B --> X' })
+
+      expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+    })
   })
 
   test('running the command again replaces the diagram', async ($, on) => {
@@ -153,7 +248,7 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'graph TD; X[Second] --> Y' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ type: 'Text', text: /│ Second │/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /│ First │/ })).toBeUndefined()
+    expect(await pane.find({ text: /│ Second │/ })).toBeDefined()
+    expect(await pane.find({ text: /│ First │/ })).toBeUndefined()
   })
 })
