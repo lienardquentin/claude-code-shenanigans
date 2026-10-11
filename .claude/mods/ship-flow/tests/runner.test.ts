@@ -332,6 +332,7 @@ describe('when an implementer has finished', () => {
       'checkout: 0 of 2 tickets done, 0 takeable now · building 01',
       '  01  in-progress  A cart holds items  attempt 2 · failed: `npm test` failed',
       '  02  ready        A cart is paid      blocked by 01',
+      '  Blast radius (an estimate): not declared',
     ])
 
     await ends($, repo, 'agent-2')

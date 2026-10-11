@@ -25,6 +25,10 @@ the spec and the tickets written as local files under `.scratch/<feature>/`, and
   marked `too-large`.
 - `/ship status` shows every run of the repo, ticket by ticket, and `/ship pane` shows the same live in a pane,
   with a button to take a run up.
+- Tickets declare what they expect to touch (`**Touches:**`) and what they do that reaches outside the working tree
+  or is hard to reverse (`**Outward actions:**`). The pane, `/ship status` and the checkpoint show the run's blast
+  radius, an estimate: its reach (files, their dependents, tests) and its outward actions, kept apart. It informs
+  and holds nothing back.
 
 It needs `gh` signed in, and the `mattpocock-skills` plugin for the grilling. The models and the thresholds are
 settings of the mod. The decisions behind it are in [`docs/adr`](docs/adr) (0002, 0003) and what was learnt about

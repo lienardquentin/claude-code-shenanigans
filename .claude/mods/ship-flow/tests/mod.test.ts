@@ -60,6 +60,7 @@ describe('/ship status', () => {
       '  02  ready      A cart is paid      blocked by 01 · model opus · takeable now',
       '  03  ready      A receipt is sent   blocked by 02',
       '  04  too-large  Tax is added        blocked by 01 · too large for one context window: split it into smaller tickets',
+      '  Blast radius (an estimate): not declared',
     ])
   })
 
@@ -89,9 +90,11 @@ describe('/ship status', () => {
     expect((await status($)).split('\n')).toEqual([
       'checkout: 0 of 1 tickets done, 0 takeable now',
       '  01  blocked  A cart holds items  fix its ticket file, set it back to ready',
+      '  Blast radius (an estimate): not declared',
       '',
       'search: 0 of 1 tickets done, 1 takeable now',
       '  01  ready  Pages are indexed  takeable now',
+      '  Blast radius (an estimate): not declared',
     ])
   })
 

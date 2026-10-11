@@ -301,6 +301,106 @@ describe('the checkpoint', () => {
   })
 })
 
+describe('the blast radius', () => {
+  const CART = `${FOLDER}/issues/01-cart.md`
+  const declared = (repo: Repo, touches = 'src/cart.ts', outward = 'installs `zod`') => {
+    repo.files[CART] = ticket('01', 'A cart holds items', [
+      '**Blocked by:** None',
+      '**Status:** ready',
+      `**Touches:** ${touches}`,
+      `**Outward actions:** ${outward}`,
+    ])
+  }
+  const turnEnds = async ($: Engine) => {
+    await $.turn.complete({ answer: 'Here are the tickets.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  }
+  const BLOCK = 'Blast radius (an estimate): 1 file · 0 dependents · 0 tests\n▲ 01 installs `zod`'
+
+  test('/ship status says it under the tickets of a run with declared tickets', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main', tracked: ['src/cart.ts'] })
+
+    await ship($, IDEA)
+    attend(repo)
+    declared(repo)
+
+    expect((await ship($, 'status')).split('\n').slice(-2)).toEqual([
+      '  Blast radius (an estimate): 1 file · 0 dependents · 0 tests',
+      '  ▲ 01 installs `zod`',
+    ])
+  })
+
+  test('/ship status says "not declared" for tickets with no declaration, and nothing for an ended run', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    attend(repo)
+
+    expect((await ship($, 'status')).split('\n').at(-1)).toBe('  Blast radius (an estimate): not declared')
+
+    declared(repo)
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record('let-a-cart-be-paid-by-card'), phase: 'ended' })
+
+    expect(await ship($, 'status')).not.toContain('Blast radius')
+  })
+
+  test('is logged when the checkpoint turn ends, once, and again after a ticket changes', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main', tracked: ['src/cart.ts', 'src/pay.ts'] })
+
+    await ship($, IDEA)
+    attend(repo)
+    declared(repo)
+    await turnEnds($)
+
+    expect(repo.logged).toEqual([BLOCK])
+    expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({ radiusShown: BLOCK })
+
+    await turnEnds($)
+    expect(repo.logged).toEqual([BLOCK])
+
+    declared(repo, 'src/cart.ts, src/pay.ts')
+    await turnEnds($)
+    expect(repo.logged).toHaveLength(2)
+    expect(repo.logged[1]).toContain('2 files')
+  })
+
+  test('is not logged again by a reloaded mod: the record remembers it', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    attend(repo)
+    declared(repo)
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record('let-a-cart-be-paid-by-card'), radiusShown: BLOCK })
+    await turnEnds($)
+
+    expect(repo.logged.filter(line => line.startsWith('Blast radius'))).toEqual([])
+  })
+
+  test('is not logged while the run has no ticket, or while its ticket folder has a problem', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    await turnEnds($)
+    expect(repo.logged).toEqual([])
+
+    attend(repo)
+    repo.files[`${FOLDER}/issues/02-pay.md`] = ticket('02', 'A cart is paid', ['**Blocked by:** 07', '**Status:** ready'])
+    await turnEnds($)
+    expect(repo.logged).toEqual([])
+  })
+
+  test('is not logged for a run past its checkpoint', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    attend(repo)
+    declared(repo)
+    await ship($, 'resume')
+    await turnEnds($)
+
+    expect(repo.logged.filter(line => line.startsWith('Blast radius'))).toEqual([])
+  })
+})
+
 test('a feature is named by the first words of its title', () => {
   expect(slugOf('Let a cart be paid by card, and by wire transfer too')).toBe('let-a-cart-be-paid-by-card-and')
   expect(slugOf('  Résumé upload (PDF & DOCX)!  ')).toBe('resume-upload-pdf-docx')

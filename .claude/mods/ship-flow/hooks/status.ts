@@ -1,4 +1,6 @@
 import { BUDGET_WINDOW } from './budget'
+import { blockLines } from './radius'
+import type { Reading } from './radius'
 import type { RunRecord } from './run'
 import { frontier, label, problemsOf } from './tickets'
 import type { Problem, Ticket } from './tickets'
@@ -66,7 +68,7 @@ const ticketLine = (
 }
 
 /** What `/ship status` says about one feature: its problems when the graph is broken, else each ticket. */
-export const folderText = ({ feature, tickets, record }: Folder): string => {
+export const folderText = ({ feature, tickets, record }: Folder, reading?: Reading): string => {
   const problems = problemsOf(tickets)
 
   if (problems.length > 0) {
@@ -86,11 +88,17 @@ export const folderText = ({ feature, tickets, record }: Folder): string => {
     ...[...tickets]
       .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
       .map(ticket => ticketLine(ticket, takeable, widths, record)),
+    // The estimate stays until the run ends: a pull request then holds the real answer
+    ...(record?.phase !== 'ended' ? blockLines(tickets, reading).map(line => `  ${line}`) : []),
   ].join('\n')
 }
 
+/** Whether any run that has not ended declares what it touches: only then is the repo worth reading. */
+export const needsReading = (folders: readonly Folder[]): boolean =>
+  folders.some(folder => folder.record?.phase !== 'ended' && folder.tickets.some(ticket => ticket.touches !== undefined))
+
 /** What `/ship status` says for a repo: every feature's folder, or that there is no run. */
-export const statusText = (folders: readonly Folder[]): string =>
+export const statusText = (folders: readonly Folder[], reading?: Reading): string =>
   folders.length === 0
     ? 'No run in this repo: there is no .scratch/<feature>/issues folder. Start one with /ship <idea | #issue>.'
-    : folders.map(folderText).join('\n\n')
+    : folders.map(folder => folderText(folder, reading)).join('\n\n')
