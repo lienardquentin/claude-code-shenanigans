@@ -58,8 +58,9 @@ object of closures over `$` in `register.ts` and writes every other module again
   `aborted`, which the run already treats as a failed attempt.
 - A caution from the declarations: a subagent a hook spawned "steps past that hook, as its tool calls do". The
   hook that calls `$.agent.spawn` may not see that subagent's steps. Ticket 02 spawns from the `command.run` hook
-  and watches from the `tool.check` and `turn.complete` hooks, which are different hooks. Ticket 03 will spawn the
-  next ticket from inside `turn.complete` and must check that the next subagent's end is still seen.
+  and watches from the `tool.check` and `turn.complete` hooks, which are different hooks. Ticket 03 spawns the
+  next ticket from inside `turn.complete`; the live run below shows its end is still seen there. Whether that
+  hook would see the subagent's steps is still unknown, and ticket 05 needs them.
 
 ## The live run
 
@@ -76,5 +77,10 @@ On 2026-10-11, `/ship resume trial` built a one-ticket run in a real terminal se
   with its reset time.
 - A `/ship` answer is shown under the mod's name, so its text reads `ship-flow: <feature>: ...`.
 
-Not shown by that run: whether the implementer's id came from the spawn's answer or from the agent list (the run
+A second live run the same day walked two tickets with no input between them (commits `467f78a` and `6547cf7`).
+It settled the caution above: a subagent spawned from inside the `turn.complete` hook has its own end seen by
+that same hook, so the run can start each ticket from the end of the one before. Each ticket was built on its
+first attempt, so a retry has not been seen live.
+
+Not shown by either run: whether the implementer's id came from the spawn's answer or from the agent list (the run
 accepts either), and a refused command, since the implementer tried none.
