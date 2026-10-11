@@ -1,4 +1,4 @@
-import { approve } from './attended'
+import { approve, reattend } from './attended'
 import { BUDGET_WINDOW, beforeTicket, clockTime, isOverBudget } from './budget'
 import type { Settings } from './budget'
 import { REVIEWER_TOOLS, finish, finished } from './finisher'
@@ -188,6 +188,11 @@ export const resume = async (host: Host, settings: Settings, wanted: string): Pr
   )
   const spec = (await host.exists(specOf(feature))) ? await host.read(specOf(feature)) : undefined
   const verification = spec === undefined ? [] : verificationOf(spec)
+
+  // Nothing to approve yet: the attended phase is not over, and the conversation that held it may be gone
+  if (folder.record?.phase === 'attended' && (spec === undefined || tickets.length === 0)) {
+    return reattend(host, settings, folder.record)
+  }
 
   if (spec === undefined) refusals.push(`there is no spec at ${specOf(feature)}`)
   else if (verification.length === 0) refusals.push('the spec has no Verification section naming the commands to run')

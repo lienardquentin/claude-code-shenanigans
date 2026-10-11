@@ -157,17 +157,40 @@ describe('/ship #<issue>', () => {
 })
 
 describe('the checkpoint', () => {
-  test('is refused while the run has no spec or no ticket, with each reason', async ($, on) => {
+  test('is not reached while the run has no spec: the attended phase is handed to this conversation again', async ($, on) => {
     const repo = repoOf(on,{ files: {}, branch: 'main' })
 
     await ship($, IDEA)
 
-    expect((await ship($, 'resume')).split('\n')).toEqual([
-      'let-a-cart-be-paid-by-card: cannot be run',
-      `  there is no spec at ${FOLDER}/spec.md`,
-      `  there are no tickets in ${FOLDER}/issues/`,
-    ])
+    expect(await ship($, 'resume')).toBe(
+      'let-a-cart-be-paid-by-card: still before its checkpoint, with no spec yet: the attended phase goes on in this conversation.',
+    )
     expect(repo.branch()).toBe('main')
+    expect(repo.github.issues).toEqual([])
+    expect(repo.prompts).toHaveLength(2)
+    expect(repo.prompts[1]).toContain('## Taken up again')
+    expect(repo.prompts[1]).toContain('This run was begun in an earlier conversation, which is gone')
+    expect(repo.prompts[1]).toContain('`mattpocock-skills:grilling`')
+    expect(repo.prompts[1]?.endsWith(IDEA)).toBe(true)
+  })
+
+  test('is not reached while the spec is written and the tickets are not, and says which is missing', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    repo.files[`${FOLDER}/spec.md`] = spec(['npm test'])
+
+    expect(await ship($, 'resume')).toMatch(/with no tickets yet: the attended phase goes on in this conversation\.$/)
+    expect(repo.spawned).toEqual([])
+  })
+
+  test('a run begun from an issue is taken up again as that issue\'s', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main', issues: ISSUES })
+
+    await ship($, '#12')
+    await ship($, 'resume')
+
+    expect(repo.prompts[1]).toContain('Source: GitHub issue #12, "Pay a cart by card", below.')
   })
 
   test('is refused while a run from an idea has no issue text, and nothing is opened', async ($, on) => {

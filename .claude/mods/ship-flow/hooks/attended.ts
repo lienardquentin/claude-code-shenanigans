@@ -40,8 +40,10 @@ export const attendedPrompt = (given: {
   settings: Settings
   source: string
   issue?: { number: number; title: string; isAgreed: boolean }
+  /** Said before the source, when the phase is taken up in a conversation that did not begin it. */
+  note?: string
 }): string => {
-  const { feature, root, settings, source, issue } = given
+  const { feature, root, settings, source, issue, note } = given
   const steps = `${root.replaceAll('\\', '/')}/prompts/spec.md`
   const grill = issue?.isAgreed
     ? `1. **Skip the grilling.** Issue #${issue.number} is labelled \`${AGREED}\`: it is already agreed. Read it below and go to step 2.`
@@ -63,6 +65,7 @@ export const attendedPrompt = (given: {
     '',
     grill,
     `2. **Write the spec and the tickets.** Read \`${steps}\` and follow it.`,
+    ...(note !== undefined ? ['', '## Taken up again', '', note] : []),
     '',
     '## Source',
     '',
@@ -135,6 +138,35 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
   return issue
     ? `${feature}: started from issue #${issue.number}${issue.isAgreed ? ', which is already agreed: the spec comes next' : ': the grilling begins'}.`
     : `${feature}: started from your idea: the grilling begins.`
+}
+
+/**
+ * `/ship resume` on a run still before its checkpoint, with its spec or its tickets not written yet: there is
+ * nothing to approve. The conversation that was writing them is gone (a new session, a cleared one), so the
+ * attended phase is handed to this one, told to start from what reached the disk.
+ */
+export const reattend = async (host: Host, settings: Settings, record: RunRecord): Promise<string> => {
+  const { feature } = record
+  const source = (await host.exists(sourceOf(feature))) ? (await host.read(sourceOf(feature))).trim() : '(the source was not kept)'
+
+  host.prompt(
+    attendedPrompt({
+      feature,
+      root: host.root,
+      settings,
+      source,
+      ...(record.source === 'issue' && record.issue !== undefined
+        ? { issue: { number: record.issue, title: record.title ?? `#${record.issue}`, isAgreed: false } }
+        : {}),
+      note: [
+        'This run was begun in an earlier conversation, which is gone, and this one takes it up.',
+        `Start from what is on disk: \`${specOf(feature)}\` and \`${issuesOf(feature)}/\` if they exist, and \`CONTEXT.md\` and \`docs/adr/\` for what the grilling had settled.`,
+        'Go on from the first step that is not done. What was agreed but never written down is lost: ask the person again, and say that you are asking again.',
+      ].join(' '),
+    }),
+  )
+
+  return `${feature}: still before its checkpoint, with ${(await host.exists(specOf(feature))) ? 'no tickets' : 'no spec'} yet: the attended phase goes on in this conversation.`
 }
 
 /**
