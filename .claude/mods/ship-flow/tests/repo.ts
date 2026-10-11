@@ -137,7 +137,8 @@ export const answerRepo = (
       return exited(exitCode, exitCode === 0 ? 'ok' : 'expected 2 but got 3') as never
     }
     if (gitReads.fails && ['ls-files', 'grep', 'rev-parse'].includes(e.argv[1] ?? '')) return exited(128, '', 'fatal: not a git repository') as never
-    if (line === 'git ls-files') return exited(0, (given.tracked ?? []).map(file => `${file}\n`).join('')) as never
+    // As `git ls-files -z` prints: each path raw, then a NUL
+    if (line === 'git ls-files -z') return exited(0, (given.tracked ?? []).map(file => `${file}\0`).join('')) as never
     if (e.argv[1] === 'grep') {
       // As `git grep --null` prints: the file, a NUL, the line; exit 1 when nothing matched
       const found = Object.entries(given.imports ?? {}).flatMap(([file, lines]) => lines.map(text => `${file}\0${text}\n`))

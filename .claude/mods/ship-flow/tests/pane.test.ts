@@ -155,7 +155,7 @@ for (const surface of SURFACES) {
       const pane = await mountPane($, surface)
 
       expect(await pane.find({ text: 'Reach' })).toBeDefined()
-      expect(await pane.find({ text: '2 files · 0 dependents · 0 tests ▲' })).toBeDefined()
+      expect(await pane.find({ text: '▲ 2 files · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: '1 file · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: 'Blast radius (an estimate): 2 files · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: '▲ 01 changes `~/.claude/x.json` outside the repo' })).toBeDefined()

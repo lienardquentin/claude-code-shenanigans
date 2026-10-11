@@ -314,7 +314,9 @@ describe('the blast radius', () => {
   const turnEnds = async ($: Engine) => {
     await $.turn.complete({ answer: 'Here are the tickets.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
   }
-  const BLOCK = 'Blast radius (an estimate): 1 file · 0 dependents · 0 tests\n▲ 01 installs `zod`'
+  // The run's fixture holds a second ticket that declares nothing, which the block names
+  const BLOCK =
+    'Blast radius (an estimate): 1 file · 0 dependents · 0 tests\nFiles not declared for 02\nOutward actions not declared for 02\n▲ 01 installs `zod`'
 
   test('/ship status says it under the tickets of a run with declared tickets', async ($, on) => {
     const repo = repoOf(on, { files: {}, branch: 'main', tracked: ['src/cart.ts'] })
@@ -323,8 +325,10 @@ describe('the blast radius', () => {
     attend(repo)
     declared(repo)
 
-    expect((await ship($, 'status')).split('\n').slice(-2)).toEqual([
+    expect((await ship($, 'status')).split('\n').slice(-4)).toEqual([
       '  Blast radius (an estimate): 1 file · 0 dependents · 0 tests',
+      '  Files not declared for 02',
+      '  Outward actions not declared for 02',
       '  ▲ 01 installs `zod`',
     ])
   })

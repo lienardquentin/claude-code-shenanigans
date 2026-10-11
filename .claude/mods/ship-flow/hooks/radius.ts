@@ -18,6 +18,8 @@ export type TicketRadius = {
   number?: number
   /** Whether the ticket declared its `Touches:` at all. */
   isDeclared: boolean
+  /** Whether the ticket declared its `Outward actions:`, `None` included. */
+  isOutwardDeclared: boolean
   /** Whether the repo was read: when not, only the declared files are known. */
   isRead: boolean
   files: readonly string[]
@@ -129,6 +131,7 @@ export const radiusOf = (ticket: Ticket, reading?: Reading): TicketRadius => {
   return {
     ...(ticket.number !== undefined ? { number: ticket.number } : {}),
     isDeclared: ticket.touches !== undefined,
+    isOutwardDeclared: ticket.outward !== undefined,
     isRead: reading !== undefined,
     files,
     dependents: [...dependents],
@@ -148,13 +151,17 @@ const reachOf = (isRead: boolean, files: number, dependents: number, tests: numb
 export const reachText = (radius: TicketRadius): string =>
   radius.isDeclared ? reachOf(radius.isRead, radius.files.length, radius.dependents.length, radius.tests.length) : NOT_DECLARED
 
-/** A ticket's reach, and the mark when it has outward actions: what its row says. */
+/** The mark when the ticket has outward actions, then its reach: what its row says. The mark comes first, so a cut cell keeps it. */
 export const rowText = (radius: TicketRadius): string =>
-  radius.outward.length > 0 ? `${reachText(radius)} ${OUTWARD_MARK}` : reachText(radius)
+  radius.outward.length > 0 ? `${OUTWARD_MARK} ${reachText(radius)}` : reachText(radius)
 
 /** The run's radius: its files and dependents, each counted once, and every outward action by ticket. */
 export type RunRadius = {
   isDeclared: boolean
+  /** The tickets, by label, that declared no `Touches:`; empty when no ticket declared anything. */
+  reachUndeclared: readonly string[]
+  /** The tickets, by label, that declared no `Outward actions:`; empty when no ticket declared anything. */
+  outwardUndeclared: readonly string[]
   isRead: boolean
   files: readonly string[]
   /** Every ticket's dependents, less every file the run touches. */
@@ -169,8 +176,15 @@ export const runRadiusOf = (tickets: readonly Ticket[], reading?: Reading): RunR
   const touched = new Set(files)
   const dependents = [...new Set(radii.flatMap(radius => radius.dependents))].filter(file => !touched.has(file))
 
+  // A run that declares nothing says so once, in its totals; the gaps are named only beside something declared
+  const isAnyDeclared = radii.some(radius => radius.isDeclared || radius.isOutwardDeclared)
+  const named = (isGap: (radius: TicketRadius) => boolean): string[] =>
+    isAnyDeclared ? radii.filter(isGap).map(radius => (radius.number !== undefined ? label(radius.number) : '??')) : []
+
   return {
     isDeclared: radii.some(radius => radius.isDeclared),
+    reachUndeclared: named(radius => !radius.isDeclared),
+    outwardUndeclared: named(radius => !radius.isOutwardDeclared),
     isRead: reading !== undefined,
     files,
     dependents,
@@ -186,14 +200,23 @@ export const blockLines = (tickets: readonly Ticket[], reading?: Reading): strin
   const block = blockOf(tickets, reading)
   const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
 
-  return [block.totals, ...(isUnread ? [DEPENDENTS_UNREAD] : []), ...block.outward.map(line => `${OUTWARD_MARK} ${line}`)]
+  return [
+    block.totals,
+    ...(isUnread ? [DEPENDENTS_UNREAD] : []),
+    ...block.undeclared,
+    ...block.outward.map(line => `${OUTWARD_MARK} ${line}`),
+  ]
 }
 
-/** The run's block of lines: its totals, then every outward action in full, by ticket number. */
-export const blockOf = (tickets: readonly Ticket[], reading?: Reading): { totals: string; outward: string[] } => {
+/** The run's block of lines: its totals, what some tickets never stated, then every outward action in full, by ticket number. */
+export const blockOf = (tickets: readonly Ticket[], reading?: Reading): { totals: string; undeclared: string[]; outward: string[] } => {
   const run = runRadiusOf(tickets, reading)
 
   return {
+    undeclared: [
+      ...(run.reachUndeclared.length > 0 ? [`Files not declared for ${run.reachUndeclared.join(', ')}`] : []),
+      ...(run.outwardUndeclared.length > 0 ? [`Outward actions not declared for ${run.outwardUndeclared.join(', ')}`] : []),
+    ],
     totals: `Blast radius (an estimate): ${
       run.isDeclared ? reachOf(run.isRead, run.files.length, run.dependents.length, run.tests.length) : NOT_DECLARED
     }`,
