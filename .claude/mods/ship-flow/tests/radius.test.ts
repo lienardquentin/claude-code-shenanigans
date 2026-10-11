@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { IMPLEMENTER_PROMPT } from '../hooks/runner'
-import { NOT_DECLARED, blockOf, radiusOf, reachText, rowText, runRadiusOf } from '../hooks/radius'
+import { NOT_DECLARED, blockLines, blockOf, radiusOf, reachText, rowText, runRadiusOf } from '../hooks/radius'
 import { parseTicket } from '../hooks/tickets'
 
 const ticket = (number: string, lines: readonly string[]) =>
@@ -39,9 +39,9 @@ describe('a ticket radius', () => {
   })
 
   test('marks its row when it has outward actions', () => {
-    expect(rowText(radiusOf(ticket('01', ['**Touches:** a.ts', '**Outward actions:** deletes `dist/`'])))).toBe('1 file ▲')
+    expect(rowText(radiusOf(ticket('01', ['**Touches:** a.ts', '**Outward actions:** deletes `dist/`'])))).toBe('▲ 1 file')
     expect(rowText(radiusOf(ticket('02', ['**Touches:** a.ts', '**Outward actions:** None'])))).toBe('1 file')
-    expect(rowText(radiusOf(ticket('03', ['**Outward actions:** deletes `dist/`'])))).toBe('not declared ▲')
+    expect(rowText(radiusOf(ticket('03', ['**Outward actions:** deletes `dist/`'])))).toBe('▲ not declared')
   })
 })
 
@@ -154,6 +154,7 @@ describe('a run radius', () => {
   test('words its totals, then every outward action in full by ticket number', () => {
     expect(blockOf(tickets)).toEqual({
       totals: 'Blast radius (an estimate): 3 files',
+      undeclared: ['Files not declared for 03', 'Outward actions not declared for 03'],
       outward: ['01 installs `zod`', '01 deletes `dist/`', '02 publishes the package'],
     })
   })
@@ -161,8 +162,20 @@ describe('a run radius', () => {
   test('says not declared when no ticket declares its files', () => {
     expect(blockOf([ticket('01', ['**Status:** ready'])])).toEqual({
       totals: `Blast radius (an estimate): ${NOT_DECLARED}`,
+      undeclared: [],
       outward: [],
     })
+  })
+
+  test('names the tickets whose outward actions were never stated, apart from one that said None', () => {
+    const mixed = [
+      ticket('01', ['**Touches:** a.ts', '**Outward actions:** None']),
+      ticket('02', ['**Touches:** b.ts']),
+      ticket('03', ['**Outward actions:** deletes `dist/`']),
+    ]
+
+    expect(blockOf(mixed).undeclared).toEqual(['Files not declared for 03', 'Outward actions not declared for 02'])
+    expect(blockLines(mixed)).toContain('Outward actions not declared for 02')
   })
 })
 

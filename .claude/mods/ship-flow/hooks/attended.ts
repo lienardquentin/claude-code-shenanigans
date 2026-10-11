@@ -260,19 +260,24 @@ export const noteRead = async (host: Host, path: string): Promise<void> => {
  * what it printed.
  */
 const printRadius = async (host: Host, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
-  const folder = (await readFolders(host)).find(({ record }) => record?.phase === 'attended')
-  const record = folder?.record
+  const attended = (await readFolders(host)).filter(({ record }) => record?.phase === 'attended')
 
-  if (!folder || !record || folder.tickets.length === 0 || problemsOf(folder.tickets).length > 0) return
+  // Every run before its checkpoint is looked at: one that does not qualify never hides another's block
+  for (const folder of attended) {
+    const record = folder.record
 
-  const reading =
-    repo && folder.tickets.some(ticket => ticket.touches !== undefined) ? await repo.read(host).catch(() => undefined) : undefined
-  const text = blockLines(folder.tickets, reading).join('\n')
+    if (!record || folder.tickets.length === 0 || problemsOf(folder.tickets).length > 0) continue
 
-  if (record.radiusShown === text) return
+    const reading =
+      repo && folder.tickets.some(ticket => ticket.touches !== undefined) ? await repo.read(host).catch(() => undefined) : undefined
+    const text = blockLines(folder.tickets, reading).join('\n')
 
-  await writeRecord(host, { ...record, radiusShown: text })
-  host.log(text)
+    if (record.radiusShown === text) continue
+
+    await writeRecord(host, { ...record, radiusShown: text })
+    // Named only when more than one run is waiting, so the person knows whose block it is
+    host.log(attended.length > 1 ? `${record.feature}:\n${text}` : text)
+  }
 }
 
 /**

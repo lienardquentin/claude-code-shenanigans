@@ -65,6 +65,8 @@ const runCard = (
   // The estimate stays on the card until the run ends: a pull request then holds the real answer
   const hasRadius = record?.phase !== 'ended'
   const block = blockOf(tickets, reading)
+  // The Reach column is as wide as its widest cell, within a cap, so the title keeps the rest
+  const reachWidth = Math.min(40, Math.max('Reach'.length, ...tickets.map(ticket => rowText(radiusOf(ticket, reading)).length)))
   const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
   const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0)
 
@@ -86,7 +88,7 @@ const runCard = (
                   { header: '#', width: 2 },
                   { header: 'State', width: 11 },
                   { header: 'Ticket' },
-                  ...(hasRadius ? [{ header: 'Reach', width: 36 }] : []),
+                  ...(hasRadius ? [{ header: 'Reach', width: reachWidth }] : []),
                   { header: 'Note' },
                 ],
                 rows: [...tickets]
@@ -109,6 +111,7 @@ const runCard = (
                 ? [
                     tonedText({ text: block.totals, tone: 'info' }),
                     ...(isUnread ? [tonedText({ text: DEPENDENTS_UNREAD, tone: 'warning' })] : []),
+                    ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),
                     ...block.outward.map(line => tonedText({ text: `${OUTWARD_MARK} ${line}`, tone: 'warning' })),
                   ]
                 : []),

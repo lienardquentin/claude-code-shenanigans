@@ -16,14 +16,15 @@ const git = async (host: Host, argv: readonly string[], okCodes: readonly number
 
 /** Reads the repo through `git`, with no shell: its tracked files, and one search of them for import lines. */
 export const readRepo = async (host: Host): Promise<Reading | undefined> => {
-  const listed = await git(host, ['ls-files'])
+  const listed = await git(host, ['ls-files', '-z'])
   // Exit 1 is a search that found nothing. A file git ignores is not tracked, so it is never searched
   const found = await git(host, ['grep', '-I', '--null', '-E', IMPORT_LINE], [0, 1])
 
   if (listed === undefined || found === undefined) return undefined
 
   return {
-    tracked: listed.split(/\r?\n/).filter(file => file !== ''),
+    // NUL-separated, so that a path with non-ASCII or special characters is listed raw, as `git grep --null` prints it
+    tracked: listed.split('\0').filter(file => file !== ''),
     imports: found
       .split(/\r?\n/)
       .flatMap(row => {
