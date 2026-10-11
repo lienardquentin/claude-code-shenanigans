@@ -6,9 +6,16 @@ neither the model nor a subagent can invoke them; reading their files from the p
 versioned path that changes on every plugin update. They also need changing: a run keeps its spec and tickets as
 local files under `.scratch/<feature>/` and never publishes them as issues, the spec carries a Verification section
 with the test and typecheck commands, and tickets carry more states than `ready-for-agent`. The skills that can be
-invoked and need no change (`grilling`, `domain-modeling`, `tdd`, `code-review`) are still called from the plugin.
+invoked and need no change (`grilling`, `domain-modeling`) are still called from the plugin.
+
+The unattended phase calls no skill of the plugin at all. Its implementer and its reviewer are agent types the mod
+registers, each with its own prompt: the implementer's says to work test-first, and the reviewer's carries the two
+axes of the plugin's `code-review` (Spec and Standards) in one agent. The plugin's `code-review` runs its two axes
+in sub-agents of its own, whose tool calls the run could not decide for; an unattended run would then stop on a
+permission prompt with nobody there to answer it.
 
 ## Consequences
 
-- Improvements to the plugin's three skills do not reach the mod; they are ported by hand when wanted.
-- The mod still depends on the plugin being installed, for the four skills it calls.
+- Improvements to the plugin's skills do not reach the mod's carried text; they are ported by hand when wanted.
+- The mod depends on the plugin being installed only for the attended phase, for the two skills it calls there.
+- The review is one agent reading both axes, not two reading one each.

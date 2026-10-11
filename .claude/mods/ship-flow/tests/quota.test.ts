@@ -140,7 +140,7 @@ describe('a run near the end of the 5-hour quota window', () => {
 })
 
 describe('a run near the end of the weekly quota window', () => {
-  test('stops building and does not wait: nothing starts however long the session stays open', async ($, on) => {
+  test('stops building and does not wait: it goes on to its end with what it has', async ($, on) => {
     const repo = repoAt(on, 20, 50)
 
     await ship($, 'resume')
@@ -148,13 +148,13 @@ describe('a run near the end of the weekly quota window', () => {
     await ends($, repo, 'agent-1')
     await repo.clock.advance(7 * 24 * 60 * 60 * 1000)
 
-    expect(repo.spawned).toHaveLength(1)
-    expect(repo.record('checkout')).toMatchObject({
-      phase: 'paused',
-      pause: 'the weekly quota window is at 93%: the run stops here until you /ship resume',
-    })
+    expect(repo.statusOf(PAY)).toBe('ready')
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01', 'Review checkout'])
+    expect(repo.logged).toEqual([
+      'checkout: 01 A cart holds items is done (abc1234); the weekly quota window is at 93%, so the building stops: 1 of 2 done; reviewing the branch on opus.',
+    ])
+    expect(repo.record('checkout')).toMatchObject({ phase: 'finishing', stage: 'review' })
     expect(repo.record('checkout').resumeAt).toBeUndefined()
-    expect(repo.notified).toHaveLength(1)
   })
 })
 

@@ -18,6 +18,7 @@ const problemLine = (problem: Problem): string =>
 const standing = (record: RunRecord | undefined): string => {
   if (!record) return ''
   if (record.phase === 'unattended') return ` · building ${label(record.ticket ?? 0)}`
+  if (record.phase === 'finishing') return record.stage === 'fix' ? ' · fixing what the review found' : ' · reviewing the branch'
 
   return ` · ${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`
 }

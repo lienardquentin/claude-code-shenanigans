@@ -26,6 +26,10 @@ export const answerRepo = (
     /** The exit code of each verification command, by its text; 0 for one not named. */
     exits?: Readonly<Record<string, number>>
     isIgnored?: boolean
+    /** The branch the repo is on; `checkout-feature` when not given. */
+    branch?: string
+    /** How many commits the branch already has that `main` lacks, before the run makes any. */
+    ahead?: number
     /** Where the session's clock starts, in milliseconds. */
     now?: number
     /** How full each quota window is, in percent, and when the short one resets. */
@@ -39,7 +43,15 @@ export const answerRepo = (
   const ran: string[] = []
   const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
   const logged: string[] = []
-  const state = { porcelain: given.porcelain ?? '' }
+  const state = { porcelain: given.porcelain ?? '', commits: 0 }
+  const github: {
+    pr?: { url: string; isDraft: boolean }
+    body: string
+    title: string
+    base: string
+    failsToPush: boolean
+    failsToOpen: boolean
+  } = { body: '', title: '', base: '', failsToPush: false, failsToOpen: false }
   const exits: Record<string, number> = { ...given.exits }
   const isDir = (path: string) => Object.keys(files).some(file => file.startsWith(`${path}/`))
   // The engine hands a hook the path made absolute under the working directory, in the machine's own spelling
@@ -77,6 +89,25 @@ export const answerRepo = (
     const line = e.argv.join(' ')
 
     ran.push(line)
+    if (e.argv[0] === 'gh') {
+      // GitHub, as its CLI answers: the branch's pull request, once one was opened
+      const body = e.init?.stdin ?? ''
+
+      if (e.argv[2] === 'view') return (github.pr ? exited(0, JSON.stringify(github.pr)) : exited(1, '', 'no pull requests found')) as never
+      if (e.argv[2] === 'create') {
+        if (github.failsToOpen) return exited(1, '', 'GraphQL: not authorized') as never
+        github.pr = { url: 'https://github.com/dev/repo/pull/7', isDraft: e.argv.includes('--draft') }
+        github.body = body
+        github.title = e.argv[e.argv.indexOf('--title') + 1] ?? ''
+        github.base = e.argv[e.argv.indexOf('--base') + 1] ?? ''
+
+        return exited(0, `Creating pull request\n${github.pr.url}\n`) as never
+      }
+      if (e.argv[2] === 'edit') github.body = body
+      if (e.argv[2] === 'ready' && github.pr) github.pr.isDraft = e.argv.includes('--undo')
+
+      return exited(0) as never
+    }
     if (e.argv[0] !== 'git') {
       const exitCode = exits[e.argv.at(-1) ?? ''] ?? 0
 
@@ -84,8 +115,13 @@ export const answerRepo = (
     }
     if (e.argv[1] === 'check-ignore') return exited(given.isIgnored === false ? 1 : 0) as never
     if (line === 'git status --porcelain') return exited(0, state.porcelain) as never
-    if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, 'checkout-feature\n') as never
-    if (line === 'git rev-parse --short HEAD') return exited(0, 'abc1234\n') as never
+    if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, `${given.branch ?? 'checkout-feature'}\n`) as never
+    // Each commit has a name of its own: the first the run makes is abc1234
+    if (line === 'git rev-parse --short HEAD') return exited(0, `abc${1233 + state.commits}\n`) as never
+    if (e.argv[1] === 'symbolic-ref') return exited(0, 'origin/main\n') as never
+    if (e.argv[1] === 'rev-list') return exited(0, `${(given.ahead ?? 0) + state.commits}\n`) as never
+    if (e.argv[1] === 'push') return (github.failsToPush ? exited(1, '', 'remote: Permission denied') : exited(0)) as never
+    if (e.argv[1] === 'commit') state.commits += 1
     // A commit and a discard both leave the working tree clean
     if (e.argv[1] === 'commit' || e.argv[1] === 'reset') state.porcelain = ''
 
@@ -174,6 +210,8 @@ export const answerRepo = (
     spawned,
     logged,
     notified,
+    /** GitHub as the mod left it: the branch's pull request, its title, base and body; and what a test makes fail. */
+    github,
     /** The turns the mod stopped, by id. */
     aborted,
     /** How full a subagent's context is at its next response, in tokens: a test raises it. */
