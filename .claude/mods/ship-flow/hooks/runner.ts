@@ -63,6 +63,7 @@ const kept = (record: RunRecord) => ({
   feature: record.feature,
   branch: record.branch,
   attempts: record.attempts,
+  ...(record.peak ? { peak: record.peak } : {}),
   ...(record.failure ? { failure: record.failure } : {}),
 })
 
@@ -309,14 +310,22 @@ export const measure = async (
   settings: Settings,
   step: { agentId: string; turnId: string; tokens: number },
 ): Promise<void> => {
-  if (!isOverBudget(step.tokens, settings)) return
-
   const flight = await flightOf(host, step.agentId)
 
-  if (!flight || flight.record.tooLarge !== undefined) return
+  if (!flight) return
 
-  await writeRecord(host, { ...flight.record, tooLarge: step.tokens })
-  await host.abort(step.turnId)
+  const { record } = flight
+  const key = label(record.ticket ?? 0)
+  const isStopping = record.tooLarge === undefined && isOverBudget(step.tokens, settings)
+
+  if (!isStopping && step.tokens <= (record.peak?.[key] ?? 0)) return
+
+  await writeRecord(host, {
+    ...record,
+    peak: { ...record.peak, [key]: Math.max(step.tokens, record.peak?.[key] ?? 0) },
+    ...(isStopping ? { tooLarge: step.tokens } : {}),
+  })
+  if (isStopping) await host.abort(step.turnId)
 }
 
 // Runs the spec's verification commands in order; the first that fails is the failure
@@ -390,6 +399,11 @@ export const complete = async (
     )
 
     return
+  }
+
+  // The stop was asked for and the turn ended as if it had not been: said, so that it is not taken for a pass
+  if (record.tooLarge !== undefined) {
+    host.log(`${feature}: ${named(ticket)} passed its context budget and was asked to stop, but its turn ended normally.`)
   }
 
   const settled = await settle(host, feature, ticket, record, turn.reason)

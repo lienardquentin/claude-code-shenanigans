@@ -98,7 +98,33 @@ describe('an implementer that outgrows its context budget', () => {
     await ends($, repo, 'agent-1', 'aborted')
 
     expect((await ship($, 'status')).split('\n')[1]).toBe(
-      '  01  too-large    A cart holds items  too large for one context window: split it into smaller tickets',
+      '  01  too-large    A cart holds items  context 71% · too large for one context window: split it into smaller tickets',
+    )
+  })
+
+  test('the fullest each implementer got is kept, ticket by ticket, for tuning the budget', async ($, on) => {
+    const repo = answerRepo(on, { files: files() })
+
+    await ship($, 'resume')
+    await steps($, repo, 'agent-1', 30_000)
+    await steps($, repo, 'agent-1', 90_000)
+    await steps($, repo, 'agent-1', 60_000)
+    await ends($, repo, 'agent-1', 'answer')
+    await steps($, repo, 'agent-2', 20_000)
+
+    expect(repo.record('checkout').peak).toEqual({ '01': 90_000, '02': 20_000 })
+    expect((await ship($, 'status')).split('\n')[1]).toBe('  01  done         A cart holds items  context 45%')
+  })
+
+  test('a stop that the turn did not obey is said, not taken for a pass', async ($, on) => {
+    const repo = answerRepo(on, { files: files() })
+
+    await ship($, 'resume')
+    await steps($, repo, 'agent-1', 141_000)
+    await ends($, repo, 'agent-1', 'answer')
+
+    expect(repo.logged[0]).toBe(
+      'checkout: 01 A cart holds items passed its context budget and was asked to stop, but its turn ended normally.',
     )
   })
 
