@@ -1,3 +1,4 @@
+import { mock } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 type On = Parameters<TestBody>[1]
@@ -25,8 +26,15 @@ export const answerRepo = (
     /** The exit code of each verification command, by its text; 0 for one not named. */
     exits?: Readonly<Record<string, number>>
     isIgnored?: boolean
+    /** Where the session's clock starts, in milliseconds. */
+    now?: number
+    /** How full each quota window is, in percent, and when the short one resets. */
+    quota?: { short: number; weekly: number; resetsAt?: string }
   },
 ) => {
+  const clock = mock.clock(on, { now: given.now ?? 1000 })
+  const quota = { short: 40, resetsAt: '2026-10-11T20:00:00.000Z', ...given.quota }
+  const notified: string[] = []
   const files: Record<string, string> = { ...given.files }
   const ran: string[] = []
   const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
@@ -89,11 +97,18 @@ export const answerRepo = (
       value: {
         startedAt: 0,
         context: { window: 200000, tokens: 24000, percent: 12 },
-        rateLimits: [{ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-10-11T20:00:00.000Z' }],
+        rateLimits: [
+          { kind: 'five_hour', percentUsed: quota.short, resetsAt: quota.resetsAt },
+          ...(quota.weekly !== undefined ? [{ kind: 'seven_day', percentUsed: quota.weekly, resetsAt: '2026-10-15T19:00:00.000Z' }] : []),
+        ],
       },
     }) as never,
   )
-  on('clock.now', () => ({ value: 1000 }) as never)
+  on('ui.notify', (_, e) => {
+    notified.push(e.text)
+
+    return { value: { isSent: true, channel: 'terminal_bell' } } as never
+  })
   // The test kit keeps the id out of a spawn's answer, as the engine does for a hook's: the mod finds it here
   on('agent.list', () =>
     ({
@@ -132,6 +147,11 @@ export const answerRepo = (
     ran,
     spawned,
     logged,
+    notified,
+    /** The session's clock, which moves only when the test moves it. */
+    clock,
+    /** How full each quota window is: a test changes one between tickets. */
+    quota: quota as { short: number; weekly?: number; resetsAt: string },
     /** The exit code of each verification command, by its text: a test changes one between attempts. */
     exits,
     /** What the implementer leaves in the working tree, as `git status --porcelain` then prints it. */

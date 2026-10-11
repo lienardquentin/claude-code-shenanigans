@@ -1,3 +1,5 @@
+import { beforeTicket, clockTime } from './budget'
+import type { Settings } from './budget'
 import { readFolders, readRecord, writeRecord, writeStatus } from './folders'
 import type { Host } from './host'
 import { SCRATCH, folderOf, issuesOf, specOf } from './run'
@@ -10,9 +12,6 @@ import type { Ticket } from './tickets'
 /** The agent type that builds a ticket, as the mod registers it and as the engine names it. */
 export const IMPLEMENTER = 'implementer'
 export const IMPLEMENTER_TYPE = `ship-flow:${IMPLEMENTER}`
-
-// The model a ticket is built on until the mod has settings
-export const IMPLEMENTER_MODEL = 'sonnet'
 
 /** What the implementer may call. Its shell is narrowed further, command by command, by `checkTool`. */
 export const IMPLEMENTER_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'] as const
@@ -71,9 +70,12 @@ const kept = (record: RunRecord) => ({
  * Starts the implementer of one ticket: the ticket is `in-progress` and the record names it and its agent. A
  * retry is told why the attempt before it was discarded. Answers what it did, as the end of a sentence.
  */
-const start = async (host: Host, record: RunRecord, ticket: Ticket, retryOf?: Failure): Promise<string> => {
+const start = async (host: Host, settings: Settings, record: RunRecord, ticket: Ticket): Promise<string> => {
   const { feature } = record
   const key = label(ticket.number ?? 0)
+  // The ticket's failed attempt of this same walk, if it had one
+  const retryOf = (record.attempts[key] ?? 0) > 0 && record.failure?.ticket === ticket.number ? record.failure : undefined
+  const model = ticket.model ?? settings.implementerModel
   const started: RunRecord = {
     ...kept(record),
     phase: 'unattended',
@@ -88,7 +90,7 @@ const start = async (host: Host, record: RunRecord, ticket: Ticket, retryOf?: Fa
   const spawned = await host.spawn({
     subagentType: IMPLEMENTER_TYPE,
     description: `Build ticket ${key}`,
-    model: ticket.model ?? IMPLEMENTER_MODEL,
+    model,
     // Pointers, not content: the implementer reads the spec and the ticket in its own window
     prompt: [
       `Build the ticket ${issuesOf(feature)}/${ticket.file} of the spec ${specOf(feature)}.`,
@@ -120,14 +122,29 @@ const start = async (host: Host, record: RunRecord, ticket: Ticket, retryOf?: Fa
 
   await writeRecord(host, { ...started, agentId })
 
-  return `building ${named(ticket)} on ${spawned.model ?? IMPLEMENTER_MODEL}, on branch ${record.branch}`
+  return `building ${named(ticket)} on ${spawned.model ?? model}, on branch ${record.branch}`
+}
+
+// What the quota says before a ticket starts, as the run words it; undefined when the ticket may start
+const holdOf = (usage: UsageReading, settings: Settings): { pause: string; resumeAt?: number } | undefined => {
+  const verdict = beforeTicket(usage, settings)
+
+  if (verdict.kind === 'start') return undefined
+  if (verdict.kind === 'stop') {
+    return { pause: `the weekly quota window is at ${verdict.percentUsed}%: the run stops here until you /ship resume` }
+  }
+
+  return {
+    pause: `the 5-hour quota window is at ${verdict.percentUsed}%: the run goes on by itself at ${clockTime(verdict.until)}`,
+    resumeAt: verdict.until,
+  }
 }
 
 /**
  * Takes the run one step on: marks `blocked` every ticket that can no longer be reached, then starts the first
  * ticket of the frontier, or, when none can be taken, stops the run and says how it stands.
  */
-const advance = async (host: Host, record: RunRecord): Promise<string> => {
+const advance = async (host: Host, settings: Settings, record: RunRecord): Promise<string> => {
   const { feature } = record
 
   for (const unreachable of blockedBy(await ticketsOf(host, feature))) {
@@ -137,7 +154,21 @@ const advance = async (host: Host, record: RunRecord): Promise<string> => {
   const tickets = await ticketsOf(host, feature)
   const ticket = frontier(tickets)[0]
 
-  if (ticket) return start(host, record, ticket)
+  if (ticket) {
+    const usage = await readUsage(host)
+    const hold = holdOf(usage, settings)
+
+    if (!hold) return start(host, settings, record, ticket)
+
+    // No ticket starts on a quota window that is nearly spent: it would be cut off halfway
+    await writeRecord(host, { ...kept(record), phase: 'paused', ...hold, usage })
+    host.notify(`${feature} is paused: ${hold.pause}.`)
+    if (hold.resumeAt !== undefined) {
+      host.after(Math.max(hold.resumeAt - usage.at, 0), () => void wake(host, settings, feature))
+    }
+
+    return `paused: ${hold.pause}`
+  }
 
   const count = (status: string) => tickets.filter(t => t.status === status).length
   const left = ['blocked', 'too-large'].map(status => ({ status, n: count(status) })).filter(({ n }) => n > 0)
@@ -150,10 +181,26 @@ const advance = async (host: Host, record: RunRecord): Promise<string> => {
 }
 
 /**
+ * The timer of a run paused for quota: the run goes on if it is still paused and waiting, which it is not when
+ * the person resumed it in the meantime. A window still over its threshold pauses it again.
+ */
+async function wake(host: Host, settings: Settings, feature: string): Promise<void> {
+  try {
+    const record = await readRecord(host, feature)
+
+    if (record?.phase !== 'paused' || record.resumeAt === undefined) return
+
+    host.log(`${feature}: the quota window has reset; ${await advance(host, settings, { ...kept(record), phase: 'unattended' })}.`)
+  } catch (error) {
+    host.log(`${feature}: could not go on after the pause: ${error instanceof Error ? error.message : String(error)}. /ship resume.`)
+  }
+}
+
+/**
  * `/ship resume [feature]`: starts, or takes up again, the walk of a feature's ticket graph. Answers what it did,
  * or why it did nothing. From there each ticket's end, `complete`, takes the next one.
  */
-export const resume = async (host: Host, wanted: string): Promise<string> => {
+export const resume = async (host: Host, settings: Settings, wanted: string): Promise<string> => {
   const folders = await readFolders(host)
 
   if (folders.length === 0) return 'No run in this repo: there is no .scratch/<feature>/issues folder.'
@@ -205,7 +252,7 @@ export const resume = async (host: Host, wanted: string): Promise<string> => {
   const branch = (await git(host, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim()
 
   // The person's own resume gives every ticket its attempts back
-  return `${feature}: ${await advance(host, { feature, branch, phase: 'unattended', attempts: {} })}.`
+  return `${feature}: ${await advance(host, settings, { feature, branch, phase: 'unattended', attempts: {} })}.`
 }
 
 // The run whose implementer this agent is, if it is one
@@ -300,7 +347,11 @@ const settle = async (
  * is `blocked`. Then the run goes on to the next ticket. A line a ticket goes to the transcript; the model is
  * not told.
  */
-export const complete = async (host: Host, turn: { agentId: string; reason: string }): Promise<void> => {
+export const complete = async (
+  host: Host,
+  settings: Settings,
+  turn: { agentId: string; reason: string },
+): Promise<void> => {
   const flight = await flightOf(host, turn.agentId)
   const ticket = flight?.tickets.find(t => t.number === flight.record.ticket)
 
@@ -311,7 +362,7 @@ export const complete = async (host: Host, turn: { agentId: string; reason: stri
 
   if ('commit' in settled) {
     await writeStatus(host, feature, ticket, 'done')
-    host.log(`${feature}: ${named(ticket)} is done (${settled.commit}); ${await advance(host, record)}.`)
+    host.log(`${feature}: ${named(ticket)} is done (${settled.commit}); ${await advance(host, settings, record)}.`)
 
     return
   }
@@ -322,7 +373,10 @@ export const complete = async (host: Host, turn: { agentId: string; reason: stri
   await discard(host)
 
   if ((record.attempts[label(ticket.number ?? 0)] ?? 0) < ATTEMPTS) {
-    const retry = await start(host, failed, ticket, failure)
+    // Back on the frontier, where it is the first to be taken: the walk tries it once more, quota allowing
+    await writeStatus(host, feature, ticket, 'ready')
+
+    const retry = await advance(host, settings, failed)
 
     host.log(`${feature}: ${named(ticket)} failed (${settled.reason}) and its changes were discarded; once more: ${retry}.`)
 
@@ -330,5 +384,7 @@ export const complete = async (host: Host, turn: { agentId: string; reason: stri
   }
 
   await writeStatus(host, feature, ticket, 'blocked')
-  host.log(`${feature}: ${named(ticket)} failed again (${settled.reason}) and is marked blocked; ${await advance(host, failed)}.`)
+  host.log(
+    `${feature}: ${named(ticket)} failed again (${settled.reason}) and is marked blocked; ${await advance(host, settings, failed)}.`,
+  )
 }

@@ -1,5 +1,37 @@
 {
   "name": "ship-flow",
   "version": "0.1.0",
-  "description": "Takes one feature from an idea or an issue to a pull request"
+  "description": "Takes one feature from an idea or an issue to a pull request",
+  "userConfig": {
+    "implementerModel": {
+      "type": "string",
+      "title": "Model for building tickets",
+      "description": "The model a ticket is built on, unless the ticket names its own with a Model: line.",
+      "default": "sonnet"
+    },
+    "strongModel": {
+      "type": "string",
+      "title": "Model for judgment",
+      "description": "The model of the grilling, the spec, the tickets and the final review.",
+      "default": "opus"
+    },
+    "exploreModel": {
+      "type": "string",
+      "title": "Model for exploring",
+      "description": "The model of reading the codebase.",
+      "default": "haiku"
+    },
+    "shortWindowPercent": {
+      "type": "number",
+      "title": "5-hour quota threshold (%)",
+      "description": "No ticket starts once the 5-hour quota window is this full: the run pauses and goes on by itself after the reset.",
+      "default": 90
+    },
+    "weeklyPercent": {
+      "type": "number",
+      "title": "Weekly quota threshold (%)",
+      "description": "No ticket starts once the weekly quota window is this full: the run stops building.",
+      "default": 90
+    }
+  }
 }

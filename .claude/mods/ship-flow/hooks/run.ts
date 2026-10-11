@@ -24,6 +24,8 @@ export type RunRecord = {
   attempts: Readonly<Record<string, number>>
   /** Why the run is not building now, when it is not. */
   pause?: string
+  /** When a run paused for quota goes on by itself, in milliseconds since the epoch. */
+  resumeAt?: number
   /** The last ticket that failed, and what the failure said. */
   failure?: { ticket: number; reason: string; output?: string }
   usage?: UsageReading
