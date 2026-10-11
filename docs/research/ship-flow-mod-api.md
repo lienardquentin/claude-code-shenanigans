@@ -82,5 +82,11 @@ It settled the caution above: a subagent spawned from inside the `turn.complete`
 that same hook, so the run can start each ticket from the end of the one before. Each ticket was built on its
 first attempt, so a retry has not been seen live.
 
-Not shown by either run: whether the implementer's id came from the spawn's answer or from the agent list (the run
+A third check the same day set the mod's 5-hour threshold to 20 through its settings and ran `/ship resume trial`
+with the window at 29%. It showed, live: a `userConfig` field declared in `plugin.json` (`type`, `title`,
+`description`, `default`) can be set by the person and reaches `register(on, options)`; and the run pauses with the
+window's reset time read from `$.session.usage()` (`22:11 UTC`, a minute after a `22:10` reset). The timer that
+ends the pause, `$.clock.after`, was not waited for: it is tested against the mocked clock only.
+
+Not shown by any of these: whether the implementer's id came from the spawn's answer or from the agent list (the run
 accepts either), and a refused command, since the implementer tried none.
