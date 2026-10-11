@@ -1,56 +1,98 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { readFolders } from './folders'
+import type { Host } from './host'
+import { SCRATCH } from './run'
+import {
+  IMPLEMENTER,
+  IMPLEMENTER_MODEL,
+  IMPLEMENTER_PROMPT,
+  IMPLEMENTER_TOOLS,
+  checkTool,
+  complete,
+  resume,
+} from './runner'
 import { statusText } from './status'
-import type { Folder } from './status'
-import { parseTicket } from './tickets'
 
-// Where a run keeps its working files, relative to the session's working directory
-const SCRATCH = '.scratch'
+const USAGE = 'Usage: /ship status, or /ship resume [feature]. Starting a run from an idea is not built yet.'
 
-const USAGE = 'Usage: /ship status. Starting and resuming a run are not built yet.'
+// The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
+const hostOf = ($: EngineInterface): Host => ({
+  exists: path => $.fs.exists(path),
+  read: path => $.fs.read(path),
+  write: (path, text) => $.fs.write(path, text),
+  list: async path => (await $.fs.list(path)).map(entry => ({ name: entry.name, isDir: entry.kind === 'dir' })),
+  run: (argv, timeoutMs) => $.process.run(argv, timeoutMs === undefined ? {} : { timeoutMs }),
+  spawn: async agent => {
+    const { agentId, model, deny } = await $.agent.spawn(agent)
 
-// Every feature folder of the repo that holds tickets, read whole. A folder with no `issues` is not a run.
-const readFolders = async ($: EngineInterface): Promise<Folder[]> => {
-  if (!(await $.fs.exists(SCRATCH))) return []
+    return { ...(agentId !== undefined ? { agentId } : {}), ...(model !== undefined ? { model } : {}), ...(deny !== undefined ? { deny } : {}) }
+  },
+  agents: async () =>
+    (await $.agent.list()).map(agent => ({ id: agent.id, type: agent.type, isRunning: agent.status === 'running' })),
+  usage: async () => {
+    const { context, rateLimits } = await $.session.usage()
 
-  const folders: Folder[] = []
-  const features = (await $.fs.list(SCRATCH)).filter(entry => entry.kind === 'dir').map(entry => entry.name)
-
-  for (const feature of features.sort()) {
-    const issues = `${SCRATCH}/${feature}/issues`
-
-    if (!(await $.fs.exists(issues))) continue
-
-    const files = (await $.fs.list(issues))
-      .filter(entry => entry.kind === 'file' && entry.name.endsWith('.md'))
-      .map(entry => entry.name)
-      .sort()
-    const tickets = await Promise.all(
-      files.map(async file => parseTicket(file, await $.fs.read(`${issues}/${file}`))),
-    )
-
-    folders.push({ feature, tickets })
-  }
-
-  return folders
-}
+    return {
+      ...(context.percent !== undefined ? { contextPercent: context.percent } : {}),
+      quota: rateLimits.map(({ kind, percentUsed, resetsAt }) => ({
+        kind,
+        percentUsed,
+        ...(resetsAt !== undefined ? { resetsAt } : {}),
+      })),
+    }
+  },
+  now: async () => $.clock.now(),
+  cwd: () => $.session.cwd(),
+  log: text => $.ui.log(text),
+})
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ship',
       description: 'Takes one feature from an idea or an issue to a pull request',
-      argumentHint: 'status',
+      argumentHint: 'status | resume [feature]',
+    })
+    await $.agent.register({
+      name: IMPLEMENTER,
+      description: 'Builds one ticket of a ship-flow run. Started by the run itself, never by hand.',
+      prompt: IMPLEMENTER_PROMPT,
+      tools: IMPLEMENTER_TOOLS,
+      model: IMPLEMENTER_MODEL,
     })
 
     return next(e)
   })
 
-  on('command.run', { command: 'ship' }, async ($, e) => {
-    if (e.args.trim() !== 'status') return { text: USAGE }
+  // The implementer is the run's to start: the model is never offered it
+  on('agent.offer', { agent: 'ship-flow:implementer' }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 
-    return { text: statusText(await readFolders($)) }
+  on('command.run', { command: 'ship' }, async ($, e) => {
+    const [verb = '', ...rest] = e.args.trim().split(/\s+/)
+
+    if (verb === 'status') return { text: statusText(await readFolders(hostOf($))) }
+    if (verb === 'resume') return { text: await resume(hostOf($), rest.join(' ')) }
+
+    return { text: USAGE }
   })
-    // A folder that cannot be read is said in the answer: a hook that throws is skipped without a word
-    .catch(() => ({ text: `ship-flow could not read the ticket folders under ${SCRATCH}.` }))
+    // What went wrong is said in the answer: a hook that throws is skipped without a word
+    .catch(() => ({ text: `ship-flow could not read or write the run's files under ${SCRATCH}.` }))
+
+  // Every tool call of a run's implementer is decided here, so that none is ever put to a person who is not there
+  on('tool.check', async ($, e, next) => {
+    const decided = e.agentId === undefined ? undefined : await checkTool(hostOf($), e.agentId, e.tool, e.input)
+
+    return decided ?? next(e)
+  })
+    // A run whose files cannot be read decides nothing: the session's own decision stands
+    .catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+
+    if (e.agentId !== undefined) await complete(hostOf($), { agentId: e.agentId, reason: e.reason })
+
+    return completed
+  })
 }
