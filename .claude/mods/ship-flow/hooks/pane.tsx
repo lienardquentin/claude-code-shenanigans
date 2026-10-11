@@ -8,7 +8,8 @@ import { divider } from './kit/divider'
 import { table } from './kit/table'
 import type { CellTone } from './kit/table'
 import { tonedText } from './kit/toned-text'
-import { OUTWARD_MARK, blockOf, radiusOf, rowText } from './radius'
+import { DEPENDENTS_UNREAD, OUTWARD_MARK, blockOf, radiusOf, rowText } from './radius'
+import type { Reading } from './radius'
 import type { RunRecord } from './run'
 import { notesOf, problemText, standingOf } from './status'
 import type { Folder } from './status'
@@ -47,6 +48,7 @@ const runCard = (
   width: number,
   settings: Settings,
   onResume: (feature: string) => void,
+  reading: Reading | undefined,
 ): RenderElement => {
   const problems = problemsOf(tickets)
   const takeable = new Set(frontier(tickets))
@@ -62,7 +64,8 @@ const runCard = (
   })
   // The estimate stays on the card until the run ends: a pull request then holds the real answer
   const hasRadius = record?.phase !== 'ended'
-  const block = blockOf(tickets)
+  const block = blockOf(tickets, reading)
+  const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
   const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0)
 
   return card({
@@ -83,13 +86,13 @@ const runCard = (
                   { header: '#', width: 2 },
                   { header: 'State', width: 11 },
                   { header: 'Ticket' },
-                  ...(hasRadius ? [{ header: 'Reach', width: 14 }] : []),
+                  ...(hasRadius ? [{ header: 'Reach', width: 36 }] : []),
                   { header: 'Note' },
                 ],
                 rows: [...tickets]
                   .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
                   .map(ticket => {
-                    const radius = radiusOf(ticket)
+                    const radius = radiusOf(ticket, reading)
 
                     return [
                       ticket.number !== undefined ? label(ticket.number) : '??',
@@ -105,6 +108,7 @@ const runCard = (
               ...(hasRadius
                 ? [
                     tonedText({ text: block.totals, tone: 'info' }),
+                    ...(isUnread ? [tonedText({ text: DEPENDENTS_UNREAD, tone: 'warning' })] : []),
                     ...block.outward.map(line => tonedText({ text: `${OUTWARD_MARK} ${line}`, tone: 'warning' })),
                   ]
                 : []),
@@ -130,6 +134,8 @@ export const paneOf = (
   elements: Pick<Elements[RenderSurface], 'Box' | 'Button'>,
   given: {
     folders: readonly Folder[]
+    /** What was read of the repo through `git`; absent when it could not be read. */
+    reading?: Reading
     width: number
     settings: Settings
     onResume: (feature: string) => void
@@ -137,7 +143,7 @@ export const paneOf = (
   },
 ): RenderElement => {
   const { Box, Button } = elements
-  const { folders, width, settings, onResume, onRefresh } = given
+  const { folders, reading, width, settings, onResume, onRefresh } = given
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -147,7 +153,7 @@ export const paneOf = (
             title: 'ship-flow',
             children: [tonedText({ text: 'No run in this repo. Start one with /ship <idea> or /ship #<issue>.' })],
           })
-        : folders.map(folder => runCard(elements, folder, width, settings, onResume))}
+        : folders.map(folder => runCard(elements, folder, width, settings, onResume, reading))}
       {divider()}
       <Button key="refresh" onPress={onRefresh}>
         {actionLabel({ text: 'Refresh' })}

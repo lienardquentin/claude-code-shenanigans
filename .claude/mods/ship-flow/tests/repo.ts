@@ -36,6 +36,10 @@ export const answerRepo = (
     now?: number
     /** How full each quota window is, in percent, and when the short one resets. */
     quota?: { short: number; weekly: number; resetsAt?: string }
+    /** The files git tracks, which `git ls-files` lists; none when not given. */
+    tracked?: readonly string[]
+    /** The import lines `git grep` finds, by the tracked file that holds them. */
+    imports?: Readonly<Record<string, readonly string[]>>
   },
 ) => {
   const clock = mock.clock(on, { now: given.now ?? 1000 })
@@ -60,6 +64,7 @@ export const answerRepo = (
     failsToOpen: boolean
   } = { issues: [], body: '', title: '', base: '', failsToPush: false, failsToOpen: false }
   const exits: Record<string, number> = { ...given.exits }
+  const gitReads = { fails: false }
   const isDir = (path: string) => Object.keys(files).some(file => file.startsWith(`${path}/`))
   // The engine hands a hook the path made absolute under the working directory, in the machine's own spelling
   const inRepo = (path: string) => path.replaceAll('\\', '/').replace(/^.*?(?=\.scratch(\/|$)|\.gitignore$)/, '')
@@ -131,6 +136,15 @@ export const answerRepo = (
 
       return exited(exitCode, exitCode === 0 ? 'ok' : 'expected 2 but got 3') as never
     }
+    if (gitReads.fails && ['ls-files', 'grep', 'rev-parse'].includes(e.argv[1] ?? '')) return exited(128, '', 'fatal: not a git repository') as never
+    if (line === 'git ls-files') return exited(0, (given.tracked ?? []).map(file => `${file}\n`).join('')) as never
+    if (e.argv[1] === 'grep') {
+      // As `git grep --null` prints: the file, a NUL, the line; exit 1 when nothing matched
+      const found = Object.entries(given.imports ?? {}).flatMap(([file, lines]) => lines.map(text => `${file}\0${text}\n`))
+
+      return exited(found.length > 0 ? 0 : 1, found.join('')) as never
+    }
+    if (line === 'git rev-parse HEAD') return exited(0, `def${5678 + state.commits}\n`) as never
     if (e.argv[1] === 'check-ignore') return exited(given.isIgnored === false ? 1 : 0) as never
     if (line === 'git status --porcelain') return exited(0, state.porcelain) as never
     if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, `${state.branch}\n`) as never
@@ -258,6 +272,8 @@ export const answerRepo = (
     aborted,
     /** How full a subagent's context is at its next response, in tokens: a test raises it. */
     step,
+    /** Whether `git` fails when the mod reads the repo's files: a test sets `fails`. */
+    gitReads,
     /** The session's clock, which moves only when the test moves it. */
     clock,
     /** How full each quota window is: a test changes one between tickets. */

@@ -155,11 +155,71 @@ for (const surface of SURFACES) {
       const pane = await mountPane($, surface)
 
       expect(await pane.find({ text: 'Reach' })).toBeDefined()
-      expect(await pane.find({ text: '2 files ▲' })).toBeDefined()
-      expect(await pane.find({ text: '1 file' })).toBeDefined()
-      expect(await pane.find({ text: 'Blast radius (an estimate): 2 files' })).toBeDefined()
+      expect(await pane.find({ text: '2 files · 0 dependents · 0 tests ▲' })).toBeDefined()
+      expect(await pane.find({ text: '1 file · 0 dependents · 0 tests' })).toBeDefined()
+      expect(await pane.find({ text: 'Blast radius (an estimate): 2 files · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: '▲ 01 changes `~/.claude/x.json` outside the repo' })).toBeDefined()
       expect(await pane.find({ text: '▲ 01 installs `zod`' })).toBeDefined()
+    })
+
+    test('counts the dependents and the tests among them, and the run once for a file two tickets share', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready', '**Touches:** src/cart.ts']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** ready', '**Touches:** src/cart.ts, src/new.ts']),
+          [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }),
+        },
+        tracked: ['src/cart.ts', 'src/pay.ts', 'src/cart.test.ts', 'README.md'],
+        imports: { 'src/pay.ts': ["import { cart } from './cart'"], 'src/cart.test.ts': ["import { cart } from './cart.ts'"] },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '1 file · 2 dependents · 1 test' })).toBeDefined()
+      expect(await pane.find({ text: '2 files · 2 dependents · 1 test' })).toBeDefined()
+      expect(await pane.find({ text: 'Blast radius (an estimate): 2 files · 2 dependents · 1 test' })).toBeDefined()
+    })
+
+    test('searches the repo once for two draws at the same commit, and again after Refresh', async ($, on) => {
+      const repo = answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready', '**Touches:** src/cart.ts']),
+        },
+        tracked: ['src/cart.ts'],
+      })
+      const searches = () => repo.ran.filter(line => line.startsWith('git grep')).length
+
+      const pane = await mountPane($, surface)
+
+      expect(searches()).toBe(1)
+
+      // The run writing its record draws the pane again, at the same commit
+      await pane.press({ key: 'resume-checkout' })
+      expect(await pane.find({ text: /^building 01$/ })).toBeDefined()
+      expect(searches()).toBe(1)
+
+      await pane.press({ key: 'refresh' })
+      expect(searches()).toBe(2)
+    })
+
+    test('shows the declared files and says the dependents could not be read when git fails', async ($, on) => {
+      const repo = answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready', '**Touches:** src/cart.ts']),
+          [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }),
+        },
+      })
+
+      repo.gitReads.fails = true
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '1 file' })).toBeDefined()
+      expect(await pane.find({ text: /dependents could not be read/ })).toBeDefined()
+      expect(await pane.find({ key: 'resume-checkout', text: /Approve and build/ })).toBeDefined()
     })
 
     test('says not declared for a ticket without the fields, and the run can still be approved', async ($, on) => {
