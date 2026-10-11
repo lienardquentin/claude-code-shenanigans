@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DEFAULTS, beforeTicket, clockTime, settingsOf } from '../hooks/budget'
+import { DEFAULTS, beforeTicket, clockTime, fillOf, isOverBudget, settingsOf } from '../hooks/budget'
 
 const NOW = Date.parse('2026-10-11T20:00:00.000Z')
 const RESET = '2026-10-11T22:10:00.000Z'
@@ -57,6 +57,7 @@ describe('the settings', () => {
       exploreModel: 'haiku',
       shortWindowPercent: 90,
       weeklyPercent: 90,
+      contextPercent: 70,
     })
   })
 
@@ -64,6 +65,18 @@ describe('the settings', () => {
     expect(
       settingsOf({ implementerModel: 'opus', strongModel: ' ', shortWindowPercent: 75, weeklyPercent: 140 }),
     ).toEqual({ ...DEFAULTS, implementerModel: 'opus', shortWindowPercent: 75 })
+  })
+})
+
+describe('a ticket\'s context budget', () => {
+  test('counts everything a request carried: what was read fresh, from the cache, and written to it', () => {
+    expect(fillOf({ input_tokens: 1_000, cache_read_input_tokens: 120_000, cache_creation_input_tokens: 9_000 })).toBe(130_000)
+  })
+
+  test('is passed at its share of a 200,000-token window, whatever window the model has', () => {
+    expect(isOverBudget(139_999, DEFAULTS)).toBe(false)
+    expect(isOverBudget(140_000, DEFAULTS)).toBe(true)
+    expect(isOverBudget(100_000, { ...DEFAULTS, contextPercent: 50 })).toBe(true)
   })
 })
 

@@ -20,6 +20,8 @@ export type RunRecord = {
   agentId?: string
   /** A shell command the implementer was refused during this attempt: the attempt has failed. */
   refused?: string
+  /** How full the implementer's context was, in tokens, when it passed the budget and was stopped. */
+  tooLarge?: number
   /** How many times each ticket was attempted, by ticket number. */
   attempts: Readonly<Record<string, number>>
   /** Why the run is not building now, when it is not. */
