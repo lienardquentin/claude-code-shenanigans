@@ -56,6 +56,31 @@ describe('a ticket file', () => {
     expect(file('03', ['**Blocked by:** 02', '**Status:** ready']).model).toBeUndefined()
   })
 
+  test('declares nothing of its reach without the Touches and Outward actions lines', () => {
+    const read = file('01', ['**Status:** ready'])
+
+    expect(read.touches).toBeUndefined()
+    expect(read.outward).toBeUndefined()
+  })
+
+  test('reads one touched path, or several with stray spaces', () => {
+    expect(file('01', ['**Touches:** src/a.ts']).touches).toEqual(['src/a.ts'])
+    expect(file('01', ['**Touches:**   src/a.ts ,src/b/ ,  docs/c.md  ,']).touches).toEqual(['src/a.ts', 'src/b/', 'docs/c.md'])
+  })
+
+  test('reads outward actions: None as declared and empty, one, or several with stray spaces', () => {
+    expect(file('01', ['**Outward actions:** None']).outward).toEqual([])
+    expect(file('01', ['**Outward actions:** installs the npm package `zod`']).outward).toEqual(['installs the npm package `zod`'])
+    expect(file('01', ['**Outward actions:**  installs `zod` ;deletes `dist/` ; ']).outward).toEqual(['installs `zod`', 'deletes `dist/`'])
+  })
+
+  test('declares each field apart', () => {
+    const read = file('01', ['**Touches:** a.ts'])
+
+    expect(read.touches).toEqual(['a.ts'])
+    expect(read.outward).toBeUndefined()
+  })
+
   test('takes its number from its file name when its heading has none', () => {
     const read = parseTicket('05-too-large.md', '# A ticket that outgrows its budget\n\n**Status:** done')
 

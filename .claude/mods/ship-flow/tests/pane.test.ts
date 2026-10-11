@@ -142,6 +142,53 @@ for (const surface of SURFACES) {
       expect(await pane.find({ text: /^building 02$/ })).toBeDefined()
     })
 
+    test('shows the blast radius its tickets declare: a Reach column, a mark, the totals and every outward action', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready', '**Touches:** src/cart.ts, src/pay.ts, ~/.claude/x.json', '**Outward actions:** installs `zod`']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** ready', '**Touches:** src/pay.ts', '**Outward actions:** None']),
+          [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: 'Reach' })).toBeDefined()
+      expect(await pane.find({ text: '2 files ▲' })).toBeDefined()
+      expect(await pane.find({ text: '1 file' })).toBeDefined()
+      expect(await pane.find({ text: 'Blast radius (an estimate): 2 files' })).toBeDefined()
+      expect(await pane.find({ text: '▲ 01 changes `~/.claude/x.json` outside the repo' })).toBeDefined()
+      expect(await pane.find({ text: '▲ 01 installs `zod`' })).toBeDefined()
+    })
+
+    test('says not declared for a ticket without the fields, and the run can still be approved', async ($, on) => {
+      answerRepo(on, { files: { ...checkout(), [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }) } })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: /^not declared$/ })).toBeDefined()
+      expect(await pane.find({ text: 'Blast radius (an estimate): not declared' })).toBeDefined()
+      expect(await pane.find({ key: 'resume-checkout', text: /Approve and build/ })).toBeDefined()
+    })
+
+    test('shows no radius on the card of a run that has ended', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done', '**Touches:** src/cart.ts', '**Outward actions:** installs `zod`']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done']),
+          [RECORD]: record({ phase: 'ended', pause: 'the pull request is open: https://github.com/dev/repo/pull/7' }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ text: 'Reach' })).toEqual([])
+      expect(await pane.findAll({ text: /Blast radius/ })).toEqual([])
+      expect(await pane.findAll({ text: /installs `zod`/ })).toEqual([])
+    })
+
     test('a run before its checkpoint offers to approve it', async ($, on) => {
       answerRepo(on, { files: { ...checkout(), [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }) } })
 

@@ -8,6 +8,7 @@ import { divider } from './kit/divider'
 import { table } from './kit/table'
 import type { CellTone } from './kit/table'
 import { tonedText } from './kit/toned-text'
+import { OUTWARD_MARK, blockOf, radiusOf, rowText } from './radius'
 import type { RunRecord } from './run'
 import { notesOf, problemText, standingOf } from './status'
 import type { Folder } from './status'
@@ -59,6 +60,9 @@ const runCard = (
 
     return [badge({ label: `${name} ${used}%`, tone: used >= limit ? 'danger' : used >= limit * NEAR ? 'warning' : 'neutral' })]
   })
+  // The estimate stays on the card until the run ends: a pull request then holds the real answer
+  const hasRadius = record?.phase !== 'ended'
+  const block = blockOf(tickets)
   const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0)
 
   return card({
@@ -75,16 +79,35 @@ const runCard = (
         : tickets.length > 0
           ? [
               table({
-                columns: [{ header: '#', width: 2 }, { header: 'State', width: 11 }, { header: 'Ticket' }, { header: 'Note' }],
+                columns: [
+                  { header: '#', width: 2 },
+                  { header: 'State', width: 11 },
+                  { header: 'Ticket' },
+                  ...(hasRadius ? [{ header: 'Reach', width: 14 }] : []),
+                  { header: 'Note' },
+                ],
                 rows: [...tickets]
                   .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-                  .map(ticket => [
-                    ticket.number !== undefined ? label(ticket.number) : '??',
-                    { text: ticket.status ?? '?', tone: STATE_TONE[ticket.status ?? ''] ?? 'neutral' },
-                    ticket.title,
-                    notesOf(ticket, takeable, record).join(' · '),
-                  ]),
+                  .map(ticket => {
+                    const radius = radiusOf(ticket)
+
+                    return [
+                      ticket.number !== undefined ? label(ticket.number) : '??',
+                      { text: ticket.status ?? '?', tone: STATE_TONE[ticket.status ?? ''] ?? 'neutral' },
+                      ticket.title,
+                      ...(hasRadius
+                        ? [{ text: rowText(radius), tone: radius.outward.length > 0 ? ('warning' as const) : ('neutral' as const) }]
+                        : []),
+                      notesOf(ticket, takeable, record).join(' · '),
+                    ]
+                  }),
               }),
+              ...(hasRadius
+                ? [
+                    tonedText({ text: block.totals, tone: 'info' }),
+                    ...block.outward.map(line => tonedText({ text: `${OUTWARD_MARK} ${line}`, tone: 'warning' })),
+                  ]
+                : []),
             ]
           : []),
       ...quota,
