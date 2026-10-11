@@ -18,8 +18,6 @@ export type Host = {
     model: string
     prompt: string
   }) => Promise<{ agentId?: string; model?: string; deny?: string }>
-  /** Stops a turn that is running, a subagent's included: its end then says it was aborted. */
-  abort: (turnId: string) => Promise<void>
   /** The session's agents, oldest first: each one's id, its type, and whether its loop is running now. */
   agents: () => Promise<readonly { id: string; type: string; isRunning: boolean }[]>
   /** The main window's fill and each quota window, as the session last read them. */

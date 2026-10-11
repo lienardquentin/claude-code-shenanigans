@@ -281,6 +281,17 @@ export const checkTool = async (
   const flight = await flightOf(host, agentId)
 
   if (!flight) return undefined
+
+  // Past its context budget the implementer gets nothing more done: this is how the run stops it
+  if (flight.record.tooLarge !== undefined) {
+    if (flight.record.isStopped !== true) await writeRecord(host, { ...flight.record, isStopped: true })
+
+    return {
+      decision: 'deny',
+      reason: 'ship-flow: this ticket has outgrown its context budget and is stopped. Call no more tools: end your turn now.',
+    }
+  }
+
   if (tool !== 'Bash') {
     return (IMPLEMENTER_TOOLS as readonly string[]).includes(tool)
       ? { decision: 'allow' }
@@ -302,13 +313,14 @@ export const checkTool = async (
 
 /**
  * One response of a subagent, by how full its context was when it was made. A run's implementer that has passed
- * the ticket's context budget is stopped there: its work from here on would be worse, and the ticket is too large
- * for one window. The stop is `complete`'s to act on, when the turn ends aborted.
+ * the ticket's context budget is marked so: its work from here on would be worse, and the ticket is too large for
+ * one window. `checkTool` then refuses whatever it calls next, which is what stops it (the engine's own call to
+ * abort a turn does not stop a subagent's), and `complete` discards the attempt.
  */
 export const measure = async (
   host: Host,
   settings: Settings,
-  step: { agentId: string; turnId: string; tokens: number },
+  step: { agentId: string; tokens: number },
 ): Promise<void> => {
   const flight = await flightOf(host, step.agentId)
 
@@ -325,7 +337,6 @@ export const measure = async (
     peak: { ...record.peak, [key]: Math.max(step.tokens, record.peak?.[key] ?? 0) },
     ...(isStopping ? { tooLarge: step.tokens } : {}),
   })
-  if (isStopping) await host.abort(step.turnId)
 }
 
 // Runs the spec's verification commands in order; the first that fails is the failure
@@ -388,8 +399,9 @@ export const complete = async (
 
   const { feature, record } = flight
 
-  // Stopped for its size: another attempt would only fill another window, so the ticket is the person's to split
-  if (record.tooLarge !== undefined && turn.reason !== 'answer') {
+  // Stopped for its size: another attempt would only fill another window, so the ticket is the person's to split.
+  // An implementer that passed the budget on its last response was refused nothing, and its work is judged as any.
+  if (record.tooLarge !== undefined && record.isStopped === true) {
     const share = Math.round((record.tooLarge / BUDGET_WINDOW) * 100)
 
     await discard(host)
@@ -399,11 +411,6 @@ export const complete = async (
     )
 
     return
-  }
-
-  // The stop was asked for and the turn ended as if it had not been: said, so that it is not taken for a pass
-  if (record.tooLarge !== undefined) {
-    host.log(`${feature}: ${named(ticket)} passed its context budget and was asked to stop, but its turn ended normally.`)
   }
 
   const settled = await settle(host, feature, ticket, record, turn.reason)
