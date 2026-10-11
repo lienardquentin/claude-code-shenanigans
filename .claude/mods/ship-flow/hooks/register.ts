@@ -7,6 +7,7 @@ import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
 import type { Host } from './host'
 import { PANE, paneOf } from './pane'
+import { reader } from './reading'
 import { SCRATCH } from './run'
 import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
 import { statusText } from './status'
@@ -73,6 +74,8 @@ const hostOf = ($: EngineInterface): Host => ({
 
 export const register: Register = (on, options) => {
   const settings = settingsOf(options)
+  // What the pane read of the repo, kept by commit
+  const repo = reader()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -110,15 +113,25 @@ export const register: Register = (on, options) => {
 
     const host = hostOf($)
 
+    const folders = await readFolders(host)
+    // The repo is read only for a card that shows a radius, and a failed read leaves the reach as declared files alone
+    const reading = folders.some(folder => folder.record?.phase !== 'ended' && folder.tickets.some(ticket => ticket.touches !== undefined))
+      ? await repo.read(host).catch(() => undefined)
+      : undefined
+
     return paneOf($.ui.resolve(e), {
-      folders: await readFolders(host),
+      folders,
+      ...(reading ? { reading } : {}),
       width: e.props.bodyColumns ?? 80,
       settings,
       onResume: feature =>
         void resume(host, settings, feature)
           .then(text => $.ui.log(text))
           .catch(() => $.ui.log(`${feature}: could not be taken up from the pane. /ship resume ${feature}.`)),
-      onRefresh: () => host.changed(),
+      onRefresh: () => {
+        repo.forget()
+        host.changed()
+      },
     })
   })
 
