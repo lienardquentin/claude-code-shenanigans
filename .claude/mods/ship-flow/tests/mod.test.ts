@@ -101,7 +101,7 @@ describe('/ship status', () => {
       throw new Error('EACCES')
     })
 
-    expect(await status($)).toMatch(/could not read the ticket folders under \.scratch/)
+    expect(await status($)).toMatch(/could not read or write the run's files under \.scratch/)
   })
 
   test('any other argument answers with how the command is used', async $ => {
