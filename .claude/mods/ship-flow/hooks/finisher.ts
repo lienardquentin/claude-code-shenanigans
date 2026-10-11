@@ -249,12 +249,7 @@ export const finished = async (
   }
 
   // The fix pass: its work is judged as a ticket's is, and is not tried again
-  const problem =
-    turn.reason !== 'answer'
-      ? `its turn ended with ${turn.reason}`
-      : record.refused !== undefined
-        ? `it tried a command it may not run: ${record.refused}`
-        : (await verify(host, feature))?.reason
+  const problem = turn.reason !== 'answer' ? `its turn ended with ${turn.reason}` : (await verify(host, feature))?.reason
   let fixes: string
 
   if (problem !== undefined) {

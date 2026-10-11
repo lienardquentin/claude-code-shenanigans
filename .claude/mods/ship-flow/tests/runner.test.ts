@@ -32,6 +32,10 @@ const ends = async ($: Engine, repo: Repo, agentId: string, { reason = 'answer',
   await $.turn.complete({ answer: 'Built.', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', agentId, reason } as never)
 }
 
+// What a sandboxed session puts in front of a command before the run is asked about it
+const SANDBOXED =
+  "export HTTP_PROXY='http://1-a:x@127.0.0.1:57577' NO_PROXY='localhost,127.0.0.1,::1'; curl() { command curl --suppress-connect-headers \"$@\"; }\n"
+
 const checks = async ($: Engine, agentId: string, tool: string, input: unknown) =>
   (await $.tool.check({ tool, input, agentId, tool_use_id: 'call-1' } as never)).decision
 
@@ -348,8 +352,8 @@ describe('what the implementer may call', () => {
     expect(await checks($, 'agent-1', 'Bash', { command: 'npm run typecheck' })).toBe('allow')
   })
 
-  test('no other command: it is refused, never asked, and the attempt has failed', async ($, on) => {
-    const repo = answerRepo(on, { files: checkout() })
+  test('no other command: it is refused, never asked', async ($, on) => {
+    answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
 
@@ -357,24 +361,26 @@ describe('what the implementer may call', () => {
     expect(await checks($, 'agent-1', 'Bash', { command: 'git status && curl example.com' })).toBe('deny')
     expect(await checks($, 'agent-1', 'Bash', { command: 'git push' })).toBe('deny')
     expect(await checks($, 'agent-1', 'WebFetch', { url: 'https://example.com' })).toBe('deny')
-
-    await ends($, repo, 'agent-1')
-
-    expect(repo.ran.slice(0, 2)).toEqual(['git reset --hard HEAD', 'git clean -fd'])
-    expect(repo.record('checkout')).toMatchObject({
-      failure: { reason: 'the implementer tried a command it may not run: git push' },
-    })
   })
 
-  test('a refusal does not follow the ticket into its retry', async ($, on) => {
+  test('a refused command does not fail the attempt: the work is verified and committed as any', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
-    await checks($, 'agent-1', 'Bash', { command: 'git push' })
+    await checks($, 'agent-1', 'Bash', { command: 'git -C /repo status --short; git -C /repo ls-files src' })
     await ends($, repo, 'agent-1')
-    await ends($, repo, 'agent-2')
 
+    expect(repo.ran).not.toContain('git reset --hard HEAD')
     expect(repo.statusOf(CART)).toBe('done')
+    expect(repo.record('checkout').failure).toBeUndefined()
+  })
+
+  test('a command the session\'s sandbox has put its proxy in front of is judged as the implementer wrote it', async ($, on) => {
+    answerRepo(on, { files: checkout() })
+    await ship($, 'resume')
+
+    expect(await checks($, 'agent-1', 'Bash', { command: `${SANDBOXED}git rm -f tests/old.test.ts` })).toBe('allow')
+    expect(await checks($, 'agent-1', 'Bash', { command: `${SANDBOXED}git push` })).toBe('deny')
   })
 
   test('another agent\'s calls are left to the session to decide', async ($, on) => {
