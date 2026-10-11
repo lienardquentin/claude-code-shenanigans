@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { begin } from './attended'
+import { afterTurn, begin, noteRead, reminder } from './attended'
 import { fillOf, settingsOf } from './budget'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
@@ -88,8 +88,23 @@ export const register: Register = (on, options) => {
       model: settings.strongModel,
     })
 
+    const started = await next(e)
+    // A run that is not building is said once, as the session starts; saying it must never keep a session from starting
+    const told = await reminder(hostOf($)).catch(() => undefined)
+
+    if (told !== undefined) $.ui.log(told)
+
+    return started
+  })
+
+  // The model reading one of the mod's step texts is how the attended phase is seen to pass from a step to the next
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    await noteRead(hostOf($), e.file_path).catch(() => undefined)
+
     return next(e)
   })
+    // A read is never held back by the run
+    .catch(($, e, next) => next(e))
 
   // The run's agents are the run's to start: the model is never offered them
   on('agent.offer', { agent: 'ship-flow:implementer' }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
@@ -136,6 +151,8 @@ export const register: Register = (on, options) => {
 
     if (e.agentId !== undefined) {
       await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason, answer: e.answer })
+    } else {
+      await afterTurn(hostOf($), settings)
     }
 
     return completed

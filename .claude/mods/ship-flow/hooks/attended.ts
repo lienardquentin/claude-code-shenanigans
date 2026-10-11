@@ -125,6 +125,7 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
     feature,
     branch: (await git(host, 'rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim(),
     phase: 'attended',
+    step: 'grilling',
     attempts: {},
     source: issue ? 'issue' : 'idea',
     ...(issue ? { issue: issue.number, title: issue.title } : {}),
@@ -191,4 +192,79 @@ export const approve = async (host: Host, record: RunRecord): Promise<RunRecord 
   )
 
   return { ...kept(record), feature, branch, phase: 'unattended', attempts: {}, issue, ...(title !== undefined ? { title } : {}) }
+}
+
+// The texts the model reads as it passes from one step of the attended phase to the next, and the step each opens
+const STEPS = [
+  { file: 'prompts/spec.md', step: 'spec' },
+  { file: 'prompts/tickets.md', step: 'tickets' },
+] as const
+
+// The run still with the person, if the repo has one
+const attendedOf = async (host: Host): Promise<RunRecord | undefined> =>
+  (await readFolders(host)).map(folder => folder.record).find(record => record?.phase === 'attended')
+
+/**
+ * The model has read a file. When it is one of the mod's own step texts, the attended run has passed a boundary:
+ * the grilling is over, or the spec is written. Noted in the record, for `afterTurn` to act on.
+ */
+export const noteRead = async (host: Host, path: string): Promise<void> => {
+  const read = path.replaceAll('\\', '/')
+  const root = host.root.replaceAll('\\', '/')
+  const reached = STEPS.find(({ file }) => read === `${root}/${file}`)?.step
+
+  if (reached === undefined) return
+
+  const record = await attendedOf(host)
+
+  if (record && record.step !== reached && !(record.step === 'tickets' && reached === 'spec')) {
+    await writeRecord(host, { ...record, step: reached })
+  }
+}
+
+/**
+ * The end of a turn of the main conversation. A run in its attended phase keeps to its context budget here: once
+ * the window is past the budget, it is compacted at the first pause after a step boundary, and once a boundary.
+ * Never during the grilling, whose thread the spec is written from.
+ */
+export const afterTurn = async (host: Host, settings: Settings): Promise<void> => {
+  if (!(await host.exists(SCRATCH))) return
+
+  const record = await attendedOf(host)
+
+  if (!record || record.step === undefined || record.step === 'grilling' || record.compactedAt === record.step) return
+  if (((await host.usage()).contextPercent ?? 0) < settings.contextPercent) return
+
+  const { feature, step } = record
+
+  await writeRecord(host, { ...record, compactedAt: step })
+  host.compact(
+    [
+      `This conversation is the attended phase of the ship-flow run \`${feature}\`, now ${step === 'spec' ? 'writing its spec' : 'writing its tickets'}.`,
+      'Keep, whole: every decision the person made in the grilling and the reason for it; the vocabulary agreed; the seams and the verification commands, if settled; every question still open.',
+      `Keep these pointers: the steps being followed are in ${host.root.replaceAll('\\', '/')}/prompts/${step}.md; the spec is ${specOf(feature)}; the tickets go in ${issuesOf(feature)}/.`,
+      'Drop what was read to get there: file contents, search results, the output of commands.',
+    ].join(' '),
+  )
+  host.log(`${feature}: the conversation is past its context budget and is being compacted, now that ${step === 'spec' ? 'the grilling is over' : 'the spec is written'}.`)
+}
+
+/**
+ * What a session is told as it starts in a repo with a run that is not building: one line naming each such run
+ * and the command that takes it up. It reminds and does nothing else: a run goes on only when the person says so.
+ */
+export const reminder = async (host: Host): Promise<string | undefined> => {
+  if (!(await host.exists(SCRATCH))) return undefined
+
+  const running = new Set((await host.agents()).filter(agent => agent.isRunning).map(agent => agent.id))
+  const lines = (await readFolders(host)).flatMap(({ feature, record }) => {
+    if (!record || record.phase === 'ended') return []
+    if (record.phase === 'attended') return [`${feature} is before its checkpoint`]
+    if (record.phase === 'paused') return record.pr ? [] : [`${feature} is paused (${record.pause ?? 'no reason kept'})`]
+    if (record.agentId !== undefined && running.has(record.agentId)) return []
+
+    return [`${feature} was cut off while ${record.phase === 'finishing' ? 'being reviewed' : `building ticket ${String(record.ticket ?? '?').padStart(2, '0')}`}`]
+  })
+
+  return lines.length === 0 ? undefined : `${lines.join('; ')}. /ship status shows it; /ship resume takes it up.`
 }

@@ -44,7 +44,11 @@ object of closures over `$` in `register.ts` and writes every other module again
   compacts the main conversation. Both wait on the session being idle. (declared)
 - Called from inside a `command.run` hook, `$.prompt.submit` is refused: "it would wait on the turn this hook is
   holding; submit from a later event". The mod therefore makes both calls from a `$.clock.after(0, ...)` timer,
-  once the command's hook has returned. (tested; not live)
+  once the command's hook has returned. (tested)
+- Live, on 2026-10-11: a prompt submitted that way from `/ship <idea>` reached the model as a turn of its own,
+  framed by the engine as a message the plugin sent. The compaction has not been seen live.
+- A `tool.call` hook narrowed to `Read` sees the main conversation's file reads with their `file_path`; the mod
+  uses the model reading one of its own step texts as the sign that the attended phase passed a step. (tested)
 
 ## Permissions
 

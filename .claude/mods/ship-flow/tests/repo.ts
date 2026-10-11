@@ -46,6 +46,8 @@ export const answerRepo = (
   const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
   const logged: string[] = []
   const state = { porcelain: given.porcelain ?? '', commits: 0, branch: given.branch ?? 'checkout-feature' }
+  // How full the main conversation's window is, in percent
+  const context = { percent: 12 }
   const prompts: string[] = []
   const compacted: string[] = []
   const github: {
@@ -149,7 +151,7 @@ export const answerRepo = (
     ({
       value: {
         startedAt: 0,
-        context: { window: 200000, tokens: 24000, percent: 12 },
+        context: { window: 200000, tokens: context.percent * 2000, percent: context.percent },
         rateLimits: [
           { kind: 'five_hour', percentUsed: quota.short, resetsAt: quota.resetsAt },
           ...(quota.weekly !== undefined ? [{ kind: 'seven_day', percentUsed: quota.weekly, resetsAt: '2026-10-15T19:00:00.000Z' }] : []),
@@ -183,6 +185,11 @@ export const answerRepo = (
       },
     } as never
   })
+  // A session as it starts, and what the mod declares to it; a file read, which the session lets through
+  on('session.start', () => ({ cwd: '/home/dev/repo' }) as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', () => ({ value: undefined }) as never)
+  on('tool.call', () => ({ result: '', text: '' }) as never)
   on('prompt.submit', (_, e) => {
     prompts.push(e.text)
 
@@ -241,6 +248,8 @@ export const answerRepo = (
     /** The prompts the mod handed the model, and the instructions of each compaction it asked for. */
     prompts,
     compacted,
+    /** How full the main conversation's window is, in percent: a test raises it. */
+    context,
     /** The branch the repo is on now. */
     branch: () => state.branch,
     /** GitHub as the mod left it: the branch's pull request, its title, base and body; and what a test makes fail. */
