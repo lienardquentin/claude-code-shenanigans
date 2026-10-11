@@ -69,6 +69,23 @@ export const detectTerminal = (env: Env): string | undefined => RULES.find(rule 
 /** The multiplexer the session runs inside, if the environment says one. */
 export const detectHost = (env: Env): string | undefined => HOST_RULES.find(rule => matches(rule, env))?.terminal
 
+/**
+ * The terminals whose pixels the terminal surface's `Image` draws: the platform's own documentation names kitty and
+ * Ghostty, and the research file marks images `yes` for both (a test holds them to it). Others that show pixels by
+ * other protocols (sixel, say) are not named, because an `Image` there would show only its text.
+ */
+export const PIXEL_TERMINALS: readonly string[] = ['kitty', 'Ghostty']
+
+/**
+ * Whether the diagram can be drawn as pixels here: in one of those terminals, and not inside a multiplexer, which
+ * passes pixels on only when it is set to (the research file says tmux's default is off).
+ */
+export const drawsPixels = (env: Env): boolean => {
+  const name = detectTerminal(env)
+
+  return name !== undefined && PIXEL_TERMINALS.includes(name) && detectHost(env) === undefined
+}
+
 /** The row of the research file for a terminal on an operating system (or any, when it is not given). */
 export const rowFor = (name: string, os?: Os): Terminal | undefined => {
   const named = TERMINALS.filter(row => row.name === name || row.name.startsWith(`${name} `))

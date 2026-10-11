@@ -10,11 +10,13 @@ import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { code } from './kit/code'
 import { picture } from './kit/picture'
+import { pixelImage } from './kit/pixel-image'
 import { table } from './kit/table'
 import { tonedText } from './kit/toned-text'
-import { OS_NAMES, detectHost, detectOs, detectTerminal, gaps, recommended, rowFor, tableFor, toneOfValue } from './guide'
+import { OS_NAMES, detectHost, detectOs, detectTerminal, drawsPixels, gaps, recommended, rowFor, tableFor, toneOfValue } from './guide'
 import type { Env, Os } from './guide'
 import { READ_ON } from './terminals'
+import { rasterize } from './pixels'
 import { diagramSvg } from './svg'
 import { clipDrawing, drawingWidth, spanOfNode, windowFor } from './window'
 
@@ -34,6 +36,8 @@ const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
 const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, false)
 // Whether the pane shows the terminal guide in place of the diagram
 const guide = atom({ plugin: 'mermaid-view', key: 'guide' } as const, false)
+// Whether the diagram is drawn as a picture where the terminal can show one: the viewer's choice, on to begin with
+const pictureOn = atom({ plugin: 'mermaid-view', key: 'pictureOn' } as const, true)
 
 // The variables the guide reads to tell the terminal and the system. `$.env.get` takes a literal name, so each is
 // asked for by name; guide.ts holds the rules that use them.
@@ -57,6 +61,15 @@ const environment = async ($: Engine): Promise<Env> => {
   return name => values[name]
 }
 
+// Whether the diagram is drawn as pixels here. An environment that cannot be read is no reason to fail a draw: the
+// answer is then no, and the cells are drawn.
+const pixelsHere = async ($: Engine): Promise<boolean> => {
+  try {
+    return drawsPixels(await environment($))
+  } catch {
+    return false
+  }
+}
 // The terminal guide: which terminal this is, what the research file says it can do, what it lacks and what to use
 // instead on this system, and the recommended terminals and the table for each system. Everything it says about a
 // terminal is that file's (see terminals.ts); nothing is guessed for a terminal it does not know.
@@ -232,7 +245,7 @@ const content = async (
   e: Drawn,
   text: string,
   chosen: string,
-  view: { width: number; offset: number; fit: boolean },
+  view: { width: number; offset: number; fit: boolean; pixels: boolean; canPixels: boolean },
 ): Promise<RenderElement[]> => {
   if (text === '') return [badge({ label: 'No diagram yet: run /mermaid-view with a flowchart', tone: 'neutral' })]
 
@@ -370,6 +383,24 @@ const content = async (
           </Box>,
         ]
 
+  // One button per node: the fallback view's way to select, and the picture's
+  const nodeButtons = (
+    <Box key="node-buttons" flexDirection="row" flexWrap="wrap" gap={1}>
+      {diagram.nodes.map(node => (
+        <Button key={`node-${node.id}`} onPress={() => toggle($, node.id)}>
+          {tonedText({
+            text: shownLabel(node),
+            ...(node.id === known
+              ? { tone: 'accent' as const, bold: true }
+              : node.tone !== undefined
+                ? { tone: node.tone }
+                : {}),
+          })}
+        </Button>
+      ))}
+    </Box>
+  )
+
   // The fallback view: a surface that is not the terminal (the desktop, VS Code, mobile) is given a still picture of
   // the drawing and one button per node, because a node's box cannot be known to keep its shape as native buttons
   if (e.surface !== 'terminal') {
@@ -389,22 +420,28 @@ const content = async (
       ...(still === undefined
         ? [badge({ label: 'This diagram is too large to draw as a picture; use the node buttons', tone: 'warning' })]
         : [still]),
-      <Box key="node-buttons" flexDirection="row" flexWrap="wrap" gap={1}>
-        {diagram.nodes.map(node => (
-          <Button key={`node-${node.id}`} onPress={() => toggle($, node.id)}>
-            {tonedText({
-              text: shownLabel(node),
-              ...(node.id === known
-                ? { tone: 'accent' as const, bold: true }
-                : node.tone !== undefined
-                  ? { tone: node.tone }
-                  : {}),
-            })}
-          </Button>
-        ))}
-      </Box>,
+      nodeButtons,
       ...details,
     ]
+  }
+
+  // A terminal that draws pixels is given the drawing as a picture, which has no press of its own: the buttons of the
+  // nodes stand beside it. A drawing past what an Image takes stays as cells.
+  if (view.pixels) {
+    const raster = rasterize(drawing)
+    const alt = drawing.map(row => row.map(segment => segment.text).join('')).join('\n')
+    const still = raster === undefined ? undefined : pixelImage({ ...raster, alt })
+
+    if (still !== undefined) {
+      return [
+        <Button key="picture-toggle" onPress={() => update($, pictureOn, () => false)}>
+          {actionLabel({ text: 'Picture: on' })}
+        </Button>,
+        still,
+        nodeButtons,
+        ...details,
+      ]
+    }
   }
 
   // A drawing wider than the pane is shown through a window that moves by the buttons above it; the fit-width view
@@ -484,7 +521,16 @@ const content = async (
     </Box>
   ))
 
-  return [...controls, ...rows, ...details]
+  // The way back to the picture, once it was turned off (a picture that does not fit is simply not offered)
+  const pictureToggle: RenderElement[] = view.canPixels && !view.pixels
+    ? [
+        <Button key="picture-toggle" onPress={() => update($, pictureOn, () => true)}>
+          {actionLabel({ text: 'Picture: off' })}
+        </Button>,
+      ]
+    : []
+
+  return [...pictureToggle, ...controls, ...rows, ...details]
 }
 
 export const register: Register = on => {
@@ -566,6 +612,8 @@ export const register: Register = on => {
         : []
 
     const guided = await read($, guide)
+    // A picture only where the terminal surface's Image draws pixels
+    const canPixels = e.surface === 'terminal' && (await pixelsHere($))
 
     // The guide takes the pane's place while it is on, and a button on either puts the other back
     const toggleGuide = (
@@ -585,6 +633,8 @@ export const register: Register = on => {
               width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
               offset: await read($, scrollX),
               fit: await read($, fit),
+              pixels: canPixels && (await read($, pictureOn)),
+              canPixels,
             })),
             ...list,
             toggleGuide,

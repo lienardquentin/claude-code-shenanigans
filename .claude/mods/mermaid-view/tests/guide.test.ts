@@ -2,9 +2,11 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   IDENTIFIERS,
+  PIXEL_TERMINALS,
   detectHost,
   detectOs,
   detectTerminal,
+  drawsPixels,
   gaps,
   recommended,
   rowFor,
@@ -130,5 +132,27 @@ describe('recommending', () => {
     expect(toneOfValue('partial')).toBe('warning')
     expect(toneOfValue('no')).toBe('danger')
     expect(toneOfValue('unknown')).toBe('neutral')
+  })
+})
+
+describe('where the diagram is drawn as pixels', () => {
+  test('only in terminals the research file marks yes for images, and the platform names', () => {
+    for (const name of PIXEL_TERMINALS) {
+      const rows = TERMINALS.filter(row => row.name === name && row.os !== 'windows')
+
+      expect(rows.length, `no row for ${name}`).toBeGreaterThan(0)
+      expect(rows.every(row => row.images.value === 'yes')).toBe(true)
+    }
+  })
+
+  test('kitty and Ghostty, and not inside tmux or screen, nor any other terminal', () => {
+    expect(drawsPixels(envOf({ KITTY_WINDOW_ID: '1' }))).toBe(true)
+    expect(drawsPixels(envOf({ TERM_PROGRAM: 'ghostty' }))).toBe(true)
+    expect(drawsPixels(envOf({ KITTY_WINDOW_ID: '1', TMUX: '/tmp/t,1,0' }))).toBe(false)
+    expect(drawsPixels(envOf({ KITTY_WINDOW_ID: '1', STY: '1.pts-0' }))).toBe(false)
+    // sixel is something the Image does not draw, so a terminal that has only that is not named
+    expect(drawsPixels(envOf({ WT_SESSION: 'x' }))).toBe(false)
+    expect(drawsPixels(envOf({ TERM_PROGRAM: 'WezTerm' }))).toBe(false)
+    expect(drawsPixels(envOf({}))).toBe(false)
   })
 })

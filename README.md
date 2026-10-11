@@ -117,7 +117,12 @@ The guide's data is `hooks/terminals.ts`, generated from [`docs/research/termina
 and nothing else (`tools/build-terminals.ps1`; run it again when that file changes). A test holds every identifier the
 recognition uses to what the file cites for that terminal.
 
-Not yet: pixel images for the drawing (#15, optional).
+- In kitty and Ghostty (not inside tmux or screen) the diagram is drawn as a picture: the same layout set in a bitmap
+  font and drawn lines, as raw pixels in the terminal's `Image`, in the kit palette's gray with the selection in its
+  orange. A picture has no press of its own, so a button per node stands beside it; `Picture: on`/`off` turns it
+  off for the cells and back. Other terminals, other surfaces and drawings an `Image` cannot take (over 255 cells
+  across or down, 2 MiB of pixels) keep the cells. Characters the 5x7 font does not have are drawn as a small box.
+  This has been checked on mounted trees only: how it looks in a real kitty or Ghostty is a manual check.
 
 Known limits of the drawing: when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is

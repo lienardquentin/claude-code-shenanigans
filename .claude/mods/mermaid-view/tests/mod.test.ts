@@ -594,6 +594,108 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('the picture', () => {
+    const CHAIN = 'graph TD; A[Start] --> B[Process]; B --> C[End]'
+
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      variables: Record<string, string>,
+      surface: Surface = 'terminal',
+      args = CHAIN,
+    ) => {
+      mock.env(on, variables)
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($, surface)
+    }
+
+    test('kitty gets the diagram as pixels, with a button per node beside it', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' })
+
+      const image = await pane.find({ type: 'Image' })
+
+      expect(image).toBeDefined()
+      expect(Number(image?.props.columns)).toBeGreaterThan(0)
+      expect(Number(image?.props.rows)).toBeGreaterThan(0)
+      expect(String((image?.props.source as { rgba: string }).rgba).length).toBeGreaterThan(100)
+      // the text of the drawing is its alt, for a reader that cannot see pixels
+      expect(String(image?.props.alt)).toMatch(/│ Process │/)
+      expect(await pane.find({ type: 'Button', key: 'node-B' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'node-B-top' })).toBeUndefined()
+    })
+
+    test('Ghostty does too', async ($, on) => {
+      const pane = await open($, on, { HOME: '/Users/someone', TERM_PROGRAM: 'ghostty' })
+
+      expect(await pane.find({ type: 'Image' })).toBeDefined()
+    })
+
+    test('any other terminal keeps the cells, buttons in the boxes included', async ($, on) => {
+      const pane = await open($, on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'node-B-top' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'picture-toggle' })).toBeUndefined()
+    })
+
+    test('inside tmux the cells are kept, as the multiplexer may not pass pixels on', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1', TMUX: '/tmp/t,1,0' })
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+    })
+
+    test('a node is still selected, from the buttons beside the picture', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' })
+
+      await pane.press({ key: 'node-B' })
+
+      expect(await pane.find({ text: /Selected: Process/ })).toBeDefined()
+      expect(await pane.find({ type: 'Image' })).toBeDefined()
+    })
+
+    test('the selection is drawn in the accent color in the pixels', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' })
+      const before = String(((await pane.find({ type: 'Image' }))?.props.source as { rgba: string }).rgba)
+
+      await pane.press({ key: 'node-B' })
+      const after = String(((await pane.find({ type: 'Image' }))?.props.source as { rgba: string }).rgba)
+
+      expect(after).not.toBe(before)
+    })
+
+    test('a button turns the picture off, for the cells, and on again', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' })
+
+      await pane.press({ key: 'picture-toggle' })
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'node-B-top' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'picture-toggle', text: /Picture: off/ })).toBeDefined()
+
+      await pane.press({ key: 'picture-toggle' })
+
+      expect(await pane.find({ type: 'Image' })).toBeDefined()
+    })
+
+    test('the other surfaces keep the fallback view, whatever the terminal', async ($, on) => {
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' }, 'desktop')
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+      expect(await pane.find({ type: 'Svg' })).toBeDefined()
+    })
+
+    test('a drawing more than an Image takes stays as cells, and no toggle is offered', async ($, on) => {
+      const long = `graph LR; ${Array.from({ length: 40 }, (_, index) => `N${index}[Node ${index}] --> N${index + 1}`).join('; ')}`
+      const pane = await open($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1' }, 'terminal', long)
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'node-N1' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'picture-toggle' })).toBeUndefined()
+    })
+  })
+
   describe('the terminal guide', () => {
     type TestOn = Parameters<Parameters<typeof test>[1]>[1]
 
