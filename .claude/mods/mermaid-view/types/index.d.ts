@@ -19,6 +19,8 @@ declare module 'claude-code' {
       fit: boolean
       /** Whether the pane shows the terminal guide in place of the diagram. Per session. */
       guide: boolean
+      /** Whether the diagram is drawn as a picture where the terminal can show one; the viewer's choice. Per session. */
+      pictureOn: boolean
     }
   }
 }
