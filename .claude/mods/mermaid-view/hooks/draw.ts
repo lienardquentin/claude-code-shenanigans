@@ -1,17 +1,32 @@
-import type { Diagram } from './diagram'
+import type { Diagram, Direction, EdgeKind, Shape } from './diagram'
 
 const NODE_HEIGHT = 3
-const SPACING = 3
 const LANE_START = 2
 
-// A line cell remembers the sides a line leaves it by; the character is chosen from them when the grid is printed,
-// so two lines that meet or cross in one cell become the right junction
+// A line cell remembers the sides a line leaves it by, in physical terms; the character is chosen from them when the
+// grid is printed, so two lines that meet or cross in one cell become the right junction
 const UP = 1
 const RIGHT = 2
 const DOWN = 4
 const LEFT = 8
 
-const LINE: Record<number, string> = {
+// The layout is made along two axes: `main` is the way the diagram flows (layer after layer) and `cross` is across
+// it. A line's sides are named in those terms and become physical sides by the direction of the diagram.
+const FORWARD = 1
+const BACK = 2
+const CROSS_UP = 4
+const CROSS_DOWN = 8
+
+const SIDES: Record<Direction, Record<number, number>> = {
+  TD: { [FORWARD]: DOWN, [BACK]: UP, [CROSS_UP]: LEFT, [CROSS_DOWN]: RIGHT },
+  BT: { [FORWARD]: UP, [BACK]: DOWN, [CROSS_UP]: LEFT, [CROSS_DOWN]: RIGHT },
+  LR: { [FORWARD]: RIGHT, [BACK]: LEFT, [CROSS_UP]: UP, [CROSS_DOWN]: DOWN },
+  RL: { [FORWARD]: LEFT, [BACK]: RIGHT, [CROSS_UP]: UP, [CROSS_DOWN]: DOWN },
+}
+
+const ARROWHEAD: Record<Direction, string> = { TD: '▼', BT: '▲', LR: '▶', RL: '◀' }
+
+const SOLID: Record<number, string> = {
   [UP]: '│',
   [DOWN]: '│',
   [UP | DOWN]: '│',
@@ -29,9 +44,44 @@ const LINE: Record<number, string> = {
   [UP | RIGHT | DOWN | LEFT]: '┼',
 }
 
-// `solid` is a character a node's box or an arrowhead drew: a line never overwrites it. `node` and `row` say which
-// node's box (and which of its three rows) a cell belongs to; `hot` marks what belongs to the selection.
-type Cell = { sides: number; solid?: string; node?: string; row?: number; hot?: boolean }
+const THICK: Record<number, string> = {
+  [UP]: '┃',
+  [DOWN]: '┃',
+  [UP | DOWN]: '┃',
+  [RIGHT]: '━',
+  [LEFT]: '━',
+  [RIGHT | LEFT]: '━',
+  [UP | RIGHT]: '┗',
+  [RIGHT | DOWN]: '┏',
+  [DOWN | LEFT]: '┓',
+  [UP | LEFT]: '┛',
+  [UP | RIGHT | DOWN]: '┣',
+  [RIGHT | DOWN | LEFT]: '┳',
+  [UP | DOWN | LEFT]: '┫',
+  [UP | RIGHT | LEFT]: '┻',
+  [UP | RIGHT | DOWN | LEFT]: '╋',
+}
+
+// A dotted line is dotted only where it runs straight; corners and junctions are the solid ones
+const DOTTED: Record<number, string> = {
+  ...SOLID,
+  [UP]: '┆',
+  [DOWN]: '┆',
+  [UP | DOWN]: '┆',
+  [RIGHT]: '┄',
+  [LEFT]: '┄',
+  [RIGHT | LEFT]: '┄',
+}
+
+// Which look wins where two edges share a cell
+const STYLE_RANK = { dotted: 0, solid: 1, thick: 2 } as const
+type Style = keyof typeof STYLE_RANK
+
+const styleOf = (kind: EdgeKind): Style => (kind === 'thick' ? 'thick' : kind === 'dotted' ? 'dotted' : 'solid')
+
+// `solid` is a character a node's box, an arrowhead or a label drew: a line never overwrites it. `node` and `row`
+// say which node's box (and which of its three rows) a cell belongs to; `hot` marks what belongs to the selection.
+type Cell = { sides: number; style?: Style; solid?: string; node?: string; row?: number; hot?: boolean }
 
 /**
  * A run of cells on one line of the drawing that is drawn alike: a piece of a node's box (the `node` it belongs to
@@ -39,11 +89,40 @@ type Cell = { sides: number; solid?: string; node?: string; row?: number; hot?: 
  */
 export type Segment = { text: string; hot: boolean; node?: string; row?: number }
 
-type PlacedNode = { id: string; label: string; layer: number; x: number; top: number; width: number }
+type PlacedNode = {
+  id: string
+  rows: string[]
+  width: number
+  layer: number
+  // Where the box starts along the main axis and across it, and how far it reaches along each
+  main: number
+  cross: number
+  mainSize: number
+  crossSize: number
+}
 
-// One horizontal run of an edge, in the gap between two layers (gap -1 is above the first layer). The key names the
-// node whose edges it carries and in which direction: runs that share a key are one bus, drawn on one row.
+// One run of an edge along the cross axis, in the gap between two layers (gap -1 is before the first layer). The key
+// names the node whose edges it carries and in which direction: runs that share a key are one bus, on one row.
 type Run = { gap: number; key: string }
+
+/** The three rows of a node's box for its shape, and its width. */
+const boxOf = (shape: Shape, label: string): { rows: string[]; width: number } => {
+  const length = Array.from(label).length
+  const bar = (count: number): string => '─'.repeat(count)
+
+  switch (shape) {
+    case 'rounded':
+      return { rows: [`╭${bar(length + 2)}╮`, `│ ${label} │`, `╰${bar(length + 2)}╯`], width: length + 4 }
+    case 'stadium':
+      return { rows: [`╭${bar(length + 2)}╮`, `( ${label} )`, `╰${bar(length + 2)}╯`], width: length + 4 }
+    case 'diamond':
+      return { rows: [`╱${bar(length + 2)}╲`, `< ${label} >`, `╲${bar(length + 2)}╱`], width: length + 4 }
+    case 'circle':
+      return { rows: [` ╭${bar(length + 2)}╮ `, `(( ${label} ))`, ` ╰${bar(length + 2)}╯ `], width: length + 6 }
+    default:
+      return { rows: [`┌${bar(length + 2)}┐`, `│ ${label} │`, `└${bar(length + 2)}┘`], width: length + 4 }
+  }
+}
 
 /** The layer of each node: its longest path from a source, the edges that close a cycle left out of the count. */
 const layerOf = (diagram: Diagram): Map<string, number> => {
@@ -100,23 +179,34 @@ const assignRows = (runs: readonly Run[]): { rowOf: number[]; rowsIn: Map<number
 }
 
 /**
- * Draws a diagram top-down as lines of box-drawing characters: one box per node, the nodes of a layer side by side,
- * an edge as a line from the bottom of its source to an arrowhead above its target. An edge that does not join
- * neighbouring layers (it skips one, goes back up, or loops) runs down a lane to the right of every node, so it never
- * crosses one. The drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`.
+ * Draws a diagram as lines of box-drawing characters: one box per node, the nodes of a layer side by side, an edge as
+ * a line from the end of its source to an arrowhead before its target. An edge that does not join neighbouring
+ * layers (it skips one, goes back up, or loops) runs along a lane beside every node, so it never crosses one. The
+ * drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`.
  */
 export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
   if (diagram.nodes.length === 0) return []
 
+  const { direction } = diagram
+  const vertical = direction === 'TD' || direction === 'BT'
   const layers = layerOf(diagram)
   const layerOfNode = (id: string): number => layers.get(id) ?? 0
   const layerCount = Math.max(...layers.values()) + 1
   const nodesIn: PlacedNode[][] = Array.from({ length: layerCount }, () => [])
 
   for (const node of diagram.nodes) {
-    // The width counts characters the way a terminal cell does for ordinary text; wide characters are not handled
-    const width = Array.from(node.label).length + 4
-    nodesIn[layerOfNode(node.id)]?.push({ id: node.id, label: node.label, layer: layerOfNode(node.id), width, x: 0, top: 0 })
+    const { rows, width } = boxOf(node.shape, node.label)
+
+    nodesIn[layerOfNode(node.id)]?.push({
+      id: node.id,
+      rows,
+      width,
+      layer: layerOfNode(node.id),
+      main: 0,
+      cross: 0,
+      mainSize: vertical ? NODE_HEIGHT : width,
+      crossSize: vertical ? width : NODE_HEIGHT,
+    })
   }
 
   // Each layer below the first is ordered by where the sources of its nodes stand in the layer above, so that edges
@@ -139,13 +229,13 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
       .map(entry => entry.node)
   }
 
-  // The horizontal runs: an edge between neighbouring layers has one; any other edge leaves its source by one and
-  // arrives at its target by another, in the gaps below the source and above the target
+  // The runs along the cross axis: an edge between neighbouring layers has one; any other edge leaves its source by
+  // one and arrives at its target by another, in the gaps after the source and before the target
   const runs: Run[] = []
   const routes = diagram.edges.map(edge => {
     runs.push({ gap: layerOfNode(edge.from), key: `from:${edge.from}` })
 
-    // Between neighbouring layers the one run goes from the source's column to the target's
+    // Between neighbouring layers the one run goes from the source's line to the target's
     if (layerOfNode(edge.to) - layerOfNode(edge.from) === 1) {
       return { out: runs.length - 1, into: runs.length - 1, aside: false }
     }
@@ -158,41 +248,80 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
   const { rowOf, rowsIn } = assignRows(runs)
   const rowsOf = (gap: number): number => rowsIn.get(gap) ?? 0
 
-  // Above the first layer there are the rows of the runs that arrive from there, and the arrowhead row; below the
-  // last one the exit row and the rows of the runs that leave. Between layers: exit row, one row for each bus, and
-  // the arrowhead row.
-  const topMargin = rowsOf(-1) > 0 ? rowsOf(-1) + 1 : 0
+  // The longest label of an edge that arrives through a gap: it needs a row (or, flowing sideways, a width) there
+  const labelIn = new Map<number, number>()
+
+  diagram.edges.forEach((edge, index) => {
+    const route = routes[index]
+    if (edge.label === undefined || edge.label === '' || route === undefined) return
+
+    const gap = (runs[route.into] as Run).gap
+    labelIn.set(gap, Math.max(labelIn.get(gap) ?? 0, Array.from(edge.label).length))
+  })
+
+  // How far a gap reaches along the main axis: the exit row, one row for each bus, the row of the arrowhead, and a
+  // label (one row when flowing down or up, its width when flowing sideways). Before the first layer there is no exit
+  // row; after the last there is no arrowhead row.
+  const gapSize = (gap: number): number => {
+    const label = labelIn.get(gap) ?? 0
+    const base = Math.max(1, rowsOf(gap)) + 2
+
+    return vertical ? base + (label > 0 ? 1 : 0) : Math.max(base, label + 2)
+  }
+
+  const topMargin = rowsOf(-1) > 0 || (labelIn.get(-1) ?? 0) > 0 ? gapSize(-1) - 1 : 0
   const bottomMargin = rowsOf(layerCount - 1) > 0 ? rowsOf(layerCount - 1) + 1 : 0
-  const layerTop: number[] = []
+
+  const layerStart: number[] = []
+  const layerSize = nodesIn.map(layer => Math.max(...layer.map(node => node.mainSize)))
   let cursor = topMargin
 
   for (let layer = 0; layer < layerCount; layer += 1) {
-    layerTop.push(cursor)
-    cursor += NODE_HEIGHT + (layer < layerCount - 1 ? Math.max(1, rowsOf(layer)) + 2 : 0)
+    layerStart.push(cursor)
+    cursor += (layerSize[layer] as number) + (layer < layerCount - 1 ? gapSize(layer) : 0)
   }
 
-  const rowWidth = (layer: PlacedNode[]): number =>
-    layer.reduce((sum, node) => sum + node.width, 0) + SPACING * Math.max(0, layer.length - 1)
-  const widest = Math.max(...nodesIn.map(rowWidth))
+  const total = cursor + bottomMargin
+
+  // Across the diagram: the nodes of a layer side by side, each layer centred on the widest
+  const crossGap = vertical ? 3 : 1
+  const crossLength = (layer: PlacedNode[]): number =>
+    layer.reduce((sum, node) => sum + node.crossSize, 0) + crossGap * Math.max(0, layer.length - 1)
+  const widest = Math.max(...nodesIn.map(crossLength))
   const placed = new Map<string, PlacedNode>()
 
   nodesIn.forEach((layer, index) => {
-    let x = Math.floor((widest - rowWidth(layer)) / 2)
+    let cross = Math.floor((widest - crossLength(layer)) / 2)
 
     for (const node of layer) {
-      node.x = x
-      node.top = layerTop[index] as number
-      x += node.width + SPACING
+      node.main = layerStart[index] as number
+      node.cross = cross
+      cross += node.crossSize + crossGap
       placed.set(node.id, node)
     }
   })
 
   const laneCount = routes.filter(route => route.aside).length
-  const width = widest + LANE_START + laneCount * 2 + 1
-  const height = cursor + bottomMargin
+  const crossTotal = widest + LANE_START + laneCount * 2 + 1
+  const width = vertical ? crossTotal : total
+  const height = vertical ? total : crossTotal
 
   const grid: Cell[][] = Array.from({ length: height }, () => Array.from({ length: width }, (): Cell => ({ sides: 0 })))
   const at = (x: number, y: number): Cell | undefined => grid[y]?.[x]
+
+  // A point along the main and cross axes, as a cell of the grid
+  const place = (main: number, cross: number): { x: number; y: number } => {
+    switch (direction) {
+      case 'BT':
+        return { x: cross, y: total - 1 - main }
+      case 'LR':
+        return { x: main, y: cross }
+      case 'RL':
+        return { x: total - 1 - main, y: cross }
+      default:
+        return { x: cross, y: main }
+    }
+  }
 
   const setSolid = (x: number, y: number, char: string, hot: boolean, node?: { id: string; row: number }): void => {
     const target = at(x, y)
@@ -206,42 +335,51 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     }
   }
 
-  const addSides = (x: number, y: number, sides: number, hot: boolean): void => {
+  const addSides = (main: number, cross: number, sides: number, hot: boolean, style: Style): void => {
+    const { x, y } = place(main, cross)
     const target = at(x, y)
     if (target === undefined || target.solid !== undefined) return
 
-    target.sides |= sides
+    const physical = [FORWARD, BACK, CROSS_UP, CROSS_DOWN].reduce(
+      (sum, side) => ((sides & side) !== 0 ? sum | (SIDES[direction][side] as number) : sum),
+      0,
+    )
+
+    target.sides |= physical
     target.hot = target.hot === true || hot
+    if (target.style === undefined || STYLE_RANK[style] > STYLE_RANK[target.style]) target.style = style
   }
 
-  // A straight run of line between two cells along a row or a column, both ends included
-  const drawRun = (x1: number, y1: number, x2: number, y2: number, hot: boolean): void => {
-    if (y1 === y2) {
-      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x += 1) {
-        if (x > Math.min(x1, x2)) addSides(x, y1, LEFT, hot)
-        if (x < Math.max(x1, x2)) addSides(x, y1, RIGHT, hot)
+  // A straight run of line between two points, along the main axis or across it, both ends included
+  const drawRun = (m1: number, c1: number, m2: number, c2: number, hot: boolean, style: Style): void => {
+    if (c1 === c2) {
+      for (let main = Math.min(m1, m2); main <= Math.max(m1, m2); main += 1) {
+        if (main > Math.min(m1, m2)) addSides(main, c1, BACK, hot, style)
+        if (main < Math.max(m1, m2)) addSides(main, c1, FORWARD, hot, style)
       }
     } else {
-      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y += 1) {
-        if (y > Math.min(y1, y2)) addSides(x1, y, UP, hot)
-        if (y < Math.max(y1, y2)) addSides(x1, y, DOWN, hot)
+      for (let cross = Math.min(c1, c2); cross <= Math.max(c1, c2); cross += 1) {
+        if (cross > Math.min(c1, c2)) addSides(m1, cross, CROSS_UP, hot, style)
+        if (cross < Math.max(c1, c2)) addSides(m1, cross, CROSS_DOWN, hot, style)
       }
     }
   }
 
+  // The boxes are text, drawn the right way up whatever the direction: the main axis only places them
   for (const node of placed.values()) {
-    const inner = '─'.repeat(node.width - 2)
+    const main = direction === 'BT' || direction === 'RL' ? total - node.main - node.mainSize : node.main
+    const x = vertical ? node.cross : main
+    const y = vertical ? main : node.cross
 
-    ;[`┌${inner}┐`, `│ ${node.label} │`, `└${inner}┘`].forEach((text, row) => {
+    node.rows.forEach((text, row) => {
       Array.from(text).forEach((char, column) =>
-        setSolid(node.x + column, node.top + row, char, node.id === selected, { id: node.id, row }),
+        setSolid(x + column, y + row, char, node.id === selected, { id: node.id, row }),
       )
     })
   }
 
-  // Row `row` of a gap: the gap starts under the layer above it (row -1 is just above the grid for gap -1), its first
-  // row is the exit row, so the buses follow it
-  const busY = (gap: number, row: number): number => (gap < 0 ? -1 : (layerTop[gap] as number) + NODE_HEIGHT) + 1 + row
+  // Where the buses of a gap lie along the main axis: after the gap's exit row, one after another
+  const busMain = (gap: number, row: number): number => (gap < 0 ? row : (layerStart[gap] as number) + (layerSize[gap] as number) + 1 + row)
 
   let lane = 0
 
@@ -251,33 +389,52 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     const route = routes[index]
     if (from === undefined || to === undefined || route === undefined) return
 
-    const startX = from.x + Math.floor(from.width / 2)
-    const startY = from.top + NODE_HEIGHT
-    const endX = to.x + Math.floor(to.width / 2)
-    const endY = to.top - 1
+    const startMain = from.main + from.mainSize
+    const startCross = from.cross + Math.floor(from.crossSize / 2)
+    const endMain = to.main - 1
+    const endCross = to.cross + Math.floor(to.crossSize / 2)
     const outRun = runs[route.out] as Run
-    const outY = busY(outRun.gap, rowOf[route.out] as number)
+    const outMain = busMain(outRun.gap, rowOf[route.out] as number)
     // An edge that touches the selected node is part of the selection
     const hot = selected !== '' && (edge.from === selected || edge.to === selected)
+    const style = styleOf(edge.kind)
 
-    drawRun(startX, startY, startX, outY, hot)
+    drawRun(startMain, startCross, outMain, startCross, hot, style)
 
     if (!route.aside) {
-      drawRun(startX, outY, endX, outY, hot)
-      drawRun(endX, outY, endX, endY, hot)
+      drawRun(outMain, startCross, outMain, endCross, hot, style)
+      drawRun(outMain, endCross, endMain, endCross, hot, style)
     } else {
       const intoRun = runs[route.into] as Run
-      const intoY = busY(intoRun.gap, rowOf[route.into] as number)
-      const laneX = widest + LANE_START + lane * 2
+      const intoMain = busMain(intoRun.gap, rowOf[route.into] as number)
+      const laneCross = widest + LANE_START + lane * 2
       lane += 1
 
-      drawRun(startX, outY, laneX, outY, hot)
-      drawRun(laneX, outY, laneX, intoY, hot)
-      drawRun(laneX, intoY, endX, intoY, hot)
-      drawRun(endX, intoY, endX, endY, hot)
+      drawRun(outMain, startCross, outMain, laneCross, hot, style)
+      drawRun(outMain, laneCross, intoMain, laneCross, hot, style)
+      drawRun(intoMain, laneCross, intoMain, endCross, hot, style)
+      drawRun(intoMain, endCross, endMain, endCross, hot, style)
     }
 
-    setSolid(endX, endY, '▼', hot)
+    const head = place(endMain, endCross)
+    if (edge.kind !== 'open') setSolid(head.x, head.y, ARROWHEAD[direction], hot)
+
+    // The label sits beside the arrowhead (one step back along the flow when flowing down or up, above the line
+    // when flowing sideways), over empty cells only, and stops where a line is in the way
+    if (edge.label !== undefined && edge.label !== '') {
+      const chars = Array.from(edge.label)
+      const flow = direction === 'TD' || direction === 'LR' ? 1 : -1
+      const startX = vertical ? head.x + 1 : flow === 1 ? head.x - chars.length : head.x + 1
+      const labelY = vertical ? head.y - flow : head.y - 1
+
+      for (const [offset, char] of chars.entries()) {
+        const target = at(startX + offset, labelY)
+        if (target === undefined || target.solid !== undefined || target.sides !== 0) break
+
+        target.solid = char
+        target.hot = hot
+      }
+    }
   })
 
   // Each grid row becomes segments: cells drawn alike and, for a node's box, belonging to the same node, are one
@@ -285,7 +442,8 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     const segments: Segment[] = []
 
     for (const cell of row) {
-      const text = cell.solid ?? LINE[cell.sides] ?? ' '
+      const set = cell.style === 'thick' ? THICK : cell.style === 'dotted' ? DOTTED : SOLID
+      const text = cell.solid ?? set[cell.sides] ?? ' '
       const hot = cell.hot === true
       const last = segments[segments.length - 1]
 

@@ -98,20 +98,145 @@ describe('mermaid-view', () => {
 
   test('source it cannot read is shown with the line it stopped at, never a wrong picture', async ($, on) => {
     answerOpen(on)
-    await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B; B ==> C' })
+    await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B; B ~~~ C' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ text: /Could not read this diagram at: B ==> C/ })).toBeDefined()
+    expect(await pane.find({ text: /Could not read this diagram at: B ~~~ C/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /┌/ })).toBeUndefined()
   })
 
-  test('a direction that is not drawn yet is reported, not drawn top-down', async ($, on) => {
+  test('a direction that does not exist is reported, not drawn top-down', async ($, on) => {
     answerOpen(on)
-    await $.command.run({ command: 'mermaid-view', args: 'graph LR; A --> B' })
+    await $.command.run({ command: 'mermaid-view', args: 'graph XY; A --> B' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ text: /Could not read this diagram at: graph LR/ })).toBeDefined()
+    expect(await pane.find({ text: /Could not read this diagram at: graph XY/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /┌/ })).toBeUndefined()
+  })
+
+  describe('syntax', () => {
+    const draw = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args: string,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($)
+    }
+
+    // Where a node's label first appears in the drawn tree, which is top to bottom: a smaller number is higher up
+    const rowOf = async (pane: Awaited<ReturnType<typeof mountPane>>, label: string): Promise<number> =>
+      JSON.stringify(await pane.drawn()).indexOf(label)
+
+    test('top-down is the default, and TB and TD mean the same', async ($, on) => {
+      const pane = await draw($, on, 'flowchart TB; A --> B')
+
+      expect(await pane.find({ text: /▼/ })).toBeDefined()
+    })
+
+    test('bottom-up draws the first node at the bottom, with arrowheads pointing up', async ($, on) => {
+      const pane = await draw($, on, 'graph BT; A[First] --> B[Second]')
+      const first = await rowOf(pane, '│ First │')
+      const second = await rowOf(pane, '│ Second │')
+
+      expect(await pane.find({ text: /▲/ })).toBeDefined()
+      expect(await pane.find({ text: /▼/ })).toBeUndefined()
+      expect(first).toBeGreaterThan(second)
+    })
+
+    test('left to right puts the nodes on one row with the arrowhead pointing right', async ($, on) => {
+      const pane = await draw($, on, 'graph LR; A[Start] --> B[End]')
+
+      expect(await pane.find({ text: /│ Start │.*│ End │/ })).toBeDefined()
+      expect(await pane.find({ text: /▶/ })).toBeDefined()
+    })
+
+    test('right to left puts the first node on the right with the arrowhead pointing left', async ($, on) => {
+      const pane = await draw($, on, 'graph RL; A[Start] --> B[End]')
+
+      expect(await pane.find({ text: /│ End │.*│ Start │/ })).toBeDefined()
+      expect(await pane.find({ text: /◀/ })).toBeDefined()
+    })
+
+    test('a flow left to right stacks the nodes of a layer and keeps their boxes whole', async ($, on) => {
+      const pane = await draw($, on, 'graph LR; A[Start] --> B[Yes]; A --> C[No]')
+
+      expect(await pane.find({ text: /│ Start │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Yes │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ No │/ })).toBeDefined()
+      expect(await pane.findAll({ type: 'Text', text: /▶/ })).toHaveLength(2)
+    })
+
+    test('a node of each shape is drawn with its own outline', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A[Plain]; B(Round); C([Pill]); D{Choose}; E((Dot))')
+
+      expect(await pane.find({ text: /│ Plain │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Round │/ })).toBeDefined()
+      expect(await pane.find({ text: /╭/ })).toBeDefined()
+      expect(await pane.find({ text: /\( Pill \)/ })).toBeDefined()
+      expect(await pane.find({ text: /< Choose >/ })).toBeDefined()
+      expect(await pane.find({ text: /\(\( Dot \)\)/ })).toBeDefined()
+    })
+
+    test('a shape that is not closed as it was opened is reported', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A[Open)')
+
+      expect(await pane.find({ text: /Could not read this diagram at: A\[Open\)/ })).toBeDefined()
+    })
+
+    test('an open line has no arrowhead', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A --- B')
+
+      expect(await pane.find({ text: /▼/ })).toBeUndefined()
+      // the line between the boxes is still drawn
+      expect(await pane.find({ type: 'Text', text: /^\s*│$/ })).toBeDefined()
+    })
+
+    test('a dotted arrow is drawn dotted, with its arrowhead', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A -.-> B')
+
+      expect(await pane.find({ text: /┆/ })).toBeDefined()
+      expect(await pane.find({ text: /▼/ })).toBeDefined()
+    })
+
+    test('a thick arrow is drawn thick, with its arrowhead', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A ==> B')
+
+      expect(await pane.find({ text: /┃/ })).toBeDefined()
+      expect(await pane.find({ text: /▼/ })).toBeDefined()
+    })
+
+    test('an edge label sits by its arrowhead', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A --> |yes| B')
+
+      expect(await pane.find({ type: 'Text', text: /▼ ?$/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /yes/ })).toBeDefined()
+    })
+
+    test('a label on an edge flowing sideways is drawn on the line before the arrowhead', async ($, on) => {
+      const pane = await draw($, on, 'graph LR; A -->|go| B')
+
+      expect(await pane.find({ type: 'Text', text: /go/ })).toBeDefined()
+      expect(await pane.find({ text: /│ A │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ B │/ })).toBeDefined()
+    })
+
+    test('a & fans an edge out to every node, and in from every node', async ($, on) => {
+      const pane = await draw($, on, 'graph TD; A & B --> C & D')
+
+      // four edges, two arrowheads each side by side on one row
+      expect(await pane.findAll({ type: 'Text', text: /▼\s+▼/ })).toHaveLength(1)
+      expect(await pane.find({ text: /│ C │\s+│ D │/ })).toBeDefined()
+    })
+
+    test('a comment line is ignored', async ($, on) => {
+      const pane = await draw($, on, 'graph TD\n%% a note\nA --> B')
+
+      expect(await pane.find({ text: /│ A │/ })).toBeDefined()
+      expect(await pane.find({ text: /a note/ })).toBeUndefined()
+    })
   })
 
   test('a diagram with a header and no nodes says so', async ($, on) => {

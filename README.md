@@ -56,10 +56,14 @@ What it does so far:
 
 - `/mermaid-view <diagram text>` opens the pane and draws a top-down flowchart in the terminal: `graph TD; A[Start]
   --> B[Process]; B --> C[End]`. Statements are separated by `;` or a new line.
-- Nodes are `A`, `A[Label]` or `A["Label"]`; edges are `-->`, chained or not. A label may hold `;` or `-->`.
+- Directions: `TD` and `TB` (the default), `BT`, `LR` and `RL`.
+- Nodes are `A`, or with a label (quoted or not) in the shape of the brackets: `A[Label]` rectangle, `A(Label)`
+  rounded, `A([Label])` stadium, `A{Label}` diamond, `A((Label))` circle. A label may hold `;`, `&` or `-->`.
+- Edges: `-->` arrow, `---` open line, `-.->` dotted arrow, `==>` thick arrow, each with an optional `|label|` after
+  it. Edges chain (`A --> B --> C`) and `&` fans out (`A & B --> C & D`). `%%` starts a comment line.
 - Edges that skip a layer or go back up run down a lane to the right of the nodes, so they never cross a node.
-- Source it cannot read (another direction such as `graph LR`, other syntax) is shown with the statement it stopped
-  at, instead of a wrong picture.
+- Source it cannot read (an unknown direction, `~~~`, other syntax) is shown with the statement it stopped at,
+  instead of a wrong picture.
 - Press a node (click, or Tab to it and Enter) to select it: it and the edges that touch it are drawn in the accent
   color, and the lines under the drawing list what it leads to and where it is reached from. Press it again, or
   `Clear`, to clear the selection.
@@ -71,7 +75,7 @@ the drawing set in a monospace font; the selection is bold) with one button per 
 It is used on the desktop too, because there a plain `Button` is a native button and the box could not be known to
 keep its shape; whether the drawn boxes would work there is a manual check not yet made.
 
-Not yet: other directions and node shapes, subgraphs, click directives, a terminal guide.
+Not yet: subgraphs, `classDef`/`style`, click directives, a terminal guide.
 
 Known limits of the drawing: a diagram wider than the pane is not scrolled or fitted; when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is
