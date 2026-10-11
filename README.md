@@ -8,12 +8,12 @@ Personal Claude Code mods and experiments.
 
 Takes one feature from an idea or a GitHub issue to a pull request. It lives in
 [`.claude/mods/ship-flow`](.claude/mods/ship-flow). It automates the flow of the `mattpocock-skills` plugin, with
-the spec and the tickets kept as local files under `.scratch/<feature>/` instead of issues.
+the spec and the tickets written as local files under `.scratch/<feature>/`, and the tickets never published.
 
 - `/ship <idea>` or `/ship #<issue>` starts a run: you are grilled about the feature, then a spec and a set of
   tickets are written locally. Nothing is published.
 - You read them, change what you like, and approve with `/ship resume`. That is the one checkpoint. A run from an
-  idea opens its single GitHub issue then.
+  idea opens its single GitHub issue then, with the spec as its text.
 - From there the run is unattended, on a branch `ship/<feature>`: each ticket is built by a fresh subagent, the run
   executes the spec's verification commands itself and commits, and a ticket that fails twice is marked `blocked`
   while the rest go on.

@@ -1,7 +1,7 @@
 import type { Settings } from './budget'
 import { readFolders, writeRecord } from './folders'
 import type { Host } from './host'
-import { SCRATCH, folderOf, issueOf, issuesOf, kept, sourceOf, specOf } from './run'
+import { SCRATCH, folderOf, issuesOf, kept, sourceOf, specOf } from './run'
 import type { RunRecord } from './run'
 import { git, tail } from './work'
 
@@ -171,7 +171,7 @@ export const reattend = async (host: Host, settings: Settings, record: RunRecord
 
 /**
  * The checkpoint is approved: the person typed `/ship resume` on a run still in its attended phase. The run opens
- * its issue if it started from an idea, moves to a branch of its own, commits there what the grilling changed
+ * its issue from its spec if it started from an idea, moves to a branch of its own, commits there what the grilling changed
  * (the glossary, ADRs), and has the main conversation compacted to pointers. Answers the record the building
  * starts from, or why the run cannot start.
  */
@@ -180,14 +180,11 @@ export const approve = async (host: Host, record: RunRecord): Promise<RunRecord 
   let { issue, title } = record
 
   if (issue === undefined) {
-    if (!(await host.exists(issueOf(feature)))) {
-      return { refusal: `there is no ${issueOf(feature)}: the text of the issue this run opens (\`# <title>\`, then the body)` }
-    }
+    // The issue is the spec itself: its heading's title, less the word that says it is a spec, and the rest as body
+    const text = await host.read(specOf(feature))
+    const heading = /^#[ \t]+(?:Spec\b[ \t]*:?[ \t]*)?(.*)$/m.exec(text)?.[1]?.trim()
 
-    const text = await host.read(issueOf(feature))
-    const heading = /^#\s+(.+)$/m.exec(text)?.[1]?.trim()
-
-    if (!heading) return { refusal: `${issueOf(feature)} has no \`# <title>\` line` }
+    if (!heading) return { refusal: `${specOf(feature)} has no \`# Spec: <title>\` line, which names the issue this run opens` }
 
     const body = text.replace(/^#\s+.+$/m, '').trim()
     const created = await host.run(['gh', 'issue', 'create', '--title', heading, '--body-file', '-'], { stdin: `${body}\n` })

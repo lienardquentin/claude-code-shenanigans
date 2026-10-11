@@ -28,10 +28,9 @@ const ship = async ($: Engine, args: string) => {
   return text
 }
 
-// What the attended phase leaves in the run's folder: a spec, the issue's text, and two tickets
-const attend = (repo: Repo, folder = FOLDER, { withIssueText = true } = {}) => {
-  repo.files[`${folder}/spec.md`] = spec(['npm test'])
-  if (withIssueText) repo.files[`${folder}/issue.md`] = '# Pay a cart by card\n\nCustomers cannot pay.\n\nA cart is paid with a card.\n'
+// What the attended phase leaves in the run's folder: a spec, whose heading carries the feature's title, and two tickets
+const attend = (repo: Repo, folder = FOLDER, { isTitled = true } = {}) => {
+  repo.files[`${folder}/spec.md`] = isTitled ? spec(['npm test']).replace('# Spec', '# Spec: Pay a cart by card') : spec(['npm test'])
   repo.files[`${folder}/issues/01-cart.md`] = ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** ready'])
   repo.files[`${folder}/issues/02-pay.md`] = ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** ready'])
 }
@@ -193,25 +192,27 @@ describe('the checkpoint', () => {
     expect(repo.prompts[1]).toContain('Source: GitHub issue #12, "Pay a cart by card", below.')
   })
 
-  test('is refused while a run from an idea has no issue text, and nothing is opened', async ($, on) => {
+  test('is refused while the spec of a run from an idea has no title, and nothing is opened', async ($, on) => {
     const repo = repoOf(on,{ files: {}, branch: 'main' })
 
     await ship($, IDEA)
-    attend(repo, FOLDER, { withIssueText: false })
+    attend(repo, FOLDER, { isTitled: false })
 
-    expect(await ship($, 'resume')).toMatch(/cannot start: there is no \.scratch\/let-a-cart-be-paid-by-card\/issue\.md/)
+    expect(await ship($, 'resume')).toMatch(/cannot start: \.scratch\/let-a-cart-be-paid-by-card\/spec\.md has no `# Spec: <title>` line/)
     expect(repo.github.issues).toEqual([])
     expect(repo.spawned).toEqual([])
   })
 
-  test('approved, opens the one issue of a run from an idea, from the text the attended phase wrote', async ($, on) => {
+  test('approved, opens the one issue of a run from an idea, from its spec: the title of its heading, and the rest as body', async ($, on) => {
     const repo = repoOf(on,{ files: {}, branch: 'main' })
 
     await ship($, IDEA)
     attend(repo)
     await ship($, 'resume')
 
-    expect(repo.github.issues).toEqual([{ title: 'Pay a cart by card', body: 'Customers cannot pay.\n\nA cart is paid with a card.\n' }])
+    expect(repo.github.issues).toEqual([
+      { title: 'Pay a cart by card', body: '## Solution\n\nSomething.\n\n## Verification\n\n```\nnpm test\n```\n' },
+    ])
     expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({ issue: 31, title: 'Pay a cart by card' })
   })
 
@@ -219,7 +220,7 @@ describe('the checkpoint', () => {
     const repo = repoOf(on,{ files: {}, branch: 'main', issues: ISSUES })
 
     await ship($, '#12')
-    attend(repo, '.scratch/pay-a-cart-by-card', { withIssueText: false })
+    attend(repo, '.scratch/pay-a-cart-by-card', { isTitled: false })
     await ship($, 'resume')
 
     expect(repo.github.issues).toEqual([])

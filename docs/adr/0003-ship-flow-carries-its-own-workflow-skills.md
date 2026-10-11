@@ -4,7 +4,8 @@
 `to-tickets` and `implement` instead of calling the plugin's. Those three are marked `disable-model-invocation`, so
 neither the model nor a subagent can invoke them; reading their files from the plugin cache would tie the mod to a
 versioned path that changes on every plugin update. They also need changing: a run keeps its spec and tickets as
-local files under `.scratch/<feature>/` and never publishes them as issues, the spec carries a Verification section
+local files under `.scratch/<feature>/` and publishes one issue at most (the spec, for a run that started from an
+idea; never the tickets), the spec carries a Verification section
 with the test and typecheck commands, and tickets carry more states than `ready-for-agent`. The skills that can be
 invoked and need no change (`grilling`, `domain-modeling`) are still called from the plugin.
 
