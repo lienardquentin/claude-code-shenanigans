@@ -60,7 +60,9 @@ Two live runs on 2026-10-11, with the context budget set to 1% so that any imple
   went on, built its ticket and ended with the reason `answer`.
 
 So the run stops an implementer the one way it controls: once it is past its budget, the mod's `tool.check` hook
-refuses every tool it calls, and with nothing left to do it ends its turn. What the declarations said beforehand:
+refuses every tool it calls, and with nothing left to do it ends its turn. A third live run showed that working:
+the implementer's first response carried 11,432 tokens, its tools were refused, it ended its turn, nothing was
+committed and its ticket was marked `too-large`. What the declarations said beforehand:
 
 - A `turn.step` event carries the subagent's `agentId` and `turnId`, and its stream ends with a `stop` chunk whose
   `usage` holds the step's token counts. A subagent's context fill can therefore be read as it works.
