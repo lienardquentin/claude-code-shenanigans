@@ -66,10 +66,13 @@ What it does so far:
   move it, with a line saying which columns show. Pressing or walking to a node cut by the edge brings its whole box
   into view, and the pane is scrolled to it. A new width redraws within it, and a different diagram starts at the
   top left.
-- `Open as a page` writes the drawing as a page of its own (the vector drawing in an HTML file in the temporary
-  folder, `mermaid-view.html`, only when asked) and shows its address as a link: in a browser the wheel, the scroll
-  bars and the zoom are the browser's, and the drawing can be as big as it needs to be. On the desktop app the
-  address is shown as text to open, as that surface only draws `https` links.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
+- `Open in the browser (rendered by Mermaid)` writes a page (`mermaid-view.html` in the temporary folder, only when
+  asked) and shows its address as a link. The page loads the Mermaid library itself (a pinned version from a CDN,
+  so it needs the network) and has it draw the source: every diagram type and every syntax Mermaid knows, which is
+  more than the pane draws, and the browser's own wheel, scroll bars and zoom. If the library cannot be loaded or the
+  source does not parse, the page shows the mod's own drawing instead, where there is one. It is offered for a
+  diagram the pane cannot draw too. On the desktop app the address is shown as text to open, as that surface only
+  draws `https` links.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
   closed up, and then labels are wrapped to narrower and narrower boxes (at spaces, dashes and slashes, and inside a
   word only when nothing wider fits) until it fits. A node's label is wrapped onto more rows, and selecting it
   still names the whole label. What cannot be made narrow enough is shown through the window above.

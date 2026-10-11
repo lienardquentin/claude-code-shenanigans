@@ -703,6 +703,53 @@ describe('mermaid-view', () => {
       expect(made[0]?.text).toContain('Start')
     })
 
+    test('has Mermaid itself draw the source: the library at a pinned version, and the source escaped in the page', async ($, on) => {
+      const made = writes(on)
+      mock.env(on, { HOME: '/home/someone' })
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A["x <b> & y"] --> B' })
+      const pane = await mountPane($)
+
+      await pane.press({ key: 'page' })
+
+      const html = made[0]?.text ?? ''
+      // the real library, at an exact version, from a CDN: never "latest"
+      expect(html).toMatch(/import\("https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.esm\.min\.mjs"\)/)
+      expect(html).toContain('mermaid.run(')
+      expect(html).toContain('securityLevel: "strict"')
+      // the source is data in the page, and not markup
+      expect(html).toContain('<pre class="mermaid" id="diagram">graph TD; A["x &lt;b&gt; &amp; y"] --&gt; B</pre>')
+      expect(html).not.toContain('<b>')
+    })
+
+    test('falls back to the mod\'s own drawing when the library cannot be loaded or the source does not parse', async ($, on) => {
+      const made = writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      await pane.press({ key: 'page' })
+
+      const html = made[0]?.text ?? ''
+      expect(html).toContain('<div id="fallback"><svg ')
+      expect(html).toContain('catch (error)')
+      expect(html).toContain('fallback.style.display = "block"')
+    })
+
+    test('is offered for a diagram the mod cannot draw, which Mermaid can', async ($, on) => {
+      const made = writes(on)
+      mock.env(on, { HOME: '/home/someone' })
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'sequenceDiagram\nA->>B: hello' })
+      const pane = await mountPane($)
+
+      expect(await pane.find({ type: 'Button', key: 'page' })).toBeDefined()
+
+      await pane.press({ key: 'page' })
+
+      expect(made).toHaveLength(1)
+      expect(made[0]?.text).toContain('sequenceDiagram\nA-&gt;&gt;B: hello')
+      // the mod has no drawing of it to fall back to
+      expect(made[0]?.text).toContain('<div id="fallback"></div>')
+    })
     test('is linked by its file address', async ($, on) => {
       writes(on)
       const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\some one\\Temp' })

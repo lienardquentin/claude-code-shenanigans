@@ -66,21 +66,48 @@ const environment = async ($: Engine): Promise<Env> => {
   return name => values[name]
 }
 
-// The drawing as a page of its own: the vector drawing in an HTML file that the browser shows, where the wheel, the
-// scroll bars and the zoom are the browser's and it can be as large as it needs to be. It is written to the
-// temporary folder, only when the person asks, and the pane shows its address as a link.
+// The diagram as a page of its own, rendered by Mermaid itself: an HTML file that the browser shows, which loads the
+// Mermaid library (a pinned version, from a CDN) and draws the source with it, so that every diagram type and
+// every syntax is drawn as Mermaid draws it, and the wheel, the scroll bars and the zoom are the browser's. If the
+// library cannot be loaded (no network) or the source does not parse, the mod's own drawing is shown instead,
+// when it has one. The page is written to the temporary folder, only when the person asks, and the pane shows its
+// address as a link.
 const PAGE_NAME = 'mermaid-view.html'
+const MERMAID_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.esm.min.mjs'
 
-const pageDocument = (svg: string): string =>
+const escapeHtml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+const pageDocument = (source: string, fallback: string | undefined): string =>
   '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">' +
-  `<title>Mermaid diagram</title><style>html,body{margin:0}body{padding:24px}svg{display:block}</style></head><body>${svg}</body></html>`
+  '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Mermaid diagram</title>' +
+  '<style>html,body{margin:0}body{padding:24px;font-family:system-ui,sans-serif}svg{max-width:none}' +
+  '#note{font-size:13px;opacity:.7}#fallback{display:none}</style></head><body>' +
+  `<pre class="mermaid" id="diagram">${escapeHtml(source)}</pre>` +
+  '<p id="note"></p>' +
+  `<div id="fallback">${fallback ?? ''}</div>` +
+  '<script type="module">' +
+  'const note = document.getElementById("note");' +
+  'const fallback = document.getElementById("fallback");' +
+  'try {' +
+  `const { default: mermaid } = await import(${JSON.stringify(MERMAID_URL)});` +
+  'const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;' +
+  'mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });' +
+  'await mermaid.run({ querySelector: "#diagram" });' +
+  '} catch (error) {' +
+  'document.getElementById("diagram").style.display = "none";' +
+  `note.textContent = "Mermaid could not draw this: " + (error && error.message ? error.message : error) + ${JSON.stringify(
+    fallback === undefined ? '' : ' Showing the mod\'s own drawing instead.',
+  )};` +
+  'fallback.style.display = "block";' +
+  '}' +
+  '</script></body></html>'
 
-const writePage = async ($: Engine, svg: string): Promise<string> => {
+const writePage = async ($: Engine, source: string, fallback: string | undefined): Promise<string> => {
   const folder = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp'
   const separator = folder.includes('\\') ? '\\' : '/'
   const path = `${folder.replace(/[\\/]+$/, '')}${separator}${PAGE_NAME}`
 
-  await $.fs.write(path, pageDocument(svg))
+  await $.fs.write(path, pageDocument(source, fallback))
 
   const slashes = path.replace(/\\/g, '/')
 
@@ -301,6 +328,42 @@ const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
     : `Could not read this diagram at line ${failed.number}: ${failed.line}`
 }
 
+// The button that writes the page of a diagram for the browser to render with Mermaid, and, once it has, the address
+// of the page as a link (or why it could not be written). `fallback` is the mod's own drawing of it, when it has one.
+const browserRow = async ($: Engine, e: Drawn, source: string, fallback: (() => string) | undefined): Promise<RenderElement[]> => {
+  const { Box, Button, Link } = $.ui.resolve(e)
+  const written = await read($, page)
+
+  return [
+    <Box key="page-row" flexDirection="row" gap={2}>
+      <Button
+        key="page"
+        onPress={async () => {
+          try {
+            await update($, page, () => '')
+            const url = await writePage($, source, fallback?.())
+            await update($, page, () => url)
+          } catch (error) {
+            await update($, page, () => `error:${error instanceof Error ? error.message : String(error)}`)
+          }
+        }}
+      >
+        {actionLabel({ text: 'Open in the browser (rendered by Mermaid)' })}
+      </Button>
+      {written !== '' && !written.startsWith('error:') ? <Link href={written}>{written}</Link> : null}
+    </Box>,
+    ...(written.startsWith('error:')
+      ? [badge({ label: `Could not write the page: ${written.slice('error:'.length)}`, tone: 'warning' })]
+      : written !== ''
+        ? [
+            tonedText({
+              text: 'Open this address in a browser: click it where it is a link (Ctrl+click in some terminals), or paste it in the address bar.',
+              tone: 'neutral',
+            }),
+          ]
+        : []),
+  ]
+}
 // What the card holds: the drawing, or a note saying why there is none. The source is shown beside a note about it,
 // so the reader can see what could not be read.
 const content = async (
@@ -321,7 +384,11 @@ const content = async (
   const parsed = parseDiagram(text)
 
   if (!parsed.ok) {
-    return [badge({ label: explain(parsed), tone: 'warning' }), code({ source: text, plain: true })]
+    return [
+      badge({ label: explain(parsed), tone: 'warning' }),
+      ...(await browserRow($, e, text, undefined)),
+      code({ source: text, plain: true }),
+    ]
   }
 
   const { diagram } = parsed
@@ -334,6 +401,7 @@ const content = async (
         label: `This diagram has ${diagram.nodes.length} nodes; more than ${MAX_NODES} are not drawn. Its source:`,
         tone: 'warning',
       }),
+      ...(await browserRow($, e, text, undefined)),
       code({ source: text, plain: true }),
     ]
   }
@@ -452,34 +520,8 @@ const content = async (
           </Box>,
         ]
 
-  // The page of the drawing: a button that writes it, and then its address as a link
-  const written = await read($, page)
-  const pageRow: RenderElement[] = [
-    <Box key="page-row" flexDirection="row" gap={2}>
-      <Button
-        key="page"
-        onPress={async () => {
-          try {
-            await update($, page, () => '')
-            const url = await writePage($, vectorSvg(geometry).source)
-            await update($, page, () => url)
-          } catch (error) {
-            await update($, page, () => `error:${error instanceof Error ? error.message : String(error)}`)
-          }
-        }}
-      >
-        {actionLabel({ text: 'Open as a page' })}
-      </Button>
-      {written !== '' && !written.startsWith('error:') ? (
-        <Link href={written}>{written}</Link>
-      ) : null}
-    </Box>,
-    ...(written.startsWith('error:')
-      ? [badge({ label: `Could not write the page: ${written.slice('error:'.length)}`, tone: 'warning' })]
-      : written !== ''
-        ? [tonedText({ text: 'Open this address in a browser: click it where it is a link (Ctrl+click in some terminals), or paste it in the address bar.', tone: 'neutral' })]
-        : []),
-  ]
+  // The page of the diagram, rendered by Mermaid: the mod's own drawing is what it falls back to
+  const pageRow = await browserRow($, e, text, () => vectorSvg(geometry).source)
 
   // One button per node: the fallback view's way to select, and the picture's
   const nodeButtons = (
