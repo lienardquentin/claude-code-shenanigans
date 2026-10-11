@@ -52,6 +52,18 @@ _Avoid_: Task, sub-issue, step
 A point in a run where it stops for the user's decision.
 _Avoid_: Gate, approval step
 
+**Blast radius**:
+What building a ticket is estimated to touch, in two parts never folded into one figure: its reach and its outward actions. A run's blast radius is the union of its tickets'.
+_Avoid_: Impact, risk score, scope
+
+**Reach**:
+The files a ticket expects to change, and the files that depend on them.
+_Avoid_: Footprint, surface area
+
+**Outward action**:
+Something a ticket expects to do that reaches outside the working tree or is hard to reverse.
+_Avoid_: Side effect, dangerous command
+
 **Context budget**:
 How much of one context window a phase of a run may fill before its work must move to a fresh window.
 _Avoid_: Session usage, token limit
