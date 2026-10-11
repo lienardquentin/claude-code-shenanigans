@@ -41,8 +41,17 @@ export async function readRecord(host: Host, feature: string): Promise<RunRecord
   return (await host.exists(recordOf(feature))) ? parseRecord(await host.read(recordOf(feature))) : undefined
 }
 
+// The write of each record still under way. Two hooks may write one record at the same moment (a response is
+// measured while the tool call it carries is checked), and two writes at once leave a file that is neither.
+const writing = new Map<string, Promise<void>>()
+
+/** Writes a run's record, after any write of it still under way: a record's file is never written twice at once. */
 export const writeRecord = async (host: Host, record: RunRecord): Promise<void> => {
-  await host.write(recordOf(record.feature), recordText(record))
+  const path = recordOf(record.feature)
+  const write = (writing.get(path) ?? Promise.resolve()).catch(() => undefined).then(() => host.write(path, recordText(record)))
+
+  writing.set(path, write)
+  await write
   host.changed()
 }
 
