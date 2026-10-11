@@ -30,6 +30,12 @@ export type Host = {
   }>
   now: () => Promise<number>
   cwd: () => Promise<string>
+  /** The mod's own folder, absolute: where the texts it points the model at are. */
+  root: string
+  /** Hands the model a prompt as a turn of its own, once the session is idle. */
+  prompt: (text: string) => void
+  /** Compacts the main conversation, keeping what the instructions say; between turns, without being waited for. */
+  compact: (instructions: string) => void
   /** One dim line in the transcript, which the model does not read. */
   log: (text: string) => void
   /** A notification on the person's desktop, by their own channel; nothing where they turned those off. */

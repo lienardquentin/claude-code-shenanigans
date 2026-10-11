@@ -38,6 +38,14 @@ object of closures over `$` in `register.ts` and writes every other module again
 - An `agent.offer` hook answering `{ isOffered: false }` keeps the type from the model while the mod's own spawn
   still runs it. (declared)
 
+## Prompts and compaction
+
+- `$.prompt.submit({ text })` hands the model a prompt as a turn of its own, and `$.session.compact({ instructions })`
+  compacts the main conversation. Both wait on the session being idle. (declared)
+- Called from inside a `command.run` hook, `$.prompt.submit` is refused: "it would wait on the turn this hook is
+  holding; submit from a later event". The mod therefore makes both calls from a `$.clock.after(0, ...)` timer,
+  once the command's hook has returned. (tested; not live)
+
 ## Permissions
 
 - `tool.check` is the permission decision for one tool call and carries the `agentId` of the loop that made it. A

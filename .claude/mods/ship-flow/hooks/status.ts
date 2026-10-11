@@ -17,6 +17,7 @@ const problemLine = (problem: Problem): string =>
 // Where the run stands, as the end of the feature's line: what it builds now, or why it does not build
 const standing = (record: RunRecord | undefined): string => {
   if (!record) return ''
+  if (record.phase === 'attended') return ' · with you, before the checkpoint: /ship resume approves it'
   if (record.phase === 'unattended') return ` · building ${label(record.ticket ?? 0)}`
   if (record.phase === 'finishing') return record.stage === 'fix' ? ' · fixing what the review found' : ' · reviewing the branch'
 
@@ -59,7 +60,7 @@ export const folderText = ({ feature, tickets, record }: Folder): string => {
   if (problems.length > 0) {
     return [`${feature}: the ticket folder cannot be run`, ...problems.map(problemLine)].join('\n')
   }
-  if (tickets.length === 0) return `${feature}: no tickets yet`
+  if (tickets.length === 0) return `${feature}: no tickets yet${standing(record)}`
 
   const takeable = new Set(frontier(tickets))
   const done = tickets.filter(ticket => ticket.status === 'done').length

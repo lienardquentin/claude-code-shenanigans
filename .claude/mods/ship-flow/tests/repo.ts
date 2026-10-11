@@ -30,6 +30,8 @@ export const answerRepo = (
     branch?: string
     /** How many commits the branch already has that `main` lacks, before the run makes any. */
     ahead?: number
+    /** The repo's issues on GitHub, by number. */
+    issues?: Readonly<Record<number, { title: string; body: string; labels?: readonly string[] }>>
     /** Where the session's clock starts, in milliseconds. */
     now?: number
     /** How full each quota window is, in percent, and when the short one resets. */
@@ -43,19 +45,22 @@ export const answerRepo = (
   const ran: string[] = []
   const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
   const logged: string[] = []
-  const state = { porcelain: given.porcelain ?? '', commits: 0 }
+  const state = { porcelain: given.porcelain ?? '', commits: 0, branch: given.branch ?? 'checkout-feature' }
+  const prompts: string[] = []
+  const compacted: string[] = []
   const github: {
+    issues: { title: string; body: string }[]
     pr?: { url: string; isDraft: boolean }
     body: string
     title: string
     base: string
     failsToPush: boolean
     failsToOpen: boolean
-  } = { body: '', title: '', base: '', failsToPush: false, failsToOpen: false }
+  } = { issues: [], body: '', title: '', base: '', failsToPush: false, failsToOpen: false }
   const exits: Record<string, number> = { ...given.exits }
   const isDir = (path: string) => Object.keys(files).some(file => file.startsWith(`${path}/`))
   // The engine hands a hook the path made absolute under the working directory, in the machine's own spelling
-  const inRepo = (path: string) => path.replaceAll('\\', '/').replace(/^.*?(?=\.scratch(\/|$))/, '')
+  const inRepo = (path: string) => path.replaceAll('\\', '/').replace(/^.*?(?=\.scratch(\/|$)|\.gitignore$)/, '')
   const exited = (exitCode: number, stdout = '', stderr = '') => ({
     value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
   })
@@ -93,6 +98,17 @@ export const answerRepo = (
       // GitHub, as its CLI answers: the branch's pull request, once one was opened
       const body = e.init?.stdin ?? ''
 
+      if (e.argv[1] === 'issue' && e.argv[2] === 'view') {
+        const issue = given.issues?.[Number(e.argv[3])]
+
+        return (issue ? exited(0, JSON.stringify({ number: Number(e.argv[3]), ...issue, labels: (issue.labels ?? []).map(name => ({ name })) })) : exited(1, '', 'GraphQL: Could not resolve to an Issue')) as never
+      }
+      if (e.argv[1] === 'issue' && e.argv[2] === 'create') {
+        if (github.failsToOpen) return exited(1, '', 'GraphQL: not authorized') as never
+        github.issues.push({ title: e.argv[e.argv.indexOf('--title') + 1] ?? '', body })
+
+        return exited(0, `https://github.com/dev/repo/issues/${30 + github.issues.length}\n`) as never
+      }
       if (e.argv[2] === 'view') return (github.pr ? exited(0, JSON.stringify(github.pr)) : exited(1, '', 'no pull requests found')) as never
       if (e.argv[2] === 'create') {
         if (github.failsToOpen) return exited(1, '', 'GraphQL: not authorized') as never
@@ -115,7 +131,8 @@ export const answerRepo = (
     }
     if (e.argv[1] === 'check-ignore') return exited(given.isIgnored === false ? 1 : 0) as never
     if (line === 'git status --porcelain') return exited(0, state.porcelain) as never
-    if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, `${given.branch ?? 'checkout-feature'}\n`) as never
+    if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, `${state.branch}\n`) as never
+    if (e.argv[1] === 'checkout') state.branch = e.argv.at(-1) ?? state.branch
     // Each commit has a name of its own: the first the run makes is abc1234
     if (line === 'git rev-parse --short HEAD') return exited(0, `abc${1233 + state.commits}\n`) as never
     if (e.argv[1] === 'symbolic-ref') return exited(0, 'origin/main\n') as never
@@ -166,6 +183,17 @@ export const answerRepo = (
       },
     } as never
   })
+  on('prompt.submit', (_, e) => {
+    prompts.push(e.text)
+
+    return { text: e.text } as never
+  })
+  // A compaction beneath the mod: nothing is summarised, and the session says so
+  on('session.compact', (_, e) => {
+    compacted.push(e.instructions ?? '')
+
+    return { skip: 'a test compacts nothing' } as never
+  })
   on('ui.notify', (_, e) => {
     notified.push(e.text)
 
@@ -210,6 +238,11 @@ export const answerRepo = (
     spawned,
     logged,
     notified,
+    /** The prompts the mod handed the model, and the instructions of each compaction it asked for. */
+    prompts,
+    compacted,
+    /** The branch the repo is on now. */
+    branch: () => state.branch,
     /** GitHub as the mod left it: the branch's pull request, its title, base and body; and what a test makes fail. */
     github,
     /** The turns the mod stopped, by id. */

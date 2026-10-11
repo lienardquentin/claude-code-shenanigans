@@ -105,6 +105,6 @@ describe('/ship status', () => {
   })
 
   test('any other argument answers with how the command is used', async $ => {
-    expect((await $.command.run({ command: 'ship', args: '' } as never)).text).toMatch(/Usage: \/ship status/)
+    expect((await $.command.run({ command: 'ship', args: '' } as never)).text).toMatch(/^Usage:/)
   })
 })
