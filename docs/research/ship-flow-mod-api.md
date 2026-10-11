@@ -50,7 +50,17 @@ object of closures over `$` in `register.ts` and writes every other module again
   `{ kind, percentUsed, resetsAt }` (`five_hour`, `seven_day`). `rateLimits` is empty off a subscription.
   (declared)
 
-## For ticket 05: measuring and stopping a running subagent (declared, not exercised)
+## Measuring and stopping a running subagent (live)
+
+Two live runs on 2026-10-11, with the context budget set to 1% so that any implementer passes it at once:
+
+- A `turn.step` hook of the mod does see the responses of an implementer the mod itself spawned, each with its
+  `usage`. The mod asked for a stop on the first one.
+- `$.turn.abort({ turnId })` with the `turnId` those steps carry does not stop a subagent's turn: the implementer
+  went on, built its ticket and ended with the reason `answer`.
+
+So the run stops an implementer the one way it controls: once it is past its budget, the mod's `tool.check` hook
+refuses every tool it calls, and with nothing left to do it ends its turn. What the declarations said beforehand:
 
 - A `turn.step` event carries the subagent's `agentId` and `turnId`, and its stream ends with a `stop` chunk whose
   `usage` holds the step's token counts. A subagent's context fill can therefore be read as it works.

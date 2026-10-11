@@ -21,7 +21,6 @@ const hostOf = ($: EngineInterface): Host => ({
 
     return { ...(agentId !== undefined ? { agentId } : {}), ...(model !== undefined ? { model } : {}), ...(deny !== undefined ? { deny } : {}) }
   },
-  abort: turnId => $.turn.abort({ turnId }),
   agents: async () =>
     (await $.agent.list()).map(agent => ({ id: agent.id, type: agent.type, isRunning: agent.status === 'running' })),
   usage: async () => {
@@ -92,7 +91,7 @@ export const register: Register = (on, options) => {
     const response = yield* next(e)
 
     if (e.agentId !== undefined && response.usage) {
-      await measure(hostOf($), settings, { agentId: e.agentId, turnId: e.turnId, tokens: fillOf(response.usage) })
+      await measure(hostOf($), settings, { agentId: e.agentId, tokens: fillOf(response.usage) })
     }
 
     return response
