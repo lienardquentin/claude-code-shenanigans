@@ -1,6 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import { fillOf, settingsOf } from './budget'
+import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
 import type { Host } from './host'
 import { SCRATCH } from './run'
@@ -15,7 +16,7 @@ const hostOf = ($: EngineInterface): Host => ({
   read: path => $.fs.read(path),
   write: (path, text) => $.fs.write(path, text),
   list: async path => (await $.fs.list(path)).map(entry => ({ name: entry.name, isDir: entry.kind === 'dir' })),
-  run: (argv, timeoutMs) => $.process.run(argv, timeoutMs === undefined ? {} : { timeoutMs }),
+  run: (argv, init) => $.process.run(argv, init ?? {}),
   spawn: async agent => {
     const { agentId, model, deny } = await $.agent.spawn(agent)
 
@@ -59,12 +60,20 @@ export const register: Register = (on, options) => {
       tools: IMPLEMENTER_TOOLS,
       model: settings.implementerModel,
     })
+    await $.agent.register({
+      name: REVIEWER,
+      description: 'Reviews the branch of a ship-flow run against its spec. Started by the run itself, never by hand.',
+      prompt: REVIEWER_PROMPT,
+      tools: REVIEWER_TOOLS,
+      model: settings.strongModel,
+    })
 
     return next(e)
   })
 
-  // The implementer is the run's to start: the model is never offered it
+  // The run's agents are the run's to start: the model is never offered them
   on('agent.offer', { agent: 'ship-flow:implementer' }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+  on('agent.offer', { agent: 'ship-flow:reviewer' }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 
   on('command.run', { command: 'ship' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
@@ -104,7 +113,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
 
-    if (e.agentId !== undefined) await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason })
+    if (e.agentId !== undefined) {
+      await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason, answer: e.answer })
+    }
 
     return completed
   })

@@ -9,8 +9,11 @@ export type Host = {
   write: (path: string, text: string) => Promise<void>
   /** The entries of a directory: each one's name, and whether it is a directory. */
   list: (path: string) => Promise<readonly { name: string; isDir: boolean }[]>
-  /** Runs a command by its arguments, with no shell. A command that cannot start rejects. */
-  run: (argv: readonly string[], timeoutMs?: number) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+  /** Runs a command by its arguments, with no shell; `stdin` is written to it. A command that cannot start rejects. */
+  run: (
+    argv: readonly string[],
+    init?: { timeoutMs?: number; stdin?: string },
+  ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
   /** Starts a subagent; resolves once it started, with its id, or with why it did not. */
   spawn: (agent: {
     subagentType: string

@@ -103,6 +103,12 @@ describe('/ship resume', () => {
 
     await ship($, 'resume')
 
+    const usage = {
+      at: 1000,
+      contextPercent: 12,
+      quota: [{ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-10-11T20:00:00.000Z' }],
+    }
+
     expect(repo.record('checkout')).toEqual({
       feature: 'checkout',
       branch: 'checkout-feature',
@@ -110,11 +116,8 @@ describe('/ship resume', () => {
       ticket: 1,
       agentId: 'agent-1',
       attempts: { '01': 1 },
-      usage: {
-        at: 1000,
-        contextPercent: 12,
-        quota: [{ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-10-11T20:00:00.000Z' }],
-      },
+      startUsage: usage,
+      usage,
     })
   })
 
@@ -139,7 +142,9 @@ describe('/ship resume', () => {
       },
     })
 
-    expect(await ship($, 'resume')).toBe('checkout: no ticket left to take: 0 of 2 done, 2 blocked.')
+    expect(await ship($, 'resume')).toBe(
+      'checkout: no ticket left to take: 0 of 2 done, 2 blocked; nothing was built: there is no pull request to open.',
+    )
   })
 
   test('takes up a run that was cut off mid-ticket: what the ticket left is discarded and it is built anew', async ($, on) => {
@@ -190,7 +195,7 @@ describe('when an implementer has finished', () => {
     expect(repo.record('checkout')).toMatchObject({ phase: 'unattended', ticket: 2, agentId: 'agent-2', attempts: { '01': 1, '02': 1 } })
   })
 
-  test('the transcript gets one line a ticket, and the run stops when every ticket is done', async ($, on) => {
+  test('the transcript gets one line a ticket, and the building ends when every ticket is done', async ($, on) => {
     const repo = answerRepo(on, { files: checkout() })
 
     await ship($, 'resume')
@@ -199,10 +204,10 @@ describe('when an implementer has finished', () => {
 
     expect(repo.logged).toEqual([
       'checkout: 01 A cart holds items is done (abc1234); building 02 A cart is paid on sonnet, on branch checkout-feature.',
-      'checkout: 02 A cart is paid is done (abc1234); no ticket left to take: 2 of 2 done.',
+      'checkout: 02 A cart is paid is done (abc1235); no ticket left to take: 2 of 2 done; reviewing the branch on opus.',
     ])
-    expect(repo.record('checkout')).toMatchObject({ phase: 'paused', pause: 'every ticket is done' })
-    expect(repo.spawned).toHaveLength(2)
+    expect(repo.record('checkout')).toMatchObject({ phase: 'finishing', commits: { '01': 'abc1234', '02': 'abc1235' } })
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01', 'Build ticket 02', 'Review checkout'])
   })
 
   test('a failed attempt is discarded and the ticket tried once more, by an implementer told what failed', async ($, on) => {
@@ -264,11 +269,12 @@ describe('when an implementer has finished', () => {
     await ends($, repo, 'agent-2')
 
     expect(repo.logged[1]).toBe(
-      'checkout: 01 A cart holds items failed again (`npm test` failed) and is marked blocked; no ticket left to take: 0 of 2 done, 2 blocked.',
+      'checkout: 01 A cart holds items failed again (`npm test` failed) and is marked blocked; no ticket left to take: 0 of 2 done, 2 blocked; nothing was built: there is no pull request to open.',
     )
     expect(repo.record('checkout')).toMatchObject({
       phase: 'paused',
-      pause: 'no ticket can be taken: fix the blocked tickets, then /ship resume',
+      pause: 'nothing was built: there is no pull request to open',
+      reasons: { '01': '`npm test` failed' },
     })
   })
 
@@ -327,7 +333,7 @@ describe('when an implementer has finished', () => {
     await ends($, repo, 'agent-2')
 
     expect((await ship($, 'status')).split('\n')[0]).toBe(
-      'checkout: 0 of 2 tickets done, 0 takeable now · paused: no ticket can be taken: fix the blocked tickets, then /ship resume',
+      'checkout: 0 of 2 tickets done, 0 takeable now · paused: nothing was built: there is no pull request to open',
     )
   })
 })

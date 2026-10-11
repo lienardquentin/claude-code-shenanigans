@@ -2,14 +2,22 @@
 // commits, discards and pushes; the implementer never does.
 const GIT = ['status', 'diff', 'log', 'show', 'blame', 'ls-files', 'grep', 'rev-parse', 'mv', 'rm', 'add']
 
+/** What of git the reviewer may run: reading the repo, and nothing that changes it. */
+export const READING_GIT = ['status', 'diff', 'log', 'show', 'blame', 'ls-files', 'grep', 'rev-parse']
+
 // Anything that would let one allowed command carry another: chaining, pipes, substitution, redirection
 const JOINS = /[;&|`<>\n]|\$\(/
 
 /**
- * Whether the implementer may run this shell command: one git command from the list above, or one of the spec's
- * verification commands exactly as written. Everything else is refused, never asked about.
+ * Whether an agent of the run may run this shell command: one git command from its list (the implementer's,
+ * unless another is given), or one of the spec's verification commands exactly as written. Everything else is
+ * refused, never asked about.
  */
-export const isAllowedShell = (command: string, verification: readonly string[]): boolean => {
+export const isAllowedShell = (
+  command: string,
+  verification: readonly string[],
+  gitCommands: readonly string[] = GIT,
+): boolean => {
   const line = command.trim()
 
   if (verification.includes(line)) return true
@@ -17,7 +25,7 @@ export const isAllowedShell = (command: string, verification: readonly string[])
 
   const [program, subcommand] = line.split(/\s+/)
 
-  return program === 'git' && GIT.includes(subcommand ?? '')
+  return program === 'git' && gitCommands.includes(subcommand ?? '')
 }
 
 /** Whether a working directory is spelled the way Windows spells one. */
