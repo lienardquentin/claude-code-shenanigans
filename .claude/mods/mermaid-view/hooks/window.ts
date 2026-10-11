@@ -64,3 +64,16 @@ export const windowFor = (current: number, width: number, span: { start: number;
 
   return current
 }
+
+/** The rows `[from, from + count)` of a drawing. */
+export const clipRows = <T>(rows: readonly T[], from: number, count: number): T[] => rows.slice(from, from + count)
+
+/** The rows a node's box takes in a drawing: where it starts, and where it ends (one past), or `undefined`. */
+export const rowSpanOfNode = (
+  rows: readonly (readonly Segment[])[],
+  id: string,
+): { start: number; end: number } | undefined => {
+  const at = rows.flatMap((row, index) => (row.some(segment => segment.node === id) ? [index] : []))
+
+  return at.length === 0 ? undefined : { start: Math.min(...at), end: Math.max(...at) + 1 }
+}

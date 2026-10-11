@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 import type { HistoryEntry } from '../types'
 import { MAX_NODES, looksLikeDiagram, mermaidBlocks, parseDiagram, shownLabel } from './diagram'
 import type { Diagram, ParseResult } from './diagram'
-import { drawDiagram } from './draw'
+import { drawDiagram, layoutDiagram } from './draw'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
@@ -17,8 +17,8 @@ import { OS_NAMES, detectHost, detectOs, detectTerminal, drawsPixels, gaps, reco
 import type { Env, Os } from './guide'
 import { READ_ON } from './terminals'
 import { rasterize } from './pixels'
-import { diagramSvg } from './svg'
-import { clipDrawing, drawingWidth, spanOfNode, windowFor } from './window'
+import { vectorSvg } from './svg'
+import { clipDrawing, clipRows, drawingWidth, rowSpanOfNode, spanOfNode, windowFor } from './window'
 
 const PANE = 'mermaid-view'
 
@@ -34,10 +34,13 @@ const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as 
 // How far a drawing wider than the pane is moved to the left, in cells, and whether it is closed up to fit
 const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
 const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, false)
+// And how far down: a drawing taller than the pane's room is moved up by this many rows
+const scrollY = atom({ plugin: 'mermaid-view', key: 'scrollY' } as const, 0)
 // Whether the pane shows the terminal guide in place of the diagram
 const guide = atom({ plugin: 'mermaid-view', key: 'guide' } as const, false)
-// Whether the diagram is drawn as a picture where the terminal can show one: the viewer's choice, on to begin with
-const pictureOn = atom({ plugin: 'mermaid-view', key: 'pictureOn' } as const, true)
+// The picture, by the viewer's choice: `auto` is on where the terminal is known to draw pixels and off elsewhere,
+// `on` tries it in any terminal (an `Image` that cannot be drawn shows the drawing's text instead), `off` is cells
+const pictureMode = atom({ plugin: 'mermaid-view', key: 'pictureMode' } as const, 'auto' as 'auto' | 'on' | 'off')
 
 // The variables the guide reads to tell the terminal and the system. `$.env.get` takes a literal name, so each is
 // asked for by name; guide.ts holds the rules that use them.
@@ -200,6 +203,7 @@ const remember = async ($: Engine, sources: readonly string[]): Promise<void> =>
   await update($, source, () => last)
   await update($, selected, () => '')
   await update($, scrollX, () => 0)
+  await update($, scrollY, () => 0)
 }
 
 // A press on a node selects it; a press on the selected node clears the selection
@@ -245,7 +249,15 @@ const content = async (
   e: Drawn,
   text: string,
   chosen: string,
-  view: { width: number; offset: number; fit: boolean; pixels: boolean; canPixels: boolean },
+  view: {
+    width: number
+    offset: number
+    rows?: number
+    offsetY: number
+    fit: boolean
+    pixels: boolean
+    canPixels: boolean
+  },
 ): Promise<RenderElement[]> => {
   if (text === '') return [badge({ label: 'No diagram yet: run /mermaid-view with a flowchart', tone: 'neutral' })]
 
@@ -271,7 +283,7 @@ const content = async (
 
   const { Box, Button, Link } = $.ui.resolve(e)
   const known = diagram.nodes.some(node => node.id === chosen) ? chosen : ''
-  const drawing = drawDiagram(diagram, known)
+  const { rows: drawing, geometry } = layoutDiagram(diagram, known)
   const node = diagram.nodes.find(candidate => candidate.id === known)
 
   // What a `click` directive of the selected node leads to. A web address is shown as a link, which the surface
@@ -356,7 +368,7 @@ const content = async (
       : [
           badge({ label: `Selected: ${node.label}`, tone: 'accent' }),
           code({ source: connections(diagram, node.id).join('\n'), plain: true }),
-          ...[walkRow('walk-out', 'Go to', ends('to'), '123456789'), walkRow('walk-in', 'Back to', ends('from'), 'abcdefghi')].filter(
+          ...[walkRow('walk-out', 'Go to', ends('to'), '123456789'), walkRow('walk-in', 'Back to', ends('from'), 'abcde')].filter(
             (row): row is RenderElement => row !== null,
           ),
           ...target,
@@ -404,7 +416,7 @@ const content = async (
   // The fallback view: a surface that is not the terminal (the desktop, VS Code, mobile) is given a still picture of
   // the drawing and one button per node, because a node's box cannot be known to keep its shape as native buttons
   if (e.surface !== 'terminal') {
-    const { source: svg, width, height } = diagramSvg(drawing)
+    const { source: svg, width, height } = vectorSvg(geometry)
     const still = picture({
       source: svg,
       alt: `Diagram of ${diagram.nodes.length} nodes: ${diagram.nodes.map(node => node.label).join(', ')}`,
@@ -434,7 +446,7 @@ const content = async (
 
     if (still !== undefined) {
       return [
-        <Button key="picture-toggle" onPress={() => update($, pictureOn, () => false)}>
+        <Button key="picture-toggle" onPress={() => update($, pictureMode, () => 'off')}>
           {actionLabel({ text: 'Picture: on' })}
         </Button>,
         still,
@@ -451,8 +463,16 @@ const content = async (
   const total = drawingWidth(laid)
   const maxOffset = Math.max(0, total - view.width)
   const offset = Math.min(view.offset, maxOffset)
-  const shown = total > view.width ? clipDrawing(laid, offset, view.width) : laid
+  const across = total > view.width ? clipDrawing(laid, offset, view.width) : laid
   const step = Math.max(1, Math.floor(view.width / 2))
+
+  // And down: a drawing taller than the room the pane has is shown through a window too, so that it can be moved
+  // from the keyboard whatever the pane's own scrolling is doing
+  const room = view.rows
+  const maxOffsetY = room === undefined ? 0 : Math.max(0, laid.length - room)
+  const offsetY = Math.min(view.offsetY, maxOffsetY)
+  const shown = room !== undefined && laid.length > room ? clipRows(across, offsetY, room) : across
+  const stepY = Math.max(1, Math.floor((room ?? 10) / 2))
 
   // Pressing a node selects it, and moves the window so that the whole box shows, as far as it can. Walking to a node
   // along an edge does the same, but never clears the selection.
@@ -461,6 +481,11 @@ const content = async (
 
     const span = spanOfNode(laid, id)
     if (span !== undefined) await update($, scrollX, current => windowFor(Math.min(current, maxOffset), view.width, span))
+
+    const down = rowSpanOfNode(laid, id)
+    if (down !== undefined && room !== undefined) {
+      await update($, scrollY, current => windowFor(Math.min(current, maxOffsetY), room, down))
+    }
     // Down the pane: the engine scrolls its body to the box. A surface that cannot is no reason to fail the press.
     try {
       await $.ui.scroll({ to: { key: `node-${id}` }, in: PANE })
@@ -470,26 +495,55 @@ const content = async (
   }
   moveTo = id => reveal(id, true)
 
+  // The controls: a button for each way the window can move, each with a key that works whatever part of the
+  // pane is in view, and the fit-width toggle. They are there only when the drawing does not fit.
+  const overflows = total > view.width || (room !== undefined && laid.length > room)
   const controls: RenderElement[] =
-    total > view.width || drawingWidth(normal) > view.width || view.fit
+    overflows || drawingWidth(normal) > view.width || view.fit
       ? [
-          <Box key="view-controls" flexDirection="row" gap={1}>
+          <Box key="view-controls" flexDirection="row" gap={2}>
             {offset > 0 ? (
-              <Button key="scroll-left" onPress={() => update($, scrollX, () => Math.max(0, offset - step))}>
-                {actionLabel({ text: '◀ Left' })}
+              <Button key="scroll-left" plain hotkey="h" onPress={() => update($, scrollX, () => Math.max(0, offset - step))}>
+                ◀ Left
               </Button>
             ) : null}
             {offset < maxOffset ? (
-              <Button key="scroll-right" onPress={() => update($, scrollX, () => Math.min(maxOffset, offset + step))}>
-                {actionLabel({ text: 'Right ▶' })}
+              <Button
+                key="scroll-right"
+                plain
+                hotkey="l"
+                onPress={() => update($, scrollX, () => Math.min(maxOffset, offset + step))}
+              >
+                Right ▶
+              </Button>
+            ) : null}
+            {offsetY > 0 ? (
+              <Button key="scroll-up" plain hotkey="k" onPress={() => update($, scrollY, () => Math.max(0, offsetY - stepY))}>
+                ▲ Up
+              </Button>
+            ) : null}
+            {offsetY < maxOffsetY ? (
+              <Button
+                key="scroll-down"
+                plain
+                hotkey="j"
+                onPress={() => update($, scrollY, () => Math.min(maxOffsetY, offsetY + stepY))}
+              >
+                ▼ Down
               </Button>
             ) : null}
             {drawingWidth(normal) > view.width || view.fit ? (
-              <Button key="fit-width" onPress={() => update($, fit, current => !current)}>
-                {actionLabel({ text: view.fit ? 'Fit width: on' : 'Fit width: off' })}
+              <Button key="fit-width" plain hotkey="f" onPress={() => update($, fit, current => !current)}>
+                {view.fit ? 'Fit width: on' : 'Fit width: off'}
               </Button>
             ) : null}
           </Box>,
+          tonedText({
+            text: `Showing columns ${offset + 1}-${Math.min(total, offset + view.width)} of ${total}${
+              room !== undefined && laid.length > room ? `, rows ${offsetY + 1}-${Math.min(laid.length, offsetY + room)} of ${laid.length}` : ''
+            }. Keys: h l move across, k j move down, f fit width.`,
+            tone: 'neutral',
+          }),
         ]
       : []
 
@@ -521,14 +575,17 @@ const content = async (
     </Box>
   ))
 
-  // The way back to the picture, once it was turned off (a picture that does not fit is simply not offered)
-  const pictureToggle: RenderElement[] = view.canPixels && !view.pixels
-    ? [
-        <Button key="picture-toggle" onPress={() => update($, pictureOn, () => true)}>
-          {actionLabel({ text: 'Picture: off' })}
-        </Button>,
-      ]
-    : []
+  // The way to the picture: back to it once it was turned off, or a try of it in a terminal not known to draw
+  // pixels (what the picture cannot be drawn as is its text, so a try costs nothing). A picture that does not fit
+  // an Image is not offered.
+  const pictureToggle: RenderElement[] =
+    !view.pixels && rasterize(drawing) !== undefined
+      ? [
+          <Button key="picture-toggle" onPress={() => update($, pictureMode, () => 'on')}>
+            {actionLabel({ text: view.canPixels ? 'Picture: off' : 'Picture: try' })}
+          </Button>,
+        ]
+      : []
 
   return [...pictureToggle, ...controls, ...rows, ...details]
 }
@@ -599,6 +656,7 @@ export const register: Register = on => {
                     await update($, source, () => entry.source)
                     await update($, selected, () => '')
                     await update($, scrollX, () => 0)
+                    await update($, scrollY, () => 0)
                   }}
                 >
                   {tonedText({
@@ -612,6 +670,7 @@ export const register: Register = on => {
         : []
 
     const guided = await read($, guide)
+    const mode = await read($, pictureMode)
     // A picture only where the terminal surface's Image draws pixels
     const canPixels = e.surface === 'terminal' && (await pixelsHere($))
 
@@ -632,8 +691,10 @@ export const register: Register = on => {
               // Inside the card's frame and padding
               width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
               offset: await read($, scrollX),
+              ...(e.props.scroll !== undefined ? { rows: Math.max(8, e.props.scroll.bodyRows - 12) } : {}),
+              offsetY: await read($, scrollY),
               fit: await read($, fit),
-              pixels: canPixels && (await read($, pictureOn)),
+              pixels: e.surface === 'terminal' && (mode === 'on' || (mode === 'auto' && canPixels)),
               canPixels,
             })),
             ...list,

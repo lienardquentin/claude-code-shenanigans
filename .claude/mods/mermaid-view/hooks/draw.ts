@@ -91,9 +91,30 @@ type Cell = { sides: number; style?: Style; solid?: string; node?: string; row?:
  */
 export type Segment = { text: string; hot: boolean; node?: string; row?: number; tone?: Tone }
 
+/**
+ * What the layout decided, in cells of the drawing (a cell is one character of the cell view): where each box and
+ * each subgraph is, and the path of each edge through the middles of cells, ending at the cell before its target.
+ */
+export type Geometry = {
+  columns: number
+  rows: number
+  direction: Direction
+  nodes: { id: string; label: string; shape: Shape; x: number; y: number; w: number; h: number; hot: boolean; tone?: Tone }[]
+  edges: {
+    kind: EdgeKind
+    label?: string
+    hot: boolean
+    points: { x: number; y: number }[]
+    head: { x: number; y: number }
+  }[]
+  groups: { title: string; x: number; y: number; w: number; h: number }[]
+}
+
 type PlacedNode = {
   id: string
   rows: string[]
+  label: string
+  shape: Shape
   width: number
   group?: string
   tone?: Tone
@@ -189,8 +210,17 @@ const assignRows = (runs: readonly Run[]): { rowOf: number[]; rowsIn: Map<number
  * drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`. `compact` keeps
  * the nodes of a layer close, for a drawing that is to be as narrow as it can be.
  */
-export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?: boolean } = {}): Segment[][] => {
-  if (diagram.nodes.length === 0) return []
+export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?: boolean } = {}): Segment[][] =>
+  layoutDiagram(diagram, selected, options).rows
+
+/** The drawing as rows of segments, and the geometry it was made from (for a drawing that is not made of cells). */
+export const layoutDiagram = (
+  diagram: Diagram,
+  selected = '',
+  options: { compact?: boolean } = {},
+): { rows: Segment[][]; geometry: Geometry } => {
+  const geometry: Geometry = { columns: 0, rows: 0, direction: diagram.direction, nodes: [], edges: [], groups: [] }
+  if (diagram.nodes.length === 0) return { rows: [], geometry }
 
   const { direction } = diagram
   const vertical = direction === 'TD' || direction === 'BT'
@@ -205,6 +235,8 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
     nodesIn[layerOfNode(node.id)]?.push({
       id: node.id,
       rows,
+      label: shownLabel(node),
+      shape: node.shape,
       width,
       ...(node.group !== undefined ? { group: node.group } : {}),
       ...(node.tone !== undefined ? { tone: node.tone } : {}),
@@ -423,6 +455,17 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
     const y = vertical ? main : node.cross
 
     rects.set(node.id, { x, y, w: node.width, h: NODE_HEIGHT })
+    geometry.nodes.push({
+      id: node.id,
+      label: node.label,
+      shape: node.shape,
+      x,
+      y,
+      w: node.width,
+      h: NODE_HEIGHT,
+      hot: node.id === selected,
+      ...(node.tone !== undefined ? { tone: node.tone } : {}),
+    })
 
     node.rows.forEach((text, row) => {
       Array.from(text).forEach((char, column) =>
@@ -459,7 +502,14 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
 
     drawRun(startMain, startCross, outMain, startCross, hot, style)
 
+    // The corners of the edge's path, as points along the main and the cross axes
+    let path: { main: number; cross: number }[] = [
+      { main: startMain, cross: startCross },
+      { main: outMain, cross: startCross },
+    ]
+
     if (!route.aside) {
+      path.push({ main: outMain, cross: endCross }, { main: endMain, cross: endCross })
       drawRun(outMain, startCross, outMain, endCross, hot, style)
       drawRun(outMain, endCross, endMain, endCross, hot, style)
     } else {
@@ -468,6 +518,13 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
       const laneCross = ringPad + widest + LANE_START + lane * 2
       lane += 1
 
+      path = [
+        ...path,
+        { main: outMain, cross: laneCross },
+        { main: intoMain, cross: laneCross },
+        { main: intoMain, cross: endCross },
+        { main: endMain, cross: endCross },
+      ]
       drawRun(outMain, startCross, outMain, laneCross, hot, style)
       drawRun(outMain, laneCross, intoMain, laneCross, hot, style)
       drawRun(intoMain, laneCross, intoMain, endCross, hot, style)
@@ -475,6 +532,17 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
     }
 
     const head = place(endMain, endCross)
+    geometry.edges.push({
+      kind: edge.kind,
+      ...(edge.label !== undefined && edge.label !== '' ? { label: edge.label } : {}),
+      hot,
+      points: path.map(point => {
+        const cell = place(point.main, point.cross)
+
+        return { x: cell.x + 0.5, y: cell.y + 0.5 }
+      }),
+      head,
+    })
     if (edge.kind !== 'open') setSolid(head.x, head.y, ARROWHEAD[direction], hot)
 
     // The label sits beside the arrowhead (one step back along the flow when flowing down or up, above the line
@@ -527,6 +595,13 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
 
     const rect = boxOfGroup(id)
     if (rect === undefined) return
+    geometry.groups.push({
+      title: diagram.groups.find(group => group.id === id)?.title ?? '',
+      x: rect.x,
+      y: rect.y,
+      w: rect.w,
+      h: rect.h,
+    })
 
     const right = rect.x + rect.w - 1
     const bottom = rect.y + rect.h - 1
@@ -557,7 +632,7 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
   for (const group of diagram.groups) if (group.parent === undefined) drawGroup(group.id)
 
   // Each grid row becomes segments: cells drawn alike and, for a node's box, belonging to the same node, are one
-  return grid.map(row => {
+  const rows = grid.map(row => {
     const segments: Segment[] = []
 
     for (const cell of row) {
@@ -584,4 +659,9 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
 
     return segments
   })
+
+  geometry.columns = width
+  geometry.rows = height
+
+  return { rows, geometry }
 }

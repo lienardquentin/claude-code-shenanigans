@@ -6,12 +6,16 @@ const mountPane = (
   $: Parameters<Parameters<typeof test>[1]>[0],
   surface: Surface = 'terminal',
   bodyColumns = 80,
+  bodyRows?: number,
 ) =>
   $.ui.mount({
     plugin: 'mermaid-view',
     surface,
     component: 'Pane',
-    props: { bodyColumns } as never,
+    props: {
+      bodyColumns,
+      ...(bodyRows !== undefined ? { scroll: { offset: 0, bodyRows } } : {}),
+    } as never,
     requestId: 'mermaid-view',
   })
 
@@ -594,6 +598,92 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('a drawing taller than the pane', () => {
+    // Eight nodes in a chain: each takes three rows and a gap of three, so the drawing is well over 40 rows. A pane
+    // that reports 20 rows of room leaves 8 for the drawing.
+    const CHAIN8 = `graph TD; ${Array.from({ length: 7 }, (_, index) => `N${index}[Node ${index}] --> N${index + 1}[Node ${index + 1}]`).join('; ')}`
+
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args = CHAIN8,
+      bodyRows: number | null = 20,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($, 'terminal', 80, bodyRows ?? undefined)
+    }
+
+    test('shows the top of it, and says how much there is', async ($, on) => {
+      const pane = await open($, on)
+
+      expect(await pane.find({ text: /│ Node 0 │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Node 7 │/ })).toBeUndefined()
+      expect(await pane.find({ text: /rows 1-8 of \d+/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeDefined()
+    })
+
+    test('moves down by a button and back up, and says which rows it shows', async ($, on) => {
+      const pane = await open($, on)
+
+      await pane.press({ key: 'scroll-down' })
+
+      expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeDefined()
+      expect(await pane.find({ text: /rows 5-12 of \d+/ })).toBeDefined()
+
+      await pane.press({ key: 'scroll-up' })
+
+      expect(await pane.find({ text: /rows 1-8 of \d+/ })).toBeDefined()
+    })
+
+    test('the keys that move it are h l k j, and f fits the width', async ($, on) => {
+      const pane = await open($, on)
+
+      const hotkey = async (key: string) => (await pane.find({ type: 'Button', key }))?.props.hotkey
+
+      expect(await hotkey('scroll-down')).toBe('j')
+      await pane.press({ key: 'scroll-down' })
+      expect(await hotkey('scroll-up')).toBe('k')
+    })
+
+    test('walking to a node below the window brings it into view', async ($, on) => {
+      const pane = await open($, on)
+
+      await pane.press({ key: 'node-N0' })
+      for (let index = 1; index <= 7; index += 1) await pane.press({ key: `go-N${index}` })
+
+      expect(await pane.find({ text: /Selected: Node 7/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Node 7 │/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Node 0 │/ })).toBeUndefined()
+    })
+
+    test('a pane that gives no room is shown whole, as before', async ($, on) => {
+      const pane = await open($, on, CHAIN8, null)
+
+      expect(await pane.find({ text: /│ Node 7 │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeUndefined()
+    })
+
+    test('a drawing that fits in the room has no controls', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A --> B', 40)
+
+      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeUndefined()
+      expect(await pane.find({ text: /Keys:/ })).toBeUndefined()
+    })
+
+    test('a different diagram starts at the top', async ($, on) => {
+      const pane = await open($, on)
+
+      await pane.press({ key: 'scroll-down' })
+      await $.command.run({ command: 'mermaid-view', args: CHAIN8.replace('Node 0', 'First') })
+
+      expect(await pane.find({ text: /│ First │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeUndefined()
+    })
+  })
+
   describe('the picture', () => {
     const CHAIN = 'graph TD; A[Start] --> B[Process]; B --> C[End]'
 
@@ -637,6 +727,29 @@ describe('mermaid-view', () => {
 
       expect(await pane.find({ type: 'Image' })).toBeUndefined()
       expect(await pane.find({ type: 'Button', key: 'node-B-top' })).toBeDefined()
+    })
+
+    test('and offers to try the picture there, which can be undone', async ($, on) => {
+      const pane = await open($, on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+
+      expect(await pane.find({ type: 'Button', key: 'picture-toggle', text: /Picture: try/ })).toBeDefined()
+
+      await pane.press({ key: 'picture-toggle' })
+
+      expect(await pane.find({ type: 'Image' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'picture-toggle', text: /Picture: on/ })).toBeDefined()
+      // the text of the drawing is the picture's alt, so a terminal that cannot draw it shows that
+      expect(String((await pane.find({ type: 'Image' }))?.props.alt)).toMatch(/│ Process │/)
+
+      await pane.press({ key: 'picture-toggle' })
+
+      expect(await pane.find({ type: 'Image' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'node-B-top' })).toBeDefined()
+    })
+
+    test('no picture is tried on the other surfaces', async ($, on) => {
+      const pane = await open($, on, { OS: 'Windows_NT', WT_SESSION: 'x' }, 'desktop')
+
       expect(await pane.find({ type: 'Button', key: 'picture-toggle' })).toBeUndefined()
     })
 
@@ -1325,6 +1438,51 @@ describe('mermaid-view', () => {
       expect(String(svg?.props.alt)).toMatch(/Start/)
       expect(String(svg?.props.alt)).toMatch(/3 nodes/)
       expect(String(svg?.props.source)).toMatch(/^<svg /)
+    })
+
+    test('the picture is a drawing: a shape for each node, a line for each edge, an arrowhead on each arrow', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({
+        command: 'mermaid-view',
+        args: 'graph TD; A[Plain] --> B(Round); B --> C([Pill]); C --> D{Choose}; D --> E((Dot)); D -.-> F[Else]',
+      })
+      const pane = await mountPane($, 'desktop')
+      const source = String((await pane.find({ type: 'Svg' }))?.props.source)
+      const count = (pattern: RegExp): number => (source.match(pattern) ?? []).length
+
+      // rectangle, rounded and stadium are rects, the diamond a polygon, the circle an ellipse
+      expect(count(/<rect class="ink/g)).toBe(4)
+      expect(count(/<ellipse /g)).toBe(1)
+      // the diamond, and one triangle on each of the five arrows
+      expect(count(/<polygon /g)).toBe(1 + 5)
+      expect(count(/<polyline /g)).toBe(5)
+      expect(source).toContain('stroke-dasharray:2 5')
+      // the labels are text elements
+      expect(count(/<text class="txt/g)).toBe(6)
+    })
+
+    test('the picture follows the light and the dark scheme, and uses no hex colors', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B' })
+      const pane = await mountPane($, 'desktop')
+      const source = String((await pane.find({ type: 'Svg' }))?.props.source)
+
+      expect(source).toContain('prefers-color-scheme: dark')
+      expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    })
+
+    test('the selection is drawn thick, in the accent color', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A[Start] --> B[End]' })
+      const pane = await mountPane($, 'desktop')
+
+      const before = String((await pane.find({ type: 'Svg' }))?.props.source)
+      await pane.press({ key: 'node-A' })
+      const after = String((await pane.find({ type: 'Svg' }))?.props.source)
+
+      expect(before).not.toMatch(/class="ink hot"/)
+      expect(after).toMatch(/class="ink hot"/)
+      expect(after).toContain('hottxt')
     })
 
     test('markup in a label is escaped in the picture', async ($, on) => {

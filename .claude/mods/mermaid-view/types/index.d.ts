@@ -15,12 +15,14 @@ declare module 'claude-code' {
       history: HistoryEntry[]
       /** How many cells a drawing wider than the pane is moved to the left. Per session. */
       scrollX: number
+      /** How many rows a drawing taller than the pane's room is moved up. Per session. */
+      scrollY: number
       /** Whether a drawing is closed up so that it is as narrow as it can be. Per session. */
       fit: boolean
       /** Whether the pane shows the terminal guide in place of the diagram. Per session. */
       guide: boolean
-      /** Whether the diagram is drawn as a picture where the terminal can show one; the viewer's choice. Per session. */
-      pictureOn: boolean
+      /** The picture of the drawing: on where the terminal is known to draw pixels, tried in any terminal, or off. Per session. */
+      pictureMode: 'auto' | 'on' | 'off'
     }
   }
 }

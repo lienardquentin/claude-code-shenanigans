@@ -60,10 +60,11 @@ What it does so far:
   ` ```mermaid ` blocks (the first is shown).
 - A ` ```mermaid ` block in one of Claude's own replies is shown as soon as the reply ends (what a subagent hands back
   is not).
-- A drawing taller than the pane scrolls with the pane's own keys (while it is focused). One wider than the pane is
-  shown through a window: `◀ Left` and `Right ▶` move it, `Fit width` closes the nodes up first (it only helps a
-  top-down or bottom-up flow), and pressing a node cut by the edge brings its whole box into view. A new width
-  redraws within it, and a different diagram starts from the left.
+- A drawing bigger than the pane is shown through a window, which moves in both directions: `h` `l` across, `k` `j`
+  down (each a button above the drawing too, with a line saying which columns and rows show), and `f` closes the
+  nodes up first (`Fit width`; it only helps a top-down or bottom-up flow). The keys work while the pane has the
+  focus, wherever the drawing is scrolled to. Pressing or walking to a node cut by the edge brings its whole box
+  into view; a new width redraws within it, and a different diagram starts at the top left.
 - The diagrams of the session are listed under the drawing, newest last, each told apart by its first node labels;
   press one to show it. The list keeps the last twenty, and lives only as long as the session.
 - Directions: `TD` and `TB` (the default), `BT`, `LR` and `RL`.
@@ -82,8 +83,9 @@ What it does so far:
 
 In the terminal each row of a node's box is a plain `Button`, so a press needs no pointer handling of its own.
 
-On the desktop app, VS Code and mobile it shows the fallback view: the diagram as a still picture (SVG, the rows of
-the drawing set in a monospace font; the selection is bold) with one button per node under it, and the pane says so.
+On the desktop app, VS Code and mobile it shows the fallback view: the diagram as a vector picture (SVG: a shape for
+each node, lines with arrowheads for edges, dashed frames for subgraphs, in the same layout as the cells; light and
+dark follow the scheme; the selection is thick and orange) with one button per node under it, and the pane says so.
 It is used on the desktop too, because there a plain `Button` is a native button and the box could not be known to
 keep its shape; whether the drawn boxes would work there is a manual check not yet made.
 
@@ -101,7 +103,7 @@ keep its shape; whether the drawn boxes would work there is a manual check not y
   or opened by the mod itself, so a diagram that names an address cannot start anything. `click A call fn()` is
   named as not drawn.
 - With a node selected, `Go to` lists the nodes it points to and `Back to` those that point to it, each a button with
-  a hotkey (digits `1`-`9` forward, letters `a`-`i` back, in the order the edges are written), so a flow can be walked
+  a hotkey (digits `1`-`9` forward, letters `a`-`e` back, in the order the edges are written), so a flow can be walked
   from the keyboard while the pane has focus. Walking keeps the selection and brings the new node into view.
 - With a node selected: `Send to Claude` puts a line about it (what it leads to, where it is reached from) in the
   prompt box, ready to finish, and `Copy label` copies its label.
@@ -120,9 +122,12 @@ recognition uses to what the file cites for that terminal.
 - In kitty and Ghostty (not inside tmux or screen) the diagram is drawn as a picture: the same layout set in a bitmap
   font and drawn lines, as raw pixels in the terminal's `Image`, in the kit palette's gray with the selection in its
   orange. A picture has no press of its own, so a button per node stands beside it; `Picture: on`/`off` turns it
-  off for the cells and back. Other terminals, other surfaces and drawings an `Image` cannot take (over 255 cells
-  across or down, 2 MiB of pixels) keep the cells. Characters the 5x7 font does not have are drawn as a small box.
-  This has been checked on mounted trees only: how it looks in a real kitty or Ghostty is a manual check.
+  off for the cells and back. Other terminals keep the cells, but offer `Picture: try`, which draws the picture
+  anyway: the platform's `Image` documents kitty-protocol pixels only, so in another terminal (Windows Terminal,
+  say, which has sixel) it may show only the drawing's text as its alt. Other surfaces and drawings an `Image`
+  cannot take (over 255 cells across or down, 2 MiB of pixels) keep the cells. Characters the 5x7 font does not
+  have are drawn as a small box. This has been checked on mounted trees only: how it looks in a real terminal is a
+  manual check.
 
 Known limits of the drawing: when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is
