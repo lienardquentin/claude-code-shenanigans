@@ -64,8 +64,12 @@ What it does so far:
   color, and the lines under the drawing list what it leads to and where it is reached from. Press it again, or
   `Clear`, to clear the selection.
 
-Each row of a node's box is a plain `Button`, so the same press works on every surface that draws buttons; there is no
-separate pointer handling.
+In the terminal each row of a node's box is a plain `Button`, so a press needs no pointer handling of its own.
+
+On the desktop app, VS Code and mobile it shows the fallback view: the diagram as a still picture (SVG, the rows of
+the drawing set in a monospace font; the selection is bold) with one button per node under it, and the pane says so.
+It is used on the desktop too, because there a plain `Button` is a native button and the box could not be known to
+keep its shape; whether the drawn boxes would work there is a manual check not yet made.
 
 Not yet: other directions and node shapes, subgraphs, click directives, a terminal guide.
 

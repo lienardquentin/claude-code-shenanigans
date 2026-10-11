@@ -8,7 +8,9 @@ import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { code } from './kit/code'
+import { picture } from './kit/picture'
 import { tonedText } from './kit/toned-text'
+import { diagramSvg } from './svg'
 
 const PANE = 'mermaid-view'
 
@@ -58,10 +60,53 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
 
   const { Box, Button } = $.ui.resolve(e)
   const known = diagram.nodes.some(node => node.id === chosen) ? chosen : ''
+  const drawing = drawDiagram(diagram, known)
+
+  // What is shown about the selected node, under the drawing or the picture
+  const details: RenderElement[] =
+    known === ''
+      ? []
+      : [
+          badge({ label: `Selected: ${diagram.nodes.find(node => node.id === known)?.label ?? known}`, tone: 'accent' }),
+          code({ source: connections(diagram, known).join('\n'), plain: true }),
+          <Button key="clear-selection" onPress={() => update($, selected, () => '')}>
+            {actionLabel({ text: 'Clear' })}
+          </Button>,
+        ]
+
+  // The fallback view: a surface that is not the terminal (the desktop, VS Code, mobile) is given a still picture of
+  // the drawing and one button per node, because a node's box cannot be known to keep its shape as native buttons
+  if (e.surface !== 'terminal') {
+    const { source: svg, width, height } = diagramSvg(drawing)
+    const still = picture({
+      source: svg,
+      alt: `Diagram of ${diagram.nodes.length} nodes: ${diagram.nodes.map(node => node.label).join(', ')}`,
+      width,
+      height,
+    })
+
+    return [
+      badge({
+        label: 'Fallback view: this surface cannot draw clickable nodes, so each node has a button under the picture',
+        tone: 'info',
+      }),
+      ...(still === undefined
+        ? [badge({ label: 'This diagram is too large to draw as a picture; use the node buttons', tone: 'warning' })]
+        : [still]),
+      <Box key="node-buttons" flexDirection="row" flexWrap="wrap" gap={1}>
+        {diagram.nodes.map(node => (
+          <Button key={`node-${node.id}`} onPress={() => toggle($, node.id)}>
+            {tonedText({ text: node.label, ...(node.id === known ? { tone: 'accent' as const, bold: true } : {}) })}
+          </Button>
+        ))}
+      </Box>,
+      ...details,
+    ]
+  }
 
   // Each row of the drawing is a row of pieces; a piece of a node's box is a plain Button, so a press anywhere on the
   // box selects the node and the box keeps its shape
-  const rows = drawDiagram(diagram, known).map((segments, index) => (
+  const rows = drawing.map((segments, index) => (
     <Box key={`row-${index}`} flexDirection="row">
       {segments.map((segment, at) => {
         const label = tonedText({
@@ -82,16 +127,7 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
     </Box>
   ))
 
-  if (known === '') return rows
-
-  return [
-    ...rows,
-    badge({ label: `Selected: ${diagram.nodes.find(node => node.id === known)?.label ?? known}`, tone: 'accent' }),
-    code({ source: connections(diagram, known).join('\n'), plain: true }),
-    <Button key="clear-selection" onPress={() => update($, selected, () => '')}>
-      {actionLabel({ text: 'Clear' })}
-    </Button>,
-  ]
+  return [...rows, ...details]
 }
 
 export const register: Register = on => {

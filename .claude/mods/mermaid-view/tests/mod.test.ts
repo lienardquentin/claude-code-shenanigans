@@ -2,10 +2,12 @@ import { describe, expect, test } from 'claude-code/testing'
 
 const PANE = { bodyColumns: 80 } as const
 
-const mountPane = ($: Parameters<Parameters<typeof test>[1]>[0]) =>
+type Surface = 'terminal' | 'desktop' | 'vscode' | 'mobile'
+
+const mountPane = ($: Parameters<Parameters<typeof test>[1]>[0], surface: Surface = 'terminal') =>
   $.ui.mount({
     plugin: 'mermaid-view',
-    surface: 'terminal',
+    surface,
     component: 'Pane',
     props: PANE as never,
     requestId: 'mermaid-view',
@@ -239,6 +241,64 @@ describe('mermaid-view', () => {
       await $.command.run({ command: 'mermaid-view', args: 'graph TD; B --> X' })
 
       expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+    })
+  })
+
+  describe('on the surfaces that cannot draw a box as buttons', () => {
+    const CHAIN = 'graph TD; A[Start] --> B[Process]; B --> C[End]'
+
+    for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+      test(`${surface}: a picture and a button per node, and the pane says it is the fallback view`, async ($, on) => {
+        answerOpen(on)
+        await $.command.run({ command: 'mermaid-view', args: CHAIN })
+        const pane = await mountPane($, surface)
+
+        expect(await pane.find({ text: /Fallback view/ })).toBeDefined()
+        expect(await pane.find({ type: 'Svg' })).toBeDefined()
+        expect(await pane.find({ type: 'Button', key: 'node-A' })).toBeDefined()
+        expect(await pane.find({ type: 'Button', key: 'node-B' })).toBeDefined()
+        expect(await pane.find({ type: 'Button', key: 'node-C' })).toBeDefined()
+        // the terminal's drawing is not repeated beside the picture
+        expect(await pane.find({ text: /┌/ })).toBeUndefined()
+      })
+
+      test(`${surface}: pressing a node's button selects it, and a second press clears it`, async ($, on) => {
+        answerOpen(on)
+        await $.command.run({ command: 'mermaid-view', args: CHAIN })
+        const pane = await mountPane($, surface)
+
+        await pane.press({ key: 'node-B' })
+
+        expect(await pane.find({ text: /Selected: Process/ })).toBeDefined()
+        expect(await pane.find({ text: /Leads to: End/ })).toBeDefined()
+
+        await pane.press({ key: 'node-B' })
+
+        expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+      })
+    }
+
+    test('the picture names the diagram for a reader that cannot see it', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: CHAIN })
+      const pane = await mountPane($, 'desktop')
+
+      const svg = await pane.find({ type: 'Svg' })
+
+      expect(String(svg?.props.alt)).toMatch(/Start/)
+      expect(String(svg?.props.alt)).toMatch(/3 nodes/)
+      expect(String(svg?.props.source)).toMatch(/^<svg /)
+    })
+
+    test('markup in a label is escaped in the picture', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A["<b>&x</b>"] --> B' })
+      const pane = await mountPane($, 'desktop')
+
+      const source = String((await pane.find({ type: 'Svg' }))?.props.source)
+
+      expect(source).toContain('&lt;b&gt;&amp;x&lt;/b&gt;')
+      expect(source).not.toContain('<b>')
     })
   })
 
