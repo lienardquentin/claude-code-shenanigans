@@ -106,7 +106,18 @@ keep its shape; whether the drawn boxes would work there is a manual check not y
 - With a node selected: `Send to Claude` puts a line about it (what it leads to, where it is reached from) in the
   prompt box, ready to finish, and `Copy label` copies its label.
 
-Not yet: a terminal guide.
+- The `Terminals` button swaps the diagram for a guide: the terminal and system it recognised from the environment,
+  what the research file says that terminal can do (pixel images, mouse reporting, clickable links), what it lacks and
+  which terminals on this system have it, the terminals recommended on each system (those the file marks `yes` for
+  at least two of the three), the file's table for each, and the multiplexer (tmux, screen) it runs inside. A
+  terminal the file has no verified identifier for (Apple's Terminal, foot, conhost) is reported as not recognised,
+  and nothing is claimed about it.
+
+The guide's data is `hooks/terminals.ts`, generated from [`docs/research/terminal-capabilities.md`](docs/research/terminal-capabilities.md)
+and nothing else (`tools/build-terminals.ps1`; run it again when that file changes). A test holds every identifier the
+recognition uses to what the file cites for that terminal.
+
+Not yet: pixel images for the drawing (#15, optional).
 
 Known limits of the drawing: when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is

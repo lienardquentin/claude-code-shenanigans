@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 
 type Surface = 'terminal' | 'desktop' | 'vscode' | 'mobile'
 
@@ -594,6 +594,116 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('the terminal guide', () => {
+    type TestOn = Parameters<Parameters<typeof test>[1]>[1]
+
+    const openGuide = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: TestOn,
+      variables: Record<string, string>,
+    ) => {
+      mock.env(on, variables)
+      answerOpen(on)
+      const pane = await mountPane($)
+      await pane.press({ key: 'terminals' })
+
+      return pane
+    }
+
+    test('a button shows the guide in place of the diagram, and a button brings the diagram back', async ($, on) => {
+      mock.env(on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A[Start] --> B[End]' })
+      const pane = await mountPane($)
+
+      expect(await pane.find({ text: /Terminal guide/ })).toBeUndefined()
+      expect(await pane.find({ text: /│ Start │/ })).toBeDefined()
+
+      await pane.press({ key: 'terminals' })
+
+      expect(await pane.find({ text: /Terminal guide/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Start │/ })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'terminals', text: /Back to the diagram/ })).toBeDefined()
+
+      await pane.press({ key: 'terminals' })
+
+      expect(await pane.find({ text: /│ Start │/ })).toBeDefined()
+    })
+
+    test('names the terminal and the system it was recognised on, and highlights its row', async ($, on) => {
+      const pane = await openGuide($, on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+
+      expect(await pane.find({ text: /Your terminal: Windows Terminal on Windows/ })).toBeDefined()
+      expect(await pane.find({ text: /▸ Windows Terminal/ })).toBeDefined()
+    })
+
+    test('lists the recommended terminals of the system, from the research file', async ($, on) => {
+      const pane = await openGuide($, on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+
+      expect(await pane.find({ text: /Recommended on Windows: .*WezTerm/ })).toBeDefined()
+      expect(await pane.find({ text: /Recommended on macOS/ })).toBeUndefined()
+      expect(
+        await pane.find({ text: /docs\/research\/terminal-capabilities\.md \(sources read \d{4}-\d{2}-\d{2}\)/ }),
+      ).toBeDefined()
+    })
+
+    test('shows each system\'s table with the values the file gives, in theme tones', async ($, on) => {
+      const pane = await openGuide($, on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+
+      const yes = await pane.findAll({ type: 'Text', text: /^yes$/ })
+      const unknown = await pane.findAll({ type: 'Text', text: /^unknown$/ })
+
+      expect(yes.length).toBeGreaterThan(0)
+      expect(yes.every(cell => cell.props.color === 'success')).toBe(true)
+      expect(unknown.length).toBeGreaterThan(0)
+      expect(unknown.every(cell => cell.props.color === 'text')).toBe(true)
+    })
+
+    test('says what a terminal lacks, and which terminals of the system have it', async ($, on) => {
+      // xterm's clickable links are not verified in the file, so it lacks one of the three
+      const pane = await openGuide($, on, { HOME: '/home/someone', XTERM_VERSION: 'XTerm(379)' })
+
+      expect(await pane.find({ text: /Your terminal: xterm on Linux/ })).toBeDefined()
+      expect(await pane.find({ text: /Clickable links: not verified/ })).toBeDefined()
+      expect(await pane.find({ text: /On Linux with it: .*kitty/ })).toBeDefined()
+    })
+
+    test('a terminal it cannot recognise is said to be unknown, and nothing is claimed about it', async ($, on) => {
+      const pane = await openGuide($, on, { HOME: '/home/someone', TERM_PROGRAM: 'Apple_Terminal' })
+
+      expect(await pane.find({ text: /Your terminal: not recognised on Linux/ })).toBeDefined()
+      expect(await pane.find({ text: /nothing is claimed about yours/ })).toBeDefined()
+      expect(await pane.find({ text: /▸/ })).toBeUndefined()
+    })
+
+    test('an unknown system gets every system\'s recommendations', async ($, on) => {
+      const pane = await openGuide($, on, {})
+
+      expect(await pane.find({ text: /Recommended on Windows/ })).toBeDefined()
+      expect(await pane.find({ text: /Recommended on macOS/ })).toBeDefined()
+      expect(await pane.find({ text: /Recommended on Linux/ })).toBeDefined()
+    })
+
+    test('says when it is inside a multiplexer, with what the file says of it', async ($, on) => {
+      const pane = await openGuide($, on, { HOME: '/home/someone', KITTY_WINDOW_ID: '1', TMUX: '/tmp/t,1,0' })
+
+      expect(await pane.find({ text: /Your terminal: kitty on Linux/ })).toBeDefined()
+      expect(await pane.find({ text: /Inside tmux/ })).toBeDefined()
+      expect(await pane.find({ text: /Mouse reporting: partial/ })).toBeDefined()
+    })
+
+    test('shows the same on the surfaces that are not the terminal', async ($, on) => {
+      mock.env(on, { OS: 'Windows_NT', WT_SESSION: 'x' })
+      answerOpen(on)
+      const pane = await mountPane($, 'desktop')
+
+      await pane.press({ key: 'terminals' })
+
+      expect(await pane.find({ text: /Terminal guide/ })).toBeDefined()
+      expect(await pane.find({ text: /Your terminal: Windows Terminal on Windows/ })).toBeDefined()
+    })
+  })
+
   describe('walking along the edges', () => {
     const open = async (
       $: Parameters<Parameters<typeof test>[1]>[0],
@@ -1064,7 +1174,8 @@ describe('mermaid-view', () => {
 
       expect(await pane.find({ text: /This diagram has 201 nodes; more than 200 are not drawn/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /N200/ })).toBeDefined()
-      expect(await pane.find({ type: 'Button' })).toBeUndefined()
+      // no node to press: the source is shown, not the drawing
+      expect(await pane.find({ type: 'Button', key: 'node-N0' })).toBeUndefined()
     })
   })
 

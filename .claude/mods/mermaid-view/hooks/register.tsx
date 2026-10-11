@@ -10,7 +10,11 @@ import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { code } from './kit/code'
 import { picture } from './kit/picture'
+import { table } from './kit/table'
 import { tonedText } from './kit/toned-text'
+import { OS_NAMES, detectHost, detectOs, detectTerminal, gaps, recommended, rowFor, tableFor, toneOfValue } from './guide'
+import type { Env, Os } from './guide'
+import { READ_ON } from './terminals'
 import { diagramSvg } from './svg'
 import { clipDrawing, drawingWidth, spanOfNode, windowFor } from './window'
 
@@ -28,6 +32,127 @@ const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as 
 // How far a drawing wider than the pane is moved to the left, in cells, and whether it is closed up to fit
 const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
 const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, false)
+// Whether the pane shows the terminal guide in place of the diagram
+const guide = atom({ plugin: 'mermaid-view', key: 'guide' } as const, false)
+
+// The variables the guide reads to tell the terminal and the system. `$.env.get` takes a literal name, so each is
+// asked for by name; guide.ts holds the rules that use them.
+const environment = async ($: Engine): Promise<Env> => {
+  const values: Record<string, string | undefined> = {
+    OS: await $.env.get('OS'),
+    HOME: await $.env.get('HOME'),
+    TERM_PROGRAM: await $.env.get('TERM_PROGRAM'),
+    WT_SESSION: await $.env.get('WT_SESSION'),
+    KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
+    WEZTERM_PANE: await $.env.get('WEZTERM_PANE'),
+    ALACRITTY_WINDOW_ID: await $.env.get('ALACRITTY_WINDOW_ID'),
+    GHOSTTY_RESOURCES_DIR: await $.env.get('GHOSTTY_RESOURCES_DIR'),
+    ITERM_SESSION_ID: await $.env.get('ITERM_SESSION_ID'),
+    KONSOLE_DBUS_SERVICE: await $.env.get('KONSOLE_DBUS_SERVICE'),
+    XTERM_VERSION: await $.env.get('XTERM_VERSION'),
+    TMUX: await $.env.get('TMUX'),
+    STY: await $.env.get('STY'),
+  }
+
+  return name => values[name]
+}
+
+// The terminal guide: which terminal this is, what the research file says it can do, what it lacks and what to use
+// instead on this system, and the recommended terminals and the table for each system. Everything it says about a
+// terminal is that file's (see terminals.ts); nothing is guessed for a terminal it does not know.
+const terminalGuide = async ($: Engine): Promise<RenderElement[]> => {
+  const env = await environment($)
+  const os = detectOs(env)
+  const name = detectTerminal(env)
+  const host = detectHost(env)
+  const row = name === undefined ? undefined : rowFor(name, os)
+  const hostRow = host === undefined ? undefined : rowFor(host)
+  const systems: Os[] = os === undefined ? ['windows', 'macos', 'linux'] : [os]
+  const where = os === undefined ? '' : ` on ${OS_NAMES[os]}`
+  const parts: RenderElement[] = [badge({ label: 'Terminal guide', tone: 'info' })]
+
+  if (row !== undefined) {
+    parts.push(badge({ label: `Your terminal: ${row.name}${where}`, tone: 'accent' }))
+    const missing = gaps(row, os)
+    parts.push(
+      code({
+        source:
+          missing.length === 0
+            ? 'It has what the mod can use: pixel images, mouse reporting and clickable links.'
+            : missing.join('\n'),
+        plain: true,
+      }),
+    )
+  } else {
+    parts.push(
+      badge({ label: `Your terminal: not recognised${where}`, tone: 'neutral' }),
+      code({
+        source:
+          'The environment names no terminal the research file knows an identifier for, so nothing is claimed about ' +
+          'yours. The tables below say what each terminal does.',
+        plain: true,
+      }),
+    )
+  }
+
+  if (hostRow !== undefined) {
+    parts.push(
+      badge({ label: `Inside ${hostRow.name}`, tone: 'warning' }),
+      code({
+        source: [
+          `Pixel images: ${hostRow.images.value}${hostRow.images.note !== '' ? ` (${hostRow.images.note})` : ''}`,
+          `Mouse reporting: ${hostRow.mouse.value}${hostRow.mouse.note !== '' ? ` (${hostRow.mouse.note})` : ''}`,
+        ].join('\n'),
+        plain: true,
+      }),
+    )
+  }
+
+  parts.push(
+    code({
+      source:
+        'The diagram is drawn as text, which any terminal shows. Pressing a node needs the terminal to report the ' +
+        'mouse; without it, walk the diagram with Tab and Enter, or the Go to and Back to keys.',
+      plain: true,
+    }),
+  )
+
+  for (const system of systems) {
+    const names = recommended(system).map(candidate => candidate.name)
+
+    parts.push(
+      badge({
+        label: `Recommended on ${OS_NAMES[system]}: ${names.length > 0 ? names.join(', ') : 'none the research file marks for two or more'}`,
+        tone: 'success',
+      }),
+      table({
+        columns: [
+          { header: 'Terminal', width: 30 },
+          { header: 'Images', width: 9 },
+          { header: 'Mouse', width: 9 },
+          { header: 'Links', width: 9 },
+        ],
+        rows: tableFor(system).map(candidate => [
+          `${candidate.name === row?.name && candidate.os === row.os ? '▸ ' : '  '}${candidate.name}`,
+          { text: candidate.images.value, tone: toneOfValue(candidate.images.value) },
+          { text: candidate.mouse.value, tone: toneOfValue(candidate.mouse.value) },
+          { text: candidate.links.value, tone: toneOfValue(candidate.links.value) },
+        ]),
+      }),
+    )
+  }
+
+  parts.push(
+    code({
+      source:
+        `Recommended = the terminals the research file marks yes for two or more of images, mouse and links.\n` +
+        `From docs/research/terminal-capabilities.md (sources read ${READ_ON}). unknown is not a claim of absence.`,
+      plain: true,
+    }),
+  )
+
+  return parts
+}
 
 const MAX_HISTORY = 20
 
@@ -440,18 +565,30 @@ export const register: Register = on => {
           ]
         : []
 
+    const guided = await read($, guide)
+
+    // The guide takes the pane's place while it is on, and a button on either puts the other back
+    const toggleGuide = (
+      <Button key="terminals" onPress={() => update($, guide, current => !current)}>
+        {actionLabel({ text: guided ? 'Back to the diagram' : 'Terminals' })}
+      </Button>
+    )
+
     return card({
       width: e.props.bodyColumns ?? 80,
-      title: 'Mermaid diagram',
-      children: [
-        ...(await content($, e, shown, await read($, selected), {
-          // Inside the card's frame and padding
-          width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
-          offset: await read($, scrollX),
-          fit: await read($, fit),
-        })),
-        ...list,
-      ],
+      title: guided ? 'Terminal guide' : 'Mermaid diagram',
+      children: guided
+        ? [toggleGuide, ...(await terminalGuide($))]
+        : [
+            ...(await content($, e, shown, await read($, selected), {
+              // Inside the card's frame and padding
+              width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
+              offset: await read($, scrollX),
+              fit: await read($, fit),
+            })),
+            ...list,
+            toggleGuide,
+          ],
     })
   })
 }

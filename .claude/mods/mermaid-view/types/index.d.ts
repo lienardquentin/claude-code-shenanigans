@@ -17,6 +17,8 @@ declare module 'claude-code' {
       scrollX: number
       /** Whether a drawing is closed up so that it is as narrow as it can be. Per session. */
       fit: boolean
+      /** Whether the pane shows the terminal guide in place of the diagram. Per session. */
+      guide: boolean
     }
   }
 }
