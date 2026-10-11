@@ -32,6 +32,7 @@ export const answerRepo = (
   const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
   const logged: string[] = []
   const state = { porcelain: given.porcelain ?? '' }
+  const exits: Record<string, number> = { ...given.exits }
   const isDir = (path: string) => Object.keys(files).some(file => file.startsWith(`${path}/`))
   // The engine hands a hook the path made absolute under the working directory, in the machine's own spelling
   const inRepo = (path: string) => path.replaceAll('\\', '/').replace(/^.*?(?=\.scratch(\/|$))/, '')
@@ -69,7 +70,7 @@ export const answerRepo = (
 
     ran.push(line)
     if (e.argv[0] !== 'git') {
-      const exitCode = given.exits?.[e.argv.at(-1) ?? ''] ?? 0
+      const exitCode = exits[e.argv.at(-1) ?? ''] ?? 0
 
       return exited(exitCode, exitCode === 0 ? 'ok' : 'expected 2 but got 3') as never
     }
@@ -77,6 +78,8 @@ export const answerRepo = (
     if (line === 'git status --porcelain') return exited(0, state.porcelain) as never
     if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, 'checkout-feature\n') as never
     if (line === 'git rev-parse --short HEAD') return exited(0, 'abc1234\n') as never
+    // A commit and a discard both leave the working tree clean
+    if (e.argv[1] === 'commit' || e.argv[1] === 'reset') state.porcelain = ''
 
     return exited(0) as never
   })
@@ -129,6 +132,8 @@ export const answerRepo = (
     ran,
     spawned,
     logged,
+    /** The exit code of each verification command, by its text: a test changes one between attempts. */
+    exits,
     /** What the implementer leaves in the working tree, as `git status --porcelain` then prints it. */
     change: (porcelain: string) => {
       state.porcelain = porcelain
