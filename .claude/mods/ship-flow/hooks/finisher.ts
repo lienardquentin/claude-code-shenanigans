@@ -177,7 +177,7 @@ const publish = async (host: Host, record: RunRecord, tickets: readonly Ticket[]
     url = open.url
   } else {
     const created = await host.run(
-      ['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', feature, '--body-file', '-', ...(isDraft ? ['--draft'] : [])],
+      ['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', record.title ?? feature, '--body-file', '-', ...(isDraft ? ['--draft'] : [])],
       { stdin: body },
     )
 

@@ -1,7 +1,7 @@
 /**
  * Where a run stands: `unattended` while a ticket is built, `finishing` while the branch is reviewed and fixed,
  * `paused` when it waits (for quota, or for the person), `ended` once its pull request is open. `attended` is
- * the phase before the checkpoint, which is not built yet.
+ * the phase before the checkpoint: the grilling, the spec and the tickets, done with the person.
  */
 export type Phase = 'attended' | 'unattended' | 'paused' | 'finishing' | 'ended'
 
@@ -19,8 +19,12 @@ export type RunRecord = {
   feature: string
   branch: string
   phase: Phase
+  /** What the run started from: an idea the person typed, or an issue that existed. */
+  source?: 'idea' | 'issue'
   /** The GitHub issue the run's pull request closes, when the run has one. */
   issue?: number
+  /** What the feature is called where a person reads it: its issue's title, and its pull request's. */
+  title?: string
   /** The ticket being built, and the subagent at work (an implementer, or the reviewer), while one is. */
   ticket?: number
   agentId?: string
@@ -64,6 +68,10 @@ export const folderOf = (feature: string): string => `${SCRATCH}/${feature}`
 export const specOf = (feature: string): string => `${folderOf(feature)}/spec.md`
 export const issuesOf = (feature: string): string => `${folderOf(feature)}/issues`
 export const recordOf = (feature: string): string => `${folderOf(feature)}/run.json`
+/** What the run started from, as the person typed it or as the issue said it. */
+export const sourceOf = (feature: string): string => `${folderOf(feature)}/source.md`
+/** The text of the issue the run opens at the checkpoint, when it started from an idea: `# <title>`, then the body. */
+export const issueOf = (feature: string): string => `${folderOf(feature)}/issue.md`
 /** What the reviewer found, as it reported it. */
 export const reviewOf = (feature: string): string => `${folderOf(feature)}/review.md`
 /** What the fix pass did about each finding, as it reported it. */
@@ -90,7 +98,9 @@ export const kept = (record: RunRecord) => ({
   feature: record.feature,
   branch: record.branch,
   attempts: record.attempts,
+  ...(record.source !== undefined ? { source: record.source } : {}),
   ...(record.issue !== undefined ? { issue: record.issue } : {}),
+  ...(record.title !== undefined ? { title: record.title } : {}),
   ...(record.base !== undefined ? { base: record.base } : {}),
   ...(record.peak ? { peak: record.peak } : {}),
   ...(record.commits ? { commits: record.commits } : {}),

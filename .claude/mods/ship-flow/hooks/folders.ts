@@ -5,7 +5,7 @@ import type { Folder } from './status'
 import { parseTicket, withStatus } from './tickets'
 import type { State, Ticket } from './tickets'
 
-// Every feature folder of the repo that holds tickets, read whole. A folder with no `issues` is not a run.
+// Every feature folder of the repo that is a run, read whole: one that holds tickets, or a run record.
 export const readFolders = async (host: Host): Promise<Folder[]> => {
   if (!(await host.exists(SCRATCH))) return []
 
@@ -14,18 +14,21 @@ export const readFolders = async (host: Host): Promise<Folder[]> => {
 
   for (const feature of features.sort()) {
     const issues = issuesOf(feature)
+    const hasTickets = await host.exists(issues)
+    const record = await readRecord(host, feature)
 
-    if (!(await host.exists(issues))) continue
+    // A run exists from its record on, before it has a ticket: the attended phase writes them last
+    if (!hasTickets && !record) continue
 
-    const files = (await host.list(issues))
-      .filter(entry => !entry.isDir && entry.name.endsWith('.md'))
-      .map(entry => entry.name)
-      .sort()
+    const files = hasTickets
+      ? (await host.list(issues))
+          .filter(entry => !entry.isDir && entry.name.endsWith('.md'))
+          .map(entry => entry.name)
+          .sort()
+      : []
     const tickets = await Promise.all(
       files.map(async file => parseTicket(file, await host.read(`${issues}/${file}`))),
     )
-
-    const record = await readRecord(host, feature)
 
     folders.push({ feature, tickets, ...(record ? { record } : {}) })
   }

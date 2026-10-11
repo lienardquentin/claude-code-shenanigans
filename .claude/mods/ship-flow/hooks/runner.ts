@@ -1,3 +1,4 @@
+import { approve } from './attended'
 import { BUDGET_WINDOW, beforeTicket, clockTime, isOverBudget } from './budget'
 import type { Settings } from './budget'
 import { REVIEWER_TOOLS, finish, finished } from './finisher'
@@ -190,6 +191,7 @@ export const resume = async (host: Host, settings: Settings, wanted: string): Pr
 
   if (spec === undefined) refusals.push(`there is no spec at ${specOf(feature)}`)
   else if (verification.length === 0) refusals.push('the spec has no Verification section naming the commands to run')
+  if (tickets.length === 0) refusals.push(`there are no tickets in ${issuesOf(feature)}/`)
   if (refusals.length > 0) return [`${feature}: cannot be run`, ...refusals.map(reason => `  ${reason}`)].join('\n')
 
   const record = await readRecord(host, feature)
@@ -203,6 +205,15 @@ export const resume = async (host: Host, settings: Settings, wanted: string): Pr
   // A failed ticket's changes are discarded with everything untracked: the run's own files must be ignored by git
   if ((await git(host, 'check-ignore', '-q', folderOf(feature))).exitCode !== 0) {
     return `${feature}: ${SCRATCH}/ is not ignored by git. Add it to .gitignore, commit that, then /ship resume.`
+  }
+
+  // The checkpoint: this command, typed by the person on a run still with them, is the approval
+  if (record?.phase === 'attended') {
+    const approved = await approve(host, record)
+
+    if ('refusal' in approved) return `${feature}: cannot start: ${approved.refusal}.`
+
+    return `${feature}: approved, on branch ${approved.branch}; ${await advance(host, settings, { ...approved, startUsage: await readUsage(host) })}.`
   }
 
   const interrupted = tickets.filter(ticket => ticket.status === 'in-progress')

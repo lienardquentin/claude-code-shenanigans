@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { begin } from './attended'
 import { fillOf, settingsOf } from './budget'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
@@ -8,7 +9,13 @@ import { SCRATCH } from './run'
 import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
 import { statusText } from './status'
 
-const USAGE = 'Usage: /ship status, or /ship resume [feature]. Starting a run from an idea is not built yet.'
+const USAGE = [
+  'Usage:',
+  '  /ship <idea>            start a run from an idea',
+  '  /ship #<issue>          start a run from a GitHub issue',
+  '  /ship resume [feature]  approve the checkpoint, or take a run up again',
+  '  /ship status            how every run of this repo stands',
+].join('\n')
 
 // The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
 const hostOf = ($: EngineInterface): Host => ({
@@ -38,6 +45,19 @@ const hostOf = ($: EngineInterface): Host => ({
   },
   now: async () => $.clock.now(),
   cwd: () => $.session.cwd(),
+  root: $.plugin.root,
+  // Both wait on the session being idle, which it is not inside the command's own hook: the engine refuses them
+  // there, so they are made from a timer, once the hook has returned
+  prompt: text =>
+    void $.clock.after(0, () => {
+      void $.prompt.submit({ text }).catch((error: unknown) => $.ui.log(`the prompt was not taken: ${String(error)}`))
+    }),
+  compact: instructions =>
+    void $.clock.after(0, () => {
+      void $.session
+        .compact({ instructions })
+        .catch((error: unknown) => $.ui.log(`the conversation was not compacted: ${String(error)}`))
+    }),
   log: text => $.ui.log(text),
   // Sent or not is the person's own setting: the run does not wait to know
   notify: text => void $.ui.notify(text, { title: 'ship-flow' }).catch(() => undefined),
@@ -51,7 +71,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'ship',
       description: 'Takes one feature from an idea or an issue to a pull request',
-      argumentHint: 'status | resume [feature]',
+      argumentHint: '<idea> | #<issue> | resume [feature] | status',
     })
     await $.agent.register({
       name: IMPLEMENTER,
@@ -80,8 +100,9 @@ export const register: Register = (on, options) => {
 
     if (verb === 'status') return { text: statusText(await readFolders(hostOf($))) }
     if (verb === 'resume') return { text: await resume(hostOf($), settings, rest.join(' ')) }
+    if (verb === '') return { text: USAGE }
 
-    return { text: USAGE }
+    return { text: await begin(hostOf($), settings, e.args.trim()) }
   })
     // What went wrong is said in the answer: a hook that throws is skipped without a word
     .catch(() => ({ text: `ship-flow could not read or write the run's files under ${SCRATCH}.` }))

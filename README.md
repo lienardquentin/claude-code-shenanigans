@@ -4,6 +4,38 @@ Personal Claude Code mods and experiments.
 
 ## Mods
 
+### `ship-flow`
+
+Takes one feature from an idea or a GitHub issue to a pull request. It lives in
+[`.claude/mods/ship-flow`](.claude/mods/ship-flow). It automates the flow of the `mattpocock-skills` plugin, with
+the spec and the tickets kept as local files under `.scratch/<feature>/` instead of issues.
+
+- `/ship <idea>` or `/ship #<issue>` starts a run: you are grilled about the feature, then a spec and a set of
+  tickets are written locally. Nothing is published.
+- You read them, change what you like, and approve with `/ship resume`. That is the one checkpoint. A run from an
+  idea opens its single GitHub issue then.
+- From there the run is unattended, on a branch `ship/<feature>`: each ticket is built by a fresh subagent, the run
+  executes the spec's verification commands itself and commits, and a ticket that fails twice is marked `blocked`
+  while the rest go on.
+- At the end the branch is reviewed once, fixed once, pushed, and a pull request is opened whose body says what was
+  built, what was not and why, what the review found, and what the run spent of your quota. It is a draft when any
+  ticket is unfinished.
+- The run keeps its own budget: no ticket starts when the 5-hour quota window is nearly spent (it pauses and goes
+  on by itself after the reset), and an implementer that fills too much of its context is stopped and its ticket
+  marked `too-large`.
+- `/ship status` shows every run of the repo, ticket by ticket.
+
+It needs `gh` signed in, and the `mattpocock-skills` plugin for the grilling. The models and the thresholds are
+settings of the mod. The decisions behind it are in [`docs/adr`](docs/adr) (0002, 0003) and what was learnt about
+the mod API in [`docs/research/ship-flow-mod-api.md`](docs/research/ship-flow-mod-api.md).
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/ship-flow
+claude plugin install ship-flow@ship-flow-mods
+```
+
 ### `http-log`
 
 A pane that logs the HTTP calls a Claude Code session makes. It lives in
