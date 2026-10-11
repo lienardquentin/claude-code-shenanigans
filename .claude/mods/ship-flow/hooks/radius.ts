@@ -181,6 +181,14 @@ export const runRadiusOf = (tickets: readonly Ticket[], reading?: Reading): RunR
   }
 }
 
+/** The run's block as the lines every place shows: the totals, a note when the repo was unread, each outward action marked. */
+export const blockLines = (tickets: readonly Ticket[], reading?: Reading): string[] => {
+  const block = blockOf(tickets, reading)
+  const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
+
+  return [block.totals, ...(isUnread ? [DEPENDENTS_UNREAD] : []), ...block.outward.map(line => `${OUTWARD_MARK} ${line}`)]
+}
+
 /** The run's block of lines: its totals, then every outward action in full, by ticket number. */
 export const blockOf = (tickets: readonly Ticket[], reading?: Reading): { totals: string; outward: string[] } => {
   const run = runRadiusOf(tickets, reading)

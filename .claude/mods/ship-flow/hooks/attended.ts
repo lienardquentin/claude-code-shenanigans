@@ -1,6 +1,9 @@
 import type { Settings } from './budget'
 import { readFolders, writeRecord } from './folders'
 import type { Host } from './host'
+import { blockLines } from './radius'
+import type { reader } from './reading'
+import { problemsOf } from './tickets'
 import { SCRATCH, folderOf, issuesOf, kept, sourceOf, specOf } from './run'
 import type { RunRecord } from './run'
 import { git, tail } from './work'
@@ -252,12 +255,36 @@ export const noteRead = async (host: Host, path: string): Promise<void> => {
 }
 
 /**
+ * A run at its checkpoint, its tickets written and its folder free of problems: its blast radius is printed in the
+ * transcript, under the tickets table. Once, and again only when the block has changed since the record last said
+ * what it printed.
+ */
+const printRadius = async (host: Host, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
+  const folder = (await readFolders(host)).find(({ record }) => record?.phase === 'attended')
+  const record = folder?.record
+
+  if (!folder || !record || folder.tickets.length === 0 || problemsOf(folder.tickets).length > 0) return
+
+  const reading =
+    repo && folder.tickets.some(ticket => ticket.touches !== undefined) ? await repo.read(host).catch(() => undefined) : undefined
+  const text = blockLines(folder.tickets, reading).join('\n')
+
+  if (record.radiusShown === text) return
+
+  await writeRecord(host, { ...record, radiusShown: text })
+  host.log(text)
+}
+
+/**
  * The end of a turn of the main conversation. A run in its attended phase keeps to its context budget here: once
  * the window is past the budget, it is compacted at the first pause after a step boundary, and once a boundary.
  * Never during the grilling, whose thread the spec is written from.
  */
-export const afterTurn = async (host: Host, settings: Settings): Promise<void> => {
+export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
   if (!(await host.exists(SCRATCH))) return
+
+  // The checkpoint's blast radius is informing only: whatever goes wrong with it never holds the turn back
+  await printRadius(host, repo).catch(() => undefined)
 
   const record = await attendedOf(host)
 

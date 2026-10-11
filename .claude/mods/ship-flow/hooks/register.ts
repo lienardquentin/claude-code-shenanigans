@@ -10,7 +10,7 @@ import { PANE, paneOf } from './pane'
 import { reader } from './reading'
 import { SCRATCH } from './run'
 import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
-import { statusText } from './status'
+import { needsReading, statusText } from './status'
 
 // How many times a run wrote its files this session: the pane reads it, so each write draws the pane again
 const changes = atom({ plugin: 'ship-flow', key: 'changes' } as const, 0)
@@ -115,7 +115,7 @@ export const register: Register = (on, options) => {
 
     const folders = await readFolders(host)
     // The repo is read only for a card that shows a radius, and a failed read leaves the reach as declared files alone
-    const reading = folders.some(folder => folder.record?.phase !== 'ended' && folder.tickets.some(ticket => ticket.touches !== undefined))
+    const reading = needsReading(folders)
       ? await repo.read(host).catch(() => undefined)
       : undefined
 
@@ -151,7 +151,13 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'ship' }, async ($, e) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
 
-    if (verb === 'status') return { text: statusText(await readFolders(hostOf($))) }
+    if (verb === 'status') {
+      const host = hostOf($)
+      const folders = await readFolders(host)
+      const reading = needsReading(folders) ? await repo.read(host).catch(() => undefined) : undefined
+
+      return { text: statusText(folders, reading) }
+    }
     if (verb === '') return { text: USAGE }
     if (verb === 'pane') {
       const { isPlaced } = await $.ui.open({ id: PANE, title: 'ship-flow' })
@@ -199,7 +205,7 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason, answer: e.answer })
     } else {
-      await afterTurn(hostOf($), settings)
+      await afterTurn(hostOf($), settings, repo)
     }
 
     return completed

@@ -58,6 +58,8 @@ export type RunRecord = {
   fixes?: string
   /** The run's pull request, and the commit it was last brought up to. */
   pr?: { url: string; head: string }
+  /** The blast radius block last printed at the checkpoint, so that it is printed again only when it changes. */
+  radiusShown?: string
   /** The session's figures when the person last started the run, and when the run last looked. */
   startUsage?: UsageReading
   usage?: UsageReading
