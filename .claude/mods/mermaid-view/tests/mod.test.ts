@@ -237,6 +237,112 @@ describe('mermaid-view', () => {
       expect(await pane.find({ text: /│ A │/ })).toBeDefined()
       expect(await pane.find({ text: /a note/ })).toBeUndefined()
     })
+
+    // The element of the drawn tree that has a child with this key: the row a node's button is in
+    const rowHolding = (tree: unknown, key: string): unknown => {
+      const children = (tree as { children?: unknown[] } | null)?.children ?? []
+
+      if (children.some(child => (child as { props?: { key?: string } })?.props?.key === key)) return tree
+
+      for (const child of children) {
+        const found = typeof child === 'object' && child !== null ? rowHolding(child, key) : undefined
+        if (found !== undefined) return found
+      }
+
+      return undefined
+    }
+
+    describe('subgraphs', () => {
+      test('a subgraph is a titled box around its nodes, and not around the others', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; subgraph one [Build]; A[Compile] --> B[Link]; end; B --> C[Ship]')
+
+        expect(await pane.find({ type: 'Text', text: /╔═ Build ═+╗/ })).toBeDefined()
+        // an edge leaves the box through its bottom edge, so the edge is not one unbroken bar
+        expect(await pane.find({ type: 'Text', text: /╚═+│═+╝/ })).toBeDefined()
+        expect(await pane.find({ text: /║\s*│ Compile │\s*║/ })).toBeDefined()
+        expect(await pane.find({ text: /║\s*│ Link │\s*║/ })).toBeDefined()
+        // Ship is outside the box: the row it is on holds no box edge
+        const rowOfShip = rowHolding(await pane.drawn(), 'node-C')
+        expect(rowOfShip).toBeDefined()
+        expect(JSON.stringify(rowOfShip)).not.toContain('║')
+      })
+
+      test('a subgraph named by its title alone is drawn with that title', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; subgraph Backend services; A --> B; end')
+
+        expect(await pane.find({ type: 'Text', text: /╔═ Backend services ═*╗/ })).toBeDefined()
+      })
+
+      test('a subgraph inside another is drawn inside its box, both titled', async ($, on) => {
+        const pane = await draw(
+          $,
+          on,
+          'graph TD; subgraph outer [Outer]; subgraph inner [Inner]; A --> B; end; end',
+        )
+
+        expect(await pane.find({ type: 'Text', text: /╔═ Outer ═+╗/ })).toBeDefined()
+        expect(await pane.find({ type: 'Text', text: /║╔═ Inner ═+╗\s*║/ })).toBeDefined()
+        expect(await pane.find({ type: 'Text', text: /║╚═+╝\s*║/ })).toBeDefined()
+      })
+
+      test('the nodes of a subgraph stand together in their layer', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A --> B; A --> C; A --> D; subgraph s [S]; B; D; end')
+
+        expect(await pane.find({ text: /│ B │.*│ D │.*│ C │/ })).toBeDefined()
+      })
+
+      test('an end with no subgraph, or a subgraph never closed, is reported', async ($, on) => {
+        const stray = await draw($, on, 'graph TD; A --> B; end')
+
+        expect(await stray.find({ text: /Could not read this diagram at: end/ })).toBeDefined()
+      })
+
+      test('a subgraph that is never closed is reported', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; subgraph s [S]; A --> B')
+
+        expect(await pane.find({ text: /Could not read this diagram at: subgraph S/ })).toBeDefined()
+      })
+    })
+
+    describe('classes and styles', () => {
+      const colorOf = async (pane: Awaited<ReturnType<typeof mountPane>>, text: RegExp) =>
+        (await pane.findAll({ type: 'Text', text })).map(found => found.props.color)
+
+      test('a class named for a tone draws its nodes in that theme color', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A[Safe] --> B[Risky]; classDef success fill:#0f0; class A success; class B danger')
+
+        expect(await colorOf(pane, /Safe/)).toContain('success')
+        expect(await colorOf(pane, /Risky/)).toContain('error')
+      })
+
+      test('::: gives a node a class', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A[Careful]:::warning --> B')
+
+        expect(await colorOf(pane, /Careful/)).toContain('warning')
+      })
+
+      test('any other class, and a style, mark a node out in the accent color', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A[One] --> B[Two]; classDef big stroke-width:4px; class A big; style B fill:#f9f,stroke:#333')
+
+        expect(await colorOf(pane, /One/)).toContain('claude')
+        expect(await colorOf(pane, /Two/)).toContain('claude')
+      })
+
+      test('the colors a source names never reach the drawing', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A --> B; classDef big fill:#ff0000,stroke:#00ff00; class A big; style B fill:#abcdef')
+        const tree = JSON.stringify(await pane.drawn())
+
+        expect(tree).not.toMatch(/#[0-9a-fA-F]{3,6}/)
+      })
+
+      test('the selection still shows over a node\'s own color', async ($, on) => {
+        const pane = await draw($, on, 'graph TD; A[Safe]:::success --> B')
+
+        await pane.press({ key: 'node-A' })
+
+        expect(await colorOf(pane, /Safe/)).toContain('claude')
+      })
+    })
   })
 
   test('a diagram with a header and no nodes says so', async ($, on) => {

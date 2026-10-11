@@ -96,7 +96,14 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
       <Box key="node-buttons" flexDirection="row" flexWrap="wrap" gap={1}>
         {diagram.nodes.map(node => (
           <Button key={`node-${node.id}`} onPress={() => toggle($, node.id)}>
-            {tonedText({ text: node.label, ...(node.id === known ? { tone: 'accent' as const, bold: true } : {}) })}
+            {tonedText({
+              text: node.label,
+              ...(node.id === known
+                ? { tone: 'accent' as const, bold: true }
+                : node.tone !== undefined
+                  ? { tone: node.tone }
+                  : {}),
+            })}
           </Button>
         ))}
       </Box>,
@@ -109,9 +116,14 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
   const rows = drawing.map((segments, index) => (
     <Box key={`row-${index}`} flexDirection="row">
       {segments.map((segment, at) => {
+        // The selection is accented; a node the author marked out is in its tone; the rest is as it comes
         const label = tonedText({
           text: segment.text,
-          ...(segment.hot ? { tone: 'accent' as const, bold: true } : {}),
+          ...(segment.hot
+            ? { tone: 'accent' as const, bold: true }
+            : segment.tone !== undefined
+              ? { tone: segment.tone }
+              : {}),
         })
 
         if (segment.node === undefined) return <Box key={`row-${index}-${at}`}>{label}</Box>

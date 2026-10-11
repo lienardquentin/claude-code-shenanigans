@@ -6,17 +6,48 @@ export type Shape = 'rectangle' | 'rounded' | 'stadium' | 'diamond' | 'circle'
 /** `-->` is an arrow, `---` an open line, `-.->` a dotted arrow and `==>` a thick one. */
 export type EdgeKind = 'arrow' | 'open' | 'dotted' | 'thick'
 
-/** A diagram read from Mermaid source: its nodes in the order they were first named, and its edges. */
+/** What a node the author marked out is drawn in: one of the theme's colors, never one the source names. */
+export type Tone = 'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'danger'
+
+/**
+ * A diagram read from Mermaid source: its nodes in the order they were first named, its edges, and the subgraphs
+ * that group nodes (a node's `group` is the innermost one it is in; a group's `parent` the one around it).
+ */
 export type Diagram = {
   direction: Direction
-  nodes: { id: string; label: string; shape: Shape }[]
+  nodes: { id: string; label: string; shape: Shape; group?: string; tone?: Tone }[]
   edges: { from: string; to: string; kind: EdgeKind; label?: string }[]
+  groups: { id: string; title: string; parent?: string }[]
 }
 
 export type ParseResult = { ok: true; diagram: Diagram } | { ok: false; line: string }
 
 const HEADER = /^(?:graph|flowchart)(?:\s+(TD|TB|BT|LR|RL))?$/i
-const NODE = /^([\p{L}\p{N}_-]+)(?:(\(\(|\(\[|\[|\(|\{)(.*?)(\)\)|\]\)|\]|\)|\}))?$/u
+const NODE = /^([\p{L}\p{N}_-]+)(?:(\(\(|\(\[|\[|\(|\{)(.*?)(\)\)|\]\)|\]|\)|\}))?(?::::([\p{L}\p{N}_-]+))?$/u
+const NAME = '[\\p{L}\\p{N}_-]+'
+const SUBGRAPH = /^subgraph\s+(.+)$/i
+const SUBGRAPH_ID = new RegExp(`^(${NAME})\\s*\\[(.*)\\]$`, 'u')
+const CLASS_DEF = new RegExp(`^classDef\\s+(${NAME})(?:\\s+.*)?$`, 'iu')
+const CLASS_USE = new RegExp(`^class\\s+(\\S+)\\s+(${NAME})$`, 'iu')
+const STYLE = new RegExp(`^style\\s+(${NAME})(?:\\s+.*)?$`, 'iu')
+
+// A class names a tone when its name says one; any other class or style marks the node out in the accent tone. The
+// colors the source gives (`fill:#f96`) are never read.
+const TONE_OF_NAME: Record<string, Tone> = {
+  neutral: 'neutral',
+  accent: 'accent',
+  info: 'info',
+  success: 'success',
+  ok: 'success',
+  good: 'success',
+  warning: 'warning',
+  warn: 'warning',
+  danger: 'danger',
+  error: 'danger',
+  bad: 'danger',
+}
+
+const toneOf = (className: string): Tone => TONE_OF_NAME[className.toLowerCase()] ?? 'accent'
 
 // What each opening token makes, and the token that has to close it
 const SHAPES: Record<string, { shape: Shape; close: string }> = {
@@ -121,8 +152,47 @@ export const parseDiagram = (source: string): ParseResult => {
   const direction: Direction = word === 'BT' || word === 'LR' || word === 'RL' ? word : 'TD'
   const nodes: Diagram['nodes'] = []
   const edges: Diagram['edges'] = []
+  const subgraphs: Diagram['groups'] = []
+  // The subgraphs a statement is inside, outermost first; a `class` or `style` line may come before the node it names
+  const open: string[] = []
+  const marks: { id: string; tone: Tone }[] = []
 
   for (const statement of statements.slice(1)) {
+    const opening = SUBGRAPH.exec(statement)
+
+    if (opening !== null) {
+      const text = (opening[1] as string).trim()
+      const named = SUBGRAPH_ID.exec(text)
+      const id = named?.[1] ?? `subgraph-${subgraphs.length}`
+      const parent = open[open.length - 1]
+
+      subgraphs.push({ id, title: unquoted(named?.[2] ?? text), ...(parent !== undefined ? { parent } : {}) })
+      open.push(id)
+      continue
+    }
+
+    if (/^end$/i.test(statement)) {
+      if (open.pop() === undefined) return { ok: false, line: statement }
+      continue
+    }
+
+    // `classDef` only names a class; its colors are not read
+    if (CLASS_DEF.test(statement)) continue
+
+    const using = CLASS_USE.exec(statement)
+
+    if (using !== null) {
+      for (const id of (using[1] as string).split(',')) marks.push({ id: id.trim(), tone: toneOf(using[2] as string) })
+      continue
+    }
+
+    const styled = STYLE.exec(statement)
+
+    if (styled !== null) {
+      marks.push({ id: styled[1] as string, tone: 'accent' })
+      continue
+    }
+
     const { groups, edges: links } = tokenize(statement)
     const members: string[][] = []
 
@@ -141,13 +211,25 @@ export const parseDiagram = (source: string): ParseResult => {
 
         const label = match[3] === undefined ? undefined : unquoted(match[3])
         const known = nodes.find(node => node.id === id)
+        const group = open[open.length - 1]
 
         if (known === undefined) {
-          nodes.push({ id, label: label ?? id, shape: wrapper?.shape ?? 'rectangle' })
-        } else if (wrapper !== undefined) {
-          known.label = label ?? id
-          known.shape = wrapper.shape
+          nodes.push({
+            id,
+            label: label ?? id,
+            shape: wrapper?.shape ?? 'rectangle',
+            ...(group !== undefined ? { group } : {}),
+          })
+        } else {
+          if (wrapper !== undefined) {
+            known.label = label ?? id
+            known.shape = wrapper.shape
+          }
+          // A node named inside a subgraph belongs to it, unless it already belongs to one
+          if (known.group === undefined && group !== undefined) known.group = group
         }
+
+        if (match[5] !== undefined) marks.push({ id, tone: toneOf(match[5]) })
 
         ids.push(id)
       }
@@ -164,5 +246,13 @@ export const parseDiagram = (source: string): ParseResult => {
     })
   }
 
-  return { ok: true, diagram: { direction, nodes, edges } }
+  const unclosed = open[open.length - 1]
+  if (unclosed !== undefined) return { ok: false, line: `subgraph ${subgraphs.find(g => g.id === unclosed)?.title ?? ''}` }
+
+  for (const mark of marks) {
+    const node = nodes.find(candidate => candidate.id === mark.id)
+    if (node !== undefined) node.tone = mark.tone
+  }
+
+  return { ok: true, diagram: { direction, nodes, edges, groups: subgraphs } }
 }

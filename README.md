@@ -75,7 +75,14 @@ the drawing set in a monospace font; the selection is bold) with one button per 
 It is used on the desktop too, because there a plain `Button` is a native button and the box could not be known to
 keep its shape; whether the drawn boxes would work there is a manual check not yet made.
 
-Not yet: subgraphs, `classDef`/`style`, click directives, a terminal guide.
+- Subgraphs: `subgraph id [Title]` (or `subgraph Title`) ... `end`, nested to any depth, drawn as a titled double-line
+  box around their nodes; the nodes of a subgraph stand together in their layer.
+- Marking nodes out: `class A,B name`, `A:::name` and `style A ...` draw a node in a theme color. A class named
+  `success`, `warning`, `danger`/`error`, `info`, `neutral` or `accent` uses that tone; any other class, and `style`,
+  uses the accent color. The colors a source gives (`fill:#f96`) are never read, so no color of the source reaches the
+  drawing.
+
+Not yet: click directives, a terminal guide.
 
 Known limits of the drawing: a diagram wider than the pane is not scrolled or fitted; when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is

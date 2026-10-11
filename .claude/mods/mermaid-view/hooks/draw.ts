@@ -1,4 +1,4 @@
-import type { Diagram, Direction, EdgeKind, Shape } from './diagram'
+import type { Diagram, Direction, EdgeKind, Shape, Tone } from './diagram'
 
 const NODE_HEIGHT = 3
 const LANE_START = 2
@@ -81,18 +81,21 @@ const styleOf = (kind: EdgeKind): Style => (kind === 'thick' ? 'thick' : kind ==
 
 // `solid` is a character a node's box, an arrowhead or a label drew: a line never overwrites it. `node` and `row`
 // say which node's box (and which of its three rows) a cell belongs to; `hot` marks what belongs to the selection.
-type Cell = { sides: number; style?: Style; solid?: string; node?: string; row?: number; hot?: boolean }
+type Cell = { sides: number; style?: Style; solid?: string; node?: string; row?: number; hot?: boolean; tone?: Tone }
 
 /**
  * A run of cells on one line of the drawing that is drawn alike: a piece of a node's box (the `node` it belongs to
- * and which `row` of its box it is) or a stretch of lines and spaces, `hot` when it belongs to the selection.
+ * and which `row` of its box it is) or a stretch of lines and spaces, `hot` when it belongs to the selection and
+ * in `tone` when the author marked its node out.
  */
-export type Segment = { text: string; hot: boolean; node?: string; row?: number }
+export type Segment = { text: string; hot: boolean; node?: string; row?: number; tone?: Tone }
 
 type PlacedNode = {
   id: string
   rows: string[]
   width: number
+  group?: string
+  tone?: Tone
   layer: number
   // Where the box starts along the main axis and across it, and how far it reaches along each
   main: number
@@ -201,6 +204,8 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
       id: node.id,
       rows,
       width,
+      ...(node.group !== undefined ? { group: node.group } : {}),
+      ...(node.tone !== undefined ? { tone: node.tone } : {}),
       layer: layerOfNode(node.id),
       main: 0,
       cross: 0,
@@ -228,6 +233,37 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
       .sort((a, b) => a.centre - b.centre || a.index - b.index)
       .map(entry => entry.node)
   }
+
+  // The nodes of a subgraph stand together in their layer, at the place of the first of them, so that its box
+  // can be drawn around them without taking in others
+  for (let layer = 0; layer < layerCount; layer += 1) {
+    const order: string[] = []
+    const buckets = new Map<string, PlacedNode[]>()
+
+    for (const node of nodesIn[layer] ?? []) {
+      // A node in no subgraph is a bucket of its own; the `#` keeps its id apart from a subgraph's
+      const key = node.group ?? `#${node.id}`
+      const bucket = buckets.get(key)
+
+      if (bucket === undefined) {
+        buckets.set(key, [node])
+        order.push(key)
+      } else {
+        bucket.push(node)
+      }
+    }
+
+    nodesIn[layer] = order.flatMap(key => buckets.get(key) ?? [])
+  }
+
+  // Each subgraph's box is one cell outside its nodes, and one outside the boxes of the subgraphs inside it: the
+  // drawing keeps that much room all around
+  const children = new Map<string, string[]>()
+  for (const group of diagram.groups) {
+    if (group.parent !== undefined) children.set(group.parent, [...(children.get(group.parent) ?? []), group.id])
+  }
+  const depthOf = (id: string): number => 1 + Math.max(0, ...(children.get(id) ?? []).map(depthOf))
+  const ringPad = Math.max(0, ...diagram.groups.filter(group => group.parent === undefined).map(group => depthOf(group.id)))
 
   // The runs along the cross axis: an edge between neighbouring layers has one; any other edge leaves its source by
   // one and arrives at its target by another, in the gaps after the source and before the target
@@ -274,24 +310,25 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
 
   const layerStart: number[] = []
   const layerSize = nodesIn.map(layer => Math.max(...layer.map(node => node.mainSize)))
-  let cursor = topMargin
+  let cursor = ringPad + topMargin
 
   for (let layer = 0; layer < layerCount; layer += 1) {
     layerStart.push(cursor)
     cursor += (layerSize[layer] as number) + (layer < layerCount - 1 ? gapSize(layer) : 0)
   }
 
-  const total = cursor + bottomMargin
+  const total = cursor + bottomMargin + ringPad
 
-  // Across the diagram: the nodes of a layer side by side, each layer centred on the widest
-  const crossGap = vertical ? 3 : 1
+  // Across the diagram: the nodes of a layer side by side, each layer centred on the widest. With subgraphs the
+  // nodes are kept further apart, so a box can be drawn between two that are in different ones.
+  const crossGap = vertical || diagram.groups.length > 0 ? 3 : 1
   const crossLength = (layer: PlacedNode[]): number =>
     layer.reduce((sum, node) => sum + node.crossSize, 0) + crossGap * Math.max(0, layer.length - 1)
   const widest = Math.max(...nodesIn.map(crossLength))
   const placed = new Map<string, PlacedNode>()
 
   nodesIn.forEach((layer, index) => {
-    let cross = Math.floor((widest - crossLength(layer)) / 2)
+    let cross = ringPad + Math.floor((widest - crossLength(layer)) / 2)
 
     for (const node of layer) {
       node.main = layerStart[index] as number
@@ -302,8 +339,10 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
   })
 
   const laneCount = routes.filter(route => route.aside).length
-  const crossTotal = widest + LANE_START + laneCount * 2 + 1
-  const width = vertical ? crossTotal : total
+  const crossTotal = ringPad * 2 + widest + LANE_START + laneCount * 2 + 1
+  // A subgraph's box grows to the right to hold its title, so the drawing keeps room for the longest one
+  const titleRoom = Math.max(0, ...diagram.groups.map(group => Array.from(group.title).length + 6))
+  const width = (vertical ? crossTotal : total) + titleRoom
   const height = vertical ? total : crossTotal
 
   const grid: Cell[][] = Array.from({ length: height }, () => Array.from({ length: width }, (): Cell => ({ sides: 0 })))
@@ -323,7 +362,13 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     }
   }
 
-  const setSolid = (x: number, y: number, char: string, hot: boolean, node?: { id: string; row: number }): void => {
+  const setSolid = (
+    x: number,
+    y: number,
+    char: string,
+    hot: boolean,
+    node?: { id: string; row: number; tone?: Tone },
+  ): void => {
     const target = at(x, y)
     if (target === undefined) return
 
@@ -332,6 +377,7 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     if (node !== undefined) {
       target.node = node.id
       target.row = node.row
+      if (node.tone !== undefined) target.tone = node.tone
     }
   }
 
@@ -366,20 +412,29 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
   }
 
   // The boxes are text, drawn the right way up whatever the direction: the main axis only places them
+  const rects = new Map<string, { x: number; y: number; w: number; h: number }>()
+
   for (const node of placed.values()) {
     const main = direction === 'BT' || direction === 'RL' ? total - node.main - node.mainSize : node.main
     const x = vertical ? node.cross : main
     const y = vertical ? main : node.cross
 
+    rects.set(node.id, { x, y, w: node.width, h: NODE_HEIGHT })
+
     node.rows.forEach((text, row) => {
       Array.from(text).forEach((char, column) =>
-        setSolid(x + column, y + row, char, node.id === selected, { id: node.id, row }),
+        setSolid(x + column, y + row, char, node.id === selected, {
+          id: node.id,
+          row,
+          ...(node.tone !== undefined ? { tone: node.tone } : {}),
+        }),
       )
     })
   }
 
   // Where the buses of a gap lie along the main axis: after the gap's exit row, one after another
-  const busMain = (gap: number, row: number): number => (gap < 0 ? row : (layerStart[gap] as number) + (layerSize[gap] as number) + 1 + row)
+  const busMain = (gap: number, row: number): number =>
+    gap < 0 ? ringPad + row : (layerStart[gap] as number) + (layerSize[gap] as number) + 1 + row
 
   let lane = 0
 
@@ -407,7 +462,7 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     } else {
       const intoRun = runs[route.into] as Run
       const intoMain = busMain(intoRun.gap, rowOf[route.into] as number)
-      const laneCross = widest + LANE_START + lane * 2
+      const laneCross = ringPad + widest + LANE_START + lane * 2
       lane += 1
 
       drawRun(outMain, startCross, outMain, laneCross, hot, style)
@@ -437,6 +492,67 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
     }
   })
 
+  // A subgraph's box is drawn around its nodes, and around the boxes of the subgraphs inside it, over empty cells
+  // only: a line that crosses it stays, and so does an arrowhead
+  type Rect = { x: number; y: number; w: number; h: number }
+  const boxOfGroup = (id: string): Rect | undefined => {
+    const inside = [
+      ...diagram.nodes.filter(node => node.group === id).map(node => rects.get(node.id)),
+      ...(children.get(id) ?? []).map(boxOfGroup),
+    ].filter((rect): rect is Rect => rect !== undefined)
+
+    if (inside.length === 0) return undefined
+
+    const left = Math.min(...inside.map(rect => rect.x))
+    const top = Math.min(...inside.map(rect => rect.y))
+    const right = Math.max(...inside.map(rect => rect.x + rect.w))
+    const bottom = Math.max(...inside.map(rect => rect.y + rect.h))
+    // Wide enough for the title between a corner and a bar on the top edge, growing to the right when it is not
+    const title = Array.from(diagram.groups.find(group => group.id === id)?.title ?? '').length + 2
+
+    return { x: left - 1, y: top - 1, w: Math.max(right - left + 2, title + 4), h: bottom - top + 2 }
+  }
+
+  const putBorder = (x: number, y: number, char: string): void => {
+    const target = at(x, y)
+    if (target !== undefined && target.solid === undefined && target.sides === 0) target.solid = char
+  }
+
+  // Inner boxes first, so that a title is not overwritten by the box around it
+  const drawGroup = (id: string): void => {
+    for (const child of children.get(id) ?? []) drawGroup(child)
+
+    const rect = boxOfGroup(id)
+    if (rect === undefined) return
+
+    const right = rect.x + rect.w - 1
+    const bottom = rect.y + rect.h - 1
+
+    for (let x = rect.x + 1; x < right; x += 1) {
+      putBorder(x, rect.y, '═')
+      putBorder(x, bottom, '═')
+    }
+
+    for (let y = rect.y + 1; y < bottom; y += 1) {
+      putBorder(rect.x, y, '║')
+      putBorder(right, y, '║')
+    }
+
+    putBorder(rect.x, rect.y, '╔')
+    putBorder(right, rect.y, '╗')
+    putBorder(rect.x, bottom, '╚')
+    putBorder(right, bottom, '╝')
+
+    // The title sits on the top edge, with a space each side, as far as the box is wide
+    const title = Array.from(` ${diagram.groups.find(group => group.id === id)?.title ?? ''} `)
+    title.slice(0, Math.max(0, rect.w - 4)).forEach((char, offset) => {
+      const target = at(rect.x + 2 + offset, rect.y)
+      if (target !== undefined && target.sides === 0) target.solid = char
+    })
+  }
+
+  for (const group of diagram.groups) if (group.parent === undefined) drawGroup(group.id)
+
   // Each grid row becomes segments: cells drawn alike and, for a node's box, belonging to the same node, are one
   return grid.map(row => {
     const segments: Segment[] = []
@@ -447,8 +563,15 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
       const hot = cell.hot === true
       const last = segments[segments.length - 1]
 
-      if (last !== undefined && last.node === cell.node && last.hot === hot) last.text += text
-      else segments.push({ text, hot, ...(cell.node !== undefined ? { node: cell.node, row: cell.row } : {}) })
+      if (last !== undefined && last.node === cell.node && last.hot === hot && last.tone === cell.tone) last.text += text
+      else {
+        segments.push({
+          text,
+          hot,
+          ...(cell.node !== undefined ? { node: cell.node, row: cell.row } : {}),
+          ...(cell.tone !== undefined ? { tone: cell.tone } : {}),
+        })
+      }
     }
 
     // Nothing is drawn after the last line or box of a row
