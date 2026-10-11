@@ -88,8 +88,8 @@ committed and its ticket was marked `too-large`. What the declarations said befo
 
 ## The live run
 
-On 2026-10-11, `/ship resume trial` built a one-ticket run in a real terminal session on Windows (commit
-`f977232`, "trial: The trial file exists"). It showed, live:
+On 2026-10-11, `/ship resume trial` built a one-ticket throwaway run in a real terminal session on Windows. The
+trial's commits were taken out of the branch afterwards. It showed, live:
 
 - The registered type `ship-flow:implementer` spawns from a `command.run` hook, on the asked model: the answer
   named `claude-sonnet-5-5`, the alias `sonnet` resolved.
@@ -101,7 +101,7 @@ On 2026-10-11, `/ship resume trial` built a one-ticket run in a real terminal se
   with its reset time.
 - A `/ship` answer is shown under the mod's name, so its text reads `ship-flow: <feature>: ...`.
 
-A second live run the same day walked two tickets with no input between them (commits `467f78a` and `6547cf7`).
+A second live run the same day walked two tickets with no input between them, one commit each.
 It settled the caution above: a subagent spawned from inside the `turn.complete` hook has its own end seen by
 that same hook, so the run can start each ticket from the end of the one before. Each ticket was built on its
 first attempt, so a retry has not been seen live.
