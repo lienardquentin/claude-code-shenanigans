@@ -1,3 +1,4 @@
+import { BUDGET_WINDOW } from './budget'
 import type { RunRecord } from './run'
 import { frontier, label, problemsOf } from './tickets'
 import type { Problem, Ticket } from './tickets'
@@ -28,11 +29,13 @@ const ticketLine = (
   record: RunRecord | undefined,
 ): string => {
   const attempts = record?.attempts[label(ticket.number ?? 0)] ?? 0
+  const peak = record?.peak?.[label(ticket.number ?? 0)]
   const failure = record?.failure?.ticket === ticket.number && ticket.status !== 'done' ? record?.failure : undefined
   const notes = [
     ticket.blockers.length > 0 ? `blocked by ${ticket.blockers.map(label).join(', ')}` : '',
     ticket.model !== undefined ? `model ${ticket.model}` : '',
     attempts > 1 ? `attempt ${attempts}` : '',
+    peak !== undefined ? `context ${Math.round((peak / BUDGET_WINDOW) * 100)}%` : '',
     failure ? `failed: ${failure.reason}` : '',
     takeable.has(ticket) ? 'takeable now' : (NOTES[ticket.status ?? ''] ?? ''),
   ].filter(note => note !== '')

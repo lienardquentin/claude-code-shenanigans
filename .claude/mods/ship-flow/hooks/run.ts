@@ -22,6 +22,8 @@ export type RunRecord = {
   refused?: string
   /** How full the implementer's context was, in tokens, when it passed the budget and was stopped. */
   tooLarge?: number
+  /** The fullest each ticket's implementer got, in tokens of context, by ticket number: what the budget is tuned on. */
+  peak?: Readonly<Record<string, number>>
   /** How many times each ticket was attempted, by ticket number. */
   attempts: Readonly<Record<string, number>>
   /** Why the run is not building now, when it is not. */
