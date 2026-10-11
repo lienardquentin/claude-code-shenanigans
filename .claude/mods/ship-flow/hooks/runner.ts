@@ -1,4 +1,4 @@
-import { beforeTicket, clockTime } from './budget'
+import { BUDGET_WINDOW, beforeTicket, clockTime, isOverBudget } from './budget'
 import type { Settings } from './budget'
 import { readFolders, readRecord, writeRecord, writeStatus } from './folders'
 import type { Host } from './host'
@@ -299,6 +299,26 @@ export const checkTool = async (
   }
 }
 
+/**
+ * One response of a subagent, by how full its context was when it was made. A run's implementer that has passed
+ * the ticket's context budget is stopped there: its work from here on would be worse, and the ticket is too large
+ * for one window. The stop is `complete`'s to act on, when the turn ends aborted.
+ */
+export const measure = async (
+  host: Host,
+  settings: Settings,
+  step: { agentId: string; turnId: string; tokens: number },
+): Promise<void> => {
+  if (!isOverBudget(step.tokens, settings)) return
+
+  const flight = await flightOf(host, step.agentId)
+
+  if (!flight || flight.record.tooLarge !== undefined) return
+
+  await writeRecord(host, { ...flight.record, tooLarge: step.tokens })
+  await host.abort(step.turnId)
+}
+
 // Runs the spec's verification commands in order; the first that fails is the failure
 const verify = async (host: Host, feature: string) => {
   const isWindows = isWindowsPath(await host.cwd())
@@ -358,6 +378,20 @@ export const complete = async (
   if (!flight || !ticket) return
 
   const { feature, record } = flight
+
+  // Stopped for its size: another attempt would only fill another window, so the ticket is the person's to split
+  if (record.tooLarge !== undefined && turn.reason !== 'answer') {
+    const share = Math.round((record.tooLarge / BUDGET_WINDOW) * 100)
+
+    await discard(host)
+    await writeStatus(host, feature, ticket, 'too-large')
+    host.log(
+      `${feature}: ${named(ticket)} was stopped at ${share}% of a context window and is marked too-large: split it; ${await advance(host, settings, record)}.`,
+    )
+
+    return
+  }
+
   const settled = await settle(host, feature, ticket, record, turn.reason)
 
   if ('commit' in settled) {

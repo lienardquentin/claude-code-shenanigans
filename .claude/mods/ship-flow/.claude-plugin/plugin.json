@@ -32,6 +32,12 @@
       "title": "Weekly quota threshold (%)",
       "description": "No ticket starts once the weekly quota window is this full: the run stops building.",
       "default": 90
+    },
+    "contextPercent": {
+      "type": "number",
+      "title": "Context budget of a ticket (%)",
+      "description": "An implementer that has filled this share of a 200,000-token context window is stopped, and its ticket marked too-large.",
+      "default": 70
     }
   }
 }

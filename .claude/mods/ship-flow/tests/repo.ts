@@ -104,6 +104,32 @@ export const answerRepo = (
       },
     }) as never,
   )
+  const aborted: string[] = []
+  // How many tokens the next response of a subagent is answered over
+  const step = { tokens: 20_000 }
+
+  on('turn.abort', (_, e) => {
+    aborted.push(e.turnId)
+
+    return { value: undefined } as never
+  })
+  // The model's response beneath the mod: no pieces, and a usage that says how full the context was
+  on('turn.step', async function* (_, e) {
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: '',
+      toolUses: [],
+      stopReason: 'tool_use',
+      usage: {
+        model: e.model,
+        input_tokens: 1_000,
+        output_tokens: 500,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: step.tokens - 1_000,
+      },
+    } as never
+  })
   on('ui.notify', (_, e) => {
     notified.push(e.text)
 
@@ -148,6 +174,10 @@ export const answerRepo = (
     spawned,
     logged,
     notified,
+    /** The turns the mod stopped, by id. */
+    aborted,
+    /** How full a subagent's context is at its next response, in tokens: a test raises it. */
+    step,
     /** The session's clock, which moves only when the test moves it. */
     clock,
     /** How full each quota window is: a test changes one between tickets. */

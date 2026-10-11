@@ -1,10 +1,10 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { settingsOf } from './budget'
+import { fillOf, settingsOf } from './budget'
 import { readFolders } from './folders'
 import type { Host } from './host'
 import { SCRATCH } from './run'
-import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, resume } from './runner'
+import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
 import { statusText } from './status'
 
 const USAGE = 'Usage: /ship status, or /ship resume [feature]. Starting a run from an idea is not built yet.'
@@ -21,6 +21,7 @@ const hostOf = ($: EngineInterface): Host => ({
 
     return { ...(agentId !== undefined ? { agentId } : {}), ...(model !== undefined ? { model } : {}), ...(deny !== undefined ? { deny } : {}) }
   },
+  abort: turnId => $.turn.abort({ turnId }),
   agents: async () =>
     (await $.agent.list()).map(agent => ({ id: agent.id, type: agent.type, isRunning: agent.status === 'running' })),
   usage: async () => {
@@ -85,6 +86,21 @@ export const register: Register = (on, options) => {
   })
     // A run whose files cannot be read decides nothing: the session's own decision stands
     .catch(($, e, next) => next(e))
+
+  // Each response of a subagent says how full its context was: an implementer past its budget is stopped there
+  on('turn.step', async function* ($, e, next) {
+    const response = yield* next(e)
+
+    if (e.agentId !== undefined && response.usage) {
+      await measure(hostOf($), settings, { agentId: e.agentId, turnId: e.turnId, tokens: fillOf(response.usage) })
+    }
+
+    return response
+  })
+    // A response is never held back by the run: what the model answered stands
+    .catch(async function* ($, e, next) {
+      return yield* next(e)
+    })
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)

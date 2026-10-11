@@ -12,6 +12,8 @@ export type Settings = {
   shortWindowPercent: number
   /** How full the weekly quota window may be, in percent, for a ticket to start. */
   weeklyPercent: number
+  /** How much of one context window a ticket's implementer may fill, in percent, before it is stopped. */
+  contextPercent: number
 }
 
 export const DEFAULTS: Settings = {
@@ -20,7 +22,26 @@ export const DEFAULTS: Settings = {
   exploreModel: 'haiku',
   shortWindowPercent: 90,
   weeklyPercent: 90,
+  contextPercent: 70,
 }
+
+/**
+ * The context window the budget is a share of, in tokens. A fixed size, not each model's own: the engine does not
+ * say what window a subagent's model has, and a model reasons less sharply long before a window of a million
+ * tokens is full, so the budget is counted in the window every model has.
+ */
+export const BUDGET_WINDOW = 200_000
+
+/** What one response was answered over, as the API reports it. */
+export type StepUsage = { input_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
+
+/** How full the context was when a response was made, in tokens: everything the request carried. */
+export const fillOf = (usage: StepUsage): number =>
+  usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+
+/** Whether a context this full is past the ticket's budget. */
+export const isOverBudget = (tokens: number, settings: Settings): boolean =>
+  tokens >= (BUDGET_WINDOW * settings.contextPercent) / 100
 
 // The quota windows as the session names them
 const SHORT = 'five_hour'
@@ -44,6 +65,7 @@ export const settingsOf = (options: Readonly<Record<string, unknown>> | undefine
   exploreModel: text(options?.exploreModel, DEFAULTS.exploreModel),
   shortWindowPercent: percent(options?.shortWindowPercent, DEFAULTS.shortWindowPercent),
   weeklyPercent: percent(options?.weeklyPercent, DEFAULTS.weeklyPercent),
+  contextPercent: percent(options?.contextPercent, DEFAULTS.contextPercent),
 })
 
 /**
