@@ -2,6 +2,9 @@
 .claude/settings.local.json
 .claude/**/*.local.*
 
+# Working files of a ship-flow run (spec, tickets, run record)
+.scratch/
+
 # Python
 __pycache__/
 *.pyc
