@@ -14,6 +14,10 @@ export type Ticket = {
   blockers: readonly number[]
   model?: string
   criteria: readonly Criterion[]
+  /** The paths the ticket expects to change; absent when it declared no `Touches:`. */
+  touches?: readonly string[]
+  /** The ticket's outward actions, empty for `None`; absent when it declared no `Outward actions:`. */
+  outward?: readonly string[]
 }
 
 /** What is wrong with a ticket, by its number, or by its file when it has none. */
@@ -25,12 +29,20 @@ export const label = (number: number): string => String(number).padStart(2, '0')
 const field = (text: string, name: string): string | undefined =>
   new RegExp(`^\\*\\*${name}:\\*\\*[ \\t]*(.*)$`, 'm').exec(text)?.[1]?.trim()
 
+const items = (value: string, separator: string): string[] =>
+  value
+    .split(separator)
+    .map(item => item.trim())
+    .filter(item => item !== '')
+
 /** Reads one ticket file. Never fails: what a file lacks is left out, for `problemsOf` to report. */
 export const parseTicket = (file: string, text: string): Ticket => {
   const heading = /^#\s+(?:(\d+)\s*:\s*)?(.*)$/m.exec(text)
   const numbered = heading?.[1] ?? /^(\d+)/.exec(file)?.[1]
   const status = field(text, 'Status')
   const model = field(text, 'Model')
+  const touches = field(text, 'Touches')
+  const outward = field(text, 'Outward actions')
 
   return {
     file,
@@ -43,6 +55,8 @@ export const parseTicket = (file: string, text: string): Ticket => {
       text: (criterion ?? '').trim(),
       isDone: mark !== ' ',
     })),
+    ...(touches !== undefined ? { touches: items(touches, ',') } : {}),
+    ...(outward !== undefined ? { outward: /^none\.?$/i.test(outward) ? [] : items(outward, ';') } : {}),
   }
 }
 

@@ -22,7 +22,7 @@ export const IMPLEMENTER_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash
 export const IMPLEMENTER_PROMPT = [
   'You build one ticket of a spec, alone and unattended. Nobody can answer a question: decide, and say what you decided in your report.',
   '',
-  'You are given two paths: the spec and your ticket. Read both first. The ticket says what to build and lists its acceptance criteria; the spec holds the decisions, the vocabulary and the seams to test at. Build the ticket and nothing beyond it.',
+  'You are given two paths: the spec and your ticket. Read both first. The ticket says what to build and lists its acceptance criteria; the spec holds the decisions, the vocabulary and the seams to test at. Build the ticket and nothing beyond it. Its `**Touches:**` line is the estimate the person approved, not a constraint: change another file when the work needs it.',
   '',
   'Work test-first at the seams the spec names: write a failing test for one behaviour, make it pass, then the next. Match the code around you.',
   '',

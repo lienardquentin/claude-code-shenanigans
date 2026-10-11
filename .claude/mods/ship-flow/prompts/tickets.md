@@ -8,11 +8,11 @@ The spec is written. Break it into tickets, each built later by a fresh agent th
 
 2. **Give each ticket its blocking edges**: the tickets that must be done before it can start. Name only the tickets that truly gate it; a ticket with none can start at once. The run takes any ticket whose blockers are all done, so a false edge delays work and a missing one breaks it. Done when the edges form no cycle and every ticket is reachable.
 
-3. **Write one file a ticket**, `<NN>-<slug>.md`, numbered from `01` in an order where blockers come first, in the format below. Describe behaviour, never file paths or code. Done when every acceptance criterion is something an agent can check by running a command or reading the code.
+3. **Write one file a ticket**, `<NN>-<slug>.md`, numbered from `01` in an order where blockers come first, in the format below. Describe behaviour, never file paths or code, in the prose and in the criteria; the one place paths go is the `**Touches:**` line below. State the two fields from what you learnt exploring the code, while you still know it. Done when every acceptance criterion is something an agent can check by running a command or reading the code.
 
 4. **Hold the checkpoint.** This is the one place the run stops for the person. Show them, in this order:
    - the spec's path, and the seams;
-   - the tickets as a table: number, title, blocked by, what it delivers;
+   - the tickets as a table: number, title, blocked by, what it delivers (the mod prints the blast radius under it by itself);
    - the verification commands;
    - every file this session changed outside `.scratch/` (the glossary, ADRs), which the run commits on its feature branch when it starts.
 
@@ -33,9 +33,15 @@ One mechanical change whose blast radius crosses the whole codebase (a renamed c
 
 **Status:** ready
 
+**Touches:** src/cart/total.ts, src/cart/, docs/cart.md
+**Outward actions:** installs the npm package `zod`; deletes the generated folder `dist/`
+
 - [ ] An acceptance criterion
 - [ ] Another
 ```
+
+- `**Touches:**` holds the paths, relative to the repo's root, that the ticket expects to change, separated by commas. A path ending in `/` is a directory. No globs. It is an estimate, not a limit, and the one exception to the rule that a ticket names no file path.
+- `**Outward actions:**` holds `None`, or what the ticket expects to do that reaches outside the working tree or is hard to reverse, in plain words, separated by semicolons. Look for, for example: installing or removing a dependency, deleting files the repo does not track or that are generated, publishing, changing configuration outside the repo, a network call with an effect, a migration. These are examples, not a list to pick from. Never list the run's own push and pull request.
 
 - `**Blocked by:**` holds ticket numbers, or `None (can start immediately)`.
 - `**Status:**` is `ready` on every ticket you write. The run moves it to `in-progress`, `done`, `blocked` or `too-large`.
