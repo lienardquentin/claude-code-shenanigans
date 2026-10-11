@@ -1,3 +1,4 @@
+import { shownLabel } from './diagram'
 import type { Diagram, Direction, EdgeKind, Shape, Tone } from './diagram'
 
 const NODE_HEIGHT = 3
@@ -199,7 +200,7 @@ export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?
   const nodesIn: PlacedNode[][] = Array.from({ length: layerCount }, () => [])
 
   for (const node of diagram.nodes) {
-    const { rows, width } = boxOf(node.shape, node.label)
+    const { rows, width } = boxOf(node.shape, shownLabel(node))
 
     nodesIn[layerOfNode(node.id)]?.push({
       id: node.id,

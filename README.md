@@ -94,7 +94,16 @@ keep its shape; whether the drawn boxes would work there is a manual check not y
   uses the accent color. The colors a source gives (`fill:#f96`) are never read, so no color of the source reaches the
   drawing.
 
-Not yet: click directives, a terminal guide.
+- `click A "https://..."` (also `click A href "..." "tooltip" _blank`) marks a node with `↗`; pressing it shows the
+  address as a link, which the surface opens like any link. `click A "src/file.ts"` marks it with `▤` and shows the
+  first 40 lines of that file. Only `http`/`https` addresses and relative paths that stay inside the project are
+  followed; any other address, an absolute path or a `..` is marked `⊘` and said not to be followed. Nothing is run
+  or opened by the mod itself, so a diagram that names an address cannot start anything. `click A call fn()` is
+  named as not drawn.
+- With a node selected: `Send to Claude` puts a line about it (what it leads to, where it is reached from) in the
+  prompt box, ready to finish, and `Copy label` copies its label.
+
+Not yet: a terminal guide.
 
 Known limits of the drawing: when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is

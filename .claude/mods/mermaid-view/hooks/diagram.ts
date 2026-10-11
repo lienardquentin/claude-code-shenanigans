@@ -6,6 +6,19 @@ export type Shape = 'rectangle' | 'rounded' | 'stadium' | 'diamond' | 'circle'
 /** `-->` is an arrow, `---` an open line, `-.->` a dotted arrow and `==>` a thick one. */
 export type EdgeKind = 'arrow' | 'open' | 'dotted' | 'thick'
 
+/**
+ * What a `click` directive attaches to a node: a web address (`url`, http or https only), a file of the project
+ * (`file`, a relative path that stays inside it), or an address of a kind that is never followed (`blocked`).
+ */
+export type Link = { kind: 'url' | 'file' | 'blocked'; target: string }
+
+/** What a node is drawn with: its label, and a mark after it when a `click` directive gave it a link. */
+export const shownLabel = (node: { label: string; link?: Link }): string => {
+  if (node.link === undefined) return node.label
+
+  return `${node.label} ${node.link.kind === 'url' ? '↗' : node.link.kind === 'file' ? '▤' : '⊘'}`
+}
+
 /** What a node the author marked out is drawn in: one of the theme's colors, never one the source names. */
 export type Tone = 'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'danger'
 
@@ -15,7 +28,7 @@ export type Tone = 'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'dang
  */
 export type Diagram = {
   direction: Direction
-  nodes: { id: string; label: string; shape: Shape; group?: string; tone?: Tone }[]
+  nodes: { id: string; label: string; shape: Shape; group?: string; tone?: Tone; link?: Link }[]
   edges: { from: string; to: string; kind: EdgeKind; label?: string }[]
   groups: { id: string; title: string; parent?: string }[]
 }
@@ -59,6 +72,18 @@ const SUBGRAPH_ID = new RegExp(`^(${NAME})\\s*\\[(.*)\\]$`, 'u')
 const CLASS_DEF = new RegExp(`^classDef\\s+(${NAME})(?:\\s+.*)?$`, 'iu')
 const CLASS_USE = new RegExp(`^class\\s+(\\S+)\\s+(${NAME})$`, 'iu')
 const STYLE = new RegExp(`^style\\s+(${NAME})(?:\\s+.*)?$`, 'iu')
+// `click A "target"`, `click A href "target"`, with an optional tooltip and window name that are not read
+const CLICK = new RegExp(`^click\\s+(${NAME})\\s+(?:href\\s+)?("[^"]*"|[^\\s"]+)(?:\\s+"[^"]*")?(?:\\s+_\\w+)?$`, 'iu')
+
+// What a click directive's target is: a web page, a file inside the project, or something that is never followed
+// (another scheme, an absolute path, a way out of the project)
+const linkOf = (target: string): Link => {
+  if (/^https?:\/\//i.test(target)) return { kind: 'url', target }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(target) || /^[\\/]/.test(target)) return { kind: 'blocked', target }
+  if (target.split(/[\\/]/).includes('..')) return { kind: 'blocked', target }
+
+  return { kind: 'file', target }
+}
 
 // A class names a tone when its name says one; any other class or style marks the node out in the accent tone. The
 // colors the source gives (`fill:#f96`) are never read.
@@ -85,7 +110,7 @@ const OTHER_TYPES =
 // Flowchart features that are read in Mermaid and not drawn here yet, each named for the message
 const UNSUPPORTED: readonly (readonly [RegExp, string])[] = [
   [/^linkStyle\b/i, '`linkStyle`'],
-  [/^click\b/i, 'click directives'],
+  [/^click\b/i, 'click callbacks (only a link or a file is followed)'],
   [/^direction\b/i, '`direction` inside a subgraph'],
   [/^(?:accTitle|accDescr)\b/i, 'accessibility titles and descriptions'],
   [/~~~/, 'invisible links (`~~~`)'],
@@ -257,6 +282,7 @@ export const parseDiagram = (source: string): ParseResult => {
   const open: string[] = []
   const openedAt = new Map<string, { text: string; line: number }>()
   const marks: { id: string; tone: Tone }[] = []
+  const attachments: { id: string; link: Link }[] = []
 
   for (const located of statements.slice(1)) {
     const statement = located.text
@@ -293,6 +319,14 @@ export const parseDiagram = (source: string): ParseResult => {
 
     if (styled !== null) {
       marks.push({ id: styled[1] as string, tone: 'accent' })
+      continue
+    }
+
+    // A `click` directive gives a node a link or a file; its tooltip and window are not read
+    const clicked = CLICK.exec(statement)
+
+    if (clicked !== null) {
+      attachments.push({ id: clicked[1] as string, link: linkOf(unquoted(clicked[2] as string)) })
       continue
     }
 
@@ -356,6 +390,11 @@ export const parseDiagram = (source: string): ParseResult => {
   for (const mark of marks) {
     const node = nodes.find(candidate => candidate.id === mark.id)
     if (node !== undefined) node.tone = mark.tone
+  }
+
+  for (const attachment of attachments) {
+    const node = nodes.find(candidate => candidate.id === attachment.id)
+    if (node !== undefined) node.link = attachment.link
   }
 
   return { ok: true, diagram: { direction, nodes, edges, groups: subgraphs } }

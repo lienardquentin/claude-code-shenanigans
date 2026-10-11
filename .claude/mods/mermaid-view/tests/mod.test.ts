@@ -594,6 +594,151 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('click directives and the actions on a node', () => {
+    type TestOn = Parameters<Parameters<typeof test>[1]>[1]
+
+    const memoryFs = (on: TestOn) => {
+      const files = new Map<string, string>()
+
+      on('fs.read', (_$, e) => {
+        const path = e.path.replace(/\\/g, '/')
+        const key = [...files.keys()].find(name => path.endsWith(name))
+        if (key === undefined) throw new Error(`ENOENT: ${e.path}`)
+
+        return { value: files.get(key) } as never
+      })
+
+      return files
+    }
+
+    const show = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      args: string,
+    ) => {
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($)
+    }
+
+    test('a node with a link is marked, and the link is shown when it is pressed', async ($, on) => {
+      answerOpen(on)
+      const pane = await show($, 'graph TD; A[Docs] --> B; click A "https://example.com/docs"')
+
+      expect(await pane.find({ text: /│ Docs ↗ │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+
+      await pane.press({ key: 'node-A' })
+
+      const link = await pane.find({ type: 'Link' })
+      expect(link?.props.href).toBe('https://example.com/docs')
+    })
+
+    test('href, a tooltip and a window name are read, and not shown', async ($, on) => {
+      answerOpen(on)
+      const pane = await show($, 'graph TD; A[Docs]; click A href "https://example.com/x" "Open the docs" _blank')
+
+      await pane.press({ key: 'node-A' })
+
+      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('https://example.com/x')
+      expect(await pane.find({ text: /Open the docs/ })).toBeUndefined()
+    })
+
+    test('a file of the project is marked and its first lines are shown when the node is pressed', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on).set('src/parse.ts', 'export const parse = () => 1\nexport const other = 2\n')
+      const pane = await show($, 'graph TD; A[Parser] --> B; click A "src/parse.ts"')
+
+      expect(await pane.find({ text: /│ Parser ▤ │/ })).toBeDefined()
+
+      await pane.press({ key: 'node-A' })
+
+      expect(await pane.find({ text: /File: src\/parse\.ts/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /export const parse = \(\) => 1/ })).toBeDefined()
+    })
+
+    test('a file that cannot be read is said so', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on)
+      const pane = await show($, 'graph TD; A[Gone]; click A "src/missing.ts"')
+
+      await pane.press({ key: 'node-A' })
+
+      expect(await pane.find({ text: /Could not read src\/missing\.ts/ })).toBeDefined()
+    })
+
+    test('an address of another kind, an absolute path or a way out of the project is never followed', async ($, on) => {
+      answerOpen(on)
+      memoryFs(on)
+
+      for (const [index, target] of ['javascript:alert(1)', 'file:///etc/passwd', '/etc/passwd', '../secrets.txt'].entries()) {
+        await $.command.run({ command: 'mermaid-view', args: `graph TD; N${index}[Bad]; click N${index} "${target}"` })
+      }
+
+      const pane = await mountPane($)
+      // the last one shown is the way out of the project
+      expect(await pane.find({ text: /│ Bad ⊘ │/ })).toBeDefined()
+
+      await pane.press({ key: 'node-N3' })
+
+      expect(await pane.find({ text: /Not followed: \.\.\/secrets\.txt/ })).toBeDefined()
+      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+    })
+
+    test('a callback is reported as not drawn yet, with its line', async ($, on) => {
+      answerOpen(on)
+      const pane = await show($, 'graph TD\nA --> B\nclick A call doIt()')
+
+      expect(await pane.find({ text: /Line 3: click callbacks .* is not drawn yet/ })).toBeDefined()
+    })
+
+    test('the fallback view marks and follows a node too', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A[Docs]; click A "https://example.com/d"' })
+      const pane = await mountPane($, 'desktop')
+
+      expect(await pane.find({ type: 'Button', key: 'node-A', text: /Docs ↗/ })).toBeDefined()
+
+      await pane.press({ key: 'node-A' })
+
+      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('https://example.com/d')
+    })
+
+    test('Send to Claude fills the prompt with a line about the selected node', async ($, on) => {
+      answerOpen(on)
+      let filled = ''
+      on('prompt.fill', (_$, e) => {
+        filled = (e as { text: string }).text
+
+        return { isFilled: true } as never
+      })
+
+      const pane = await show($, 'graph TD; A[Start] --> B[Process]; B --> C[End]')
+      await pane.press({ key: 'node-B' })
+      await pane.press({ key: 'send-to-claude' })
+
+      expect(filled).toContain('"Process"')
+      expect(filled).toMatch(/leads to: end/)
+      expect(filled).toMatch(/reached from: start/)
+      expect(filled.endsWith(': ')).toBe(true)
+    })
+
+    test('Copy label copies exactly the label, without the mark of a link', async ($, on) => {
+      answerOpen(on)
+      let copied = ''
+      on('ui.copy', (_$, e) => {
+        copied = (e as { text: string }).text
+
+        return { value: { isCopied: true } } as never
+      })
+
+      const pane = await show($, 'graph TD; A[Docs] --> B; click A "https://example.com"')
+      await pane.press({ key: 'node-A' })
+      await pane.press({ key: 'copy-label' })
+
+      expect(copied).toBe('Docs')
+    })
+  })
+
   describe('sources and history', () => {
     type TestOn = Parameters<Parameters<typeof test>[1]>[1]
 

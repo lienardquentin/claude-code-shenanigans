@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import type { HistoryEntry } from '../types'
-import { MAX_NODES, looksLikeDiagram, mermaidBlocks, parseDiagram } from './diagram'
+import { MAX_NODES, looksLikeDiagram, mermaidBlocks, parseDiagram, shownLabel } from './diagram'
 import type { Diagram, ParseResult } from './diagram'
 import { drawDiagram } from './draw'
 import { actionLabel } from './kit/action-label'
@@ -82,6 +82,9 @@ const connections = (diagram: Diagram, id: string): string[] => {
 // The row of a node's box a Button stands for: the middle one carries the plain key
 const ROW_KEY = ['-top', '', '-bottom'] as const
 
+// How many lines of a file a `click` directive names are shown
+const FILE_LINES = 40
+
 // Why a diagram is not drawn, in a sentence: which kind it is, or which line of the source stopped it and what it
 // holds that is not drawn
 const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
@@ -99,13 +102,13 @@ const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
 
 // What the card holds: the drawing, or a note saying why there is none. The source is shown beside a note about it,
 // so the reader can see what could not be read.
-const content = (
+const content = async (
   $: Engine,
   e: Drawn,
   text: string,
   chosen: string,
   view: { width: number; offset: number; fit: boolean },
-): RenderElement[] => {
+): Promise<RenderElement[]> => {
   if (text === '') return [badge({ label: 'No diagram yet: run /mermaid-view with a flowchart', tone: 'neutral' })]
 
   const parsed = parseDiagram(text)
@@ -128,20 +131,82 @@ const content = (
     ]
   }
 
-  const { Box, Button } = $.ui.resolve(e)
+  const { Box, Button, Link } = $.ui.resolve(e)
   const known = diagram.nodes.some(node => node.id === chosen) ? chosen : ''
   const drawing = drawDiagram(diagram, known)
+  const node = diagram.nodes.find(candidate => candidate.id === known)
+
+  // What a `click` directive of the selected node leads to. A web address is shown as a link, which the surface
+  // opens as it opens any link; a file of the project is shown by its first lines. Nothing is started from here, so
+  // an address a diagram names is never run: another kind of address is said not to be followed.
+  const target: RenderElement[] = []
+
+  if (node?.link !== undefined) {
+    const { kind, target: where } = node.link
+
+    if (kind === 'url') {
+      target.push(
+        <Box key="link" flexDirection="row" gap={1}>
+          {tonedText({ text: 'Link:', tone: 'info' })}
+          <Link href={where}>{where}</Link>
+        </Box>,
+      )
+    } else if (kind === 'file') {
+      try {
+        const lines = String(await $.fs.read(where)).split('\n')
+        const more = lines.length - FILE_LINES
+
+        target.push(
+          badge({ label: `File: ${where}`, tone: 'info' }),
+          code({ source: `${lines.slice(0, FILE_LINES).join('\n')}${more > 0 ? `\n… ${more} more lines` : ''}`, plain: true }),
+        )
+      } catch (error) {
+        target.push(
+          badge({
+            label: `Could not read ${where}: ${error instanceof Error ? error.message : String(error)}`,
+            tone: 'warning',
+          }),
+        )
+      }
+    } else {
+      target.push(
+        badge({
+          label: `Not followed: ${where}. Only web addresses (http, https) and files inside the project are.`,
+          tone: 'warning',
+        }),
+      )
+    }
+  }
 
   // What is shown about the selected node, under the drawing or the picture
   const details: RenderElement[] =
-    known === ''
+    node === undefined
       ? []
       : [
-          badge({ label: `Selected: ${diagram.nodes.find(node => node.id === known)?.label ?? known}`, tone: 'accent' }),
-          code({ source: connections(diagram, known).join('\n'), plain: true }),
-          <Button key="clear-selection" onPress={() => update($, selected, () => '')}>
-            {actionLabel({ text: 'Clear' })}
-          </Button>,
+          badge({ label: `Selected: ${node.label}`, tone: 'accent' }),
+          code({ source: connections(diagram, node.id).join('\n'), plain: true }),
+          ...target,
+          <Box key="node-actions" flexDirection="row" gap={1}>
+            <Button
+              key="send-to-claude"
+              onPress={() =>
+                $.prompt.fill({
+                  text: `About the "${node.label}" node of the diagram (${connections(diagram, node.id)
+                    .join('; ')
+                    .toLowerCase()}${node.link !== undefined ? `; it points to ${node.link.target}` : ''}): `,
+                  mode: 'append',
+                })
+              }
+            >
+              {actionLabel({ text: 'Send to Claude' })}
+            </Button>
+            <Button key="copy-label" onPress={press => $.ui.copy({ text: node.label, surface: press.surface })}>
+              {actionLabel({ text: 'Copy label' })}
+            </Button>
+            <Button key="clear-selection" onPress={() => update($, selected, () => '')}>
+              {actionLabel({ text: 'Clear' })}
+            </Button>
+          </Box>,
         ]
 
   // The fallback view: a surface that is not the terminal (the desktop, VS Code, mobile) is given a still picture of
@@ -167,7 +232,7 @@ const content = (
         {diagram.nodes.map(node => (
           <Button key={`node-${node.id}`} onPress={() => toggle($, node.id)}>
             {tonedText({
-              text: node.label,
+              text: shownLabel(node),
               ...(node.id === known
                 ? { tone: 'accent' as const, bold: true }
                 : node.tone !== undefined
@@ -341,12 +406,12 @@ export const register: Register = on => {
       width: e.props.bodyColumns ?? 80,
       title: 'Mermaid diagram',
       children: [
-        ...content($, e, shown, await read($, selected), {
+        ...(await content($, e, shown, await read($, selected), {
           // Inside the card's frame and padding
           width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
           offset: await read($, scrollX),
           fit: await read($, fit),
-        }),
+        })),
         ...list,
       ],
     })
