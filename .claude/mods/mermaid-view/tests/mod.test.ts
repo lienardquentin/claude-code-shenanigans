@@ -101,7 +101,7 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B; B ~~~ C' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ text: /Could not read this diagram at: B ~~~ C/ })).toBeDefined()
+    expect(await pane.find({ text: /Line 1: invisible links/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /┌/ })).toBeUndefined()
   })
 
@@ -110,7 +110,7 @@ describe('mermaid-view', () => {
     await $.command.run({ command: 'mermaid-view', args: 'graph XY; A --> B' })
     const pane = await mountPane($)
 
-    expect(await pane.find({ text: /Could not read this diagram at: graph XY/ })).toBeDefined()
+    expect(await pane.find({ text: /Could not read this diagram at line 1: graph XY/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /┌/ })).toBeUndefined()
   })
 
@@ -183,7 +183,7 @@ describe('mermaid-view', () => {
     test('a shape that is not closed as it was opened is reported', async ($, on) => {
       const pane = await draw($, on, 'graph TD; A[Open)')
 
-      expect(await pane.find({ text: /Could not read this diagram at: A\[Open\)/ })).toBeDefined()
+      expect(await pane.find({ text: /Could not read this diagram at line 1: A\[Open\)/ })).toBeDefined()
     })
 
     test('an open line has no arrowhead', async ($, on) => {
@@ -294,13 +294,13 @@ describe('mermaid-view', () => {
       test('an end with no subgraph, or a subgraph never closed, is reported', async ($, on) => {
         const stray = await draw($, on, 'graph TD; A --> B; end')
 
-        expect(await stray.find({ text: /Could not read this diagram at: end/ })).toBeDefined()
+        expect(await stray.find({ text: /Could not read this diagram at line 1: end/ })).toBeDefined()
       })
 
       test('a subgraph that is never closed is reported', async ($, on) => {
         const pane = await draw($, on, 'graph TD; subgraph s [S]; A --> B')
 
-        expect(await pane.find({ text: /Could not read this diagram at: subgraph S/ })).toBeDefined()
+        expect(await pane.find({ text: /Could not read this diagram at line 1: subgraph s \[S\]/ })).toBeDefined()
       })
     })
 
@@ -472,6 +472,75 @@ describe('mermaid-view', () => {
       await $.command.run({ command: 'mermaid-view', args: 'graph TD; B --> X' })
 
       expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+    })
+  })
+
+  describe('what it cannot draw', () => {
+    const show = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args: string,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($)
+    }
+
+    test('another kind of diagram is named, and its source shown', async ($, on) => {
+      const pane = await show($, on, 'sequenceDiagram\nA->>B: hello')
+
+      expect(await pane.find({ text: /sequenceDiagram diagrams are not drawn yet: only flowcharts are/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /A->>B: hello/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /┌/ })).toBeUndefined()
+    })
+
+    test('a class diagram is named too', async ($, on) => {
+      const classes = await show($, on, 'classDiagram\nAnimal <|-- Duck')
+
+      expect(await classes.find({ text: /classDiagram diagrams are not drawn yet/ })).toBeDefined()
+    })
+
+    test('flowchart syntax that is not drawn yet is named, with its line', async ($, on) => {
+      const pane = await show($, on, 'graph TD\nA --> B\nlinkStyle 0 stroke:red')
+
+      expect(await pane.find({ text: /Line 3: `linkStyle` is not drawn yet/ })).toBeDefined()
+      expect(await pane.find({ text: /At: linkStyle 0 stroke:red/ })).toBeDefined()
+    })
+
+    test('two-way arrows are named', async ($, on) => {
+      const pane = await show($, on, 'graph TD\nA <--> B')
+
+      expect(await pane.find({ text: /Line 2: arrows with a head at both ends is not drawn yet/ })).toBeDefined()
+    })
+
+    test('a syntax error is reported with the line it is on, blank lines counted', async ($, on) => {
+      const pane = await show($, on, 'graph TD\nA --> B\n\nC --> --> D')
+
+      expect(await pane.find({ text: /Could not read this diagram at line 4: C --> --> D/ })).toBeDefined()
+    })
+
+    test('statements on one line are all on that line', async ($, on) => {
+      const pane = await show($, on, 'graph TD; A --> B; C --> --> D')
+
+      expect(await pane.find({ text: /Could not read this diagram at line 1:/ })).toBeDefined()
+    })
+
+    test('a diagram of exactly 200 nodes is drawn', async ($, on) => {
+      const edges = Array.from({ length: 199 }, (_, index) => `N${index} --> N${index + 1}`).join('; ')
+      const pane = await show($, on, `graph TD; ${edges}`)
+
+      expect(await pane.find({ text: /not drawn/ })).toBeUndefined()
+      expect(await pane.find({ text: /│ N199 │/ })).toBeDefined()
+    })
+
+    test('a diagram of more than 200 nodes shows its source with a message', async ($, on) => {
+      const edges = Array.from({ length: 200 }, (_, index) => `N${index} --> N${index + 1}`).join('; ')
+      const pane = await show($, on, `graph TD; ${edges}`)
+
+      expect(await pane.find({ text: /This diagram has 201 nodes; more than 200 are not drawn/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /N200/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button' })).toBeUndefined()
     })
   })
 

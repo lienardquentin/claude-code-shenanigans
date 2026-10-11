@@ -20,7 +20,22 @@ export type Diagram = {
   groups: { id: string; title: string; parent?: string }[]
 }
 
-export type ParseResult = { ok: true; diagram: Diagram } | { ok: false; line: string }
+/**
+ * Why a diagram is not drawn: it is another kind of diagram than a flowchart (`type`), it uses a flowchart feature
+ * that is not drawn yet (`unsupported`), or it could not be read as a flowchart at all (`syntax`).
+ */
+export type Problem =
+  | { kind: 'type'; what: string }
+  | { kind: 'unsupported'; what: string }
+  | { kind: 'syntax' }
+
+/** On failure, the statement it stopped at, which line of the source it starts on (from 1), and why. */
+export type ParseResult =
+  | { ok: true; diagram: Diagram }
+  | { ok: false; line: string; number: number; problem: Problem }
+
+/** The most nodes a diagram may have to be drawn: past it the pane shows the source, with a note. */
+export const MAX_NODES = 200
 
 const HEADER = /^(?:graph|flowchart)(?:\s+(TD|TB|BT|LR|RL))?$/i
 const NODE = /^([\p{L}\p{N}_-]+)(?:(\(\(|\(\[|\[|\(|\{)(.*?)(\)\)|\]\)|\]|\)|\}))?(?::::([\p{L}\p{N}_-]+))?$/u
@@ -48,6 +63,71 @@ const TONE_OF_NAME: Record<string, Tone> = {
 }
 
 const toneOf = (className: string): Tone => TONE_OF_NAME[className.toLowerCase()] ?? 'accent'
+
+// Other kinds of Mermaid diagram, which have a grammar of their own
+const OTHER_TYPES =
+  /^(sequenceDiagram|classDiagram(?:-v2)?|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|mindmap|gitGraph|timeline|quadrantChart|requirementDiagram|C4\w+|sankey(?:-beta)?|xychart(?:-beta)?|block(?:-beta)?|architecture(?:-beta)?|packet(?:-beta)?|kanban)\b/i
+
+// Flowchart features that are read in Mermaid and not drawn here yet, each named for the message
+const UNSUPPORTED: readonly (readonly [RegExp, string])[] = [
+  [/^linkStyle\b/i, '`linkStyle`'],
+  [/^click\b/i, 'click directives'],
+  [/^direction\b/i, '`direction` inside a subgraph'],
+  [/^(?:accTitle|accDescr)\b/i, 'accessibility titles and descriptions'],
+  [/~~~/, 'invisible links (`~~~`)'],
+  [/<-->|<-\.->|<==>/, 'arrows with a head at both ends'],
+  [/--[xo](?:\s|$)|(?:^|\s)[xo]--/, 'cross and circle ends on an edge'],
+  [/--\s*[^>\-|\s][^>|]*\s*-->/, 'text written inside the arrow (`-- text -->`); write `-->|text|`'],
+]
+
+const classify = (statement: string, isHeader: boolean): Problem => {
+  if (isHeader) {
+    const other = OTHER_TYPES.exec(statement)
+    return other === null ? { kind: 'syntax' } : { kind: 'type', what: other[1] as string }
+  }
+
+  // What is inside brackets is a label, so it cannot be a feature of the statement
+  const bare = statement.replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, '')
+  const found = UNSUPPORTED.find(([pattern]) => pattern.test(bare))
+
+  return found === undefined ? { kind: 'syntax' } : { kind: 'unsupported', what: found[1] }
+}
+
+// The statements of a source with the line each starts on: separated by `;` or a new line outside brackets, blank
+// ones and `%%` comments left out
+const statementsOf = (source: string): { text: string; line: number }[] => {
+  const found: { text: string; line: number }[] = []
+  let depth = 0
+  let start = 0
+  let startLine = 1
+  let line = 1
+
+  const push = (end: number): void => {
+    const raw = source.slice(start, end)
+    const text = raw.trim()
+    const skipped = (/^\s*/.exec(raw)?.[0].match(/\n/g) ?? []).length
+
+    if (text !== '' && !text.startsWith('%%')) found.push({ text, line: startLine + skipped })
+  }
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] as string
+    if ('[({'.includes(char)) depth += 1
+    else if ('])}'.includes(char)) depth = Math.max(0, depth - 1)
+
+    if (char === '\n') line += 1
+
+    if (depth === 0 && (char === ';' || char === '\n')) {
+      push(index)
+      start = index + 1
+      startLine = line
+    }
+  }
+
+  push(source.length)
+
+  return found
+}
 
 // What each opening token makes, and the token that has to close it
 const SHAPES: Record<string, { shape: Shape; close: string }> = {
@@ -141,12 +221,18 @@ function unquoted(label: string): string {
  * `;` or a new line. The first statement that is none of these is the one reported.
  */
 export const parseDiagram = (source: string): ParseResult => {
-  const statements = splitOutsideLabels(source, [';', '\n'])
-    .map(statement => statement.trim())
-    .filter(statement => statement !== '' && !statement.startsWith('%%'))
+  const statements = statementsOf(source)
+  const first = statements[0]
+  const fail = (statement: { text: string; line: number }, isHeader = false): ParseResult => ({
+    ok: false,
+    line: statement.text,
+    number: statement.line,
+    problem: classify(statement.text, isHeader),
+  })
 
-  const header = HEADER.exec(statements[0] ?? '')
-  if (header === null) return { ok: false, line: statements[0] ?? '' }
+  const header = HEADER.exec(first?.text ?? '')
+  if (first === undefined) return { ok: false, line: '', number: 1, problem: { kind: 'syntax' } }
+  if (header === null) return fail(first, true)
 
   const word = header[1]?.toUpperCase()
   const direction: Direction = word === 'BT' || word === 'LR' || word === 'RL' ? word : 'TD'
@@ -155,9 +241,11 @@ export const parseDiagram = (source: string): ParseResult => {
   const subgraphs: Diagram['groups'] = []
   // The subgraphs a statement is inside, outermost first; a `class` or `style` line may come before the node it names
   const open: string[] = []
+  const openedAt = new Map<string, { text: string; line: number }>()
   const marks: { id: string; tone: Tone }[] = []
 
-  for (const statement of statements.slice(1)) {
+  for (const located of statements.slice(1)) {
+    const statement = located.text
     const opening = SUBGRAPH.exec(statement)
 
     if (opening !== null) {
@@ -168,11 +256,12 @@ export const parseDiagram = (source: string): ParseResult => {
 
       subgraphs.push({ id, title: unquoted(named?.[2] ?? text), ...(parent !== undefined ? { parent } : {}) })
       open.push(id)
+      openedAt.set(id, located)
       continue
     }
 
     if (/^end$/i.test(statement)) {
-      if (open.pop() === undefined) return { ok: false, line: statement }
+      if (open.pop() === undefined) return fail(located)
       continue
     }
 
@@ -201,13 +290,13 @@ export const parseDiagram = (source: string): ParseResult => {
 
       for (const reference of splitOutsideLabels(group, ['&'])) {
         const match = NODE.exec(reference.trim())
-        if (match === null) return { ok: false, line: statement }
+        if (match === null) return fail(located)
 
         const id = match[1] as string
         const opener = match[2]
         const closer = match[4]
         const wrapper = opener === undefined ? undefined : SHAPES[opener]
-        if (opener !== undefined && (wrapper === undefined || wrapper.close !== closer)) return { ok: false, line: statement }
+        if (opener !== undefined && (wrapper === undefined || wrapper.close !== closer)) return fail(located)
 
         const label = match[3] === undefined ? undefined : unquoted(match[3])
         const known = nodes.find(node => node.id === id)
@@ -247,7 +336,8 @@ export const parseDiagram = (source: string): ParseResult => {
   }
 
   const unclosed = open[open.length - 1]
-  if (unclosed !== undefined) return { ok: false, line: `subgraph ${subgraphs.find(g => g.id === unclosed)?.title ?? ''}` }
+  const opened = unclosed === undefined ? undefined : openedAt.get(unclosed)
+  if (opened !== undefined) return { ok: false, line: opened.text, number: opened.line, problem: { kind: 'syntax' } }
 
   for (const mark of marks) {
     const node = nodes.find(candidate => candidate.id === mark.id)

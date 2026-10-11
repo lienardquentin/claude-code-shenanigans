@@ -62,8 +62,10 @@ What it does so far:
 - Edges: `-->` arrow, `---` open line, `-.->` dotted arrow, `==>` thick arrow, each with an optional `|label|` after
   it. Edges chain (`A --> B --> C`) and `&` fans out (`A & B --> C & D`). `%%` starts a comment line.
 - Edges that skip a layer or go back up run down a lane to the right of the nodes, so they never cross a node.
-- Source it cannot read (an unknown direction, `~~~`, other syntax) is shown with the statement it stopped at,
-  instead of a wrong picture.
+- A diagram it cannot draw is never drawn wrongly: the pane says why and shows the source. Another kind of diagram
+  (`sequenceDiagram`, `classDiagram`, ...) is named; flowchart syntax that is not drawn yet (`linkStyle`, `~~~`,
+  two-way arrows, `-- text -->`) is named with its line; anything else says which line it could not read. A diagram
+  of more than 200 nodes is shown as source with a note.
 - Press a node (click, or Tab to it and Enter) to select it: it and the edges that touch it are drawn in the accent
   color, and the lines under the drawing list what it leads to and where it is reached from. Press it again, or
   `Clear`, to clear the selection.

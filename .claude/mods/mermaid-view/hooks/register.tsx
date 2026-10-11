@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
-import { parseDiagram } from './diagram'
-import type { Diagram } from './diagram'
+import { MAX_NODES, parseDiagram } from './diagram'
+import type { Diagram, ParseResult } from './diagram'
 import { drawDiagram } from './draw'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
@@ -40,6 +40,21 @@ const connections = (diagram: Diagram, id: string): string[] => {
 // The row of a node's box a Button stands for: the middle one carries the plain key
 const ROW_KEY = ['-top', '', '-bottom'] as const
 
+// Why a diagram is not drawn, in a sentence: which kind it is, or which line of the source stopped it and what it
+// holds that is not drawn
+const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
+  const { problem } = failed
+
+  if (problem.kind === 'type') return `${problem.what} diagrams are not drawn yet: only flowcharts are. Its source:`
+  if (problem.kind === 'unsupported') {
+    return `Line ${failed.number}: ${problem.what} is not drawn yet, so the diagram is not drawn. At: ${failed.line}`
+  }
+
+  return failed.line === ''
+    ? 'Could not read this diagram: it is empty'
+    : `Could not read this diagram at line ${failed.number}: ${failed.line}`
+}
+
 // What the card holds: the drawing, or a note saying why there is none. The source is shown beside a note about it,
 // so the reader can see what could not be read.
 const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderElement[] => {
@@ -48,15 +63,22 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
   const parsed = parseDiagram(text)
 
   if (!parsed.ok) {
-    return [
-      badge({ label: `Could not read this diagram at: ${parsed.line}`, tone: 'warning' }),
-      code({ source: text, plain: true }),
-    ]
+    return [badge({ label: explain(parsed), tone: 'warning' }), code({ source: text, plain: true })]
   }
 
   const { diagram } = parsed
 
   if (diagram.nodes.length === 0) return [badge({ label: 'This diagram has no nodes', tone: 'warning' })]
+
+  if (diagram.nodes.length > MAX_NODES) {
+    return [
+      badge({
+        label: `This diagram has ${diagram.nodes.length} nodes; more than ${MAX_NODES} are not drawn. Its source:`,
+        tone: 'warning',
+      }),
+      code({ source: text, plain: true }),
+    ]
+  }
 
   const { Box, Button } = $.ui.resolve(e)
   const known = diagram.nodes.some(node => node.id === chosen) ? chosen : ''
