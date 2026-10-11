@@ -67,16 +67,16 @@ What it does so far:
   into view, and the pane is scrolled to it. A new width redraws within it, and a different diagram starts at the
   top left.
 - `Open in the browser (rendered by Mermaid)` writes a page (`mermaid-view.html` in the temporary folder, only when
-  asked) and shows its address as a link. The page loads the Mermaid library itself (a pinned version from a CDN,
-  so it needs the network) and has it draw the source: every diagram type and every syntax Mermaid knows, which is
-  more than the pane draws, and the browser's own wheel, scroll bars and zoom. If the library cannot be loaded or the
-  source does not parse, the page shows the mod's own drawing instead, where there is one. It is offered for a
-  diagram the pane cannot draw too. On the desktop app the address is shown as text to open, as that surface only
-  draws `https` links.- Online addresses, for when the session runs somewhere else (over ssh) and a file on that machine is no use: next
-  to the page button are `View on mermaid.ink` and `Edit on mermaid.live`, plain `https` links that a browser on
-  your own machine opens (and every surface draws), with the diagram in the address. Opening one **sends the
-  diagram's text to that service**, which the line under them says. A `Link` takes at most 2048 characters and the
-  address carries the text uncompressed, so they are offered for diagrams up to about 1,000 characters of source.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
+  asked, with the Mermaid library beside it as `mermaid-view-library.js`) and shows its address as a link. The page is
+  drawn by the real Mermaid library, so every diagram type and syntax Mermaid knows is drawn, not only what the pane
+  draws, with the browser's own wheel, scroll bars and zoom. The library is the copy in `vendor/` (version 11.4.0,
+  MIT, checked against the npm registry's integrity value; see `vendor/README.md`). **Nothing is sent to any site,
+  and nothing is loaded from one**: the page names no address, and the mod has no network call. If the library
+  cannot be run or the source does not parse, the page shows the mod's own drawing instead, where there is one. The
+  button is offered for a diagram the pane cannot draw too. On the desktop app the address is shown as text to open,
+  as that surface only draws `https` links. Over ssh the page is on the machine the session runs on: copy it
+  (`mermaid-view.html` and `mermaid-view-library.js`) to the machine with the browser, or forward a port to a local
+  `python -m http.server` in that folder; the diagram never goes through a third party.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
   closed up, and then labels are wrapped to narrower and narrower boxes (at spaces, dashes and slashes, and inside a
   word only when nothing wider fits) until it fits. A node's label is wrapped onto more rows, and selecting it
   still names the whole label. What cannot be made narrow enough is shown through the window above.

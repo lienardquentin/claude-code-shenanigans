@@ -17,7 +17,6 @@ import { tonedText } from './kit/toned-text'
 import { OS_NAMES, detectHost, detectOs, detectTerminal, drawsPixels, gaps, recommended, rowFor, tableFor, toneOfValue } from './guide'
 import type { Env, Os } from './guide'
 import { READ_ON } from './terminals'
-import { onlineAddresses } from './online'
 import { rasterize } from './pixels'
 import { vectorSvg } from './svg'
 import { clipDrawing, drawingWidth, spanOfNode, wheelOffset, windowFor } from './window'
@@ -67,14 +66,14 @@ const environment = async ($: Engine): Promise<Env> => {
   return name => values[name]
 }
 
-// The diagram as a page of its own, rendered by Mermaid itself: an HTML file that the browser shows, which loads the
-// Mermaid library (a pinned version, from a CDN) and draws the source with it, so that every diagram type and
-// every syntax is drawn as Mermaid draws it, and the wheel, the scroll bars and the zoom are the browser's. If the
-// library cannot be loaded (no network) or the source does not parse, the mod's own drawing is shown instead,
-// when it has one. The page is written to the temporary folder, only when the person asks, and the pane shows its
-// address as a link.
+// The diagram as a page of its own, rendered by Mermaid itself: an HTML file that the browser shows, with the
+// Mermaid library (the copy in `vendor/`, written beside the page) drawing the source, so that every diagram type and
+// every syntax is drawn as Mermaid draws it, and the wheel, the scroll bars and the zoom are the browser's. Nothing
+// in the page names an address: it needs no network and contacts no site. If the library cannot be run or the
+// source does not parse, the mod's own drawing is shown instead, when it has one. The files are written to the
+// temporary folder, only when the person asks, and the pane shows the page's address as a link.
 const PAGE_NAME = 'mermaid-view.html'
-const MERMAID_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.esm.min.mjs'
+const LIBRARY_NAME = 'mermaid-view-library.js'
 
 const escapeHtml = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -86,35 +85,35 @@ const pageDocument = (source: string, fallback: string | undefined): string =>
   `<pre class="mermaid" id="diagram">${escapeHtml(source)}</pre>` +
   '<p id="note"></p>' +
   `<div id="fallback">${fallback ?? ''}</div>` +
-  '<script type="module">' +
-  'const note = document.getElementById("note");' +
-  'const fallback = document.getElementById("fallback");' +
-  'try {' +
-  `const { default: mermaid } = await import(${JSON.stringify(MERMAID_URL)});` +
-  'const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;' +
-  'mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });' +
-  'await mermaid.run({ querySelector: "#diagram" });' +
-  '} catch (error) {' +
+  `<script src="${LIBRARY_NAME}"></script>` +
+  '<script>' +
+  'function show(error) {' +
   'document.getElementById("diagram").style.display = "none";' +
-  `note.textContent = "Mermaid could not draw this: " + (error && error.message ? error.message : error) + ${JSON.stringify(
-    fallback === undefined ? '' : ' Showing the mod\'s own drawing instead.',
-  )};` +
-  'fallback.style.display = "block";' +
+  'document.getElementById("note").textContent = "Mermaid could not draw this: " + (error && error.message ? error.message : error) + ' +
+  `${JSON.stringify(fallback === undefined ? '' : ' Showing the mod\'s own drawing instead.')};` +
+  'document.getElementById("fallback").style.display = "block";' +
   '}' +
+  'try {' +
+  'if (typeof mermaid === "undefined") throw new Error("the Mermaid library file is not next to this page");' +
+  'var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;' +
+  'mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });' +
+  'mermaid.run({ querySelector: "#diagram" }).catch(show);' +
+  '} catch (error) { show(error); }' +
   '</script></body></html>'
 
 const writePage = async ($: Engine, source: string, fallback: string | undefined): Promise<string> => {
-  const folder = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp'
+  const folder = ((await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp').replace(/[\\/]+$/, '')
   const separator = folder.includes('\\') ? '\\' : '/'
-  const path = `${folder.replace(/[\\/]+$/, '')}${separator}${PAGE_NAME}`
+  const path = `${folder}${separator}${PAGE_NAME}`
 
+  // The library goes beside the page, from the copy the mod ships
+  await $.fs.write(`${folder}${separator}${LIBRARY_NAME}`, String(await $.fs.read(`${$.plugin.root}/vendor/mermaid.min.js`)))
   await $.fs.write(path, pageDocument(source, fallback))
 
   const slashes = path.replace(/\\/g, '/')
 
   return encodeURI(/^[A-Za-z]:/.test(slashes) ? `file:///${slashes}` : `file://${slashes}`)
 }
-
 // Whether the diagram is drawn as pixels here. An environment that cannot be read is no reason to fail a draw: the
 // answer is then no, and the cells are drawn.
 const pixelsHere = async ($: Engine): Promise<boolean> => {
@@ -334,7 +333,6 @@ const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
 const browserRow = async ($: Engine, e: Drawn, source: string, fallback: (() => string) | undefined): Promise<RenderElement[]> => {
   const { Box, Button, Link } = $.ui.resolve(e)
   const written = await read($, page)
-  const online = onlineAddresses(source)
 
   return [
     <Box key="page-row" flexDirection="row" gap={2}>
@@ -354,21 +352,6 @@ const browserRow = async ($: Engine, e: Drawn, source: string, fallback: (() => 
       </Button>
       {written !== '' && !written.startsWith('error:') ? <Link href={written}>{written}</Link> : null}
     </Box>,
-    // The addresses that draw it on a hosted Mermaid: https links, so they open from any machine, ssh or not, and on
-    // any surface. Opening one sends the diagram's text to that service, which the line says.
-    ...(online === undefined
-      ? []
-      : [
-          <Box key="online-row" flexDirection="row" gap={2}>
-            {tonedText({ text: 'Online:', tone: 'info' })}
-            <Link href={online.view}>View on mermaid.ink</Link>
-            <Link href={online.edit}>Edit on mermaid.live</Link>
-          </Box>,
-          tonedText({
-            text: 'These work from any machine, over ssh too. Opening one sends the diagram text to that service.',
-            tone: 'neutral',
-          }),
-        ]),
     ...(written.startsWith('error:')
       ? [badge({ label: `Could not write the page: ${written.slice('error:'.length)}`, tone: 'warning' })]
       : written !== ''

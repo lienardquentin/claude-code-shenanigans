@@ -664,17 +664,25 @@ describe('mermaid-view', () => {
   describe('the page of the drawing', () => {
     type TestOn = Parameters<Parameters<typeof test>[1]>[1]
 
-    // Stands for the file system: what the mod writes is kept to look at
-    const writes = (on: TestOn) => {
-      const made: { path: string; text: string }[] = []
+    const LIBRARY = '/* the vendored Mermaid library */ window.mermaid = { initialize() {}, run() { return Promise.resolve() } }'
 
+    // Stands for the file system: what the mod writes is kept to look at, and what it reads of its own is the library
+    const files = (on: TestOn) => {
+      const made: { path: string; text: string }[] = []
+      const read: string[] = []
+
+      on('fs.read', (_$, e) => {
+        read.push((e as { path: string }).path)
+
+        return { value: LIBRARY } as never
+      })
       on('fs.write', (_$, e) => {
         made.push({ path: (e as { path: string }).path, text: (e as { text: string }).text })
 
         return { value: undefined } as never
       })
 
-      return made
+      return { made, read }
     }
 
     const open = async (
@@ -690,8 +698,10 @@ describe('mermaid-view', () => {
       return mountPane($, surface)
     }
 
-    test('is written on request, to the temporary folder, as a page the browser shows', async ($, on) => {
-      const made = writes(on)
+    const pageOf = (made: { path: string; text: string }[]) => made.find(file => file.path.endsWith('mermaid-view.html'))
+
+    test('is written on request, to the temporary folder, with the library beside it', async ($, on) => {
+      const { made, read } = files(on)
       const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\someone\\AppData\\Local\\Temp' })
 
       expect(made).toHaveLength(0)
@@ -699,16 +709,36 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'page' })
 
-      expect(made).toHaveLength(1)
-      expect(made[0]?.path).toBe('C:\\Users\\someone\\AppData\\Local\\Temp\\mermaid-view.html')
-      expect(made[0]?.text).toMatch(/^<!doctype html>/)
-      expect(made[0]?.text).toContain('<svg ')
-      expect(made[0]?.text).toContain('prefers-color-scheme: dark')
-      expect(made[0]?.text).toContain('Start')
+      expect(made.map(file => file.path)).toEqual([
+        'C:\\Users\\someone\\AppData\\Local\\Temp\\mermaid-view-library.js',
+        'C:\\Users\\someone\\AppData\\Local\\Temp\\mermaid-view.html',
+      ])
+      // the library is the mod's own copy, and what is written beside the page is that file
+      expect(read).toHaveLength(1)
+      expect(read[0]?.replace(/\\/g, '/')).toMatch(/\/vendor\/mermaid\.min\.js$/)
+      expect(made[0]?.text).toBe(LIBRARY)
+      expect(made[1]?.text).toMatch(/^<!doctype html>/)
+      expect(made[1]?.text).toContain('Start')
     })
 
-    test('has Mermaid itself draw the source: the library at a pinned version, and the source escaped in the page', async ($, on) => {
-      const made = writes(on)
+    test('names no address: nothing in the page, or in the files beside it, reaches a site', async ($, on) => {
+      const { made } = files(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      await pane.press({ key: 'page' })
+
+      const html = pageOf(made)?.text ?? ''
+      // the only address the page holds is the XML namespace of the mod's own drawing, which is a name, not a request
+      const withoutNamespace = html.replace(/http:\/\/www\.w3\.org\/2000\/svg/g, '')
+
+      expect(withoutNamespace).not.toMatch(/https?:\/\//)
+      expect(html).toContain('<script src="mermaid-view-library.js"></script>')
+      expect(html).not.toMatch(/<script[^>]+src="https?:/)
+      expect(html).not.toMatch(/<link\b/)
+    })
+
+    test('has Mermaid itself draw the source, strictly, and the source is escaped in the page', async ($, on) => {
+      const { made } = files(on)
       mock.env(on, { HOME: '/home/someone' })
       answerOpen(on)
       await $.command.run({ command: 'mermaid-view', args: 'graph TD; A["x <b> & y"] --> B' })
@@ -716,30 +746,28 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'page' })
 
-      const html = made[0]?.text ?? ''
-      // the real library, at an exact version, from a CDN: never "latest"
-      expect(html).toMatch(/import\("https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.esm\.min\.mjs"\)/)
+      const html = pageOf(made)?.text ?? ''
       expect(html).toContain('mermaid.run(')
       expect(html).toContain('securityLevel: "strict"')
-      // the source is data in the page, and not markup
       expect(html).toContain('<pre class="mermaid" id="diagram">graph TD; A["x &lt;b&gt; &amp; y"] --&gt; B</pre>')
       expect(html).not.toContain('<b>')
     })
 
-    test('falls back to the mod\'s own drawing when the library cannot be loaded or the source does not parse', async ($, on) => {
-      const made = writes(on)
+    test('falls back to the mod\'s own drawing when the library cannot be run or the source does not parse', async ($, on) => {
+      const { made } = files(on)
       const pane = await open($, on, { HOME: '/home/someone' })
 
       await pane.press({ key: 'page' })
 
-      const html = made[0]?.text ?? ''
+      const html = pageOf(made)?.text ?? ''
       expect(html).toContain('<div id="fallback"><svg ')
-      expect(html).toContain('catch (error)')
-      expect(html).toContain('fallback.style.display = "block"')
+      expect(html).toContain('.catch(show)')
+      expect(html).toContain('the Mermaid library file is not next to this page')
+      expect(html).toContain('"block"')
     })
 
     test('is offered for a diagram the mod cannot draw, which Mermaid can', async ($, on) => {
-      const made = writes(on)
+      const { made } = files(on)
       mock.env(on, { HOME: '/home/someone' })
       answerOpen(on)
       await $.command.run({ command: 'mermaid-view', args: 'sequenceDiagram\nA->>B: hello' })
@@ -749,70 +777,35 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'page' })
 
-      expect(made).toHaveLength(1)
-      expect(made[0]?.text).toContain('sequenceDiagram\nA-&gt;&gt;B: hello')
+      expect(pageOf(made)?.text).toContain('sequenceDiagram\nA-&gt;&gt;B: hello')
       // the mod has no drawing of it to fall back to
-      expect(made[0]?.text).toContain('<div id="fallback"></div>')
-    })
-    test('has https addresses that draw it on a hosted Mermaid, which open from any machine', async ($, on) => {
-      writes(on)
-      const pane = await open($, on, { HOME: '/home/someone' })
-
-      const links = await pane.findAll({ type: 'Link' })
-      const hrefs = links.map(link => String(link.props.href))
-
-      expect(hrefs.some(href => /^https:\/\/mermaid\.ink\/svg\/pako:[A-Za-z0-9_-]+$/.test(href))).toBe(true)
-      expect(hrefs.some(href => /^https:\/\/mermaid\.live\/edit#pako:[A-Za-z0-9_-]+$/.test(href))).toBe(true)
-      expect(await pane.find({ text: /sends the diagram text to that service/ })).toBeDefined()
+      expect(pageOf(made)?.text).toContain('<div id="fallback"></div>')
     })
 
-    test('has them on the other surfaces too, where https links are drawn', async ($, on) => {
-      writes(on)
-      const pane = await open($, on, { HOME: '/home/someone' }, 'desktop')
-
-      const hrefs = (await pane.findAll({ type: 'Link' })).map(link => String(link.props.href))
-
-      expect(hrefs.some(href => href.startsWith('https://mermaid.ink/svg/pako:'))).toBe(true)
-    })
-
-    test('has them for a diagram the pane cannot draw, and not for one too long for an address', async ($, on) => {
-      writes(on)
-      mock.env(on, { HOME: '/home/someone' })
-      answerOpen(on)
-      await $.command.run({ command: 'mermaid-view', args: 'sequenceDiagram\nA->>B: hello' })
-      const pane = await mountPane($)
-
-      expect((await pane.findAll({ type: 'Link' })).length).toBe(2)
-
-      const long = `graph TD; ${Array.from({ length: 400 }, (_, index) => `N${index} --> N${index + 1}`).join('; ')}`
-      await $.command.run({ command: 'mermaid-view', args: long })
-
-      expect(await linkWith(pane, 'file://')).toBeUndefined()
-    })
     test('is linked by its file address', async ($, on) => {
-      writes(on)
+      files(on)
       const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\some one\\Temp' })
 
       await pane.press({ key: 'page' })
 
-      const link = await linkWith(pane, 'file://')
-      expect(link?.props.href).toBe('file:///C:/Users/some%20one/Temp/mermaid-view.html')
+      expect((await linkWith(pane, 'file://'))?.props.href).toBe('file:///C:/Users/some%20one/Temp/mermaid-view.html')
     })
 
     test('goes to /tmp where there is no temporary folder named', async ($, on) => {
-      const made = writes(on)
+      const { made } = files(on)
       const pane = await open($, on, { HOME: '/home/someone' })
 
       await pane.press({ key: 'page' })
 
       // (the engine hands the hook an absolute path, which on Windows has a drive)
-      expect(made[0]?.path.replace(/\\/g, '/')).toMatch(/\/tmp\/mermaid-view\.html$/)
+      expect(pageOf(made)?.path.replace(/\\/g, '/')).toMatch(/\/tmp\/mermaid-view\.html$/)
       expect((await linkWith(pane, 'file://'))?.props.href).toBe('file:///tmp/mermaid-view.html')
     })
 
     test('a page that cannot be written is said so, and no link is offered', async ($, on) => {
       mock.env(on, { HOME: '/home/someone' })
       answerOpen(on)
+      on('fs.read', () => ({ value: LIBRARY }) as never)
       on('fs.write', () => {
         throw new Error('EACCES: permission denied')
       })
@@ -825,8 +818,29 @@ describe('mermaid-view', () => {
       expect(await linkWith(pane, 'file://')).toBeUndefined()
     })
 
+    test('a library that cannot be read is said so, and no page is written', async ($, on) => {
+      const written: string[] = []
+      mock.env(on, { HOME: '/home/someone' })
+      answerOpen(on)
+      on('fs.read', () => {
+        throw new Error('ENOENT: no such file')
+      })
+      on('fs.write', (_$, e) => {
+        written.push((e as { path: string }).path)
+
+        return { value: undefined } as never
+      })
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B' })
+      const pane = await mountPane($)
+
+      await pane.press({ key: 'page' })
+
+      expect(written).toHaveLength(0)
+      expect(await pane.find({ text: /Could not write the page:/ })).toBeDefined()
+    })
+
     test('is forgotten when another diagram is shown', async ($, on) => {
-      writes(on)
+      files(on)
       const pane = await open($, on, { HOME: '/home/someone' })
 
       await pane.press({ key: 'page' })
@@ -838,14 +852,25 @@ describe('mermaid-view', () => {
     })
 
     test('is offered on the other surfaces too, where the address is shown as text to open', async ($, on) => {
-      const made = writes(on)
+      const { made } = files(on)
       const pane = await open($, on, { HOME: '/home/someone' }, 'desktop')
 
       await pane.press({ key: 'page' })
 
       // a remote surface draws only an https link as a link, so the address is there as plain text
-      expect(made).toHaveLength(1)
+      expect(pageOf(made)).toBeDefined()
       expect(await pane.find({ text: /file:\/\/\/tmp\/mermaid-view\.html/ })).toBeDefined()
+    })
+
+    test('the pane holds no link to a site, for any diagram', async ($, on) => {
+      files(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      const hrefs = (await pane.findAll({ type: 'Link' })).map(link => String(link.props.href))
+      const tree = JSON.stringify(await pane.drawn())
+
+      expect(hrefs).toEqual([])
+      expect(tree).not.toMatch(/mermaid\.ink|mermaid\.live|jsdelivr/)
     })
   })
   describe('the picture', () => {
