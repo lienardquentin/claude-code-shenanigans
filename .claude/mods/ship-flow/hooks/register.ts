@@ -1,3 +1,4 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { afterTurn, begin, noteRead, reminder } from './attended'
@@ -5,9 +6,13 @@ import { fillOf, settingsOf } from './budget'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
 import type { Host } from './host'
+import { PANE, paneOf } from './pane'
 import { SCRATCH } from './run'
 import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
 import { statusText } from './status'
+
+// How many times a run wrote its files this session: the pane reads it, so each write draws the pane again
+const changes = atom({ plugin: 'ship-flow', key: 'changes' } as const, 0)
 
 const USAGE = [
   'Usage:',
@@ -15,6 +20,7 @@ const USAGE = [
   '  /ship #<issue>          start a run from a GitHub issue',
   '  /ship resume [feature]  approve the checkpoint, or take a run up again',
   '  /ship status            how every run of this repo stands',
+  '  /ship pane              the same, live, in a pane',
 ].join('\n')
 
 // The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
@@ -46,6 +52,7 @@ const hostOf = ($: EngineInterface): Host => ({
   now: async () => $.clock.now(),
   cwd: () => $.session.cwd(),
   root: $.plugin.root,
+  changed: () => void update($, changes, count => count + 1).catch(() => undefined),
   // Both wait on the session being idle, which it is not inside the command's own hook: the engine refuses them
   // there, so they are made from a timer, once the hook has returned
   prompt: text =>
@@ -97,6 +104,24 @@ export const register: Register = (on, options) => {
     return started
   })
 
+  on('ui.render', { component: 'Pane', requestId: 'ship-flow' }, async ($, e) => {
+    // Read so that the pane is drawn again each time a run writes
+    await read($, changes)
+
+    const host = hostOf($)
+
+    return paneOf($.ui.resolve(e), {
+      folders: await readFolders(host),
+      width: e.props.bodyColumns ?? 80,
+      settings,
+      onResume: feature =>
+        void resume(host, settings, feature)
+          .then(text => $.ui.log(text))
+          .catch(() => $.ui.log(`${feature}: could not be taken up from the pane. /ship resume ${feature}.`)),
+      onRefresh: () => host.changed(),
+    })
+  })
+
   // The model reading one of the mod's step texts is how the attended phase is seen to pass from a step to the next
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     await noteRead(hostOf($), e.file_path).catch(() => undefined)
@@ -114,8 +139,17 @@ export const register: Register = (on, options) => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
 
     if (verb === 'status') return { text: statusText(await readFolders(hostOf($))) }
-    if (verb === 'resume') return { text: await resume(hostOf($), settings, rest.join(' ')) }
     if (verb === '') return { text: USAGE }
+    if (verb === 'pane') {
+      const { isPlaced } = await $.ui.open({ id: PANE, title: 'ship-flow' })
+
+      return { text: isPlaced ? 'The ship-flow pane is open.' : 'The ship-flow pane will show once there is room for it.' }
+    }
+
+    // A run that starts or goes on is worth watching: its pane opens beside it, where there is room
+    void $.ui.open({ id: PANE, title: 'ship-flow' }).catch(() => undefined)
+
+    if (verb === 'resume') return { text: await resume(hostOf($), settings, rest.join(' ')) }
 
     return { text: await begin(hostOf($), settings, e.args.trim()) }
   })

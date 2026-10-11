@@ -11,17 +11,39 @@ const NOTES: Readonly<Record<string, string>> = {
   'too-large': 'too large for one context window: split it into smaller tickets',
 }
 
-const problemLine = (problem: Problem): string =>
-  `  ${problem.number !== undefined ? label(problem.number) : problem.file} ${problem.reason}`
+/** A problem of a ticket folder as one line: the ticket, or the file, and what is wrong with it. */
+export const problemText = (problem: Problem): string =>
+  `${problem.number !== undefined ? label(problem.number) : problem.file} ${problem.reason}`
 
-// Where the run stands, as the end of the feature's line: what it builds now, or why it does not build
-const standing = (record: RunRecord | undefined): string => {
+const problemLine = (problem: Problem): string => `  ${problemText(problem)}`
+
+/** Where a run stands, in a few words: what it builds now, or why it does not build. Empty for a folder with no run. */
+export const standingOf = (record: RunRecord | undefined): string => {
   if (!record) return ''
-  if (record.phase === 'attended') return ' · with you, before the checkpoint: /ship resume approves it'
-  if (record.phase === 'unattended') return ` · building ${label(record.ticket ?? 0)}`
-  if (record.phase === 'finishing') return record.stage === 'fix' ? ' · fixing what the review found' : ' · reviewing the branch'
+  if (record.phase === 'attended') return 'with you, before the checkpoint: /ship resume approves it'
+  if (record.phase === 'unattended') return `building ${label(record.ticket ?? 0)}`
+  if (record.phase === 'finishing') return record.stage === 'fix' ? 'fixing what the review found' : 'reviewing the branch'
 
-  return ` · ${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`
+  return `${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`
+}
+
+// The same, as the end of the feature's line
+const standing = (record: RunRecord | undefined): string => (record ? ` · ${standingOf(record)}` : '')
+
+/** What is worth saying of one ticket beside its state: its blockers, its model, its attempt, its context, its failure. */
+export const notesOf = (ticket: Ticket, takeable: ReadonlySet<Ticket>, record: RunRecord | undefined): string[] => {
+  const attempts = record?.attempts[label(ticket.number ?? 0)] ?? 0
+  const peak = record?.peak?.[label(ticket.number ?? 0)]
+  const failure = record?.failure?.ticket === ticket.number && ticket.status !== 'done' ? record?.failure : undefined
+
+  return [
+    ticket.blockers.length > 0 ? `blocked by ${ticket.blockers.map(label).join(', ')}` : '',
+    ticket.model !== undefined ? `model ${ticket.model}` : '',
+    attempts > 1 ? `attempt ${attempts}` : '',
+    peak !== undefined ? `context ${Math.round((peak / BUDGET_WINDOW) * 100)}%` : '',
+    failure ? `failed: ${failure.reason}` : '',
+    takeable.has(ticket) ? 'takeable now' : (NOTES[ticket.status ?? ''] ?? ''),
+  ].filter(note => note !== '')
 }
 
 const ticketLine = (
@@ -30,17 +52,7 @@ const ticketLine = (
   widths: { status: number; title: number },
   record: RunRecord | undefined,
 ): string => {
-  const attempts = record?.attempts[label(ticket.number ?? 0)] ?? 0
-  const peak = record?.peak?.[label(ticket.number ?? 0)]
-  const failure = record?.failure?.ticket === ticket.number && ticket.status !== 'done' ? record?.failure : undefined
-  const notes = [
-    ticket.blockers.length > 0 ? `blocked by ${ticket.blockers.map(label).join(', ')}` : '',
-    ticket.model !== undefined ? `model ${ticket.model}` : '',
-    attempts > 1 ? `attempt ${attempts}` : '',
-    peak !== undefined ? `context ${Math.round((peak / BUDGET_WINDOW) * 100)}%` : '',
-    failure ? `failed: ${failure.reason}` : '',
-    takeable.has(ticket) ? 'takeable now' : (NOTES[ticket.status ?? ''] ?? ''),
-  ].filter(note => note !== '')
+  const notes = notesOf(ticket, takeable, record)
 
   return [
     '',

@@ -41,12 +41,15 @@ export async function readRecord(host: Host, feature: string): Promise<RunRecord
   return (await host.exists(recordOf(feature))) ? parseRecord(await host.read(recordOf(feature))) : undefined
 }
 
-export const writeRecord = (host: Host, record: RunRecord): Promise<void> =>
-  host.write(recordOf(record.feature), recordText(record))
+export const writeRecord = async (host: Host, record: RunRecord): Promise<void> => {
+  await host.write(recordOf(record.feature), recordText(record))
+  host.changed()
+}
 
 /** Rewrites one ticket file's `Status:` line. */
 export const writeStatus = async (host: Host, feature: string, ticket: Ticket, status: State) => {
   const path = `${issuesOf(feature)}/${ticket.file}`
 
   await host.write(path, withStatus(await host.read(path), status))
+  host.changed()
 }
