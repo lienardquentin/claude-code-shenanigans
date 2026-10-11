@@ -1,7 +1,6 @@
 import { shownLabel } from './diagram'
 import type { Diagram, Direction, EdgeKind, Shape, Tone } from './diagram'
 
-const NODE_HEIGHT = 3
 const LANE_START = 2
 
 // A line cell remembers the sides a line leaves it by, in physical terms; the character is chosen from them when the
@@ -82,14 +81,23 @@ const styleOf = (kind: EdgeKind): Style => (kind === 'thick' ? 'thick' : kind ==
 
 // `solid` is a character a node's box, an arrowhead or a label drew: a line never overwrites it. `node` and `row`
 // say which node's box (and which of its three rows) a cell belongs to; `hot` marks what belongs to the selection.
-type Cell = { sides: number; style?: Style; solid?: string; node?: string; row?: number; hot?: boolean; tone?: Tone }
+type Cell = {
+  sides: number
+  style?: Style
+  solid?: string
+  node?: string
+  row?: number
+  last?: boolean
+  hot?: boolean
+  tone?: Tone
+}
 
 /**
  * A run of cells on one line of the drawing that is drawn alike: a piece of a node's box (the `node` it belongs to
  * and which `row` of its box it is) or a stretch of lines and spaces, `hot` when it belongs to the selection and
  * in `tone` when the author marked its node out.
  */
-export type Segment = { text: string; hot: boolean; node?: string; row?: number; tone?: Tone }
+export type Segment = { text: string; hot: boolean; node?: string; row?: number; last?: true; tone?: Tone }
 
 /**
  * What the layout decided, in cells of the drawing (a cell is one character of the cell view): where each box and
@@ -130,22 +138,86 @@ type PlacedNode = {
 // names the node whose edges it carries and in which direction: runs that share a key are one bus, on one row.
 type Run = { gap: number; key: string }
 
-/** The three rows of a node's box for its shape, and its width. */
-const boxOf = (shape: Shape, label: string): { rows: string[]; width: number } => {
-  const length = Array.from(label).length
+/**
+ * A label broken into lines of at most `width` characters, at spaces and after a dash or a slash, and inside a word
+ * only when a single word is longer than a line. A `width` of 0 leaves the label as one line.
+ */
+export const wrapLabel = (label: string, width: number): string[] => {
+  if (width <= 0 || Array.from(label).length <= width) return [label]
+
+  // The pieces a line may break between: a word with the dash or slash that ends it
+  const pieces = label.split(/(?<=[-/])|\s+/u).filter(piece => piece !== '')
+  const lines: string[] = []
+  let line = ''
+
+  const flush = (): void => {
+    if (line !== '') lines.push(line)
+    line = ''
+  }
+
+  for (const piece of pieces) {
+    let rest = Array.from(piece)
+
+    // A piece longer than a line is cut to lines of its own
+    while (rest.length > width) {
+      flush()
+      lines.push(rest.slice(0, width).join(''))
+      rest = rest.slice(width)
+    }
+
+    const word = rest.join('')
+    const joined = line === '' ? word : /[-/]$/.test(line) ? `${line}${word}` : `${line} ${word}`
+
+    if (Array.from(joined).length <= width) line = joined
+    else {
+      flush()
+      line = word
+    }
+  }
+
+  flush()
+
+  return lines
+}
+
+/** The rows of a node's box for its shape, one for each line of its label, and its width. */
+const boxOf = (shape: Shape, lines: readonly string[]): { rows: string[]; width: number } => {
+  const length = Math.max(...lines.map(line => Array.from(line).length))
   const bar = (count: number): string => '─'.repeat(count)
+  // Each line is centred in the width of the longest
+  const padded = lines.map(line => {
+    const gap = length - Array.from(line).length
+    const left = Math.floor(gap / 2)
+
+    return `${' '.repeat(left)}${line}${' '.repeat(gap - left)}`
+  })
 
   switch (shape) {
     case 'rounded':
-      return { rows: [`╭${bar(length + 2)}╮`, `│ ${label} │`, `╰${bar(length + 2)}╯`], width: length + 4 }
+      return {
+        rows: [`╭${bar(length + 2)}╮`, ...padded.map(line => `│ ${line} │`), `╰${bar(length + 2)}╯`],
+        width: length + 4,
+      }
     case 'stadium':
-      return { rows: [`╭${bar(length + 2)}╮`, `( ${label} )`, `╰${bar(length + 2)}╯`], width: length + 4 }
+      return {
+        rows: [`╭${bar(length + 2)}╮`, ...padded.map(line => `( ${line} )`), `╰${bar(length + 2)}╯`],
+        width: length + 4,
+      }
     case 'diamond':
-      return { rows: [`╱${bar(length + 2)}╲`, `< ${label} >`, `╲${bar(length + 2)}╱`], width: length + 4 }
+      return {
+        rows: [`╱${bar(length + 2)}╲`, ...padded.map(line => `< ${line} >`), `╲${bar(length + 2)}╱`],
+        width: length + 4,
+      }
     case 'circle':
-      return { rows: [` ╭${bar(length + 2)}╮ `, `(( ${label} ))`, ` ╰${bar(length + 2)}╯ `], width: length + 6 }
+      return {
+        rows: [` ╭${bar(length + 2)}╮ `, ...padded.map(line => `(( ${line} ))`), ` ╰${bar(length + 2)}╯ `],
+        width: length + 6,
+      }
     default:
-      return { rows: [`┌${bar(length + 2)}┐`, `│ ${label} │`, `└${bar(length + 2)}┘`], width: length + 4 }
+      return {
+        rows: [`┌${bar(length + 2)}┐`, ...padded.map(line => `│ ${line} │`), `└${bar(length + 2)}┘`],
+        width: length + 4,
+      }
   }
 }
 
@@ -172,14 +244,32 @@ const layerOf = (diagram: Diagram): Map<string, number> => {
   for (const node of diagram.nodes) if ((state.get(node.id) ?? 0) === 0) visit(node.id)
 
   const layer = new Map(diagram.nodes.map(node => [node.id, 0] as const))
+  const forward = diagram.edges.filter((_, index) => !closing.has(index))
 
   for (const id of finished.reverse()) {
-    diagram.edges.forEach((edge, index) => {
-      if (edge.from === id && !closing.has(index)) {
-        layer.set(edge.to, Math.max(layer.get(edge.to) ?? 0, (layer.get(id) ?? 0) + 1))
-      }
-    })
+    for (const edge of forward) {
+      if (edge.from === id) layer.set(edge.to, Math.max(layer.get(edge.to) ?? 0, (layer.get(id) ?? 0) + 1))
+    }
   }
+
+  // The longest path puts every source on the first layer, however far from what it leads to. A node is pulled
+  // down to just above its nearest target when that does not lengthen the edges as a whole (it has at least as many
+  // edges out as in), the lowest first, so that a chain that ends far below comes down with its end. This makes the
+  // drawing narrower and its long edges fewer.
+  const byDepth = [...diagram.nodes].sort((a, b) => (layer.get(b.id) ?? 0) - (layer.get(a.id) ?? 0))
+
+  for (const node of byDepth) {
+    const out = forward.filter(edge => edge.from === node.id && edge.to !== node.id)
+    const into = forward.filter(edge => edge.to === node.id && edge.from !== node.id)
+    if (out.length === 0 || out.length < into.length) continue
+
+    const nearest = Math.min(...out.map(edge => layer.get(edge.to) ?? 0)) - 1
+    if (nearest > (layer.get(node.id) ?? 0)) layer.set(node.id, nearest)
+  }
+
+  // Layers are numbered without a gap
+  const used = [...new Set(layer.values())].sort((a, b) => a - b)
+  for (const [id, value] of layer) layer.set(id, used.indexOf(value))
 
   return layer
 }
@@ -210,14 +300,18 @@ const assignRows = (runs: readonly Run[]): { rowOf: number[]; rowsIn: Map<number
  * drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`. `compact` keeps
  * the nodes of a layer close, for a drawing that is to be as narrow as it can be.
  */
-export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?: boolean } = {}): Segment[][] =>
+export const drawDiagram = (
+  diagram: Diagram,
+  selected = '',
+  options: { compact?: boolean; wrap?: number } = {},
+): Segment[][] =>
   layoutDiagram(diagram, selected, options).rows
 
 /** The drawing as rows of segments, and the geometry it was made from (for a drawing that is not made of cells). */
 export const layoutDiagram = (
   diagram: Diagram,
   selected = '',
-  options: { compact?: boolean } = {},
+  options: { compact?: boolean; wrap?: number } = {},
 ): { rows: Segment[][]; geometry: Geometry } => {
   const geometry: Geometry = { columns: 0, rows: 0, direction: diagram.direction, nodes: [], edges: [], groups: [] }
   if (diagram.nodes.length === 0) return { rows: [], geometry }
@@ -230,7 +324,7 @@ export const layoutDiagram = (
   const nodesIn: PlacedNode[][] = Array.from({ length: layerCount }, () => [])
 
   for (const node of diagram.nodes) {
-    const { rows, width } = boxOf(node.shape, shownLabel(node))
+    const { rows, width } = boxOf(node.shape, wrapLabel(shownLabel(node), options.wrap ?? 0))
 
     nodesIn[layerOfNode(node.id)]?.push({
       id: node.id,
@@ -243,8 +337,8 @@ export const layoutDiagram = (
       layer: layerOfNode(node.id),
       main: 0,
       cross: 0,
-      mainSize: vertical ? NODE_HEIGHT : width,
-      crossSize: vertical ? width : NODE_HEIGHT,
+      mainSize: vertical ? rows.length : width,
+      crossSize: vertical ? width : rows.length,
     })
   }
 
@@ -402,7 +496,7 @@ export const layoutDiagram = (
     y: number,
     char: string,
     hot: boolean,
-    node?: { id: string; row: number; tone?: Tone },
+    node?: { id: string; row: number; last: boolean; tone?: Tone },
   ): void => {
     const target = at(x, y)
     if (target === undefined) return
@@ -412,6 +506,7 @@ export const layoutDiagram = (
     if (node !== undefined) {
       target.node = node.id
       target.row = node.row
+      target.last = node.last
       if (node.tone !== undefined) target.tone = node.tone
     }
   }
@@ -454,7 +549,7 @@ export const layoutDiagram = (
     const x = vertical ? node.cross : main
     const y = vertical ? main : node.cross
 
-    rects.set(node.id, { x, y, w: node.width, h: NODE_HEIGHT })
+    rects.set(node.id, { x, y, w: node.width, h: node.rows.length })
     geometry.nodes.push({
       id: node.id,
       label: node.label,
@@ -462,7 +557,7 @@ export const layoutDiagram = (
       x,
       y,
       w: node.width,
-      h: NODE_HEIGHT,
+      h: node.rows.length,
       hot: node.id === selected,
       ...(node.tone !== undefined ? { tone: node.tone } : {}),
     })
@@ -472,6 +567,7 @@ export const layoutDiagram = (
         setSolid(x + column, y + row, char, node.id === selected, {
           id: node.id,
           row,
+          last: row === node.rows.length - 1,
           ...(node.tone !== undefined ? { tone: node.tone } : {}),
         }),
       )
@@ -647,6 +743,7 @@ export const layoutDiagram = (
           text,
           hot,
           ...(cell.node !== undefined ? { node: cell.node, row: cell.row } : {}),
+          ...(cell.last === true ? { last: true as const } : {}),
           ...(cell.tone !== undefined ? { tone: cell.tone } : {}),
         })
       }

@@ -61,10 +61,15 @@ What it does so far:
 - A ` ```mermaid ` block in one of Claude's own replies is shown as soon as the reply ends (what a subagent hands back
   is not).
 - A drawing bigger than the pane is shown through a window, which moves in both directions: `h` `l` across, `k` `j`
-  down (each a button above the drawing too, with a line saying which columns and rows show), and `f` closes the
-  nodes up first (`Fit width`; it only helps a top-down or bottom-up flow). The keys work while the pane has the
-  focus, wherever the drawing is scrolled to. Pressing or walking to a node cut by the edge brings its whole box
-  into view; a new width redraws within it, and a different diagram starts at the top left.
+  down (each a button above the drawing too, with a line saying which columns and rows show). The keys work while
+  the pane has the focus, wherever the drawing is scrolled to. Pressing or walking to a node cut by the edge brings
+  its whole box into view; a new width redraws within it, and a different diagram starts at the top left.
+- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
+  closed up, and then labels are wrapped to narrower and narrower boxes (at spaces, dashes and slashes, and inside a
+  word only when nothing wider fits) until it fits. A node's label is wrapped onto more rows, and selecting it
+  still names the whole label. What cannot be made narrow enough is shown through the window above.
+- Layers are chosen so that a node that only leads somewhere (a source, or a chain that ends far below) stands just
+  above what it leads to, not on the first row: a diagram with several entry points is far narrower for it.
 - The diagrams of the session are listed under the drawing, newest last, each told apart by its first node labels;
   press one to show it. The list keeps the last twenty, and lives only as long as the session.
 - Directions: `TD` and `TB` (the default), `BT`, `LR` and `RL`.

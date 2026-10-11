@@ -529,6 +529,8 @@ describe('mermaid-view', () => {
 
     test('is cut to the pane, and a button moves what shows to the right and back', async ($, on) => {
       const pane = await open($, on, WIDE, NARROW_PANE - 2)
+      // fitting is on to begin with, and would close it up: it is turned off to see the window
+      await pane.press({ key: 'fit-width' })
 
       expect(await longest(pane)).toBeLessThanOrEqual(NARROW_PANE - 2 - 4)
       expect(await pane.find({ type: 'Button', key: 'scroll-left' })).toBeUndefined()
@@ -546,13 +548,8 @@ describe('mermaid-view', () => {
       expect(await pane.find({ text: /│ abc │/ })).toBeDefined()
     })
 
-    test('fit width closes the nodes up so that it fits, and the toggle undoes it', async ($, on) => {
+    test('fit width is on to begin with: the nodes are closed up so that it fits, and the toggle undoes it', async ($, on) => {
       const pane = await open($, on, WIDE, NARROW_PANE)
-
-      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
-      expect(await pane.find({ type: 'Button', key: 'fit-width', text: /Fit width: off/ })).toBeDefined()
-
-      await pane.press({ key: 'fit-width' })
 
       expect(await pane.find({ type: 'Button', key: 'fit-width', text: /Fit width: on/ })).toBeDefined()
       expect(await pane.find({ text: /│ abc │.*│ jkl │/ })).toBeDefined()
@@ -560,7 +557,34 @@ describe('mermaid-view', () => {
 
       await pane.press({ key: 'fit-width' })
 
+      expect(await pane.find({ type: 'Button', key: 'fit-width', text: /Fit width: off/ })).toBeDefined()
       expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+
+      await pane.press({ key: 'fit-width' })
+
+      expect(await pane.find({ text: /│ jkl │/ })).toBeDefined()
+    })
+
+    test('labels too long for the room are wrapped, whole boxes kept, and the full label is what is selected', async ($, on) => {
+      const LONG =
+        'graph TD; A["a very long label that needs wrapping to fit"] --> B["another quite long label of text"]; A --> C["third label also long enough here"]'
+      const pane = await open($, on, LONG, 40)
+
+      // nothing is wider than the room (40 columns less the frame)
+      const tree = JSON.stringify(await pane.drawn())
+      expect(tree).toContain('node-A-r2')
+      expect(await pane.find({ type: 'Button', key: 'scroll-right' })).toBeUndefined()
+
+      await pane.press({ key: 'node-A' })
+
+      expect(await pane.find({ text: /Selected: a very long label that needs wrapping to fit/ })).toBeDefined()
+    })
+
+    test('a drawing that cannot be made narrow enough still scrolls, with the labels as narrow as they go', async ($, on) => {
+      const MANY = `graph TD; ${Array.from({ length: 12 }, (_, index) => `R --> N${index}[Label ${index}]`).join('; ')}`
+      const pane = await open($, on, MANY, 40)
+
+      expect(await pane.find({ type: 'Button', key: 'scroll-right' })).toBeDefined()
     })
 
     test('pressing a node cut by the edge of the pane selects it and brings the whole box into view', async ($, on) => {
@@ -575,6 +599,7 @@ describe('mermaid-view', () => {
 
     test('a new width redraws within it: a window that no longer fits returns to the start', async ($, on) => {
       const pane = await open($, on, WIDE, NARROW_PANE - 2)
+      await pane.press({ key: 'fit-width' })
 
       await pane.press({ key: 'scroll-right' })
       expect(await pane.find({ text: /│ jkl │/ })).toBeDefined()
@@ -589,6 +614,7 @@ describe('mermaid-view', () => {
 
     test('a different diagram starts from the left again', async ($, on) => {
       const pane = await open($, on, WIDE, NARROW_PANE - 2)
+      await pane.press({ key: 'fit-width' })
 
       await pane.press({ key: 'scroll-right' })
       await $.command.run({ command: 'mermaid-view', args: WIDE.replace('Root', 'Base') })
@@ -995,6 +1021,7 @@ describe('mermaid-view', () => {
     test('a node out of view is brought into view when the walk reaches it', async ($, on) => {
       const WIDE = 'graph TD; R[Root] --> A[abc]; R --> B[def]; R --> C[ghi]; R --> D[jkl]'
       const pane = await open($, on, WIDE, 'terminal', 36)
+      await pane.press({ key: 'fit-width' })
 
       await pane.press({ key: 'node-R' })
       expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()

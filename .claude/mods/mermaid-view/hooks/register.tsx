@@ -5,6 +5,7 @@ import type { HistoryEntry } from '../types'
 import { MAX_NODES, looksLikeDiagram, mermaidBlocks, parseDiagram, shownLabel } from './diagram'
 import type { Diagram, ParseResult } from './diagram'
 import { drawDiagram, layoutDiagram } from './draw'
+import type { Segment } from './draw'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
@@ -33,7 +34,7 @@ const selected = atom({ plugin: 'mermaid-view', key: 'selected' } as const, '')
 const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as HistoryEntry[])
 // How far a drawing wider than the pane is moved to the left, in cells, and whether it is closed up to fit
 const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
-const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, false)
+const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, true)
 // And how far down: a drawing taller than the pane's room is moved up by this many rows
 const scrollY = atom({ plugin: 'mermaid-view', key: 'scrollY' } as const, 0)
 // Whether the pane shows the terminal guide in place of the diagram
@@ -221,11 +222,47 @@ const connections = (diagram: Diagram, id: string): string[] => {
   ]
 }
 
-// The row of a node's box a Button stands for: the middle one carries the plain key
-const ROW_KEY = ['-top', '', '-bottom'] as const
+// The row of a node's box a Button stands for: the first row of its label carries the plain key, the one above it is
+// `-top`, the last is `-bottom`, and the rows of a label of several lines are `-r2`, `-r3`
+const rowKey = (segment: Segment): string =>
+  segment.row === 0 ? '-top' : segment.last === true ? '-bottom' : segment.row === 1 ? '' : `-r${segment.row}`
 
 // How many lines of a file a `click` directive names are shown
 const FILE_LINES = 40
+
+// The widths labels are wrapped to, widest first, when the drawing is to be fitted to the pane
+const FIT_WRAPS = [40, 30, 24, 20, 16, 13, 11, 9, 8] as const
+
+/**
+ * The drawing fitted to a width: the nodes are closed up first, and then the labels are wrapped to narrower and
+ * narrower boxes, until it is no wider than the room or the labels are as narrow as they go. A drawing that fits, or
+ * one that is not to be fitted, is returned as it is.
+ */
+const fitted = (
+  diagram: Diagram,
+  known: string,
+  normal: Segment[][],
+  width: number,
+  on: boolean,
+): Segment[][] => {
+  if (!on || drawingWidth(normal) <= width) return normal
+
+  let laid = drawDiagram(diagram, known, { compact: true })
+
+  // The widths that keep every word whole come first: a label is only broken inside a word when nothing wider fits
+  const longestWord = Math.max(
+    1,
+    ...diagram.nodes.flatMap(node => shownLabel(node).split(/(?<=[-/])|\s+/u).map(piece => Array.from(piece).length)),
+  )
+  const widths = [...FIT_WRAPS.filter(wrap => wrap >= longestWord), ...FIT_WRAPS.filter(wrap => wrap < longestWord)]
+
+  for (const wrap of widths) {
+    if (drawingWidth(laid) <= width) break
+    laid = drawDiagram(diagram, known, { compact: true, wrap })
+  }
+
+  return laid
+}
 
 // Why a diagram is not drawn, in a sentence: which kind it is, or which line of the source stopped it and what it
 // holds that is not drawn
@@ -439,10 +476,23 @@ const content = async (
 
   // A terminal that draws pixels is given the drawing as a picture, which has no press of its own: the buttons of the
   // nodes stand beside it. A drawing past what an Image takes stays as cells.
+  const pictured = fitted(diagram, known, drawing, view.width, view.fit)
+  const raster = rasterize(pictured)
+
   if (view.pixels) {
-    const raster = rasterize(drawing)
-    const alt = drawing.map(row => row.map(segment => segment.text).join('')).join('\n')
-    const still = raster === undefined ? undefined : pixelImage({ ...raster, alt })
+    const alt = pictured.map(row => row.map(segment => segment.text).join('')).join('\n')
+    // The pixels are drawn over a box of cells, and the box is as wide as the pane's room at most: a picture wider
+    // than that is scaled down to it, in the same proportion down
+    const scale = raster === undefined ? 1 : Math.min(1, view.width / raster.columns)
+    const still =
+      raster === undefined
+        ? undefined
+        : pixelImage({
+            ...raster,
+            columns: Math.max(1, Math.floor(raster.columns * scale)),
+            rows: Math.max(1, Math.round(raster.rows * scale)),
+            alt,
+          })
 
     if (still !== undefined) {
       return [
@@ -459,7 +509,7 @@ const content = async (
   // A drawing wider than the pane is shown through a window that moves by the buttons above it; the fit-width view
   // closes the nodes up first, and the window is only used for what still does not fit
   const normal = drawing
-  const laid = view.fit ? drawDiagram(diagram, known, { compact: true }) : normal
+  const laid = fitted(diagram, known, normal, view.width, view.fit)
   const total = drawingWidth(laid)
   const maxOffset = Math.max(0, total - view.width)
   const offset = Math.min(view.offset, maxOffset)
@@ -499,7 +549,7 @@ const content = async (
   // pane is in view, and the fit-width toggle. They are there only when the drawing does not fit.
   const overflows = total > view.width || (room !== undefined && laid.length > room)
   const controls: RenderElement[] =
-    overflows || drawingWidth(normal) > view.width || view.fit
+    overflows || drawingWidth(normal) > view.width
       ? [
           <Box key="view-controls" flexDirection="row" gap={2}>
             {offset > 0 ? (
@@ -532,7 +582,7 @@ const content = async (
                 ▼ Down
               </Button>
             ) : null}
-            {drawingWidth(normal) > view.width || view.fit ? (
+            {drawingWidth(normal) > view.width ? (
               <Button key="fit-width" plain hotkey="f" onPress={() => update($, fit, current => !current)}>
                 {view.fit ? 'Fit width: on' : 'Fit width: off'}
               </Button>
@@ -567,7 +617,7 @@ const content = async (
         const id = segment.node
 
         return (
-          <Button key={`node-${id}${ROW_KEY[segment.row ?? 1]}`} plain onPress={() => reveal(id)}>
+          <Button key={`node-${id}${rowKey(segment)}`} plain onPress={() => reveal(id)}>
             {label}
           </Button>
         )
@@ -578,14 +628,20 @@ const content = async (
   // The way to the picture: back to it once it was turned off, or a try of it in a terminal not known to draw
   // pixels (what the picture cannot be drawn as is its text, so a try costs nothing). A picture that does not fit
   // an Image is not offered.
-  const pictureToggle: RenderElement[] =
-    !view.pixels && rasterize(drawing) !== undefined
+  const pictureToggle: RenderElement[] = view.pixels
+    ? []
+    : raster !== undefined
       ? [
           <Button key="picture-toggle" onPress={() => update($, pictureMode, () => 'on')}>
             {actionLabel({ text: view.canPixels ? 'Picture: off' : 'Picture: try' })}
           </Button>,
         ]
-      : []
+      : [
+          tonedText({
+            text: `Picture: not possible, the drawing is ${drawingWidth(pictured)} cells across and ${pictured.length} down, which is more than an Image takes (2 MiB of pixels).`,
+            tone: 'neutral',
+          }),
+        ]
 
   return [...pictureToggle, ...controls, ...rows, ...details]
 }
