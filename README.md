@@ -45,3 +45,47 @@ claude plugin test .claude/mods/http-log
 
 The proxy and the wrapper are in `tap/`; `hooks/tap.ts` builds the line put before a command and merges what the
 taps saw into the call list.
+
+### `mermaid-view`
+
+A pane that draws a Mermaid flowchart as boxes and arrows. It lives in
+[`.claude/mods/mermaid-view`](.claude/mods/mermaid-view). It is being built in slices; see issue #1 for the whole
+plan.
+
+What it does so far:
+
+- `/mermaid-view <diagram text>` opens the pane and draws a top-down flowchart in the terminal: `graph TD; A[Start]
+  --> B[Process]; B --> C[End]`. Statements are separated by `;` or a new line.
+- Nodes are `A`, `A[Label]` or `A["Label"]`; edges are `-->`, chained or not. A label may hold `;` or `-->`.
+- Edges that skip a layer or go back up run down a lane to the right of the nodes, so they never cross a node.
+- Source it cannot read (another direction such as `graph LR`, other syntax) is shown with the statement it stopped
+  at, instead of a wrong picture.
+
+Not yet: other directions and node shapes, subgraphs, clicking nodes, the desktop app, a terminal guide.
+
+Known limits of the drawing: a diagram wider than the pane is not scrolled or fitted; when a node's outgoing line
+and an arriving line fall in the same column, the picture can show a connection that is not there; node order is
+by a single downward pass, so crossings are not minimised.
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/mermaid-view
+claude plugin install mermaid-view@mermaid-view-mods
+```
+
+Then open the pane with `/mermaid-view <diagram text>`.
+
+#### Why it draws flowcharts itself
+
+It parses and lays out flowcharts with its own code instead of the official Mermaid renderer, so it knows where every
+node is (needed for clicking). See [the decision](docs/adr/0001-own-flowchart-layout-engine.md).
+
+#### Development
+
+```
+claude plugin validate .claude/mods/mermaid-view
+claude plugin test .claude/mods/mermaid-view
+```
+
+The reader is `hooks/diagram.ts` and the layout and drawing `hooks/draw.ts`; the tests drive the mounted pane.

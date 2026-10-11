@@ -1,0 +1,5 @@
+{
+  "name": "mermaid-view-mods",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "mermaid-view", "source": "./" }]
+}

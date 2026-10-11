@@ -1,0 +1,6 @@
+{
+  "name": "mermaid-view",
+  "version": "0.1.0",
+  "description": "Shows Mermaid flowcharts in a pane",
+  "types": "./types/index.d.ts"
+}
