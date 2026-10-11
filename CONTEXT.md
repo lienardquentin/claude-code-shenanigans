@@ -37,11 +37,11 @@ One feature taken from an idea or an existing issue to a pull request by the wor
 _Avoid_: Job, pipeline, session
 
 **Feature issue**:
-The single GitHub issue a run starts from or creates after grilling, closed by the run's pull request.
+The single GitHub issue a run starts from, or opens from its spec at the checkpoint, closed by the run's pull request.
 _Avoid_: Parent issue, epic
 
 **Spec**:
-The local document that states what a run builds; never published as an issue.
+The document that states what a run builds, written locally; a run that started from an idea publishes it as its feature issue.
 _Avoid_: PRD, plan
 
 **Ticket**:

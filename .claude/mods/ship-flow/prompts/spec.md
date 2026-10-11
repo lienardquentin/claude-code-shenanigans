@@ -10,16 +10,14 @@ The grilling is over. Synthesise what was agreed into the run's spec; ask the pe
 
 3. **Find the verification commands.** These are the commands the unattended run executes, exactly as written, to decide that a ticket is built: the repo's tests, its typecheck, its lint. Look them up (`package.json` scripts, a Makefile, CI config, the README) and run each once to see that it works here and passes now. Done when every command you will list has run green in this session.
 
-4. **Write `spec.md`** from the template below. Done when every section is filled and every decision of the grilling appears in it.
+4. **Write `spec.md`** from the template below. When the run started from an idea, the spec is also the one GitHub issue the run opens when the person approves: the title in its heading is the issue's title, and everything under the heading is the issue's body, so write both for someone reading them on GitHub. A run that started from an issue already has one, and its spec stays local. Done when every section is filled and every decision of the grilling appears in it.
 
-5. **Write `issue.md`**, only when the run started from an idea. It is the text of the one GitHub issue the run opens when the person approves: a first line `# <title>`, then the problem and the solution from the person's side, in a few short paragraphs. The spec stays local; the issue carries none of it. A run that started from an issue already has one: write no `issue.md`.
-
-6. Read `tickets.md`, beside this file, and follow it.
+5. Read `tickets.md`, beside this file, and follow it.
 
 ## The spec template
 
 ```
-# Spec: <feature>
+# Spec: <title, a short phrase that names the feature to a person>
 
 ## Problem Statement
 

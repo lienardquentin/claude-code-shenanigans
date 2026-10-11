@@ -69,13 +69,12 @@ export type RunRecord = {
 export const SCRATCH = '.scratch'
 
 export const folderOf = (feature: string): string => `${SCRATCH}/${feature}`
+/** What the run builds: `# Spec: <title>`, then the spec. A run from an idea opens its issue from it at the checkpoint. */
 export const specOf = (feature: string): string => `${folderOf(feature)}/spec.md`
 export const issuesOf = (feature: string): string => `${folderOf(feature)}/issues`
 export const recordOf = (feature: string): string => `${folderOf(feature)}/run.json`
 /** What the run started from, as the person typed it or as the issue said it. */
 export const sourceOf = (feature: string): string => `${folderOf(feature)}/source.md`
-/** The text of the issue the run opens at the checkpoint, when it started from an idea: `# <title>`, then the body. */
-export const issueOf = (feature: string): string => `${folderOf(feature)}/issue.md`
 /** What the reviewer found, as it reported it. */
 export const reviewOf = (feature: string): string => `${folderOf(feature)}/review.md`
 /** What the fix pass did about each finding, as it reported it. */
