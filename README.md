@@ -100,6 +100,9 @@ keep its shape; whether the drawn boxes would work there is a manual check not y
   followed; any other address, an absolute path or a `..` is marked `⊘` and said not to be followed. Nothing is run
   or opened by the mod itself, so a diagram that names an address cannot start anything. `click A call fn()` is
   named as not drawn.
+- With a node selected, `Go to` lists the nodes it points to and `Back to` those that point to it, each a button with
+  a hotkey (digits `1`-`9` forward, letters `a`-`i` back, in the order the edges are written), so a flow can be walked
+  from the keyboard while the pane has focus. Walking keeps the selection and brings the new node into view.
 - With a node selected: `Send to Claude` puts a line about it (what it leads to, where it is reached from) in the
   prompt box, ready to finish, and `Copy label` copies its label.
 

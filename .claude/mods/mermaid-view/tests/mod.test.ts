@@ -594,6 +594,102 @@ describe('mermaid-view', () => {
     })
   })
 
+  describe('walking along the edges', () => {
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args: string,
+      surface: Surface = 'terminal',
+      columns = 80,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($, surface, columns)
+    }
+
+    test('buttons lead to the nodes the selected one points to, and to those that point to it', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A[Start] --> B[Process]; B --> C[End]')
+
+      expect(await pane.find({ type: 'Button', key: 'go-C' })).toBeUndefined()
+
+      await pane.press({ key: 'node-B' })
+
+      const forward = await pane.find({ type: 'Button', key: 'go-C' })
+      const backward = await pane.find({ type: 'Button', key: 'back-A' })
+      expect(forward?.text).toBe('End')
+      expect(backward?.text).toBe('Start')
+    })
+
+    test('a key moves the selection forward along an edge, and back along one', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A[Start] --> B[Process]; B --> C[End]')
+
+      await pane.press({ key: 'node-A' })
+      await pane.press({ key: 'go-B' })
+      expect(await pane.find({ text: /Selected: Process/ })).toBeDefined()
+
+      await pane.press({ key: 'go-C' })
+      expect(await pane.find({ text: /Selected: End/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'go-A' })).toBeUndefined()
+
+      await pane.press({ key: 'back-B' })
+      expect(await pane.find({ text: /Selected: Process/ })).toBeDefined()
+    })
+
+    test('walking never clears the selection, and a leaf has nowhere to go', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A[Start] --> B[End]')
+
+      await pane.press({ key: 'node-A' })
+      await pane.press({ key: 'go-B' })
+
+      expect(await pane.find({ text: /Selected: End/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'go-A' })).toBeUndefined()
+      expect(await pane.find({ text: /Go to/ })).toBeUndefined()
+    })
+
+    test('several targets are numbered in the order their edges are written, and the sources are lettered', async ($, on) => {
+      const pane = await open($, on, 'graph TD; P[Pa] --> T; Q[Qa] --> T; T --> X[Xa]; T --> Y[Ya]; T --> Z[Za]')
+
+      await pane.press({ key: 'node-T' })
+
+      const keys = async (prefix: string, ids: string[]) =>
+        Promise.all(ids.map(async id => (await pane.find({ type: 'Button', key: `${prefix}-${id}` }))?.props.hotkey))
+
+      expect(await keys('go', ['X', 'Y', 'Z'])).toEqual(['1', '2', '3'])
+      expect(await keys('back', ['P', 'Q'])).toEqual(['a', 'b'])
+    })
+
+    test('a node reached twice from one node is offered once', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A --> B; A -.-> B')
+
+      await pane.press({ key: 'node-A' })
+
+      expect(await pane.findAll({ type: 'Button', key: 'go-B' })).toHaveLength(1)
+    })
+
+    test('a node out of view is brought into view when the walk reaches it', async ($, on) => {
+      const WIDE = 'graph TD; R[Root] --> A[abc]; R --> B[def]; R --> C[ghi]; R --> D[jkl]'
+      const pane = await open($, on, WIDE, 'terminal', 36)
+
+      await pane.press({ key: 'node-R' })
+      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+
+      await pane.press({ key: 'go-D' })
+
+      expect(await pane.find({ text: /Selected: jkl/ })).toBeDefined()
+      expect(await pane.find({ text: /│ jkl │/ })).toBeDefined()
+    })
+
+    test('the walk is there on the surfaces with the fallback view too', async ($, on) => {
+      const pane = await open($, on, 'graph TD; A[Start] --> B[End]', 'desktop')
+
+      await pane.press({ key: 'node-A' })
+      await pane.press({ key: 'go-B' })
+
+      expect(await pane.find({ text: /Selected: End/ })).toBeDefined()
+    })
+  })
+
   describe('click directives and the actions on a node', () => {
     type TestOn = Parameters<Parameters<typeof test>[1]>[1]
 

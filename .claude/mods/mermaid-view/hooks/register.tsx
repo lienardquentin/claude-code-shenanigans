@@ -178,6 +178,39 @@ const content = async (
     }
   }
 
+  // Moving the selection along an edge: set where the window follows in the terminal's view, below
+  let moveTo = (id: string): Promise<void> => update($, selected, () => id)
+
+  // The nodes the selected one leads to, then those that lead to it, in the order their edges are written: each is a
+  // button with a hotkey (a digit for where it leads, a letter for where it is reached from), so the order is shown
+  // and the walk needs no mouse
+  const labelOf = (id: string): string => diagram.nodes.find(candidate => candidate.id === id)?.label ?? id
+  const ends = (pick: 'to' | 'from'): string[] => {
+    const other = pick === 'to' ? 'from' : 'to'
+
+    return [
+      ...new Set(
+        diagram.edges.filter(edge => edge[other] === node?.id && edge[pick] !== node?.id).map(edge => edge[pick]),
+      ),
+    ]
+  }
+  const walkRow = (key: string, title: string, ids: string[], hotkeys: string): RenderElement | null =>
+    ids.length === 0 ? null : (
+      <Box key={key} flexDirection="row" gap={1}>
+        {tonedText({ text: title, tone: 'neutral' })}
+        {ids.slice(0, hotkeys.length).map((id, index) => (
+          <Button
+            key={`${key === 'walk-out' ? 'go' : 'back'}-${id}`}
+            plain
+            hotkey={hotkeys[index] as string}
+            onPress={() => moveTo(id)}
+          >
+            {labelOf(id)}
+          </Button>
+        ))}
+      </Box>
+    )
+
   // What is shown about the selected node, under the drawing or the picture
   const details: RenderElement[] =
     node === undefined
@@ -185,6 +218,9 @@ const content = async (
       : [
           badge({ label: `Selected: ${node.label}`, tone: 'accent' }),
           code({ source: connections(diagram, node.id).join('\n'), plain: true }),
+          ...[walkRow('walk-out', 'Go to', ends('to'), '123456789'), walkRow('walk-in', 'Back to', ends('from'), 'abcdefghi')].filter(
+            (row): row is RenderElement => row !== null,
+          ),
           ...target,
           <Box key="node-actions" flexDirection="row" gap={1}>
             <Button
@@ -256,9 +292,10 @@ const content = async (
   const shown = total > view.width ? clipDrawing(laid, offset, view.width) : laid
   const step = Math.max(1, Math.floor(view.width / 2))
 
-  // Pressing a node selects it, and moves the window so that the whole box shows, as far as it can
-  const reveal = async (id: string): Promise<void> => {
-    await toggle($, id)
+  // Pressing a node selects it, and moves the window so that the whole box shows, as far as it can. Walking to a node
+  // along an edge does the same, but never clears the selection.
+  const reveal = async (id: string, isWalk = false): Promise<void> => {
+    await (isWalk ? update($, selected, () => id) : toggle($, id))
 
     const span = spanOfNode(laid, id)
     if (span !== undefined) await update($, scrollX, current => windowFor(Math.min(current, maxOffset), view.width, span))
@@ -269,6 +306,7 @@ const content = async (
       // nothing to scroll
     }
   }
+  moveTo = id => reveal(id, true)
 
   const controls: RenderElement[] =
     total > view.width || drawingWidth(normal) > view.width || view.fit
