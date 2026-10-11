@@ -36,6 +36,8 @@ export type Host = {
   prompt: (text: string) => void
   /** Compacts the main conversation, keeping what the instructions say; between turns, without being waited for. */
   compact: (instructions: string) => void
+  /** Says that a run wrote a ticket's state or its record: whatever shows the runs draws them again. */
+  changed: () => void
   /** One dim line in the transcript, which the model does not read. */
   log: (text: string) => void
   /** A notification on the person's desktop, by their own channel; nothing where they turned those off. */

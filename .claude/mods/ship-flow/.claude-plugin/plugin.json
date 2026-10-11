@@ -2,6 +2,7 @@
   "name": "ship-flow",
   "version": "0.1.0",
   "description": "Takes one feature from an idea or an issue to a pull request",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "implementerModel": {
       "type": "string",

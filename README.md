@@ -23,7 +23,8 @@ the spec and the tickets kept as local files under `.scratch/<feature>/` instead
 - The run keeps its own budget: no ticket starts when the 5-hour quota window is nearly spent (it pauses and goes
   on by itself after the reset), and an implementer that fills too much of its context is stopped and its ticket
   marked `too-large`.
-- `/ship status` shows every run of the repo, ticket by ticket.
+- `/ship status` shows every run of the repo, ticket by ticket, and `/ship pane` shows the same live in a pane,
+  with a button to take a run up.
 
 It needs `gh` signed in, and the `mattpocock-skills` plugin for the grilling. The models and the thresholds are
 settings of the mod. The decisions behind it are in [`docs/adr`](docs/adr) (0002, 0003) and what was learnt about
