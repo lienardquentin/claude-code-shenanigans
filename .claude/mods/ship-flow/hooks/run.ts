@@ -36,8 +36,6 @@ export type RunRecord = {
   stage?: 'review' | 'fix'
   /** The branch the run's branch is reviewed against and its pull request asks to be merged into. */
   base?: string
-  /** A shell command the agent at work was refused: an implementer's attempt has failed. */
-  refused?: string
   /** How full the implementer's context was, in tokens, when it passed the budget. */
   tooLarge?: number
   /** True once an implementer past its budget was refused a tool call: it was stopped mid-work. */

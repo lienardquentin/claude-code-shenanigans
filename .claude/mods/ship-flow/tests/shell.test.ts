@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { isAllowedShell, isWindowsPath, shellArgv } from '../hooks/shell'
+import { asWritten, isAllowedShell, isWindowsPath, shellArgv } from '../hooks/shell'
 import { verificationOf } from '../hooks/spec'
 
 const VERIFICATION = ['npm test', 'npm run typecheck && npm run lint']
@@ -28,6 +28,19 @@ describe('the implementer\'s shell', () => {
     for (const command of ['git status; rm -rf .', 'git log | sh', 'git show $(cat key)', 'git diff > out', 'git status\nrm x']) {
       expect(isAllowedShell(command, VERIFICATION)).toBe(false)
     }
+  })
+
+  test('reads a command without what the session\'s sandbox put in front of it, and nothing else in front of it', () => {
+    const sandboxed =
+      "export HTTP_PROXY='http://1-a:x@127.0.0.1:57577' HTTPS_PROXY='http://1-a:x@127.0.0.1:57577' no_proxy='localhost,127.0.0.1,::1'; curl() { command curl --suppress-connect-headers \"$@\"; }\n"
+
+    expect(asWritten(`${sandboxed}git rm -f old.ts`)).toBe('git rm -f old.ts')
+    expect(isAllowedShell(`${sandboxed}git rm -f old.ts`, VERIFICATION)).toBe(true)
+    expect(isAllowedShell(`${sandboxed}npm test`, VERIFICATION)).toBe(true)
+    expect(isAllowedShell(`${sandboxed}git push`, VERIFICATION)).toBe(false)
+    expect(isAllowedShell(`${sandboxed}git status; rm -rf .`, VERIFICATION)).toBe(false)
+    expect(isAllowedShell("export PATH='/tmp'; curl() { command curl --suppress-connect-headers \"$@\"; }\ngit status", VERIFICATION)).toBe(false)
+    expect(isAllowedShell('git -C /elsewhere status', VERIFICATION)).toBe(false)
   })
 
   test('runs nothing else', () => {

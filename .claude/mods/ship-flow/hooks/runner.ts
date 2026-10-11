@@ -6,7 +6,7 @@ import { readFolders, readRecord, writeRecord, writeStatus } from './folders'
 import type { Host } from './host'
 import { SCRATCH, folderOf, issuesOf, kept, specOf } from './run'
 import type { RunRecord, UsageReading } from './run'
-import { READING_GIT, isAllowedShell } from './shell'
+import { READING_GIT, SHELL_REFUSAL, isAllowedShell } from './shell'
 import { verificationOf } from './spec'
 import { blockedBy, frontier, label, problemsOf } from './tickets'
 import type { Ticket } from './tickets'
@@ -26,7 +26,7 @@ export const IMPLEMENTER_PROMPT = [
   '',
   'Work test-first at the seams the spec names: write a failing test for one behaviour, make it pass, then the next. Match the code around you.',
   '',
-  'Your shell runs only these: the commands under the spec\'s "Verification" heading, exactly as written, and git status, diff, log, show, blame, ls-files, grep, rev-parse, mv, rm and add. Any other command is refused and fails the ticket, so use the file tools to read, search and edit. Do not commit: the run commits your work after it has run the verification commands itself.',
+  'Your shell runs only these: the commands under the spec\'s "Verification" heading, exactly as written, and git status, diff, log, show, blame, ls-files, grep, rev-parse, mv, rm and add. One command per call, from the repo root, with nothing joined to it. Any other command is refused and does not run, so use the file tools to read, search and edit. Do not commit: the run commits your work after it has run the verification commands itself.',
   '',
   'You are done when every acceptance criterion holds and every verification command passes. Tick the criteria you met in the ticket file and leave its Status line alone. End with a short report: what you built, what you decided, and anything left undone.',
 ].join('\n')
@@ -255,7 +255,8 @@ const flightOf = async (host: Host, agentId: string) => {
 /**
  * The permission decision for a tool call made in a subagent's loop. For an agent of a run it is the run's to
  * make, so that nothing is ever asked of a person who is not there: its listed tools are allowed, and its shell
- * only the commands `isAllowedShell` admits. A command refused to an implementer fails its attempt. Any other
+ * only the commands `isAllowedShell` admits. A refused command does not run and costs the agent nothing else: it
+ * is told what its shell runs and works on, and the run judges the work by its verification as any. Any other
  * agent: undefined.
  */
 export const checkTool = async (
@@ -294,14 +295,9 @@ export const checkTool = async (
       ? { decision: 'allow' }
       : { decision: 'deny', reason: 'ship-flow: the reviewer runs only the git commands that read the repo.' }
   }
-  if (isAllowedShell(command, verificationOf(await host.read(specOf(flight.feature))))) return { decision: 'allow' }
-
-  await writeRecord(host, { ...record, refused: command })
-
-  return {
-    decision: 'deny',
-    reason: 'ship-flow: this command is outside what the implementer may run, and the work has failed. Stop and report.',
-  }
+  return isAllowedShell(command, verificationOf(await host.read(specOf(flight.feature))))
+    ? { decision: 'allow' }
+    : { decision: 'deny', reason: SHELL_REFUSAL }
 }
 
 /**
@@ -342,7 +338,6 @@ const settle = async (
   reason: string,
 ): Promise<{ commit: string } | { reason: string; output?: string }> => {
   if (reason !== 'answer') return { reason: `the implementer's turn ended with ${reason}` }
-  if (record.refused !== undefined) return { reason: `the implementer tried a command it may not run: ${record.refused}` }
 
   const failed = await verify(host, feature)
 
