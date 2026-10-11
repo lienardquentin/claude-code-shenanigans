@@ -29,4 +29,8 @@ export type Host = {
   cwd: () => Promise<string>
   /** One dim line in the transcript, which the model does not read. */
   log: (text: string) => void
+  /** A notification on the person's desktop, by their own channel; nothing where they turned those off. */
+  notify: (text: string) => void
+  /** Calls `fn` once, `ms` milliseconds from now, for as long as the session and the module live. */
+  after: (ms: number, fn: () => void) => void
 }

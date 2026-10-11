@@ -1,17 +1,10 @@
 import type { EngineInterface, Register } from 'claude-code'
 
+import { settingsOf } from './budget'
 import { readFolders } from './folders'
 import type { Host } from './host'
 import { SCRATCH } from './run'
-import {
-  IMPLEMENTER,
-  IMPLEMENTER_MODEL,
-  IMPLEMENTER_PROMPT,
-  IMPLEMENTER_TOOLS,
-  checkTool,
-  complete,
-  resume,
-} from './runner'
+import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, resume } from './runner'
 import { statusText } from './status'
 
 const USAGE = 'Usage: /ship status, or /ship resume [feature]. Starting a run from an idea is not built yet.'
@@ -45,9 +38,14 @@ const hostOf = ($: EngineInterface): Host => ({
   now: async () => $.clock.now(),
   cwd: () => $.session.cwd(),
   log: text => $.ui.log(text),
+  // Sent or not is the person's own setting: the run does not wait to know
+  notify: text => void $.ui.notify(text, { title: 'ship-flow' }).catch(() => undefined),
+  after: (ms, fn) => void $.clock.after(ms, fn),
 })
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const settings = settingsOf(options)
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ship',
@@ -59,7 +57,7 @@ export const register: Register = on => {
       description: 'Builds one ticket of a ship-flow run. Started by the run itself, never by hand.',
       prompt: IMPLEMENTER_PROMPT,
       tools: IMPLEMENTER_TOOLS,
-      model: IMPLEMENTER_MODEL,
+      model: settings.implementerModel,
     })
 
     return next(e)
@@ -72,7 +70,7 @@ export const register: Register = on => {
     const [verb = '', ...rest] = e.args.trim().split(/\s+/)
 
     if (verb === 'status') return { text: statusText(await readFolders(hostOf($))) }
-    if (verb === 'resume') return { text: await resume(hostOf($), rest.join(' ')) }
+    if (verb === 'resume') return { text: await resume(hostOf($), settings, rest.join(' ')) }
 
     return { text: USAGE }
   })
@@ -91,7 +89,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
 
-    if (e.agentId !== undefined) await complete(hostOf($), { agentId: e.agentId, reason: e.reason })
+    if (e.agentId !== undefined) await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason })
 
     return completed
   })
