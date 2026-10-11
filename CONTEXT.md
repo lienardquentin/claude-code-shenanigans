@@ -32,6 +32,34 @@ _Avoid_: Active node, focused node
 How a diagram is shown on a surface that cannot draw clickable nodes itself: a still picture plus a button per node.
 _Avoid_: Degraded mode
 
+**Run**:
+One feature taken from an idea or an existing issue to a pull request by the workflow mod.
+_Avoid_: Job, pipeline, session
+
+**Feature issue**:
+The single GitHub issue a run starts from or creates after grilling, closed by the run's pull request.
+_Avoid_: Parent issue, epic
+
+**Spec**:
+The local document that states what a run builds; never published as an issue.
+_Avoid_: PRD, plan
+
+**Ticket**:
+One local file describing a vertical slice of a spec, with the tickets that block it.
+_Avoid_: Task, sub-issue, step
+
+**Checkpoint**:
+A point in a run where it stops for the user's decision.
+_Avoid_: Gate, approval step
+
+**Context budget**:
+How much of one context window a phase of a run may fill before its work must move to a fresh window.
+_Avoid_: Session usage, token limit
+
+**Quota**:
+The plan's usage allowance that a run spends, by time window.
+_Avoid_: Session usage, rate limit, credits
+
 **Terminal guide**:
 The pane section that names the recommended terminals per operating system and says what the current terminal can do.
 _Avoid_: Compatibility list
