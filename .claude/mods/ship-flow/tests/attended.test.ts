@@ -45,6 +45,7 @@ describe('/ship <idea>', () => {
       feature: 'let-a-cart-be-paid-by-card',
       branch: 'main',
       phase: 'attended',
+      step: 'grilling',
       attempts: {},
       source: 'idea',
     })

@@ -28,6 +28,10 @@ export type RunRecord = {
   /** The ticket being built, and the subagent at work (an implementer, or the reviewer), while one is. */
   ticket?: number
   agentId?: string
+  /** Which step the attended phase has reached: the grilling, then writing the spec, then writing the tickets. */
+  step?: 'grilling' | 'spec' | 'tickets'
+  /** The step whose start the main conversation was last compacted at, so that each boundary compacts it once. */
+  compactedAt?: 'spec' | 'tickets'
   /** What the run is at while `finishing`: the review of the branch, or the one pass that fixes what it found. */
   stage?: 'review' | 'fix'
   /** The branch the run's branch is reviewed against and its pull request asks to be merged into. */
