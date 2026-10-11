@@ -424,7 +424,7 @@ describe('http-log', () => {
 
   test('a command that may reach the network gets the tap line, and what the wrapper saw replaces what the text said', async ($, on) => {
     mock.store(on)
-    mock.env(on, { TEMP: 'tap-test-tmp' })
+    mock.env(on, { OS: 'Windows_NT', TEMP: 'tap-test-tmp' })
 
     const seen: string[] = []
     const files = memoryFs(on)
@@ -461,7 +461,7 @@ describe('http-log', () => {
 
   test('a command that cannot reach the network runs exactly as written', async ($, on) => {
     mock.store(on)
-    mock.env(on, { TEMP: 'tap-test-tmp' })
+    mock.env(on, { OS: 'Windows_NT', TEMP: 'tap-test-tmp' })
 
     const seen: string[] = []
     on('tool.call', { tool: 'PowerShell' }, (_$, e) => {
@@ -484,9 +484,51 @@ describe('http-log', () => {
     expect(seen[3]).toBe('using namespace System.Net\ncurl.exe https://a.test/x')
   })
 
+  test('off Windows no command is tapped until the proxy has made and reported its private folder', async ($, on) => {
+    mock.store(on)
+    // A shared temp area, and no OS variable of Windows: the mod trusts no name in it
+    mock.env(on, { TMPDIR: '/tmp' })
+
+    const seen: string[] = []
+    on('tool.call', { tool: 'PowerShell' }, (_$, e) => {
+      seen.push(e.command)
+
+      return { result: { stdout: '', stderr: '', interrupted: false } } as never
+    })
+
+    await $.tool.call({ tool: 'PowerShell', command: 'python .\\fetch.py' } as never)
+    await $.tool.call({ tool: 'PowerShell', command: 'curl.exe -s https://a.test/x' } as never)
+
+    // Nothing was put before either command, and nothing was read from, or written to, a predictable folder
+    expect(seen).toEqual(['python .\\fetch.py', 'curl.exe -s https://a.test/x'])
+  })
+
+  test('the interpreter is looked for from the mod\'s own folder, never the project\'s', async ($, on) => {
+    mock.store(on)
+    mock.env(on, { OS: 'Windows_NT', TEMP: 'tap-test-tmp' })
+
+    const runs: { argv: readonly string[]; cwd?: string; env?: Record<string, string> }[] = []
+    on('process.run', (_$, e) => {
+      runs.push({ argv: e.argv, cwd: e.init?.cwd, env: e.init?.env })
+
+      // Not Python 3 at all: the point here is where it is looked for
+      return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+    on('tool.call', { tool: 'PowerShell' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }) as never)
+
+    await $.tool.call({ tool: 'PowerShell', command: 'curl.exe -s https://a.test/x' } as never)
+    // Python is looked for in the background: let it
+    await new Promise<void>(resolve => setTimeout(resolve, 200))
+
+    expect(runs.length).toBeGreaterThan(0)
+    for (const run of runs) {
+      expect(run.cwd).toMatch(/http-log$/)
+      expect(run.env?.NoDefaultCurrentDirectoryInExePath).toBe('1')
+    }
+  })
   test('the proxy log is merged: a tunnel adds its size to the row for that host, and an unnamed host is a row', async ($, on) => {
     mock.store(on)
-    mock.env(on, { TEMP: 'tap-test-tmp' })
+    mock.env(on, { OS: 'Windows_NT', TEMP: 'tap-test-tmp' })
 
     const files = memoryFs(on)
     on('tool.call', { tool: 'PowerShell' }, (_$, e) => {
@@ -520,7 +562,7 @@ describe('http-log', () => {
 
   test('a command that may reach the network gets the proxy variables in bash, once the proxy is up', async ($, on) => {
     mock.store(on)
-    mock.env(on, { TEMP: 'tap-test-tmp' })
+    mock.env(on, { OS: 'Windows_NT', TEMP: 'tap-test-tmp' })
 
     const seen: string[] = []
     on('tool.call', { tool: 'Bash' }, (_$, e) => {

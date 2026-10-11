@@ -1,6 +1,6 @@
 {
   "name": "http-log",
-  "version": "0.4.1",
+  "version": "0.4.3",
   "description": "Logs the session's HTTP calls (WebFetch) in a table of url and response code",
   "types": "./types/index.d.ts",
   "userConfig": {

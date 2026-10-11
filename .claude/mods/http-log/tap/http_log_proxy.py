@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 """A logging forward proxy for the http-log mod. Standard library only; Python 3.8+; Windows, Linux and macOS.
 
-    python http_log_proxy.py <log file> [retention in seconds]
+    python http_log_proxy.py <base folder> [retention in seconds]
 
-Besides logging it cleans up: every minute it removes the other `.jsonl` files in the log file's folder (one per
-command the wrapper tapped) and the lines of the log itself that are older than the retention (an hour by default).
+It makes its own folder under <base folder> and keeps everything it writes there, and the mod's taps write their
+per-command files there too. The folder is private to the user: on Linux and macOS it is
+`<base>/http-log-tap-<uid>`, created with mode 0700, and the proxy does not start (it exits with `REFUSED` on stderr)
+if that name already exists as a link, as something another user owns, or as anything but a folder. Files in it are
+opened without following links and created with mode 0600.
 
-Listens on 127.0.0.1 on a port the system picks and prints `PORT <n>` once it is ready. Every request that goes
-through it is appended to <log file> as one JSON line:
+Besides logging it cleans up: every minute it removes the other `.jsonl` files in that folder (one per command the
+wrapper tapped) and the lines of its own log that are older than the retention (an hour by default).
+
+Listens on 127.0.0.1 on a port the system picks, then prints `PORT <n>` and `DIR <folder>` once it is ready. Every
+request that goes through it is appended to `<folder>/proxy.jsonl` as one JSON line:
 
   - plain HTTP: method, url, request body, status, response body: all of it;
   - HTTPS (a CONNECT tunnel): the host and port, the bytes each way and the duration, and nothing inside the
     tunnel: seeing a path, a body or a response would need a certificate the client trusts, which this does not make.
 
 The client names the command a request belongs to by the user name of its proxy address,
-`http://<token>@127.0.0.1:<port>`, which comes back as Proxy-Authorization: the line carries it as "token".
+`http://<token>:x@127.0.0.1:<port>` (the password is a placeholder some clients insist on), which comes back as
+Proxy-Authorization: the line carries the user name as "token".
 """
 import base64
 import http.client
@@ -23,12 +30,14 @@ import json
 import os
 import select
 import socket
+import stat
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
 
-LOG_FILE = sys.argv[1] if len(sys.argv) > 1 else 'http-log-proxy.jsonl'
+BASE = sys.argv[1] if len(sys.argv) > 1 else tempfile.gettempdir()
 RETENTION = float(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].replace('.', '', 1).isdigit() else 3600.0
 CLEAN_EVERY = 60  # seconds between two cleanings
 KEEP = 20000  # characters of a body or a response kept in the log
@@ -40,13 +49,55 @@ HOP_BY_HOP = {
 _lock = threading.Lock()
 
 
+def private_folder(base):
+    """The folder everything is written in: this user's alone, or the proxy does not start."""
+    if os.name == 'posix':
+        folder = os.path.join(base, 'http-log-tap-%d' % os.getuid())
+        try:
+            os.mkdir(folder, 0o700)
+        except FileExistsError:
+            pass
+        info = os.lstat(folder)  # lstat: a link to a folder is not a folder of ours
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            sys.exit('REFUSED: %s is not a folder of this user' % folder)
+        if info.st_mode & 0o077:
+            os.chmod(folder, 0o700)
+        return folder
+
+    # Windows: the user's own temp folder is private to them already
+    folder = os.path.join(base, 'http-log-tap')
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+FOLDER = private_folder(BASE)
+LOG_FILE = os.path.join(FOLDER, 'proxy.jsonl')
+
+
+def open_private(path, flags):
+    """Opens without following a link, creating the file with mode 0600."""
+    flags |= getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_CLOEXEC', 0) | getattr(os, 'O_BINARY', 0)
+    return os.open(path, flags, 0o600)
+
+
+def replace_log(lines):
+    """Writes the log anew: a temporary file of the same folder, then moved over it, never written in place."""
+    temporary = LOG_FILE + '.tmp'
+    fd = open_private(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    with os.fdopen(fd, 'wb') as target:
+        for line in lines:
+            target.write(line)
+    os.replace(temporary, LOG_FILE)
+
+
 def write(entry):
-    line = json.dumps(entry, separators=(',', ':')) + '\n'
+    line = (json.dumps(entry, separators=(',', ':')) + '\n').encode('utf-8')
     with _lock:
         try:
             if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > ROTATE_AT:
-                open(LOG_FILE, 'w', encoding='utf-8').close()
-            with open(LOG_FILE, 'a', encoding='utf-8') as out:
+                replace_log([])
+            fd = open_private(LOG_FILE, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+            with os.fdopen(fd, 'ab') as out:
                 out.write(line)
         except OSError:
             pass
@@ -55,27 +106,28 @@ def write(entry):
 def clean():
     """Removes what is older than the retention: the taps' own files, and old lines of the log."""
     cutoff = time.time() - RETENTION
-    folder = os.path.dirname(os.path.abspath(LOG_FILE))
     own = os.path.basename(LOG_FILE)
 
     try:
-        names = os.listdir(folder)
+        names = os.listdir(FOLDER)
     except OSError:
         return
 
     for name in names:
         if name == own or not name.endswith('.jsonl'):
             continue
-        path = os.path.join(folder, name)
+        path = os.path.join(FOLDER, name)
         try:
-            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+            info = os.lstat(path)  # a regular file only: never what a link leads to
+            if stat.S_ISREG(info.st_mode) and info.st_mtime < cutoff:
                 os.remove(path)
         except OSError:
             pass
 
     with _lock:
         try:
-            with open(LOG_FILE, 'r', encoding='utf-8') as source:
+            fd = open_private(LOG_FILE, os.O_RDONLY)
+            with os.fdopen(fd, 'rb') as source:
                 lines = source.readlines()
         except OSError:
             return
@@ -90,10 +142,9 @@ def clean():
 
         if len(kept) != len(lines):
             try:
-                with open(LOG_FILE, 'w', encoding='utf-8') as target:
-                    target.writelines(kept)
+                replace_log(kept)
             except OSError:
-                pass
+                pass  # Windows: the mod has the file open just now; the next cleaning does it
 
 
 def clean_forever():
@@ -244,6 +295,8 @@ def main():
     except Exception:
         pass
     threading.Thread(target=clean_forever, daemon=True).start()
+    # The port is last: the mod takes the folder first, and starts using the proxy when it sees the port
+    print('DIR %s' % FOLDER.replace('\\', '/'), flush=True)
     print('PORT %d' % server.server_address[1], flush=True)
     try:
         server.serve_forever()

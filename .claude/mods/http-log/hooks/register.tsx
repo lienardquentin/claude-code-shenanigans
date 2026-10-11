@@ -503,10 +503,14 @@ const statusCell = (call: HttpLogCall): { text: string; tone: CellTone } =>
 // (curl, python, node, git) at a local logging proxy. After the command, what they wrote is merged into its rows.
 
 // Module state, set again by `prepareTaps` and `startProxy` each time the module loads
+let isWindows = false
+let tapBase: string | undefined
 let tapDir: string | undefined
 let tapScript: string | undefined
 let proxyPort: number | undefined
 let proxyLog: string | undefined
+let isPrepared = false
+let isProxyStarted = false
 
 // The retention setting as milliseconds: one period (`1h`, `30m`, `2d`; the shortest, if it lists several), an hour
 // when it lists none
@@ -514,6 +518,11 @@ const parseRetention = (text: unknown): number => parsePeriods(typeof text === '
 
 // Python 3 as an argument vector, in the order tried: the Windows launcher, then the usual Unix names
 const PYTHONS: readonly (readonly string[])[] = [['py', '-3'], ['python3'], ['python']]
+
+// Windows looks for a program in the current directory before PATH unless told not to. The interpreter is started
+// from the mod's own folder and with that switched off, so a `python.exe` or `py.exe` in the project the session was
+// opened in is never what runs.
+const SPAWN_ENV = { NoDefaultCurrentDirectoryInExePath: '1' }
 
 const readText = async ($: Engine, path: string): Promise<string> => {
   try {
@@ -525,35 +534,52 @@ const readText = async ($: Engine, path: string): Promise<string> => {
   }
 }
 
-// Where the taps write and the wrapper's path: quick, so a command can be tapped from the first one on
+// Where the taps write, and the wrapper's path: quick, so a command can be tapped from the first one on.
+// On Windows that is a folder of the user's own temp folder, which is theirs alone. Elsewhere the temp area is shared,
+// so no name there is trusted: the proxy makes a folder for this user, checks it and reports it (`startProxy`), and
+// nothing is tapped before it has.
 const prepareTaps = async ($: Engine): Promise<void> => {
+  if (isPrepared) return
+  isPrepared = true
+
   try {
-    const base = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? (await $.env.get('TMP')) ?? '/tmp'
-    tapDir = `${base.replace(/[\\/]+$/, '').replace(/\\/g, '/')}/http-log-tap`
+    isWindows = (await $.env.get('OS')) === 'Windows_NT'
+    const base = isWindows
+      ? ((await $.env.get('TEMP')) ?? (await $.env.get('TMP')))
+      : ((await $.env.get('XDG_RUNTIME_DIR')) ?? (await $.env.get('TMPDIR')) ?? '/tmp')
+    if (base === undefined || base === '') return
+
+    tapBase = base.replace(/[\\/]+$/, '')
     tapScript = `${$.plugin.root.replace(/\\/g, '/')}/tap/http-log-tap.ps1`
-    proxyLog = `${tapDir}/proxy.jsonl`
-    await update($, capture, () => 'PowerShell wrapper on')
+
+    if (isWindows) {
+      tapDir = `${tapBase.replace(/\\/g, '/')}/http-log-tap`
+      proxyLog = `${tapDir}/proxy.jsonl`
+      await update($, capture, () => 'PowerShell wrapper on')
+    }
   } catch {
-    tapDir = undefined
+    tapBase = undefined
   }
 }
-
-let isProxyStarted = false
 
 // Finds Python 3 and starts the proxy for the life of this module, then says what is on. Without Python the wrapper
 // still works; a failure here is never the session's. It takes a moment, so nothing waits for it: a command run
 // before the proxy is up gets the wrapper alone.
 const startProxy = async ($: Engine): Promise<void> => {
-  if (isProxyStarted || proxyLog === undefined) return
+  if (isProxyStarted || tapBase === undefined) return
   isProxyStarted = true
 
+  const base = tapBase
+  const prefix = isWindows ? 'PowerShell wrapper on · ' : ''
+
   try {
-    const root = $.plugin.root.replace(/\\/g, '/')
+    const root = $.plugin.root
+    const script = `${root.replace(/\\/g, '/')}/tap/http_log_proxy.py`
     let python: readonly string[] | undefined
 
     for (const argv of PYTHONS) {
       try {
-        const found = await $.process.run([...argv, '--version'], { timeoutMs: 5_000 })
+        const found = await $.process.run([...argv, '--version'], { cwd: root, env: SPAWN_ENV, timeoutMs: 5_000 })
 
         if (found.exitCode === 0 && /Python 3/.test(`${found.stdout}${found.stderr}`)) {
           python = argv
@@ -565,30 +591,38 @@ const startProxy = async ($: Engine): Promise<void> => {
     }
 
     if (python === undefined) {
-      await update($, capture, () => 'PowerShell wrapper on · proxy off (no Python 3 found)')
+      await update($, capture, () => `${prefix}proxy off (no Python 3 found)`)
 
       return
     }
 
-    const script = `${root}/tap/http_log_proxy.py`
-    const log = proxyLog
-
     // The child lives as long as this loop and this module: it ends with either
     void (async () => {
+      let refusal = ''
+
       try {
         let seen = ''
-
         // The proxy removes the taps' files older than the retention itself, which this API cannot do
         const seconds = String(Math.round(retentionMs / 1000))
 
-        for await (const { stream, text } of $.process.spawn({ argv: [...python, script, log, seconds] })) {
-          if (proxyPort === undefined && stream === 'stdout') {
+        for await (const { stream, text } of $.process.spawn({
+          argv: [...python, script, base, seconds],
+          cwd: root,
+          env: SPAWN_ENV,
+        })) {
+          if (stream === 'stderr') {
+            refusal += text
+          } else if (proxyPort === undefined) {
             seen += text
-            const match = /PORT (\d+)/.exec(seen)
+            const dir = /^DIR (.+)$/m.exec(seen)
+            const port = /^PORT (\d+)$/m.exec(seen)
 
-            if (match !== null) {
-              proxyPort = Number(match[1])
-              await update($, capture, () => `PowerShell wrapper on · proxy on 127.0.0.1:${proxyPort}`)
+            // The folder the proxy made and checked comes first, the port after it: the taps use both
+            if (dir !== null && port !== null) {
+              tapDir = (dir[1] ?? '').trim()
+              proxyLog = `${tapDir}/proxy.jsonl`
+              proxyPort = Number(port[1])
+              await update($, capture, () => `${prefix}proxy on 127.0.0.1:${proxyPort}`)
             }
           }
         }
@@ -597,7 +631,11 @@ const startProxy = async ($: Engine): Promise<void> => {
       }
 
       proxyPort = undefined
-      await update($, capture, () => 'PowerShell wrapper on · proxy off')
+      await update($, capture, () =>
+        /REFUSED/.test(refusal)
+          ? `${prefix}proxy off (its folder in ${base} is not private to you)`
+          : `${prefix}proxy off`,
+      )
     })()
   } catch {
     // no proxy: the wrapper and the text are what there is
@@ -612,15 +650,18 @@ const tapFor = async ($: Engine, shell: 'powershell' | 'bash', command: string, 
   if (!hasRequests && !NETWORK_HINT.test(command)) return undefined
 
   // Set up by the first command that wants it, if the session start did not
-  if (tapDir === undefined) await prepareTaps($)
+  await prepareTaps($)
   void startProxy($)
+  // Off Windows there is no folder until the proxy has made and reported its private one
   if (tapDir === undefined || tapScript === undefined || proxyLog === undefined) return undefined
   if (shell === 'powershell' && /^\s*(?:using\s|#requires)/i.test(command)) return undefined
 
   const id = newId()
   const file = `${tapDir}/${id}.jsonl`
   const log = proxyLog
-  const proxy = proxyPort === undefined ? undefined : `http://${id}@127.0.0.1:${proxyPort}`
+  // The token is the user name; the password is a placeholder, because git (and others) ask for one when a proxy
+  // address has a user name and none, which a command cannot answer
+  const proxy = proxyPort === undefined ? undefined : `http://${id}:x@127.0.0.1:${proxyPort}`
   // bash has only the proxy to offer
   if (shell === 'bash' && proxy === undefined) return undefined
 
