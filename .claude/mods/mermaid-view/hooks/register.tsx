@@ -19,7 +19,7 @@ import type { Env, Os } from './guide'
 import { READ_ON } from './terminals'
 import { rasterize } from './pixels'
 import { vectorSvg } from './svg'
-import { clipDrawing, clipRows, drawingWidth, rowSpanOfNode, spanOfNode, windowFor } from './window'
+import { clipDrawing, drawingWidth, spanOfNode, wheelOffset, windowFor } from './window'
 
 const PANE = 'mermaid-view'
 
@@ -35,8 +35,9 @@ const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as 
 // How far a drawing wider than the pane is moved to the left, in cells, and whether it is closed up to fit
 const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
 const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, true)
-// And how far down: a drawing taller than the pane's room is moved up by this many rows
-const scrollY = atom({ plugin: 'mermaid-view', key: 'scrollY' } as const, 0)
+// Where the page of the drawing was written, as a file address (or `error:` and why it could not be): empty when it
+// has not been
+const page = atom({ plugin: 'mermaid-view', key: 'page' } as const, '')
 // Whether the pane shows the terminal guide in place of the diagram
 const guide = atom({ plugin: 'mermaid-view', key: 'guide' } as const, false)
 // The picture, by the viewer's choice: `auto` is on where the terminal is known to draw pixels and off elsewhere,
@@ -63,6 +64,27 @@ const environment = async ($: Engine): Promise<Env> => {
   }
 
   return name => values[name]
+}
+
+// The drawing as a page of its own: the vector drawing in an HTML file that the browser shows, where the wheel, the
+// scroll bars and the zoom are the browser's and it can be as large as it needs to be. It is written to the
+// temporary folder, only when the person asks, and the pane shows its address as a link.
+const PAGE_NAME = 'mermaid-view.html'
+
+const pageDocument = (svg: string): string =>
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">' +
+  `<title>Mermaid diagram</title><style>html,body{margin:0}body{padding:24px}svg{display:block}</style></head><body>${svg}</body></html>`
+
+const writePage = async ($: Engine, svg: string): Promise<string> => {
+  const folder = (await $.env.get('TEMP')) ?? (await $.env.get('TMPDIR')) ?? '/tmp'
+  const separator = folder.includes('\\') ? '\\' : '/'
+  const path = `${folder.replace(/[\\/]+$/, '')}${separator}${PAGE_NAME}`
+
+  await $.fs.write(path, pageDocument(svg))
+
+  const slashes = path.replace(/\\/g, '/')
+
+  return encodeURI(/^[A-Za-z]:/.test(slashes) ? `file:///${slashes}` : `file://${slashes}`)
 }
 
 // Whether the diagram is drawn as pixels here. An environment that cannot be read is no reason to fail a draw: the
@@ -204,7 +226,7 @@ const remember = async ($: Engine, sources: readonly string[]): Promise<void> =>
   await update($, source, () => last)
   await update($, selected, () => '')
   await update($, scrollX, () => 0)
-  await update($, scrollY, () => 0)
+  await update($, page, () => '')
 }
 
 // A press on a node selects it; a press on the selected node clears the selection
@@ -289,8 +311,6 @@ const content = async (
   view: {
     width: number
     offset: number
-    rows?: number
-    offsetY: number
     fit: boolean
     pixels: boolean
     canPixels: boolean
@@ -432,6 +452,35 @@ const content = async (
           </Box>,
         ]
 
+  // The page of the drawing: a button that writes it, and then its address as a link
+  const written = await read($, page)
+  const pageRow: RenderElement[] = [
+    <Box key="page-row" flexDirection="row" gap={2}>
+      <Button
+        key="page"
+        onPress={async () => {
+          try {
+            await update($, page, () => '')
+            const url = await writePage($, vectorSvg(geometry).source)
+            await update($, page, () => url)
+          } catch (error) {
+            await update($, page, () => `error:${error instanceof Error ? error.message : String(error)}`)
+          }
+        }}
+      >
+        {actionLabel({ text: 'Open as a page' })}
+      </Button>
+      {written !== '' && !written.startsWith('error:') ? (
+        <Link href={written}>{written}</Link>
+      ) : null}
+    </Box>,
+    ...(written.startsWith('error:')
+      ? [badge({ label: `Could not write the page: ${written.slice('error:'.length)}`, tone: 'warning' })]
+      : written !== ''
+        ? [tonedText({ text: 'Open this address in a browser: click it where it is a link (Ctrl+click in some terminals), or paste it in the address bar.', tone: 'neutral' })]
+        : []),
+  ]
+
   // One button per node: the fallback view's way to select, and the picture's
   const nodeButtons = (
     <Box key="node-buttons" flexDirection="row" flexWrap="wrap" gap={1}>
@@ -469,6 +518,7 @@ const content = async (
       ...(still === undefined
         ? [badge({ label: 'This diagram is too large to draw as a picture; use the node buttons', tone: 'warning' })]
         : [still]),
+      ...pageRow,
       nodeButtons,
       ...details,
     ]
@@ -500,6 +550,7 @@ const content = async (
           {actionLabel({ text: 'Picture: on' })}
         </Button>,
         still,
+        ...pageRow,
         nodeButtons,
         ...details,
       ]
@@ -513,16 +564,10 @@ const content = async (
   const total = drawingWidth(laid)
   const maxOffset = Math.max(0, total - view.width)
   const offset = Math.min(view.offset, maxOffset)
-  const across = total > view.width ? clipDrawing(laid, offset, view.width) : laid
+  // Down is not done here: a drawing taller than the pane is the engine's to scroll, by the wheel or by the pane's
+  // keys, and it only does so when the whole drawing is in the tree
+  const shown = total > view.width ? clipDrawing(laid, offset, view.width) : laid
   const step = Math.max(1, Math.floor(view.width / 2))
-
-  // And down: a drawing taller than the room the pane has is shown through a window too, so that it can be moved
-  // from the keyboard whatever the pane's own scrolling is doing
-  const room = view.rows
-  const maxOffsetY = room === undefined ? 0 : Math.max(0, laid.length - room)
-  const offsetY = Math.min(view.offsetY, maxOffsetY)
-  const shown = room !== undefined && laid.length > room ? clipRows(across, offsetY, room) : across
-  const stepY = Math.max(1, Math.floor((room ?? 10) / 2))
 
   // Pressing a node selects it, and moves the window so that the whole box shows, as far as it can. Walking to a node
   // along an edge does the same, but never clears the selection.
@@ -532,10 +577,6 @@ const content = async (
     const span = spanOfNode(laid, id)
     if (span !== undefined) await update($, scrollX, current => windowFor(Math.min(current, maxOffset), view.width, span))
 
-    const down = rowSpanOfNode(laid, id)
-    if (down !== undefined && room !== undefined) {
-      await update($, scrollY, current => windowFor(Math.min(current, maxOffsetY), room, down))
-    }
     // Down the pane: the engine scrolls its body to the box. A surface that cannot is no reason to fail the press.
     try {
       await $.ui.scroll({ to: { key: `node-${id}` }, in: PANE })
@@ -545,11 +586,10 @@ const content = async (
   }
   moveTo = id => reveal(id, true)
 
-  // The controls: a button for each way the window can move, each with a key that works whatever part of the
-  // pane is in view, and the fit-width toggle. They are there only when the drawing does not fit.
-  const overflows = total > view.width || (room !== undefined && laid.length > room)
+  // The controls: a button for each way the window can move across, each with a key that works whatever part of the
+  // pane is in view, and the fit-width toggle. They are there only when the drawing is wider than the pane.
   const controls: RenderElement[] =
-    overflows || drawingWidth(normal) > view.width
+    total > view.width || drawingWidth(normal) > view.width
       ? [
           <Box key="view-controls" flexDirection="row" gap={2}>
             {offset > 0 ? (
@@ -567,21 +607,7 @@ const content = async (
                 Right ▶
               </Button>
             ) : null}
-            {offsetY > 0 ? (
-              <Button key="scroll-up" plain hotkey="k" onPress={() => update($, scrollY, () => Math.max(0, offsetY - stepY))}>
-                ▲ Up
-              </Button>
-            ) : null}
-            {offsetY < maxOffsetY ? (
-              <Button
-                key="scroll-down"
-                plain
-                hotkey="j"
-                onPress={() => update($, scrollY, () => Math.min(maxOffsetY, offsetY + stepY))}
-              >
-                ▼ Down
-              </Button>
-            ) : null}
+
             {drawingWidth(normal) > view.width ? (
               <Button key="fit-width" plain hotkey="f" onPress={() => update($, fit, current => !current)}>
                 {view.fit ? 'Fit width: on' : 'Fit width: off'}
@@ -589,9 +615,7 @@ const content = async (
             ) : null}
           </Box>,
           tonedText({
-            text: `Showing columns ${offset + 1}-${Math.min(total, offset + view.width)} of ${total}${
-              room !== undefined && laid.length > room ? `, rows ${offsetY + 1}-${Math.min(laid.length, offsetY + room)} of ${laid.length}` : ''
-            }. Keys: h l move across, k j move down, f fit width.`,
+            text: `Showing columns ${offset + 1}-${Math.min(total, offset + view.width)} of ${total}. The wheel moves it across when the pane has nothing to scroll down; keys: h l move across, f fits the width.`,
             tone: 'neutral',
           }),
         ]
@@ -643,7 +667,7 @@ const content = async (
           }),
         ]
 
-  return [...pictureToggle, ...controls, ...rows, ...details]
+  return [...pictureToggle, ...pageRow, ...controls, ...rows, ...details]
 }
 
 export const register: Register = on => {
@@ -693,6 +717,21 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The wheel over the pane. Where the whole drawing fits the pane's height the engine has nothing to scroll, and a
+  // tick moves the drawing across instead, so that the wheel does what is wanted with a wide drawing; where it does
+  // not, the engine scrolls the pane down as it does for any pane.
+  on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'person' || e.contentRows > e.bodyRows) return next(e)
+
+    const text = await read($, source)
+    const parsed = text === '' ? undefined : parseDiagram(text)
+    const widest = parsed?.ok ? drawingWidth(drawDiagram(parsed.diagram)) : 0
+
+    await update($, scrollX, current => wheelOffset(current, e.by, widest))
+
+    return {}
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button } = $.ui.resolve(e)
     const entries = await read($, history)
@@ -712,7 +751,7 @@ export const register: Register = on => {
                     await update($, source, () => entry.source)
                     await update($, selected, () => '')
                     await update($, scrollX, () => 0)
-                    await update($, scrollY, () => 0)
+                    await update($, page, () => '')
                   }}
                 >
                   {tonedText({
@@ -747,8 +786,6 @@ export const register: Register = on => {
               // Inside the card's frame and padding
               width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
               offset: await read($, scrollX),
-              ...(e.props.scroll !== undefined ? { rows: Math.max(8, e.props.scroll.bodyRows - 12) } : {}),
-              offsetY: await read($, scrollY),
               fit: await read($, fit),
               pixels: e.surface === 'terminal' && (mode === 'on' || (mode === 'auto' && canPixels)),
               canPixels,

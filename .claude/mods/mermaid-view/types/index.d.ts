@@ -15,8 +15,8 @@ declare module 'claude-code' {
       history: HistoryEntry[]
       /** How many cells a drawing wider than the pane is moved to the left. Per session. */
       scrollX: number
-      /** How many rows a drawing taller than the pane's room is moved up. Per session. */
-      scrollY: number
+      /** Where the page of the drawing was written, as a file address (or error: and why not); empty before. Per session. */
+      page: string
       /** Whether a drawing is closed up so that it is as narrow as it can be. Per session. */
       fit: boolean
       /** Whether the pane shows the terminal guide in place of the diagram. Per session. */

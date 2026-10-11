@@ -60,11 +60,16 @@ What it does so far:
   ` ```mermaid ` blocks (the first is shown).
 - A ` ```mermaid ` block in one of Claude's own replies is shown as soon as the reply ends (what a subagent hands back
   is not).
-- A drawing bigger than the pane is shown through a window, which moves in both directions: `h` `l` across, `k` `j`
-  down (each a button above the drawing too, with a line saying which columns and rows show). The keys work while
-  the pane has the focus, wherever the drawing is scrolled to. Pressing or walking to a node cut by the edge brings
-  its whole box into view; a new width redraws within it, and a different diagram starts at the top left.
-- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
+- Scrolling. A drawing taller than the pane is the pane's own to scroll: **the mouse wheel**, and the pane's scroll
+  keys while it has the focus. A drawing wider than the pane is shown through a window across it: the wheel moves it
+  across whenever the pane has nothing to scroll down, and `◀ Left` / `Right ▶` (keys `h` and `l`, also clickable)
+  move it, with a line saying which columns show. Pressing or walking to a node cut by the edge brings its whole box
+  into view, and the pane is scrolled to it. A new width redraws within it, and a different diagram starts at the
+  top left.
+- `Open as a page` writes the drawing as a page of its own (the vector drawing in an HTML file in the temporary
+  folder, `mermaid-view.html`, only when asked) and shows its address as a link: in a browser the wheel, the scroll
+  bars and the zoom are the browser's, and the drawing can be as big as it needs to be. On the desktop app the
+  address is shown as text to open, as that surface only draws `https` links.- `Fit width` (`f`) is on to begin with, and applies only to a drawing that is wider than the pane: the nodes are
   closed up, and then labels are wrapped to narrower and narrower boxes (at spaces, dashes and slashes, and inside a
   word only when nothing wider fits) until it fits. A node's label is wrapped onto more rows, and selecting it
   still names the whole label. What cannot be made narrow enough is shown through the window above.

@@ -625,91 +625,143 @@ describe('mermaid-view', () => {
   })
 
   describe('a drawing taller than the pane', () => {
-    // Eight nodes in a chain: each takes three rows and a gap of three, so the drawing is well over 40 rows. A pane
-    // that reports 20 rows of room leaves 8 for the drawing.
+    // Eight nodes in a chain: each takes three rows and a gap of three, so the drawing is well over 40 rows
     const CHAIN8 = `graph TD; ${Array.from({ length: 7 }, (_, index) => `N${index}[Node ${index}] --> N${index + 1}[Node ${index + 1}]`).join('; ')}`
 
-    const open = async (
-      $: Parameters<Parameters<typeof test>[1]>[0],
-      on: Parameters<Parameters<typeof test>[1]>[1],
-      args = CHAIN8,
-      bodyRows: number | null = 20,
-    ) => {
+    test('is drawn whole, for the pane to scroll with the wheel and its keys, whatever room the pane reports', async ($, on) => {
       answerOpen(on)
-      await $.command.run({ command: 'mermaid-view', args })
-
-      return mountPane($, 'terminal', 80, bodyRows ?? undefined)
-    }
-
-    test('shows the top of it, and says how much there is', async ($, on) => {
-      const pane = await open($, on)
+      await $.command.run({ command: 'mermaid-view', args: CHAIN8 })
+      const pane = await $.ui.mount({
+        plugin: 'mermaid-view',
+        surface: 'terminal',
+        component: 'Pane',
+        props: { bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } } as never,
+        requestId: 'mermaid-view',
+      })
 
       expect(await pane.find({ text: /│ Node 0 │/ })).toBeDefined()
-      expect(await pane.find({ text: /│ Node 7 │/ })).toBeUndefined()
-      expect(await pane.find({ text: /rows 1-8 of \d+/ })).toBeDefined()
+      expect(await pane.find({ text: /│ Node 7 │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeUndefined()
       expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeUndefined()
-      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeDefined()
     })
 
-    test('moves down by a button and back up, and says which rows it shows', async ($, on) => {
-      const pane = await open($, on)
-
-      await pane.press({ key: 'scroll-down' })
-
-      expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeDefined()
-      expect(await pane.find({ text: /rows 5-12 of \d+/ })).toBeDefined()
-
-      await pane.press({ key: 'scroll-up' })
-
-      expect(await pane.find({ text: /rows 1-8 of \d+/ })).toBeDefined()
-    })
-
-    test('the keys that move it are h l k j, and f fits the width', async ($, on) => {
-      const pane = await open($, on)
-
-      const hotkey = async (key: string) => (await pane.find({ type: 'Button', key }))?.props.hotkey
-
-      expect(await hotkey('scroll-down')).toBe('j')
-      await pane.press({ key: 'scroll-down' })
-      expect(await hotkey('scroll-up')).toBe('k')
-    })
-
-    test('walking to a node below the window brings it into view', async ($, on) => {
-      const pane = await open($, on)
+    test('a node far down is reached by a press, which asks the pane to scroll to it', async ($, on) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: CHAIN8 })
+      const pane = await mountPane($)
 
       await pane.press({ key: 'node-N0' })
       for (let index = 1; index <= 7; index += 1) await pane.press({ key: `go-N${index}` })
 
       expect(await pane.find({ text: /Selected: Node 7/ })).toBeDefined()
-      expect(await pane.find({ text: /│ Node 7 │/ })).toBeDefined()
-      expect(await pane.find({ text: /│ Node 0 │/ })).toBeUndefined()
-    })
-
-    test('a pane that gives no room is shown whole, as before', async ($, on) => {
-      const pane = await open($, on, CHAIN8, null)
-
-      expect(await pane.find({ text: /│ Node 7 │/ })).toBeDefined()
-      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeUndefined()
-    })
-
-    test('a drawing that fits in the room has no controls', async ($, on) => {
-      const pane = await open($, on, 'graph TD; A --> B', 40)
-
-      expect(await pane.find({ type: 'Button', key: 'scroll-down' })).toBeUndefined()
-      expect(await pane.find({ text: /Keys:/ })).toBeUndefined()
-    })
-
-    test('a different diagram starts at the top', async ($, on) => {
-      const pane = await open($, on)
-
-      await pane.press({ key: 'scroll-down' })
-      await $.command.run({ command: 'mermaid-view', args: CHAIN8.replace('Node 0', 'First') })
-
-      expect(await pane.find({ text: /│ First │/ })).toBeDefined()
-      expect(await pane.find({ type: 'Button', key: 'scroll-up' })).toBeUndefined()
     })
   })
 
+  describe('the page of the drawing', () => {
+    type TestOn = Parameters<Parameters<typeof test>[1]>[1]
+
+    // Stands for the file system: what the mod writes is kept to look at
+    const writes = (on: TestOn) => {
+      const made: { path: string; text: string }[] = []
+
+      on('fs.write', (_$, e) => {
+        made.push({ path: (e as { path: string }).path, text: (e as { text: string }).text })
+
+        return { value: undefined } as never
+      })
+
+      return made
+    }
+
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: TestOn,
+      variables: Record<string, string>,
+      surface: Surface = 'terminal',
+    ) => {
+      mock.env(on, variables)
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A[Start] --> B[End]' })
+
+      return mountPane($, surface)
+    }
+
+    test('is written on request, to the temporary folder, as a page the browser shows', async ($, on) => {
+      const made = writes(on)
+      const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\someone\\AppData\\Local\\Temp' })
+
+      expect(made).toHaveLength(0)
+      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+
+      await pane.press({ key: 'page' })
+
+      expect(made).toHaveLength(1)
+      expect(made[0]?.path).toBe('C:\\Users\\someone\\AppData\\Local\\Temp\\mermaid-view.html')
+      expect(made[0]?.text).toMatch(/^<!doctype html>/)
+      expect(made[0]?.text).toContain('<svg ')
+      expect(made[0]?.text).toContain('prefers-color-scheme: dark')
+      expect(made[0]?.text).toContain('Start')
+    })
+
+    test('is linked by its file address', async ($, on) => {
+      writes(on)
+      const pane = await open($, on, { OS: 'Windows_NT', TEMP: 'C:\\Users\\some one\\Temp' })
+
+      await pane.press({ key: 'page' })
+
+      const link = await pane.find({ type: 'Link' })
+      expect(link?.props.href).toBe('file:///C:/Users/some%20one/Temp/mermaid-view.html')
+    })
+
+    test('goes to /tmp where there is no temporary folder named', async ($, on) => {
+      const made = writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      await pane.press({ key: 'page' })
+
+      // (the engine hands the hook an absolute path, which on Windows has a drive)
+      expect(made[0]?.path.replace(/\\/g, '/')).toMatch(/\/tmp\/mermaid-view\.html$/)
+      expect((await pane.find({ type: 'Link' }))?.props.href).toBe('file:///tmp/mermaid-view.html')
+    })
+
+    test('a page that cannot be written is said so, and no link is offered', async ($, on) => {
+      mock.env(on, { HOME: '/home/someone' })
+      answerOpen(on)
+      on('fs.write', () => {
+        throw new Error('EACCES: permission denied')
+      })
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; A --> B' })
+      const pane = await mountPane($)
+
+      await pane.press({ key: 'page' })
+
+      expect(await pane.find({ text: /Could not write the page:/ })).toBeDefined()
+      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+    })
+
+    test('is forgotten when another diagram is shown', async ($, on) => {
+      writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' })
+
+      await pane.press({ key: 'page' })
+      expect(await pane.find({ type: 'Link' })).toBeDefined()
+
+      await $.command.run({ command: 'mermaid-view', args: 'graph TD; X --> Y' })
+
+      expect(await pane.find({ type: 'Link' })).toBeUndefined()
+    })
+
+    test('is offered on the other surfaces too, where the address is shown as text to open', async ($, on) => {
+      const made = writes(on)
+      const pane = await open($, on, { HOME: '/home/someone' }, 'desktop')
+
+      await pane.press({ key: 'page' })
+
+      // a remote surface draws only an https link as a link, so the address is there as plain text
+      expect(made).toHaveLength(1)
+      expect(await pane.find({ text: /file:\/\/\/tmp\/mermaid-view\.html/ })).toBeDefined()
+    })
+  })
   describe('the picture', () => {
     const CHAIN = 'graph TD; A[Start] --> B[Process]; B --> C[End]'
 

@@ -65,15 +65,12 @@ export const windowFor = (current: number, width: number, span: { start: number;
   return current
 }
 
-/** The rows `[from, from + count)` of a drawing. */
-export const clipRows = <T>(rows: readonly T[], from: number, count: number): T[] => rows.slice(from, from + count)
+/** How many columns a tick of the wheel moves a drawing across. */
+export const WHEEL_STEP = 6
 
-/** The rows a node's box takes in a drawing: where it starts, and where it ends (one past), or `undefined`. */
-export const rowSpanOfNode = (
-  rows: readonly (readonly Segment[])[],
-  id: string,
-): { start: number; end: number } | undefined => {
-  const at = rows.flatMap((row, index) => (row.some(segment => segment.node === id) ? [index] : []))
-
-  return at.length === 0 ? undefined : { start: Math.min(...at), end: Math.max(...at) + 1 }
-}
+/**
+ * Where the window across a drawing stands after the wheel moved it `ticks` (positive toward the right): at least
+ * the left edge, at most the drawing's width, so that scrolling back from the end takes no more ticks than going.
+ */
+export const wheelOffset = (current: number, ticks: number, widest: number): number =>
+  Math.max(0, Math.min(widest, current + ticks * WHEEL_STEP))
