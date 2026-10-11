@@ -70,7 +70,7 @@ for (const surface of SURFACES) {
     })
 
     test('tells the surface to wrap a long title, and the whole reason of a failed ticket, and to cut the number and the state', async ($, on) => {
-      const title = 'A cart holds items of every kind, however many there are, and keeps them until the shopper pays or leaves'
+      const title = 'A cart holds items of every kind, however many there are, and keeps them until the shopper pays or leaves, even across sessions, devices and browsers, and even when the shopper signs in again much later on a different machine with a different account'
       const reason = '`npm test` failed: 14 specs ran, 3 failed in src/cart/very/deeply/nested/path/to/the/cart-total.spec.ts and the run stopped'
 
       answerRepo(on, {
