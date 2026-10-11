@@ -185,9 +185,10 @@ const assignRows = (runs: readonly Run[]): { rowOf: number[]; rowsIn: Map<number
  * Draws a diagram as lines of box-drawing characters: one box per node, the nodes of a layer side by side, an edge as
  * a line from the end of its source to an arrowhead before its target. An edge that does not join neighbouring
  * layers (it skips one, goes back up, or loops) runs along a lane beside every node, so it never crosses one. The
- * drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`.
+ * drawing comes as rows of segments; the node `selected`, and the edges that touch it, are `hot`. `compact` keeps
+ * the nodes of a layer close, for a drawing that is to be as narrow as it can be.
  */
-export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
+export const drawDiagram = (diagram: Diagram, selected = '', options: { compact?: boolean } = {}): Segment[][] => {
   if (diagram.nodes.length === 0) return []
 
   const { direction } = diagram
@@ -321,7 +322,8 @@ export const drawDiagram = (diagram: Diagram, selected = ''): Segment[][] => {
 
   // Across the diagram: the nodes of a layer side by side, each layer centred on the widest. With subgraphs the
   // nodes are kept further apart, so a box can be drawn between two that are in different ones.
-  const crossGap = vertical || diagram.groups.length > 0 ? 3 : 1
+  // Compact (the fit-width view) closes the nodes up as far as a box can still be drawn between them
+  const crossGap = options.compact === true ? (diagram.groups.length > 0 ? 2 : 1) : vertical || diagram.groups.length > 0 ? 3 : 1
   const crossLength = (layer: PlacedNode[]): number =>
     layer.reduce((sum, node) => sum + node.crossSize, 0) + crossGap * Math.max(0, layer.length - 1)
   const widest = Math.max(...nodesIn.map(crossLength))

@@ -12,6 +12,7 @@ import { code } from './kit/code'
 import { picture } from './kit/picture'
 import { tonedText } from './kit/toned-text'
 import { diagramSvg } from './svg'
+import { clipDrawing, drawingWidth, spanOfNode, windowFor } from './window'
 
 const PANE = 'mermaid-view'
 
@@ -24,6 +25,9 @@ const source = atom({ plugin: 'mermaid-view', key: 'source' } as const, '')
 const selected = atom({ plugin: 'mermaid-view', key: 'selected' } as const, '')
 // The diagrams seen this session, oldest first: from the command, from a file and from the replies
 const history = atom({ plugin: 'mermaid-view', key: 'history' } as const, [] as HistoryEntry[])
+// How far a drawing wider than the pane is moved to the left, in cells, and whether it is closed up to fit
+const scrollX = atom({ plugin: 'mermaid-view', key: 'scrollX' } as const, 0)
+const fit = atom({ plugin: 'mermaid-view', key: 'fit' } as const, false)
 
 const MAX_HISTORY = 20
 
@@ -57,6 +61,7 @@ const remember = async ($: Engine, sources: readonly string[]): Promise<void> =>
   })
   await update($, source, () => last)
   await update($, selected, () => '')
+  await update($, scrollX, () => 0)
 }
 
 // A press on a node selects it; a press on the selected node clears the selection
@@ -94,7 +99,13 @@ const explain = (failed: Extract<ParseResult, { ok: false }>): string => {
 
 // What the card holds: the drawing, or a note saying why there is none. The source is shown beside a note about it,
 // so the reader can see what could not be read.
-const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderElement[] => {
+const content = (
+  $: Engine,
+  e: Drawn,
+  text: string,
+  chosen: string,
+  view: { width: number; offset: number; fit: boolean },
+): RenderElement[] => {
   if (text === '') return [badge({ label: 'No diagram yet: run /mermaid-view with a flowchart', tone: 'neutral' })]
 
   const parsed = parseDiagram(text)
@@ -170,9 +181,56 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
     ]
   }
 
+  // A drawing wider than the pane is shown through a window that moves by the buttons above it; the fit-width view
+  // closes the nodes up first, and the window is only used for what still does not fit
+  const normal = drawing
+  const laid = view.fit ? drawDiagram(diagram, known, { compact: true }) : normal
+  const total = drawingWidth(laid)
+  const maxOffset = Math.max(0, total - view.width)
+  const offset = Math.min(view.offset, maxOffset)
+  const shown = total > view.width ? clipDrawing(laid, offset, view.width) : laid
+  const step = Math.max(1, Math.floor(view.width / 2))
+
+  // Pressing a node selects it, and moves the window so that the whole box shows, as far as it can
+  const reveal = async (id: string): Promise<void> => {
+    await toggle($, id)
+
+    const span = spanOfNode(laid, id)
+    if (span !== undefined) await update($, scrollX, current => windowFor(Math.min(current, maxOffset), view.width, span))
+    // Down the pane: the engine scrolls its body to the box. A surface that cannot is no reason to fail the press.
+    try {
+      await $.ui.scroll({ to: { key: `node-${id}` }, in: PANE })
+    } catch {
+      // nothing to scroll
+    }
+  }
+
+  const controls: RenderElement[] =
+    total > view.width || drawingWidth(normal) > view.width || view.fit
+      ? [
+          <Box key="view-controls" flexDirection="row" gap={1}>
+            {offset > 0 ? (
+              <Button key="scroll-left" onPress={() => update($, scrollX, () => Math.max(0, offset - step))}>
+                {actionLabel({ text: '◀ Left' })}
+              </Button>
+            ) : null}
+            {offset < maxOffset ? (
+              <Button key="scroll-right" onPress={() => update($, scrollX, () => Math.min(maxOffset, offset + step))}>
+                {actionLabel({ text: 'Right ▶' })}
+              </Button>
+            ) : null}
+            {drawingWidth(normal) > view.width || view.fit ? (
+              <Button key="fit-width" onPress={() => update($, fit, current => !current)}>
+                {actionLabel({ text: view.fit ? 'Fit width: on' : 'Fit width: off' })}
+              </Button>
+            ) : null}
+          </Box>,
+        ]
+      : []
+
   // Each row of the drawing is a row of pieces; a piece of a node's box is a plain Button, so a press anywhere on the
   // box selects the node and the box keeps its shape
-  const rows = drawing.map((segments, index) => (
+  const rows = shown.map((segments, index) => (
     <Box key={`row-${index}`} flexDirection="row">
       {segments.map((segment, at) => {
         // The selection is accented; a node the author marked out is in its tone; the rest is as it comes
@@ -190,7 +248,7 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
         const id = segment.node
 
         return (
-          <Button key={`node-${id}${ROW_KEY[segment.row ?? 1]}`} plain onPress={() => toggle($, id)}>
+          <Button key={`node-${id}${ROW_KEY[segment.row ?? 1]}`} plain onPress={() => reveal(id)}>
             {label}
           </Button>
         )
@@ -198,7 +256,7 @@ const content = ($: Engine, e: Drawn, text: string, chosen: string): RenderEleme
     </Box>
   ))
 
-  return [...rows, ...details]
+  return [...controls, ...rows, ...details]
 }
 
 export const register: Register = on => {
@@ -266,6 +324,7 @@ export const register: Register = on => {
                   onPress={async () => {
                     await update($, source, () => entry.source)
                     await update($, selected, () => '')
+                    await update($, scrollX, () => 0)
                   }}
                 >
                   {tonedText({
@@ -281,7 +340,15 @@ export const register: Register = on => {
     return card({
       width: e.props.bodyColumns ?? 80,
       title: 'Mermaid diagram',
-      children: [...content($, e, shown, await read($, selected)), ...list],
+      children: [
+        ...content($, e, shown, await read($, selected), {
+          // Inside the card's frame and padding
+          width: Math.max(10, (e.props.bodyColumns ?? 80) - 4),
+          offset: await read($, scrollX),
+          fit: await read($, fit),
+        }),
+        ...list,
+      ],
     })
   })
 }

@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-const PANE = { bodyColumns: 80 } as const
-
 type Surface = 'terminal' | 'desktop' | 'vscode' | 'mobile'
 
-const mountPane = ($: Parameters<Parameters<typeof test>[1]>[0], surface: Surface = 'terminal') =>
+const mountPane = (
+  $: Parameters<Parameters<typeof test>[1]>[0],
+  surface: Surface = 'terminal',
+  bodyColumns = 80,
+) =>
   $.ui.mount({
     plugin: 'mermaid-view',
     surface,
     component: 'Pane',
-    props: PANE as never,
+    props: { bodyColumns } as never,
     requestId: 'mermaid-view',
   })
 
@@ -472,6 +474,123 @@ describe('mermaid-view', () => {
       await $.command.run({ command: 'mermaid-view', args: 'graph TD; B --> X' })
 
       expect(await pane.find({ text: /Selected:/ })).toBeUndefined()
+    })
+  })
+
+  describe('a drawing wider than the pane', () => {
+    // Four nodes of width 7 under a root: 37 cells across, or 31 closed up; the pane's room is its columns less 4
+    const WIDE = 'graph TD; R[Root] --> A[abc]; R --> B[def]; R --> C[ghi]; R --> D[jkl]'
+    const NARROW_PANE = 36 + 4
+
+    const open = async (
+      $: Parameters<Parameters<typeof test>[1]>[0],
+      on: Parameters<Parameters<typeof test>[1]>[1],
+      args: string,
+      columns: number,
+    ) => {
+      answerOpen(on)
+      await $.command.run({ command: 'mermaid-view', args })
+
+      return mountPane($, 'terminal', columns)
+    }
+
+    // The longest line the pane draws, in cells: what has to fit in its room
+    const longest = async (pane: Awaited<ReturnType<typeof mountPane>>): Promise<number> => {
+      const tree = (await pane.drawn()) as { children?: unknown[] }
+      let widest = 0
+
+      const walk = (element: unknown): void => {
+        const node = element as { type?: string; props?: { key?: string }; children?: unknown[] }
+        if (node?.type === 'Box' && /^row-\d+$/.test(node.props?.key ?? '')) {
+          const text = (node.children ?? []).map(function flatten(child: unknown): string {
+            const c = child as { children?: unknown[] }
+            return typeof child === 'string' ? child : (c.children ?? []).map(flatten).join('')
+          })
+          widest = Math.max(widest, Array.from(text.join('')).length)
+        }
+        for (const child of (node?.children ?? []) as unknown[]) if (typeof child === 'object' && child !== null) walk(child)
+      }
+      walk(tree)
+
+      return widest
+    }
+
+    test('fits: no controls, and nothing is cut', async ($, on) => {
+      const pane = await open($, on, WIDE, 80)
+
+      expect(await pane.find({ type: 'Button', key: 'scroll-right' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'fit-width' })).toBeUndefined()
+      expect(await pane.find({ text: /│ abc │.*│ jkl │/ })).toBeDefined()
+    })
+
+    test('is cut to the pane, and a button moves what shows to the right and back', async ($, on) => {
+      const pane = await open($, on, WIDE, NARROW_PANE - 2)
+
+      expect(await longest(pane)).toBeLessThanOrEqual(NARROW_PANE - 2 - 4)
+      expect(await pane.find({ type: 'Button', key: 'scroll-left' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-right' })).toBeDefined()
+      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+
+      await pane.press({ key: 'scroll-right' })
+
+      expect(await pane.find({ text: /│ jkl │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-left' })).toBeDefined()
+
+      await pane.press({ key: 'scroll-left' })
+
+      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+      expect(await pane.find({ text: /│ abc │/ })).toBeDefined()
+    })
+
+    test('fit width closes the nodes up so that it fits, and the toggle undoes it', async ($, on) => {
+      const pane = await open($, on, WIDE, NARROW_PANE)
+
+      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'fit-width', text: /Fit width: off/ })).toBeDefined()
+
+      await pane.press({ key: 'fit-width' })
+
+      expect(await pane.find({ type: 'Button', key: 'fit-width', text: /Fit width: on/ })).toBeDefined()
+      expect(await pane.find({ text: /│ abc │.*│ jkl │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-right' })).toBeUndefined()
+
+      await pane.press({ key: 'fit-width' })
+
+      expect(await pane.find({ text: /│ jkl │/ })).toBeUndefined()
+    })
+
+    test('pressing a node cut by the edge of the pane selects it and brings the whole box into view', async ($, on) => {
+      const pane = await open($, on, WIDE, NARROW_PANE - 2)
+
+      // jkl is not in view at all; def, ghi are. ghi is the last box that shows, cut at its right edge
+      await pane.press({ key: 'node-C' })
+
+      expect(await pane.find({ text: /Selected: ghi/ })).toBeDefined()
+      expect(await pane.find({ text: /│ ghi │/ })).toBeDefined()
+    })
+
+    test('a new width redraws within it: a window that no longer fits returns to the start', async ($, on) => {
+      const pane = await open($, on, WIDE, NARROW_PANE - 2)
+
+      await pane.press({ key: 'scroll-right' })
+      expect(await pane.find({ text: /│ jkl │/ })).toBeDefined()
+
+      // The pane is laid out again at a new width: the same state, mounted afresh
+      await pane.unmount()
+      const wider = await mountPane($, 'terminal', 80)
+
+      expect(await wider.find({ text: /│ abc │.*│ jkl │/ })).toBeDefined()
+      expect(await wider.find({ type: 'Button', key: 'scroll-left' })).toBeUndefined()
+    })
+
+    test('a different diagram starts from the left again', async ($, on) => {
+      const pane = await open($, on, WIDE, NARROW_PANE - 2)
+
+      await pane.press({ key: 'scroll-right' })
+      await $.command.run({ command: 'mermaid-view', args: WIDE.replace('Root', 'Base') })
+
+      expect(await pane.find({ text: /│ Base │/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'scroll-left' })).toBeUndefined()
     })
   })
 

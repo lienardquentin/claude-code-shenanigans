@@ -60,6 +60,10 @@ What it does so far:
   ` ```mermaid ` blocks (the first is shown).
 - A ` ```mermaid ` block in one of Claude's own replies is shown as soon as the reply ends (what a subagent hands back
   is not).
+- A drawing taller than the pane scrolls with the pane's own keys (while it is focused). One wider than the pane is
+  shown through a window: `◀ Left` and `Right ▶` move it, `Fit width` closes the nodes up first (it only helps a
+  top-down or bottom-up flow), and pressing a node cut by the edge brings its whole box into view. A new width
+  redraws within it, and a different diagram starts from the left.
 - The diagrams of the session are listed under the drawing, newest last, each told apart by its first node labels;
   press one to show it. The list keeps the last twenty, and lives only as long as the session.
 - Directions: `TD` and `TB` (the default), `BT`, `LR` and `RL`.
@@ -92,7 +96,7 @@ keep its shape; whether the drawn boxes would work there is a manual check not y
 
 Not yet: click directives, a terminal guide.
 
-Known limits of the drawing: a diagram wider than the pane is not scrolled or fitted; when a node's outgoing line
+Known limits of the drawing: when a node's outgoing line
 and an arriving line fall in the same column, the picture can show a connection that is not there; node order is
 by a single downward pass, so crossings are not minimised.
 

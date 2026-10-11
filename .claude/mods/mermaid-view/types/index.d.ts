@@ -13,6 +13,10 @@ declare module 'claude-code' {
       selected: string
       /** The diagrams seen this session, oldest first. Per session; nothing is stored beyond it. */
       history: HistoryEntry[]
+      /** How many cells a drawing wider than the pane is moved to the left. Per session. */
+      scrollX: number
+      /** Whether a drawing is closed up so that it is as narrow as it can be. Per session. */
+      fit: boolean
     }
   }
 }
