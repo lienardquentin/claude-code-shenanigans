@@ -12,6 +12,10 @@ _Avoid_: Extension, add-on
 Where a session is drawn: the terminal, the desktop app, VS Code or mobile. Each draws a different set of elements.
 _Avoid_: Client, platform, frontend
 
+**Diagram**:
+One Mermaid source found in a reply, shown in the pane as text drawn by termaid.
+_Avoid_: Chart, graph, figure
+
 **Run**:
 One feature taken from an idea or an existing issue to a pull request by the workflow mod.
 _Avoid_: Job, pipeline, session

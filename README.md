@@ -41,6 +41,35 @@ claude plugin marketplace add <path to this clone>/.claude/mods/ship-flow
 claude plugin install ship-flow@ship-flow-mods
 ```
 
+### `termaid-view`
+
+A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/termaid-view`](.claude/mods/termaid-view).
+
+- `/termaid` opens the pane on the most recent Mermaid fenced block of Claude's replies in the main conversation.
+- In the terminal each diagram is drawn as box-drawing text by [termaid](https://github.com/fasouto/termaid), a
+  Python Mermaid renderer, fitted to the pane's width. A drawing still wider than the pane is clipped, with a notice.
+  Nothing runs until the pane is open, and a diagram is rendered once per width.
+- A diagram that cannot be drawn is shown as its Mermaid source with one line saying why: termaid's own message, a
+  timeout (60 seconds), or a failed download of termaid. When `uv` is not installed the line says so and gives the
+  command that installs it (the mod never runs it). A failure is kept until the pane is reopened.
+- Two actions: the previous and next buttons walk through the session's diagrams, oldest to most recent ("2 of 3"),
+  and "Show source" switches the diagram between termaid's drawing and its Mermaid source (the button then reads
+  "Show drawing"). The toggle runs no process and keeps its standing while paging. A diagram arriving at the end of a
+  turn moves the pane to it.
+- On the desktop app, VS Code and mobile the pane shows the Mermaid source, and says that drawing needs the terminal;
+  paging works there and the toggle is not shown.
+
+It needs [`uv`](https://docs.astral.sh/uv/). The mod runs `uvx termaid==<version>` (the version is fixed in
+`hooks/register.tsx`), so **termaid is downloaded from PyPI the first time it is used** and cached by uv after. This
+is the one place a mod of this repo fetches code from an external site at run time.
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/termaid-view
+claude plugin install termaid-view@termaid-view-mods
+```
+
 ### `http-log`
 
 A pane that logs the HTTP calls a Claude Code session makes. It lives in
