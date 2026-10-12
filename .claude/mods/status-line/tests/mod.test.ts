@@ -5,6 +5,13 @@ import { mock } from 'claude-code/testing'
 type On = Parameters<TestBody>[1]
 type Engine = Parameters<TestBody>[0]
 
+type GitAnswer = { exitCode: number; stdout: string } | { fails: string }
+type GitRun = { argv: readonly string[]; cwd?: string; timeoutMs?: number }
+
+/** The output of `git status --porcelain=v2 --branch` on a branch, with the given entry lines. */
+const statusOf = (head: string, ...entries: string[]) =>
+  [`# branch.oid ${'a1b2c3d4e5f6'.padEnd(40, '0')}`, `# branch.head ${head}`, '# branch.upstream origin/main', '# branch.ab +1 -2', ...entries, ''].join('\n')
+
 /** Stands for the session beneath the mod; a test reads back the text handed to the status call. */
 const answerSession = (
   on: On,
@@ -33,6 +40,16 @@ const answerSession = (
       },
     } as never
   })
+  // What `git` answers: a stub that fails like a repo-less folder until a test gives it output
+  const git: { answer: GitAnswer; runs: GitRun[] } = { answer: { exitCode: 128, stdout: '' }, runs: [] }
+
+  on('process.run', (_, e) => {
+    git.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
+
+    if ('fails' in git.answer) throw new Error(git.answer.fails)
+
+    return { value: { exitCode: git.answer.exitCode, stdout: git.answer.stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+  })
   on('ui.status', (_, e) => {
     shown.push(e.text)
 
@@ -47,6 +64,7 @@ const answerSession = (
     session,
     shown,
     hold,
+    git,
     /** What a person reads under the prompt now. */
     line: () => shown.at(-1),
   }
@@ -214,5 +232,125 @@ describe('the redraws', () => {
     await first
 
     expect(host.shown).toEqual(['claude · Opus 5.5 · 42%'])
+  })
+})
+
+describe('the git branch', () => {
+  const branchLine = (name: string) => `claude · ${name} · Opus 5.5 · 42%`
+
+  test('is asked once per redraw, in the session folder, with a 2-second limit', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await starts($)
+
+    expect(host.git.runs).toEqual([{ argv: ['git', 'status', '--porcelain=v2', '--branch'], cwd: '/home/dev/claude', timeoutMs: 2000 }])
+  })
+
+  test('shows the name between the folder and the model on a clean tree', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine('main'))
+  })
+
+  test('adds * when an entry line is there', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main', '1 .M N... 100644 100644 100644 abc def src/a.ts') }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine('main*'))
+  })
+
+  test('adds * for untracked files alone', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main', '? notes.md') }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine('main*'))
+  })
+
+  test('shows the first 7 characters of the commit on a detached HEAD', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('(detached)') }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine('a1b2c3d'))
+  })
+
+  test('shows a name of 32 characters whole', async ($, on) => {
+    const host = answerSession(on)
+    const name = 'feature/'.padEnd(32, 'x')
+
+    host.git.answer = { exitCode: 0, stdout: statusOf(name) }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine(name))
+  })
+
+  test('cuts a name of 33 characters to its first 16, an ellipsis and its last 15', async ($, on) => {
+    const host = answerSession(on)
+    const name = `${'a'.repeat(16)}${'m'}${'z'.repeat(16)}`
+
+    host.git.answer = { exitCode: 0, stdout: statusOf(name) }
+    await starts($)
+
+    expect(name).toHaveLength(33)
+    expect(host.line()).toBe(branchLine(`${'a'.repeat(16)}…${'z'.repeat(15)}`))
+  })
+
+  test('puts * after a cut name, outside the 32', async ($, on) => {
+    const host = answerSession(on)
+    const name = 'b'.repeat(40)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf(name, '? x') }
+    await starts($)
+
+    expect(host.line()).toBe(branchLine(`${'b'.repeat(16)}…${'b'.repeat(15)}*`))
+  })
+
+  for (const [what, answer] of [
+    ['a non-zero exit', { exitCode: 128, stdout: '' }],
+    ['a timeout', { fails: 'timed out after 2000 ms' }],
+    ['a process that cannot start', { fails: 'spawn git ENOENT' }],
+    ['output with no branch.head header', { exitCode: 0, stdout: '# branch.oid abc\n' }],
+  ] as const) {
+    test(`leaves the segment out, with no doubled separator, on ${what}`, async ($, on) => {
+      const host = answerSession(on)
+
+      host.git.answer = answer
+      await starts($)
+
+      expect(host.shown).toEqual(['claude · Opus 5.5 · 42%'])
+    })
+  }
+
+  test('comes back on the next redraw whose git call succeeds', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { fails: 'timed out' }
+    await starts($)
+    expect(host.line()).toBe('claude · Opus 5.5 · 42%')
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await callsATool($)
+
+    expect(host.line()).toBe(branchLine('main'))
+  })
+
+  test('follows a branch switched outside the session after 10 seconds', async ($, on) => {
+    const host = answerSession(on)
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await starts($)
+    host.git.answer = { exitCode: 0, stdout: statusOf('other') }
+    await host.clock.advance(10_000)
+
+    expect(host.line()).toBe(branchLine('other'))
   })
 })
