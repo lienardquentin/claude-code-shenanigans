@@ -48,6 +48,7 @@ const runCard = (
   settings: Settings,
   onResume: (feature: string) => void,
   onStop: (feature: string) => void,
+  onAuto: (feature: string, isAuto: boolean) => void,
   reading: Reading | undefined,
 ): RenderElement => {
   const problems = problemsOf(tickets)
@@ -134,6 +135,14 @@ const runCard = (
             </Button>,
           ]
         : []),
+      // Only before the checkpoint is there anything a run would ask: there it is switched to auto, or back
+      ...(record?.phase === 'attended'
+        ? [
+            <Button key={`auto-${feature}`} onPress={() => onAuto(feature, record.isAuto !== true)}>
+              {actionLabel({ text: record.isAuto ? 'Hand it back to me' : 'Go auto: ask me nothing' })}
+            </Button>,
+          ]
+        : []),
       ...(canStop
         ? [
             <Button key={`stop-${feature}`} onPress={() => onStop(feature)}>
@@ -159,11 +168,13 @@ export const paneOf = (
     settings: Settings
     onResume: (feature: string) => void
     onStop: (feature: string) => void
+    /** Switches a run before its checkpoint to an auto run, or back. */
+    onAuto: (feature: string, isAuto: boolean) => void
     onRefresh: () => void
   },
 ): RenderElement => {
   const { Box, Button } = elements
-  const { folders, reading, width, settings, onResume, onStop, onRefresh } = given
+  const { folders, reading, width, settings, onResume, onStop, onAuto, onRefresh } = given
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -173,7 +184,7 @@ export const paneOf = (
             title: 'ship-flow',
             children: [tonedText({ text: 'No run in this repo. Start one with /ship <idea> or /ship #<issue>.' })],
           })
-        : folders.map(folder => runCard(elements, folder, width, settings, onResume, onStop, reading))}
+        : folders.map(folder => runCard(elements, folder, width, settings, onResume, onStop, onAuto, reading))}
       {divider()}
       <Button key="refresh" onPress={onRefresh}>
         {actionLabel({ text: 'Refresh' })}

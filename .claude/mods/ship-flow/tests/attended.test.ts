@@ -513,6 +513,165 @@ describe('the tickets a run is about to be approved with', () => {
   })
 })
 
+describe('an auto run', () => {
+  const RUN = 'let-a-cart-be-paid-by-card'
+  const whole = (number: string, title: string, blockedBy: string, touches: string) =>
+    ticket(number, title, [`**Blocked by:** ${blockedBy}`, '**Status:** ready', `**Touches:** ${touches}`, '**Outward actions:** None', '- [ ] It works'])
+  // The spec and two tickets with nothing to put right, and the model past the step that says how tickets are written
+  const written = (repo: Repo) => {
+    attend(repo)
+    repo.files[`${FOLDER}/issues/01-cart.md`] = whole('01', 'A cart holds items', 'None', 'src/cart.ts')
+    repo.files[`${FOLDER}/issues/02-pay.md`] = whole('02', 'A cart is paid', '01', 'src/pay.ts')
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record(RUN), step: 'tickets' })
+  }
+  const turnEnds = async ($: Engine, repo: Repo, reason = 'answer') => {
+    await $.turn.complete({ answer: 'Here are the tickets.', durationMs: 1, isAborted: reason === 'aborted', turnId: 't1', reason } as never)
+    await repo.clock.settle()
+  }
+
+  test('/ship auto <idea> begins a run the model takes to its checkpoint without the person', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    expect(await ship($, `auto ${IDEA}`)).toBe(
+      `${RUN}: started from your idea: the grilling begins. An auto run: you are asked nothing, and it builds once its tickets are written. /ship auto off hands it back to you.`,
+    )
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended', step: 'grilling', isAuto: true })
+    expect(repo.files[`${FOLDER}/source.md`]).toBe(`${IDEA}\n`)
+    expect(repo.prompts[0]).toContain('## Auto run')
+    expect(repo.prompts[0]).toContain('take the option you would recommend, and go on')
+    expect(repo.prompts[0]).toContain('"Decided without the person"')
+    expect(repo.prompts[0]?.endsWith(IDEA)).toBe(true)
+  })
+
+  test('/ship auto #<issue> begins one from the issue', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main', issues: ISSUES })
+
+    expect(await ship($, 'auto #12')).toMatch(/^pay-a-cart-by-card: started from issue #12: the grilling begins\. An auto run/)
+    expect(repo.record('pay-a-cart-by-card')).toMatchObject({ isAuto: true, issue: 12 })
+  })
+
+  test('a run begun without it says nothing of auto to the model', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+
+    expect(repo.prompts[0]).not.toContain('Auto run')
+    expect(repo.record(RUN).isAuto).toBeUndefined()
+  })
+
+  test('approves its own checkpoint as the turn that wrote the tickets ends, and builds', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, `auto ${IDEA}`)
+    written(repo)
+    await turnEnds($, repo)
+
+    expect(repo.github.issues.map(issue => issue.title)).toEqual(['Pay a cart by card'])
+    expect(repo.branch()).toBe(`ship/${RUN}`)
+    expect(repo.record(RUN)).toMatchObject({ phase: 'unattended', flights: [{ ticket: 1 }] })
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01'])
+    expect(repo.logged).toContain(`${RUN}: an auto run, its tickets written: the checkpoint approves itself.`)
+    expect(repo.logged).toContain(`${RUN}: approved, on branch ship/${RUN}; building 01 A cart holds items on sonnet.`)
+  })
+
+  test('waits while the tickets are not written, and under a turn that was cut short', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, `auto ${IDEA}`)
+    attend(repo)
+    // The step is still the grilling's: the tickets on disk are not the model's last word
+    await turnEnds($, repo)
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended' })
+
+    written(repo)
+    await turnEnds($, repo, 'aborted')
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended', isAuto: true })
+    expect(repo.spawned).toEqual([])
+  })
+
+  test('has the model put the tickets right first, then approves', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, `auto ${IDEA}`)
+    attend(repo)
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record(RUN), step: 'tickets' })
+    await turnEnds($, repo)
+
+    expect(repo.prompts[1]).toContain('This is an auto run: the run approves itself as that turn ends.')
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended' })
+
+    await turnEnds($, repo)
+
+    expect(repo.record(RUN)).toMatchObject({ phase: 'unattended' })
+  })
+
+  test('a checkpoint that cannot be approved hands the run back to the person, once', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, `auto ${IDEA}`)
+    written(repo)
+    repo.github.failsToOpen = true
+    await turnEnds($, repo)
+
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended', isAuto: false })
+    expect(repo.logged).toContain(`${RUN}: cannot start: the issue could not be opened: GraphQL: not authorized.`)
+    expect(repo.logged.at(-1)).toBe(
+      `${RUN}: it could not start, so it is no auto run any more and waits for you. /ship resume ${RUN}, once that is put right.`,
+    )
+
+    const logged = repo.logged.length
+
+    await turnEnds($, repo)
+    expect(repo.logged).toHaveLength(logged)
+  })
+
+  test('/ship auto switches a run before its checkpoint, and /ship auto off hands it back', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+
+    expect(await ship($, 'auto')).toBe(
+      `${RUN}: now an auto run: you are asked nothing more, and it builds once its tickets are written. /ship auto off hands it back to you.`,
+    )
+    expect(repo.record(RUN)).toMatchObject({ isAuto: true })
+    expect(repo.prompts[1]).toContain(`The person switched the ship-flow run \`${RUN}\` to an auto run`)
+    expect(await ship($, `auto ${RUN}`)).toBe(`${RUN}: is already an auto run.`)
+    expect(await ship($, 'status')).toBe(`${RUN}: no tickets yet · an auto run, before the checkpoint: it approves itself once its tickets are written`)
+
+    expect(await ship($, 'auto off')).toBe(`${RUN}: no auto run any more: you are asked again, and /ship resume ${RUN} approves its checkpoint.`)
+    expect(repo.record(RUN)).toMatchObject({ isAuto: false })
+    expect(repo.prompts[2]).toContain('back from auto')
+
+    written(repo)
+    await turnEnds($, repo)
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended' })
+  })
+
+  test('switched to at a checkpoint already shown, approves as the model\'s next turn ends, not before', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    written(repo)
+    await ship($, 'auto')
+
+    expect(repo.record(RUN)).toMatchObject({ phase: 'attended' })
+
+    await turnEnds($, repo)
+
+    expect(repo.record(RUN)).toMatchObject({ phase: 'unattended' })
+  })
+
+  test('/ship auto says so when no run is before its checkpoint', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    expect(await ship($, 'auto')).toBe(
+      'No run here is before its checkpoint, the one place a run is switched to or from auto. /ship auto <idea | #issue> starts an auto run.',
+    )
+    expect(await ship($, 'auto checkout')).toMatch(/^No run named checkout is before its checkpoint/)
+    expect(repo.prompts).toEqual([])
+  })
+})
+
 test('a feature is named by the first words of its title', () => {
   expect(slugOf('Let a cart be paid by card, and by wire transfer too')).toBe('let-a-cart-be-paid-by-card-and')
   expect(slugOf('  Résumé upload (PDF & DOCX)!  ')).toBe('resume-upload-pdf-docx')

@@ -18,6 +18,8 @@ The spec is written. Break it into tickets, each built later by a fresh agent th
 
    Then tell them: they may change the spec and the ticket files by hand or by asking you, and they approve by typing `/ship resume <feature>`, which opens the issue if the run has none, creates the branch and builds every ticket unattended. End your turn there. Approval is that command, typed by the person: build nothing yourself.
 
+   In an auto run (your first instructions say when it is one) show the same, ask for no approval and name no command: the run approves itself as that turn ends, so end no turn before every ticket is written.
+
    As your turn ends the mod reads the ticket files. If it hands you a list of things to put right (a broken graph, a ticket with no `**Touches:**`, no `**Outward actions:**` or no criterion), fix the files, or tell the person why one stands as it is, and show the checkpoint again.
 
 ## A wide refactor is the exception

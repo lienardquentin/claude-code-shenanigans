@@ -53,8 +53,12 @@ One ticket drawn inside its run card: number, title, state, what blocks it, how 
 _Avoid_: Ticket row, ticket line
 
 **Checkpoint**:
-A point in a run where it stops for the user's decision.
+A point in a run where it stops for the user's decision; an auto run passes it by itself.
 _Avoid_: Gate, approval step
+
+**Auto run**:
+A run the user opted to be asked nothing in: each question takes the recommended option, and its checkpoint approves itself.
+_Avoid_: Auto mode, YOLO run, unattended run
 
 **Blast radius**:
 What building a ticket is estimated to touch, in two parts never folded into one figure: its reach and its outward actions. A run's blast radius is the union of its tickets'.

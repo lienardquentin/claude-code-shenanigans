@@ -1,5 +1,5 @@
 import type { Settings } from './budget'
-import { readFolder, readFolders, writeRecord } from './folders'
+import { readFolder, readFolders, readRecord, writeRecord } from './folders'
 import { historyOf } from './history'
 import type { Host } from './host'
 import { blockLines } from './radius'
@@ -34,6 +34,19 @@ export const slugOf = (title: string): string =>
     .slice(0, SLUG_LENGTH)
     .replace(/-+$/, '') || 'feature'
 
+/** `/ship resume` as the checkpoint of an auto run calls it: approves the run and answers what it did. */
+export type Approve = (feature: string) => Promise<string>
+
+// What an auto run asks of the model, whichever way it became one: said as it begins, and again when it is switched to
+const AUTO_RULES = [
+  'Wherever the steps, a skill or a step file tell you to ask the person, to wait for their answer or to have them confirm, do not: state the question in a line, take the option you would recommend, and go on.',
+  '- The grilling: work the frontier as the skill says, and answer each question yourself with your recommended answer, from the code wherever the code can settle it.',
+  '- The seams: choose them yourself.',
+  '- Every decision taken this way goes in the spec, under `## Further Notes`, as a list headed "Decided without the person", each with its reason in a line: the pull request then shows what to check.',
+  '- The checkpoint: show it as written, ask for no approval and name no command to type. The run approves itself as that turn ends, so end no turn before every ticket is written.',
+  'The two findings that end a run at the grilling still end it.',
+]
+
 /**
  * What the model is told as the attended phase begins: what the run is, the steps to the checkpoint, and where
  * the text of the later steps is. The spec and ticket steps are behind a pointer so that the grilling is not
@@ -49,8 +62,10 @@ export const attendedPrompt = (given: {
   note?: string
   /** What the runs this repo has had say about the size of a ticket, when it has had any. */
   history?: string
+  /** True for an auto run: the person is asked nothing, and the checkpoint approves itself. */
+  isAuto?: boolean
 }): string => {
-  const { feature, root, settings, source, issue, note, history } = given
+  const { feature, root, settings, source, issue, note, history, isAuto = false } = given
   const steps = `${root.replaceAll('\\', '/')}/prompts/spec.md`
   const grill = issue?.isAgreed
     ? `1. **Skip the grilling.** Issue #${issue.number} is labelled \`${AGREED}\`: it is already agreed. Read it below and go to step 2.`
@@ -60,7 +75,9 @@ export const attendedPrompt = (given: {
       ].join('\n')
 
   return [
-    `A ship-flow run has started for the feature \`${feature}\`. You take it from its source to a checkpoint, with the person; from there the run builds it unattended.`,
+    isAuto
+      ? `A ship-flow run has started for the feature \`${feature}\`, as an auto run. You take it from its source to a checkpoint, without the person; from there the run builds it unattended.`
+      : `A ship-flow run has started for the feature \`${feature}\`. You take it from its source to a checkpoint, with the person; from there the run builds it unattended.`,
     '',
     `- Source: ${issue ? `GitHub issue #${issue.number}, "${issue.title}"` : 'an idea the person typed'}, below.`,
     `- Working folder: \`${folderOf(feature)}/\`, ignored by git. The spec goes to \`${specOf(feature)}\`, the tickets to \`${issuesOf(feature)}/\`.`,
@@ -68,6 +85,7 @@ export const attendedPrompt = (given: {
     `- The strong model, for a ticket that needs it: \`${settings.strongModel}\`.`,
     '- Publish nothing to GitHub: the run opens the issue and the pull request itself.',
     ...(history !== undefined ? [`- Sizing the tickets, from the runs this repo has had: ${history}.`] : []),
+    ...(isAuto ? ['', '## Auto run', '', 'The person opted to be asked nothing. This stands over the steps below and the files they point to.', ...AUTO_RULES] : []),
     '',
     '## Steps',
     '',
@@ -89,7 +107,7 @@ const isActive = (record: RunRecord | undefined): record is RunRecord =>
  * `/ship <idea>` or `/ship #<issue>`: begins a run. Its working folder and record are made, the folder is ignored
  * by git, and the model is handed the attended phase. Answers what it did, or why it began nothing.
  */
-export const begin = async (host: Host, settings: Settings, asked: string): Promise<string> => {
+export const begin = async (host: Host, settings: Settings, asked: string, { isAuto = false } = {}): Promise<string> => {
   const folders = await readFolders(host)
   const active = folders.find(folder => isActive(folder.record))
 
@@ -140,14 +158,19 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
     attempts: {},
     source: issue ? 'issue' : 'idea',
     ...(issue ? { issue: issue.number, title: issue.title } : {}),
+    ...(isAuto ? { isAuto } : {}),
   })
   const history = historyOf(folders)
 
-  host.prompt(attendedPrompt({ feature, root: host.root, settings, source, ...(issue ? { issue } : {}), ...(history !== undefined ? { history } : {}) }))
+  host.prompt(
+    attendedPrompt({ feature, root: host.root, settings, source, isAuto, ...(issue ? { issue } : {}), ...(history !== undefined ? { history } : {}) }),
+  )
 
-  return issue
+  const begun = issue
     ? `${feature}: started from issue #${issue.number}${issue.isAgreed ? ', which is already agreed: the spec comes next' : ': the grilling begins'}.`
     : `${feature}: started from your idea: the grilling begins.`
+
+  return isAuto ? `${begun} An auto run: you are asked nothing, and it builds once its tickets are written. /ship auto off hands it back to you.` : begun
 }
 
 /**
@@ -166,6 +189,7 @@ export const reattend = async (host: Host, settings: Settings, record: RunRecord
       root: host.root,
       settings,
       source,
+      isAuto: record.isAuto === true,
       ...(history !== undefined ? { history } : {}),
       ...(record.source === 'issue' && record.issue !== undefined
         ? { issue: { number: record.issue, title: record.title ?? `#${record.issue}`, isAgreed: false } }
@@ -173,7 +197,9 @@ export const reattend = async (host: Host, settings: Settings, record: RunRecord
       note: [
         'This run was begun in an earlier conversation, which is gone, and this one takes it up.',
         `Start from what is on disk: \`${specOf(feature)}\` and \`${issuesOf(feature)}/\` if they exist, and \`CONTEXT.md\` and \`docs/adr/\` for what the grilling had settled.`,
-        'Go on from the first step that is not done. What was agreed but never written down is lost: ask the person again, and say that you are asking again.',
+        record.isAuto
+          ? 'Go on from the first step that is not done. What was decided but never written down is lost: decide it again.'
+          : 'Go on from the first step that is not done. What was agreed but never written down is lost: ask the person again, and say that you are asking again.',
       ].join(' '),
     }),
   )
@@ -320,7 +346,9 @@ const lint = async (host: Host): Promise<boolean> => {
         ? ['', 'These let the run start, and cost it: fix each, or tell the person why it stands as it is.', ...weak.map(line => `- ${line}`)]
         : []),
       '',
-      'Change the ticket files, then show the person the checkpoint again, as short as the changes allow. Build nothing.',
+      record.isAuto
+        ? 'Change the ticket files, then say in a line what changed. This is an auto run: the run approves itself as that turn ends. Build nothing.'
+        : 'Change the ticket files, then show the person the checkpoint again, as short as the changes allow. Build nothing.',
     ].join('\n'),
   )
 
@@ -328,11 +356,74 @@ const lint = async (host: Host): Promise<boolean> => {
 }
 
 /**
+ * `/ship auto [feature]`, `/ship auto off [feature]` and the pane's button: a run before its checkpoint becomes an
+ * auto run, or is handed back to the person. The model is told as soon as the session is idle; an auto run whose
+ * tickets are already written approves itself as that short turn ends, never under a turn still writing them.
+ */
+export const setAuto = async (host: Host, wanted: string, isAuto: boolean): Promise<string> => {
+  const folder = (await readFolders(host)).find(({ feature, record }) => record?.phase === 'attended' && (wanted === '' || feature === wanted))
+  const record = folder?.record
+
+  if (!record) {
+    return `${wanted === '' ? 'No run here is' : `No run named ${wanted} is`} before its checkpoint, the one place a run is switched to or from auto. /ship auto <idea | #issue> starts an auto run.`
+  }
+
+  const { feature } = record
+
+  if ((record.isAuto === true) === isAuto) return `${feature}: is ${isAuto ? 'already an auto run' : 'no auto run'}.`
+
+  await writeRecord(host, { ...record, isAuto })
+  host.prompt(
+    isAuto
+      ? [
+          `The person switched the ship-flow run \`${feature}\` to an auto run: from here they are asked nothing.`,
+          ...AUTO_RULES,
+          'Go on from where the run stands, deciding yourself whatever you were waiting on the person for. If the checkpoint was already shown, say in a line that the run now approves itself, and end your turn.',
+        ].join('\n')
+      : `The person took the ship-flow run \`${feature}\` back from auto: from here ask them again as the steps say, and hold the checkpoint for their \`/ship resume ${feature}\`.`,
+  )
+
+  return isAuto
+    ? `${feature}: now an auto run: you are asked nothing more, and it builds once its tickets are written. /ship auto off hands it back to you.`
+    : `${feature}: no auto run any more: you are asked again, and /ship resume ${feature} approves its checkpoint.`
+}
+
+/**
+ * The checkpoint of an auto run, its spec and its tickets written: it is approved as `/ship resume` would approve
+ * it. A run that cannot start stops being an auto run and waits for the person, so that no turn tries it again.
+ */
+const selfApprove = async (host: Host, record: RunRecord, approval: Approve): Promise<boolean> => {
+  const { feature } = record
+
+  if (record.isAuto !== true || record.step !== 'tickets' || !(await host.exists(specOf(feature)))) return false
+  if (((await readFolder(host, feature))?.tickets ?? []).length === 0) return false
+
+  host.log(`${feature}: an auto run, its tickets written: the checkpoint approves itself.`)
+  host.log(await approval(feature))
+
+  const after = await readRecord(host, feature)
+
+  if (after?.phase === 'attended') {
+    await writeRecord(host, { ...after, isAuto: false })
+    host.log(`${feature}: it could not start, so it is no auto run any more and waits for you. /ship resume ${feature}, once that is put right.`)
+    host.notify(`${feature}: the auto run could not start and waits for you.`)
+  }
+
+  return true
+}
+
+/**
  * The end of a turn of the main conversation. A run in its attended phase keeps to its context budget here: once
  * the window is past the budget, it is compacted at the first pause after a step boundary, and once a boundary.
- * Never during the grilling, whose thread the spec is written from.
+ * Never during the grilling, whose thread the spec is written from. An auto run at its checkpoint is approved
+ * here, when `approval` is given: the turn ended by the model's own answer, not cut short.
  */
-export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
+export const afterTurn = async (
+  host: Host,
+  settings: Settings,
+  repo?: Pick<ReturnType<typeof reader>, 'read'>,
+  approval?: Approve,
+): Promise<void> => {
   if (!(await host.exists(SCRATCH))) return
 
   // The checkpoint's blast radius is informing only: whatever goes wrong with it never holds the turn back
@@ -342,6 +433,8 @@ export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<Retu
 
   const record = await attendedOf(host)
 
+  // Past its checkpoint the run compacts the conversation itself
+  if (record && approval && (await selfApprove(host, record, approval))) return
   if (!record || record.step === undefined || record.step === 'grilling' || record.compactedAt === record.step) return
   if (((await host.usage()).contextPercent ?? 0) < settings.contextPercent) return
 
@@ -354,6 +447,9 @@ export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<Retu
       'Keep, whole: every decision the person made in the grilling and the reason for it; the vocabulary agreed; the seams and the verification commands, if settled; every question still open.',
       `Keep these pointers: the steps being followed are in ${host.root.replaceAll('\\', '/')}/prompts/${step}.md; the spec is ${specOf(feature)}; the tickets go in ${issuesOf(feature)}/.`,
       'Drop what was read to get there: file contents, search results, the output of commands.',
+      ...(record.isAuto
+        ? ['Keep that this is an auto run: the person is asked nothing, each question takes the recommended option, noted in the spec, and the checkpoint approves itself.']
+        : []),
     ].join(' '),
   )
   host.log(`${feature}: the conversation is past its context budget and is being compacted, now that ${step === 'spec' ? 'the grilling is over' : 'the spec is written'}.`)
@@ -370,7 +466,7 @@ export const reminder = async (host: Host): Promise<string | undefined> => {
   const running = new Set((await host.agents()).filter(agent => agent.isRunning).map(agent => agent.id))
   const lines = (await readFolders(host)).flatMap(({ feature, record }) => {
     if (!record || record.phase === 'ended') return []
-    if (record.phase === 'attended') return [`${feature} is before its checkpoint`]
+    if (record.phase === 'attended') return [`${feature} is ${record.isAuto ? 'an auto run cut off ' : ''}before its checkpoint`]
     if (record.phase === 'paused') return record.pr ? [] : [`${feature} is paused (${record.pause ?? 'no reason kept'})`]
     if (record.agentId !== undefined && running.has(record.agentId)) return []
 

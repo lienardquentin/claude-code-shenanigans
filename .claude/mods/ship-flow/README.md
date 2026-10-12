@@ -22,11 +22,13 @@ claude plugin install ship-flow@ship-flow-mods
 | --- | --- |
 | `/ship <idea>` | Starts a run from an idea, typed as a sentence. |
 | `/ship #<issue>` | Starts a run from a GitHub issue. One labelled `ready-for-agent` skips the grilling. |
+| `/ship auto <idea>`, `/ship auto #<issue>` | Starts an auto run: you are asked nothing, and it goes to its pull request by itself. |
+| `/ship auto [feature]`, `/ship auto off [feature]` | Switches a run before its checkpoint to an auto run, or hands it back to you. |
 | `/ship resume [feature]` | Approves the checkpoint; takes up a run that was paused, stopped or cut off; on a run whose pull request is open, follows up its failing checks and new comments. |
 | `/ship stop [feature]` | Stops a run that is building, reviewing or waiting on the quota. |
 | `/ship clean <feature>` | Removes a run's folder, its worktrees and their branches. The run's branch and its pull request are left. |
 | `/ship status` | How every run of the repo stands, ticket by ticket. |
-| `/ship pane` | The same, live, in a pane, with buttons to approve, resume, follow up and stop. |
+| `/ship pane` | The same, live, in a pane, with buttons to approve, go auto, resume, follow up and stop. |
 | `/ship help` | The list above. |
 
 One bare word that is none of these starts no run: an idea is a sentence.
@@ -52,6 +54,23 @@ One bare word that is none of these starts no run: an idea is a sentence.
    a ticket with no `Touches:` (built alone), only folders in `Touches:`, no `Outward actions:`, no criterion.
 
 Nothing is published before you approve. Change the files by hand or by asking, then type `/ship resume`.
+
+### Without you from the start: an auto run
+
+`/ship auto <idea>` starts a run you are asked nothing in; `/ship auto`, or **Go auto** on the run's card in the
+pane, switches a run that is still before its checkpoint. From there:
+
+- every question the grilling would put to you, and the choice of the seams, takes the option the model would
+  recommend, settled from the code where the code can settle it;
+- each decision taken that way is listed in the spec under `## Further Notes`, headed "Decided without the person",
+  so the issue and the pull request show what to check;
+- the checkpoint is still printed, with its blast radius and schedule, and approves itself as the turn that wrote
+  the tickets ends, once the mod's reading of the tickets has been acted on. It then builds as below.
+
+It does not approve under a turn you interrupted. A checkpoint that cannot be approved (a broken ticket graph, no
+verification command, an issue GitHub refuses) hands the run back to you: it is no auto run any more, and
+`/ship resume` approves it once that is put right. `/ship auto off`, or **Hand it back to me** in the pane, does the
+same at any moment before the checkpoint. The two findings that end a run at the grilling still end an auto run.
 
 ### Without you: building
 

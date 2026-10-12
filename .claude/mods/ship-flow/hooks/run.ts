@@ -60,6 +60,11 @@ export type RunRecord = {
   agentId?: string
   /** Which step the attended phase has reached: the grilling, then writing the spec, then writing the tickets. */
   step?: 'grilling' | 'spec' | 'tickets'
+  /**
+   * True for an auto run, while it is before its checkpoint: the person opted to be asked nothing, each question
+   * takes the recommended option, and the checkpoint approves itself.
+   */
+  isAuto?: boolean
   /** The step whose start the main conversation was last compacted at, so that each boundary compacts it once. */
   compactedAt?: 'spec' | 'tickets'
   /**

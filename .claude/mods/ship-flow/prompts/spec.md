@@ -2,6 +2,8 @@
 
 The grilling is over. Synthesise what was agreed into the run's spec; ask the person nothing new except the one check in step 2. Everything you write goes in the run's working folder, `.scratch/<feature>/`, named in your first instructions. Publish nothing: the run opens the issue and the pull request itself.
 
+In an auto run (your first instructions say when it is one) the person is asked nothing: choose the seams of step 2 yourself, and list every decision you took in their place under `## Further Notes`, headed "Decided without the person", each with its reason in a line.
+
 ## Steps
 
 1. **Know the code.** Explore the repo where the feature lands, through the Explore agent named in your first instructions, unless this conversation already did. Use the vocabulary of `CONTEXT.md` and respect the decisions under `docs/adr/`. Done when you can name every module the feature touches.

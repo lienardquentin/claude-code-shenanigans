@@ -429,6 +429,35 @@ for (const surface of SURFACES) {
       expect(await pane.find({ text: /Longest chain: 01 → 02/ })).toBeDefined()
     })
 
+    test('switches a run before its checkpoint to auto and back, as /ship auto does', async ($, on) => {
+      const repo = answerRepo(on, { files: { ...checkout(), [RECORD]: record({ phase: 'attended', step: 'spec' }) } })
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ key: 'auto-checkout', text: /Go auto: ask me nothing/ })).toBeDefined()
+
+      await pane.press({ key: 'auto-checkout' })
+
+      expect(repo.record('checkout')).toMatchObject({ phase: 'attended', isAuto: true })
+      expect(repo.logged.at(-1)).toMatch(/^checkout: now an auto run/)
+      expect(await pane.find({ text: /an auto run, before the checkpoint/ })).toBeDefined()
+      expect(await pane.find({ key: 'auto-checkout', text: /Hand it back to me/ })).toBeDefined()
+
+      await pane.press({ key: 'auto-checkout' })
+
+      expect(repo.record('checkout')).toMatchObject({ isAuto: false })
+      expect(await pane.find({ text: /with you, before the checkpoint/ })).toBeDefined()
+    })
+
+    test('offers auto on no run past its checkpoint', async ($, on) => {
+      answerRepo(on, { files: checkout() })
+
+      await ship($, 'resume')
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ key: 'auto-checkout' })).toEqual([])
+    })
+
     test('offers to follow up the pull request of a run that has opened one', async ($, on) => {
       answerRepo(on, {
         files: {

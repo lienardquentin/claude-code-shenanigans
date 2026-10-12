@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { afterTurn, begin, noteRead, reminder } from './attended'
+import { afterTurn, begin, noteRead, reminder, setAuto } from './attended'
 import { fillOf, settingsOf } from './budget'
 import { clean } from './clean'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
@@ -21,6 +21,8 @@ const USAGE = [
   'Usage:',
   '  /ship <idea>            start a run from an idea',
   '  /ship #<issue>          start a run from a GitHub issue',
+  '  /ship auto <idea | #<issue>>  start an auto run: nothing is asked, the recommended option is taken, and it builds by itself',
+  '  /ship auto [off] [feature]    switch a run before its checkpoint to auto, or back',
   '  /ship resume [feature]  approve the checkpoint, take a run up again, or follow up its pull request',
   '  /ship stop [feature]    stop a run that is building',
   '  /ship clean <feature>   remove a run\'s folder, worktrees and ticket branches',
@@ -104,7 +106,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'ship',
       description: 'Takes one feature from an idea or an issue to a pull request',
-      argumentHint: '<idea> | #<issue> | resume [feature] | stop [feature] | clean <feature> | status | pane',
+      argumentHint: '<idea> | #<issue> | auto [<idea> | #<issue> | off] | resume [feature] | stop [feature] | clean <feature> | status | pane',
     })
     await $.agent.register({
       name: IMPLEMENTER,
@@ -157,6 +159,10 @@ export const register: Register = (on, options) => {
         void stop(host, feature)
           .then(text => $.ui.log(text))
           .catch(() => $.ui.log(`${feature}: could not be stopped from the pane. /ship stop ${feature}.`)),
+      onAuto: (feature, isAuto) =>
+        void setAuto(host, feature, isAuto)
+          .then(text => $.ui.log(text))
+          .catch(() => $.ui.log(`${feature}: could not be switched from the pane. /ship auto ${isAuto ? '' : 'off '}${feature}.`)),
       onRefresh: () => {
         repo.forget()
         host.changed()
@@ -197,6 +203,17 @@ export const register: Register = (on, options) => {
     if (verb === '' || verb === 'help') return { text: USAGE }
     if (verb === 'stop') return { text: await stop(hostOf($), rest.join(' ')) }
     if (verb === 'clean') return { text: await clean(hostOf($), rest.join(' ')) }
+    // After `auto`, a sentence or an issue starts an auto run; `off`, a feature's name or nothing switches the run there is
+    if (verb === 'auto') {
+      const asked = rest.join(' ')
+
+      if (rest[0] === 'off' && rest.length <= 2) return { text: await setAuto(hostOf($), rest[1] ?? '', false) }
+      if (!isIdea(asked)) return { text: await setAuto(hostOf($), asked, true) }
+
+      void $.ui.open({ id: PANE, title: 'ship-flow' }).catch(() => undefined)
+
+      return { text: await begin(hostOf($), settings, asked, { isAuto: true }) }
+    }
     if (verb !== 'pane' && verb !== 'resume' && !isIdea(e.args.trim())) {
       return { text: [`\`/ship ${e.args.trim()}\` is no command of ship-flow, and one word is no idea to start a run from.`, '', USAGE].join('\n') }
     }
@@ -246,7 +263,10 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       await complete(hostOf($), settings, { agentId: e.agentId, reason: e.reason, answer: e.answer })
     } else {
-      await afterTurn(hostOf($), settings, repo)
+      const host = hostOf($)
+
+      // An auto run approves its own checkpoint only as a turn the model ended itself: one cut short may have left the tickets half written
+      await afterTurn(host, settings, repo, e.reason === 'answer' ? feature => resume(host, settings, feature) : undefined)
     }
 
     return completed

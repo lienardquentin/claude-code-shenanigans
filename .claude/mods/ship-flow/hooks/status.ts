@@ -24,7 +24,11 @@ const problemLine = (problem: Problem): string => `  ${problemText(problem)}`
 /** Where a run stands, in a few words: what it builds now, or why it does not build. Empty for a folder with no run. */
 export const standingOf = (record: RunRecord | undefined): string => {
   if (!record) return ''
-  if (record.phase === 'attended') return 'with you, before the checkpoint: /ship resume approves it'
+  if (record.phase === 'attended') {
+    return record.isAuto
+      ? 'an auto run, before the checkpoint: it approves itself once its tickets are written'
+      : 'with you, before the checkpoint: /ship resume approves it'
+  }
   if (record.phase === 'unattended') {
     return ['building', ...(record.flights?.length ? [record.flights.map(flight => label(flight.ticket)).join(', ')] : [])].join(' ')
   }
