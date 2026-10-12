@@ -1067,6 +1067,93 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /lines 47-86 of 100/ })).toBeDefined()
   })
 
+  test('off the terminal the linked nodes are buttons under the picture, by their labels, that open what they point at', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    answerOpen(on)
+    answerNode(on)
+    on('fs.read', () => ({ value: file(100) }) as never)
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeDefined()
+    expect(await pane.find({ text: /^Linked nodes: press one/ })).toBeDefined()
+    expect(await pane.find({ text: /^Parse$/ })).toBeDefined()
+    expect(await pane.find({ text: /^parse\.ts:50$/ })).toBeDefined()
+    expect(await pane.find({ text: /^Draw$/ })).toBeDefined()
+    expect(await pane.find({ text: /^changes of draw\.ts$/ })).toBeDefined()
+
+    await pane.press({ key: 'node-A' })
+    await settle()
+    expect(await pane.find({ type: 'Svg' })).toBeUndefined()
+    expect(await pane.find({ text: /lines 47-86 of 100/ })).toBeDefined()
+
+    await pane.press({ key: 'back' })
+    await settle()
+    expect(await pane.find({ type: 'Svg' })).toBeDefined()
+  })
+
+  test('on mobile the linked nodes of a picture are buttons under it too', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    answerOpen(on)
+    answerNode(on)
+
+    await termaid($)
+    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'mobile', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeDefined()
+    expect(await pane.find({ key: 'node-A' })).toBeDefined()
+  })
+
+  test('a linked node is called by its label whatever its shape, quoted or not, and by its id when it has none', async ($, on) => {
+    const shaped = 'flowchart TD\n  a[("Store (main)")] --> b{{Check}}\n  b --> c\n  click a href "src/a.ts"\n  click b href "src/b.ts#L7"\n  click c href "src/c.ts"'
+    conversation(on, [reply(fence(shaped))])
+    answerOpen(on)
+    answerNode(on)
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ text: /^Store \(main\)$/ })).toBeDefined()
+    expect(await pane.find({ text: /^Check$/ })).toBeDefined()
+    expect(await pane.find({ text: /^b\.ts:7$/ })).toBeDefined()
+    expect(await pane.find({ text: /^c$/ })).toBeDefined()
+  })
+
+  test('off the terminal a picture with no linked node has no button under it', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerNode(on)
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeDefined()
+    expect(await pane.find({ text: /^Linked nodes/ })).toBeUndefined()
+  })
+
+  test('off the terminal a linked node pressed under a picture in the chat opens the pane on its code', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    const openedPanes = answerOpen(on)
+    answerReply(on)
+    answerNode(on)
+    on('fs.read', () => ({ value: file(100) }) as never)
+
+    const row = await mountReply($, fence(LINKED), 'desktop')
+    await settle()
+    await row.press({ key: 'node-0-A' })
+    await settle()
+
+    expect(openedPanes).toEqual(['termaid-view'])
+    const pane = await mountDesktop($)
+    await settle()
+    expect(await pane.find({ text: /lines 47-86 of 100/ })).toBeDefined()
+  })
+
   test('Claude is told how to link a node', async ($, on) => {
     on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'Hello', scope: 'shared' }] }) as never)
 
