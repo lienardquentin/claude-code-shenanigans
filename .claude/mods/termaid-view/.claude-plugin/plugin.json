@@ -1,0 +1,6 @@
+{
+  "name": "termaid-view",
+  "version": "0.1.0",
+  "description": "A pane that shows the session's Mermaid diagrams",
+  "types": "./types/index.d.ts"
+}
