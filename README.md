@@ -4,6 +4,11 @@ Personal Claude Code mods and experiments.
 
 ## Mods
 
+Claude sees nothing of a pane by itself, so every mod that opens one also serves it as a tool, `mcp__<mod>__pane`
+(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__http-log__pane`, `mcp__renovate-desk__pane`). It answers
+whether the pane is open, then its latest drawing as text: the tree you see, so your selection, page and filter are
+in it. Ask Claude about "the pane" and it can read it.
+
 ### `ship-flow`
 
 Takes one feature from an idea or a GitHub issue to a pull request. It lives in
@@ -196,3 +201,25 @@ claude plugin test .claude/mods/http-log
 
 The proxy and the wrapper are in `tap/`; `hooks/tap.ts` builds the line put before a command and merges what the
 taps saw into the call list.
+
+### `renovate-desk`
+
+A pane that looks after your open Renovate pull requests. It lives in
+[`.claude/mods/renovate-desk`](.claude/mods/renovate-desk).
+
+- Sorts them into safe (minor, patch, digest, pin or lockfile update, checks green, mergeable), waiting (checks
+  running, or conflicts Renovate rebases itself) and to look at (major, failing or missing checks, a review needed).
+- `m` merges every safe one, each with its repo's default merge method and pinned to the commit that was judged. A
+  pull request to look at that GitHub would take has a `merge` button of its own.
+- Quiet on GitHub: one search request per refresh, only on `/renovate` or `r`, never on a timer; the only write is
+  the merge. No comment, no approval, no rebase request.
+- Looks at `author:app/renovate user:@me` by default; the `query` option takes other search qualifiers.
+
+It needs the `gh` CLI, signed in. Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/renovate-desk
+claude plugin install renovate-desk@renovate-desk-mods
+```
+
+Then open the pane with `/renovate`.

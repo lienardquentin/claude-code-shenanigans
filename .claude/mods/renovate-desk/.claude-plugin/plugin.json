@@ -1,0 +1,14 @@
+{
+  "name": "renovate-desk",
+  "version": "0.1.0",
+  "description": "Renovate pull requests across your repos, sorted by what is safe to merge, merged in one keypress",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "query": {
+      "type": "string",
+      "title": "Which pull requests",
+      "description": "GitHub search qualifiers naming the Renovate pull requests to look after, added to: is:pr is:open archived:false. For example author:app/renovate org:acme, or author:app/renovate user:@me org:acme.",
+      "default": "author:app/renovate user:@me"
+    }
+  }
+}

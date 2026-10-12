@@ -1,0 +1,5 @@
+{
+  "name": "renovate-desk-mods",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "renovate-desk", "source": "./" }]
+}
