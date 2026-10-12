@@ -230,6 +230,140 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /wider than the pane/ })).toBeUndefined()
   })
 
+  // Stands for `uvx` failing: `answer` is what the host does for each run
+  const answerWith = (on: On, answer: (stdin: string) => unknown) => {
+    const runs: Run[] = []
+
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs })
+
+      return answer(e.init?.stdin ?? '') as never
+    })
+
+    return runs
+  }
+
+  const exited = (exitCode: number, stdout: string, stderr: string) => ({
+    value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+  })
+
+  test('a non-zero exit shows the source and termaid\'s message from standard error', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => exited(2, 'ignored', 'Parse error on line 2'))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /Parse error on line 2/ })).toBeDefined()
+    expect(await pane.find({ type: 'Code' })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /rendering/ })).toBeUndefined()
+  })
+
+  test('a non-zero exit with nothing on standard error shows standard output', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => exited(1, 'Unsupported diagram type', ''))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /Unsupported diagram type/ })).toBeDefined()
+  })
+
+  test('a render that passes the timeout shows the source and says it timed out', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    // The call is rejected (as the engine does when the child is still running at the timeout) once the clock
+    // has moved past it
+    let at = 0
+    on('clock.now', () => ({ value: at }) as never)
+    answerWith(on, () => {
+      at = 61_000
+      throw new Error('killed')
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /timed out/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /rendering/ })).toBeUndefined()
+  })
+
+  test('when uvx cannot be started the pane says uv is missing, with the install command', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerWith(on, () => {
+      throw new Error('spawn uvx ENOENT')
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /uv is missing/ })).toBeDefined()
+    expect(await pane.find({ text: /astral/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+    expect(runs.every(run => run.argv[0] === 'uvx')).toBe(true)
+  })
+
+  test('a package that could not be fetched is said to be a download failure', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => exited(2, '', 'error: Failed to fetch: https://pypi.org/simple/termaid/'))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /could not be downloaded/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+  })
+
+  test('a failure is not retried at the same width; reopening the pane tries again', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerWith(on, () => exited(1, '', 'bad'))
+
+    await termaid($)
+    const first = await mountPane($)
+    await settle()
+    await first.unmount()
+    const again = await mountPane($)
+    await settle()
+    await again.unmount()
+    expect(runs).toHaveLength(1)
+
+    await termaid($)
+    const reopened = await mountPane($)
+    await settle()
+    expect(runs).toHaveLength(2)
+    expect(await reopened.find({ text: /bad/ })).toBeDefined()
+  })
+
+  test('the failure of one diagram does not affect another', async ($, on) => {
+    const held = conversation(on, [reply(fence('graph TD\n  BAD'))])
+    answerOpen(on)
+    answerWith(on, stdin => (stdin.includes('BAD') ? exited(1, '', 'broken') : exited(0, 'DRAWN', '')))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    expect(await pane.find({ text: /broken/ })).toBeDefined()
+
+    held.main = [...held.main, reply(fence('graph TD\n  GOOD'))]
+    await ends($)
+    await settle()
+
+    expect(await pane.find({ text: /DRAWN/ })).toBeDefined()
+    expect(await pane.find({ text: /broken/ })).toBeUndefined()
+  })
+
   test('off the terminal no process runs, the source is shown and drawing is said to need the terminal', async ($, on) => {
     conversation(on, [reply(fence('graph TD\n  A --> B'))])
     answerOpen(on)

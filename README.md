@@ -49,6 +49,9 @@ A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/
 - In the terminal each diagram is drawn as box-drawing text by [termaid](https://github.com/fasouto/termaid), a
   Python Mermaid renderer, fitted to the pane's width. A drawing still wider than the pane is clipped, with a notice.
   Nothing runs until the pane is open, and a diagram is rendered once per width.
+- A diagram that cannot be drawn is shown as its Mermaid source with one line saying why: termaid's own message, a
+  timeout (60 seconds), or a failed download of termaid. When `uv` is not installed the line says so and gives the
+  command that installs it (the mod never runs it). A failure is kept until the pane is reopened.
 - On the desktop app, VS Code and mobile the pane shows the Mermaid source, and says that drawing needs the terminal.
 
 It needs [`uv`](https://docs.astral.sh/uv/). The mod runs `uvx termaid==<version>` (the version is fixed in

@@ -24,6 +24,14 @@ const results = atom({ plugin: 'termaid-view', key: 'results' } as const, {} as 
 // Keys being rendered right now, checked before the atom is written so two redraws never start two processes
 const inFlight = new Set<string>()
 
+// How a failure is told apart. The mod only prints the install command: it never runs it.
+const UV_INSTALL = 'winget install --id astral-sh.uv (Windows) or curl -LsSf https://astral.sh/uv/install.sh | sh'
+const TIMED_OUT = /time[d ]?-?out/i
+const DOWNLOAD_FAILED = /failed to (fetch|download)|error sending request|dns error|tcp connect error|network is unreachable/i
+
+// The engine's clock, in milliseconds; 0 when it cannot say (then no call is taken for a timeout by its duration)
+const now = ($: Engine): Promise<number> => $.clock.now().catch(() => 0)
+
 const keyOf = (source: string, width: number): string => `${width}\u0000${source}`
 
 const render = async ($: Engine, source: string, width: number): Promise<void> => {
@@ -34,17 +42,36 @@ const render = async ($: Engine, source: string, width: number): Promise<void> =
     await update($, results, all => ({ ...all, [key]: { status: 'rendering' } }))
 
     let result: Result
+    const startedAt = await now($)
     try {
       const run = await $.process.run(['uvx', `termaid==${TERMAID_VERSION}`, '--width', String(width)], {
         stdin: source,
         timeoutMs: RENDER_TIMEOUT_MS,
       })
-      result =
-        run.exitCode === 0
-          ? { status: 'drawn', text: run.stdout.replace(/\r\n?/g, '\n').replace(/\n+$/, '') }
-          : { status: 'failed', reason: run.stderr.trim() }
+      if (run.exitCode === 0) {
+        result = { status: 'drawn', text: run.stdout.replace(/\r\n?/g, '\n').replace(/\n+$/, '') }
+      } else {
+        // termaid's own message: standard error, or standard output when that is empty
+        const message = run.stderr.trim() !== '' ? run.stderr.trim() : run.stdout.trim()
+        result = {
+          status: 'failed',
+          reason: DOWNLOAD_FAILED.test(message)
+            ? 'termaid could not be downloaded. Check the connection, then reopen the pane to try again.'
+            : message !== ''
+              ? message
+              : `termaid failed (exit code ${run.exitCode}) without a message.`,
+        }
+      }
     } catch (error) {
-      result = { status: 'failed', reason: error instanceof Error ? error.message : String(error) }
+      // The call rejects when the command cannot start or is still running at the timeout
+      // (the message is not a documented contract, so the time the call took is read too)
+      const message = error instanceof Error ? error.message : String(error)
+      result = {
+        status: 'failed',
+        reason: TIMED_OUT.test(message) || (await now($)) - startedAt >= RENDER_TIMEOUT_MS
+          ? `The render timed out after ${RENDER_TIMEOUT_MS / 1000} seconds.`
+          : `uv is missing, so termaid cannot run. Install it with: ${UV_INSTALL}`,
+      }
     }
 
     await update($, results, all => ({ ...all, [key]: result }))
@@ -86,6 +113,8 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'termaid' }, async $ => {
+    // Reopening the pane tries again what failed
+    await update($, results, all => Object.fromEntries(Object.entries(all).filter(([, result]) => result.status !== 'failed')))
     await refresh($, false)
     // Opens on the most recent diagram
     const last = Math.max((await read($, diagrams)).length - 1, 0)
@@ -140,7 +169,12 @@ export const register: Register = on => {
         </Text>,
       ]
     } else if (known.status === 'failed') {
-      body = [code({ source: current })]
+      body = [
+        <Text key="failed" color="subtle" wrap="wrap">
+          {known.reason}
+        </Text>,
+        code({ source: current }),
+      ]
     } else {
       const lines = known.text.split('\n')
       const isWide = lines.some(line => [...line].length > width)
