@@ -19,6 +19,9 @@ export const IMPLEMENTER_TYPE = `ship-flow:${IMPLEMENTER}`
 /** What the implementer may call. Its shell is narrowed further, command by command, by `checkTool`. */
 export const IMPLEMENTER_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'] as const
 
+/** The engine's own tool by which a subagent hands its report back: every agent of a run may call it. */
+const HANDBACK = 'SubagentHandback'
+
 export const IMPLEMENTER_PROMPT = [
   'You build one ticket of a spec, alone and unattended. Nobody can answer a question: decide, and say what you decided in your report.',
   '',
@@ -268,6 +271,9 @@ export const checkTool = async (
   const flight = await flightOf(host, agentId)
 
   if (!flight) return undefined
+
+  // The report an agent ends its turn with is no work: refused, the turn ends as aborted and its work is discarded
+  if (tool === HANDBACK) return { decision: 'allow' }
 
   const { record } = flight
   const isReviewer = record.phase === 'finishing' && record.stage === 'review'

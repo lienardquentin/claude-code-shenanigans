@@ -67,6 +67,16 @@ describe('an implementer that outgrows its context budget', () => {
     expect(repo.record('checkout')).toMatchObject({ tooLarge: 141_000, isStopped: true })
   })
 
+  test('may still hand back its report, which stops nothing: its work is judged as any', async ($, on) => {
+    const repo = answerRepo(on, { files: files() })
+
+    await ship($, 'resume')
+    await steps($, repo, 'agent-1', 141_000)
+
+    expect((await $.tool.check({ tool: 'SubagentHandback', input: {}, agentId: 'agent-1', tool_use_id: 'call-1' } as never)).decision).toBe('allow')
+    expect(repo.record('checkout').isStopped).toBeUndefined()
+  })
+
   test('leaves no commit: its work is discarded and its ticket marked too-large, not tried again', async ($, on) => {
     const repo = answerRepo(on, { files: files() })
 

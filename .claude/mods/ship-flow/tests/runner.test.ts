@@ -353,6 +353,13 @@ describe('what the implementer may call', () => {
     expect(await checks($, 'agent-1', 'Bash', { command: 'npm run typecheck' })).toBe('allow')
   })
 
+  test('the hand-back of its report, which is how its turn ends', async ($, on) => {
+    answerRepo(on, { files: checkout() })
+    await ship($, 'resume')
+
+    expect(await checks($, 'agent-1', 'SubagentHandback', {})).toBe('allow')
+  })
+
   test('no other command: it is refused, never asked', async ($, on) => {
     answerRepo(on, { files: checkout() })
 
