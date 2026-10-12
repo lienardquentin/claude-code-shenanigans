@@ -6,6 +6,7 @@ import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { divider } from './kit/divider'
+import { paneView } from './kit/pane-text'
 import { table } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import {
@@ -43,6 +44,9 @@ const lanes = atom({ plugin: 'timeline-view', key: 'lanes' } as const, [] as Tim
 const selected = atom({ plugin: 'timeline-view', key: 'selected' } as const, MAIN)
 const range = atom({ plugin: 'timeline-view', key: 'range' } as const, 'all')
 const now = atom({ plugin: 'timeline-view', key: 'now' } as const, 0)
+
+// What the pane last drew, for the model to read
+const view = paneView({ id: PANE, title: 'Timeline', command: '/timeline' })
 
 let counter = 0
 const newId = (): string => `${(counter += 1)}-${Math.random().toString(36).slice(2, 10)}`
@@ -120,6 +124,8 @@ const pad = (text: string, columns: number): string =>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'timeline', description: 'Open the timeline of turns, tool calls and subagents' })
+    // A host that registers no tools still starts the session
+    await $.tool.register(view.tool).catch(() => undefined)
     // What still runs grows by itself; a quiet session redraws nothing
     $.clock.every(TICK_MS, async () => {
       if (!isRunning(await read($, spans)) && !isRunning(await read($, lanes))) return
@@ -150,6 +156,9 @@ export const register: Register = on => {
 
     return { text: 'Timeline pane opened.' }
   })
+
+  // The pane as text, for the model: it sees nothing of what is drawn otherwise
+  on('tool.call', { tool: 'mcp__timeline-view__pane' }, $ => view.answer(() => $.ui.panes()))
 
   on('turn.start', async ($, e, next) => {
     await begin($, { id: e.turnId, lane: MAIN, kind: 'turn', name: 'turn', target: targetOf({ prompt: e.text }) }).catch(() => undefined)
@@ -246,12 +255,14 @@ export const register: Register = on => {
     )
 
     if (period === undefined) {
-      return card({
-        width,
-        title: 'Timeline',
-        meta: 'nothing yet',
-        children: [tonedText({ text: 'Nothing recorded yet: the timeline fills as turns, tool calls and subagents run.', tone: 'neutral', wrap: true })],
-      })
+      return view.keep(
+        card({
+          width,
+          title: 'Timeline',
+          meta: 'nothing yet',
+          children: [tonedText({ text: 'Nothing recorded yet: the timeline fills as turns, tool calls and subagents run.', tone: 'neutral', wrap: true })],
+        }),
+      )
     }
 
     // The card's border and padding take two cells each side
@@ -275,7 +286,7 @@ export const register: Register = on => {
 
     const ends = `${clockOf(period.from)}${clockOf(period.to).padStart(columns - 8)}`
 
-    return card({
+    return view.keep(card({
       width,
       title: 'Timeline',
       meta: `${lengthOf(period.to - period.from)} · one cell ${lengthOf((period.to - period.from) / columns)}`,
@@ -317,6 +328,6 @@ export const register: Register = on => {
           ? [tonedText({ text: `The latest ${MAX_ROWS} of ${listed.length} are listed.`, tone: 'neutral' })]
           : []),
       ],
-    })
+    }))
   })
 }

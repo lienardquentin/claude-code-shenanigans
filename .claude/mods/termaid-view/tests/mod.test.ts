@@ -90,6 +90,26 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /sequenceDiagram/ })).toBeUndefined()
   })
 
+  test('hands the model what the pane shows, as text', async ($, on) => {
+    conversation(on, [reply(`First:\n${fence('graph TD\n  A --> B')}`), reply(fence('pie\n  "a" : 1'))])
+    answerOpen(on)
+    answerUvx(on)
+
+    const before = await $.tool.call({ tool: 'mcp__termaid-view__pane' } as never)
+    expect(before.result).toMatch(/^The "Mermaid diagrams" pane has drawn nothing in this session.*\/termaid opens it\.$/)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    expect(await pane.find({ text: /2 of 2/ })).toBeDefined()
+
+    const { result } = await $.tool.call({ tool: 'mcp__termaid-view__pane' } as never)
+    expect(result).toMatch(/^The "Mermaid diagrams" pane/)
+    expect(result).toMatch(/Mermaid diagrams  2 of 2/)
+    expect(result).toMatch(/pie/)
+    expect(result).toMatch(/\[Show (source|drawing)\]/)
+  })
+
   test('a reply with two diagrams yields two, in the order written; other languages yield none', async ($, on) => {
     conversation(on, [
       reply(`${fence('const a = 1', 'ts')}\n${fence('graph LR\n  X --> Y')}\n${fence('classDiagram\n  Animal <|-- Dog')}\n${fence('{}', 'json')}`),

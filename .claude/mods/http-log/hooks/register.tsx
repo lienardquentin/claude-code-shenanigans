@@ -9,6 +9,7 @@ import { code } from './kit/code'
 import { divider } from './kit/divider'
 import { field } from './kit/field'
 import { json } from './kit/json'
+import { paneView } from './kit/pane-text'
 import { yaml } from './kit/yaml'
 import { table } from './kit/table'
 import type { CellTone } from './kit/table'
@@ -41,6 +42,9 @@ const capture = atom({ plugin: 'http-log', key: 'capture' } as const, '')
 const range = atom({ plugin: 'http-log', key: 'range' } as const, 'all')
 // The time of the last redraw a period asked for: touched while one is in force, so calls age out of the table
 const tick = atom({ plugin: 'http-log', key: 'now' } as const, 0)
+
+// What the pane last drew, for the model to read
+const view = paneView({ id: PANE, title: 'HTTP calls', command: '/http-log' })
 
 const DEFAULT_PERIODS = '10m,30m,1h'
 const MAX_PERIODS = 6
@@ -819,6 +823,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'http-log', description: 'Open the table of HTTP calls (url, response code) and the rate limits' })
+    // A host that registers no tools still starts the session
+    await $.tool.register(view.tool).catch(() => undefined)
     await refresh($)
     // Other sessions write to the same store: pick up their rules and calls
     $.clock.every(REFRESH_MS, async () => {
@@ -1043,7 +1049,7 @@ export const register: Register = (on, options) => {
       </Box>
     ))
 
-    return card({
+    return view.keep(card({
       width: e.props.bodyColumns ?? 80,
       title: 'HTTP calls',
       meta:
@@ -1140,6 +1146,9 @@ export const register: Register = (on, options) => {
           {actionLabel({ text: 'Clear' })}
         </Button>,
       ],
-    })
+    }))
   })
+
+  // The pane as text, for the model: it sees nothing of what is drawn otherwise
+  on('tool.call', { tool: 'mcp__http-log__pane' }, $ => view.answer(() => $.ui.panes()))
 }

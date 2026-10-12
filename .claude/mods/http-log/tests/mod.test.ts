@@ -57,6 +57,26 @@ describe('http-log', () => {
     expect(await pane.find({ text: /200 OK/ })).toBeDefined()
   })
 
+  test('hands the model what the pane shows, as text', async ($, on) => {
+    mock.store(on)
+    on('tool.call', { tool: 'WebFetch' }, () => ({ result: { code: 200, codeText: 'OK', url: 'https://example.test/a' } }) as never)
+
+    const before = await $.tool.call({ tool: 'mcp__http-log__pane' } as never)
+    expect(before.result).toMatch(/^The "HTTP calls" pane has drawn nothing in this session.*\/http-log opens it\.$/)
+
+    const pane = await mountPane($)
+    await $.tool.call(fetched('https://example.test/a'))
+    expect(await pane.find({ text: /1 call/ })).toBeDefined()
+
+    const { result } = await $.tool.call({ tool: 'mcp__http-log__pane' } as never)
+    expect(result).toMatch(/^The "HTTP calls" pane/)
+    expect(result).toMatch(/HTTP calls  1 call/)
+    // The row as the table draws it, and the period in force marked
+    expect(result).toMatch(/GET\s+https:\/\/example\.test\/a\s+main\s+200 OK/)
+    expect(result).toMatch(/Period \[All\]\*/)
+    expect(result).toMatch(/Search calls \(url, status, time\)/)
+  })
+
   test('a rule limits the calls its regex matches, sharing one counter', async ($, on) => {
     mock.store(on)
     answerOk(on)

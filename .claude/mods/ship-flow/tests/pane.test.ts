@@ -45,6 +45,51 @@ const answerOpen = (on: On) => {
   return opened
 }
 
+describe('the pane, for the model', () => {
+  test('is handed over as text: each run, its tickets and the actions the person has', async ($, on) => {
+    answerRepo(on, { files: { ...checkout(), [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done']) } })
+
+    const pane = await mountPane($, 'terminal')
+    expect(await pane.find({ text: /1 of 2 done/ })).toBeDefined()
+
+    const { result } = await $.tool.call({ tool: 'mcp__ship-flow__pane' } as never)
+
+    expect(result).toBe(
+      [
+        'The "ship-flow" pane (drawn 0s ago): A button marked * is drawn filled: the main action, or the choice in force.',
+        '',
+        '  checkout  1 of 2 done',
+        '',
+        '    01 · A cart holds items',
+        '',
+        '    ● done',
+        '    not declared',
+        '',
+        '    02 · A cart is paid',
+        '',
+        '    ● ready',
+        '    blocked by 01',
+        '    model opus',
+        '    takeable now',
+        '    not declared',
+        '',
+        '  Blast radius (an estimate): not declared',
+        '  [Resume]*',
+        '',
+        '─'.repeat(60),
+        '',
+        '[Refresh]',
+      ].join('\n'),
+    )
+  })
+
+  test('says so when the pane has drawn nothing', async $ => {
+    const { result } = await $.tool.call({ tool: 'mcp__ship-flow__pane' } as never)
+
+    expect(result).toMatch(/^The "ship-flow" pane has drawn nothing in this session.*\/ship pane opens it\.$/)
+  })
+})
+
 for (const surface of SURFACES) {
   describe(`the pane, on the ${surface}`, () => {
     test('says there is no run, and how to start one, in a repo with none', async ($, on) => {

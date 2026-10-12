@@ -7,6 +7,7 @@ import { clean } from './clean'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
 import type { Host } from './host'
+import { paneView } from './kit/pane-text'
 import { PANE, paneOf } from './pane'
 import { reader } from './reading'
 import { rootOf, underRoot } from './root'
@@ -16,6 +17,9 @@ import { needsReading, statusText } from './status'
 
 // How many times a run wrote its files this session: the pane reads it, so each write draws the pane again
 const changes = atom({ plugin: 'ship-flow', key: 'changes' } as const, 0)
+
+// What the pane last drew, for the model to read
+const view = paneView({ id: PANE, title: 'ship-flow', command: '/ship pane' })
 
 const USAGE = [
   'Usage:',
@@ -122,6 +126,8 @@ export const register: Register = (on, options) => {
       tools: REVIEWER_TOOLS,
       model: settings.strongModel,
     })
+    // A host that registers no tools still starts the session, and the run
+    await $.tool.register(view.tool).catch(() => undefined)
 
     const started = await next(e)
     // A run paused for quota goes on by a timer, which a new session or a reload has lost: it is set again
@@ -146,7 +152,7 @@ export const register: Register = (on, options) => {
       ? await repo.read(host).catch(() => undefined)
       : undefined
 
-    return paneOf($.ui.resolve(e), {
+    return view.keep(paneOf($.ui.resolve(e), {
       folders,
       ...(reading ? { reading } : {}),
       width: e.props.bodyColumns ?? 80,
@@ -167,8 +173,11 @@ export const register: Register = (on, options) => {
         repo.forget()
         host.changed()
       },
-    })
+    }))
   })
+
+  // The pane as text, for the model: it sees nothing of what is drawn otherwise
+  on('tool.call', { tool: 'mcp__ship-flow__pane' }, $ => view.answer(() => $.ui.panes()))
 
   // The model reading one of the mod's step texts is how the attended phase is seen to pass from a step to the next
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {

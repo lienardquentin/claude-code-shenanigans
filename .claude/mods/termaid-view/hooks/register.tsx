@@ -5,6 +5,7 @@ import { card } from './kit/card'
 import { code } from './kit/code'
 import { actionLabel } from './kit/action-label'
 import { pagination } from './kit/pagination'
+import { paneView } from './kit/pane-text'
 import { tonedText } from './kit/toned-text'
 import { styledLines, styledWidth } from './kit/styled-lines'
 import type { StyledSpan } from './kit/styled-lines'
@@ -32,6 +33,9 @@ const isInline = atom({ plugin: 'termaid-view', key: 'isInline' } as const, true
 // The way each flowchart is laid out when the person chose one, by the diagram's source; one with no entry is laid
 // out in the default direction of the mod's options
 const directions = atom({ plugin: 'termaid-view', key: 'directions' } as const, {} as Record<string, string>)
+
+// What the pane last drew, for the model to read
+const view = paneView({ id: PANE, title: 'Mermaid diagrams', command: '/termaid' })
 
 // The pane's own word for the direction the diagram was written in
 const AS_WRITTEN = 'as written'
@@ -489,6 +493,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'termaid', description: "Open the pane of the session's Mermaid diagrams" })
+    // A host that registers no tools still starts the session
+    await $.tool.register(view.tool).catch(() => undefined)
 
     return next(e)
   })
@@ -634,9 +640,9 @@ export const register: Register = (on, options) => {
           {actionLabel({ text: 'Back to the diagram' })}
         </Button>
       )
-      if ('reason' in open) return card({ width: paneColumns, title: open.link, children: [notice(open.reason), back] })
+      if ('reason' in open) return view.keep(card({ width: paneColumns, title: open.link, children: [notice(open.reason), back] }))
       if (open.kind === 'diff') {
-        return card({
+        return view.keep(card({
           width: paneColumns,
           title: open.path,
           meta: 'uncommitted changes',
@@ -645,12 +651,12 @@ export const register: Register = (on, options) => {
             code({ source: open.text, diff: true, plain: !isTerminal }),
             back,
           ],
-        })
+        }))
       }
 
       const last = Math.min(open.first + CODE_LINES - 1, open.total)
 
-      return card({
+      return view.keep(card({
         width: paneColumns,
         title: open.path,
         meta: `lines ${open.first}-${last} of ${open.total}`,
@@ -667,7 +673,7 @@ export const register: Register = (on, options) => {
             onNext: () => show($, open.link, open.first + CODE_LINES),
           }),
         ],
-      })
+      }))
     }
 
     const stored = await read($, theme)
@@ -785,11 +791,14 @@ export const register: Register = (on, options) => {
             }),
           ]
 
-    return card({
+    return view.keep(card({
       width: paneColumns,
       title: 'Mermaid diagrams',
       meta: current === undefined ? undefined : `${at + 1} of ${list.length}`,
       children: [...body, ...controls],
-    })
+    }))
   })
+
+  // The pane as text, for the model: it sees nothing of what is drawn otherwise
+  on('tool.call', { tool: 'mcp__termaid-view__pane' }, $ => view.answer(() => $.ui.panes()))
 }

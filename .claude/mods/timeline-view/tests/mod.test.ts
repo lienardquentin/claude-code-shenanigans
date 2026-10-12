@@ -168,6 +168,25 @@ describe('timeline-view', () => {
     expect((await pane.find({ type: 'Text', text: BUSY }))?.props).toMatchObject({ color: 'error' })
   })
 
+  test('hands the model what the pane shows, as text', async ($, on) => {
+    mock.clock(on, { now: START })
+    on('tool.call', { tool: 'Read' }, () => ({ result: {} }) as never)
+
+    const before = await $.tool.call({ tool: 'mcp__timeline-view__pane' } as never)
+    expect(before.result).toMatch(/^The "Timeline" pane has drawn nothing in this session.*\/timeline opens it\.$/)
+
+    const pane = await mountPane($)
+    await $.tool.call({ tool: 'Read', file_path: 'layout.ts' } as never)
+    // The pane has drawn the call before it is read
+    expect(await pane.find({ text: /layout\.ts/ })).toBeDefined()
+
+    const { result } = await $.tool.call({ tool: 'mcp__timeline-view__pane' } as never)
+    expect(result).toMatch(/^The "Timeline" pane/)
+    expect(result).toMatch(/Show: whole session \(of /)
+    expect(result).toMatch(/\[Clear\]/)
+    expect(result).toMatch(/Read\s+layout\.ts/)
+  })
+
   test('gives a subagent a lane of its own, listed when its name is pressed', async ($, on) => {
     const clock = mock.clock(on, { now: START })
     on('agent.spawn', () => ({ model: 'haiku', agentId: 'a1' }) as never)
