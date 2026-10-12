@@ -94,6 +94,9 @@ const runCard = (
                       ...notesOf(ticket, takeable, record).map(note =>
                         tonedText({ text: note, tone: note.startsWith('failed: ') ? 'danger' : undefined }),
                       ),
+                      ...(ticket.criteria.length > 0
+                        ? [tonedText({ text: `${ticket.criteria.filter(criterion => criterion.isDone).length} of ${ticket.criteria.length} criteria` })]
+                        : []),
                       ...(hasRadius
                         ? [tonedText({ text: rowText(radius), tone: radius.outward.length > 0 ? 'warning' : 'neutral' })]
                         : []),

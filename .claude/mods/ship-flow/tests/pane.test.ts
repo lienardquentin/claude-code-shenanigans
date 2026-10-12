@@ -314,6 +314,46 @@ for (const surface of SURFACES) {
       expect(await pane.findAll({ text: /installs `zod`/ })).toEqual([])
     })
 
+    test('shows how many criteria of a ticket are ticked, on a run that has ended as well', async ($, on) => {
+      const criteria = ['- [x] One', '- [x] Two', '- [ ] Three']
+
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** in-progress', ...criteria]),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done', '- [x] One', '- [x] Two', '- [x] Three']),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '2 of 3 criteria' })).toBeDefined()
+      expect(await pane.find({ text: '3 of 3 criteria' })).toBeDefined()
+    })
+
+    test('shows no criteria line for a ticket with no criteria', async ($, on) => {
+      answerRepo(on, { files: checkout() })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ text: /criteria/ })).toEqual([])
+    })
+
+    test('shows the criteria line on the card of a run that has ended', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done', '- [x] One', '- [ ] Two']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done']),
+          [RECORD]: record({ phase: 'ended', pause: 'the pull request is open: https://github.com/dev/repo/pull/7' }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '1 of 2 criteria' })).toBeDefined()
+    })
+
     test('a run before its checkpoint offers to approve it', async ($, on) => {
       answerRepo(on, { files: { ...checkout(), [RECORD]: record({ phase: 'attended', branch: 'main', source: 'issue', issue: 12 }) } })
 
