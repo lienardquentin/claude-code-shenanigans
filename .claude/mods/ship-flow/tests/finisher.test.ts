@@ -12,6 +12,8 @@ const CART = '.scratch/checkout/issues/01-cart.md'
 const PAY = '.scratch/checkout/issues/02-pay.md'
 const RECORD = '.scratch/checkout/run.json'
 const URL = 'https://github.com/dev/repo/pull/7'
+// The worktree the run's branch is reviewed and fixed in
+const FINISH = '/home/dev/repo/.scratch/checkout/trees/finish'
 
 const CLEAN = 'I read the diff against the spec and the repo\'s rules. Nothing is wrong.\n\nFINDINGS: 0'
 const FOUND = [
@@ -63,8 +65,11 @@ describe('when no ticket is left to take', () => {
       description: 'Review checkout',
       model: 'opus',
       prompt:
-        'Review this branch against the spec .scratch/checkout/spec.md, whose tickets are in the folder beside it. It will be merged into main.',
+        'Review this branch against the spec /home/dev/repo/.scratch/checkout/spec.md, whose tickets are in the folder beside it. It will be merged into main.',
+      cwd: FINISH,
     })
+    // The branch is reviewed in a worktree of its own: the repo's working tree stays the person's
+    expect(repo.ran).toContain(`git worktree add -B checkout-feature--finish ${FINISH} checkout-feature`)
     expect(repo.record('checkout')).toMatchObject({ phase: 'finishing', stage: 'review', base: 'main', agentId: 'agent-3' })
     expect((await ship($, 'status')).split('\n')[0]).toBe('checkout: 2 of 2 tickets done, 0 takeable now · reviewing the branch')
   })
@@ -162,8 +167,9 @@ describe('a review with findings', () => {
     expect(repo.files['.scratch/checkout/review.md']).toBe(FOUND)
     expect(repo.spawned[3]).toMatchObject({ subagentType: 'ship-flow:implementer', description: 'Fix the review of checkout', model: 'sonnet' })
     expect(repo.spawned[3]?.prompt.split('\n')[0]).toBe(
-      'Fix what the review of this branch found. The review is .scratch/checkout/review.md; the spec is .scratch/checkout/spec.md.',
+      'Fix what the review of this branch found. The review is /home/dev/repo/.scratch/checkout/review.md; the spec is /home/dev/repo/.scratch/checkout/spec.md.',
     )
+    expect(repo.spawned[3]?.cwd).toBe(FINISH)
     expect(repo.github.pr).toBeUndefined()
     expect(repo.logged).toEqual(['checkout: the review has 2 findings; fixing them on sonnet.'])
     expect((await ship($, 'status')).split('\n')[0]).toMatch(/· fixing what the review found$/)
@@ -175,7 +181,15 @@ describe('a review with findings', () => {
     await ends($, repo, 'agent-3', { answer: FOUND, changes: '' })
     await ends($, repo, 'agent-4', { answer: FIXED })
 
-    expect(repo.ran.slice(0, 4)).toEqual(['sh -c npm test', 'git status --porcelain', 'git add -A', 'git commit -m checkout: fixes from the review'])
+    expect(repo.ran.slice(0, 4)).toEqual([
+      'finish> sh -c npm test',
+      'finish> git status --porcelain',
+      'finish> git add -A',
+      'finish> git commit -m checkout: fixes from the review',
+    ])
+    // Committed in its worktree, then put on the run's branch as a ticket's commit is
+    expect(repo.ran).toContain('git merge --ff-only checkout-feature--finish')
+    expect(repo.ran).toContain(`git worktree remove --force ${FINISH}`)
     expect(repo.github.pr).toEqual({ url: URL, isDraft: false })
     expect(repo.github.body).toContain(['## Fix pass', '', 'The fix pass was committed as abc1236.', '', FIXED].join('\n'))
     expect(repo.logged[1]).toBe(`checkout: the fix pass was committed as abc1236; the pull request is open: ${URL}.`)
@@ -189,7 +203,11 @@ describe('a review with findings', () => {
     repo.exits['npm test'] = 1
     await ends($, repo, 'agent-4', { answer: FIXED })
 
-    expect(repo.ran.slice(0, 3)).toEqual(['sh -c npm test', 'git reset --hard HEAD', 'git clean -fd'])
+    expect(repo.ran[0]).toBe('finish> sh -c npm test')
+    // Nothing is reset in the repo's own working tree: what the pass left goes with its worktree, and never lands
+    expect(repo.ran).not.toContain('git reset --hard HEAD')
+    expect(repo.ran).not.toContain('git merge --ff-only checkout-feature--finish')
+    expect(repo.ran).toContain(`git worktree remove --force ${FINISH}`)
     expect(repo.spawned).toHaveLength(4)
     expect(repo.github.body).toContain('The fix pass was discarded: `npm test` failed. The findings above stand.')
     expect(repo.github.pr).toEqual({ url: URL, isDraft: false })
@@ -203,6 +221,134 @@ describe('a review with findings', () => {
     expect(await checks($, 'agent-4', 'Edit', { file_path: 'src/cart.ts' })).toBe('allow')
     expect(await checks($, 'agent-4', 'Bash', { command: 'npm test' })).toBe('allow')
     expect(await checks($, 'agent-4', 'Bash', { command: 'git push' })).toBe('deny')
+  })
+
+  test('the fixer writes in the worktree the branch is finished in, and not in the repo\'s own working tree', async ($, on) => {
+    const repo = await built($, on)
+
+    await ends($, repo, 'agent-3', { answer: FOUND, changes: '' })
+
+    expect(await checks($, 'agent-4', 'Edit', { file_path: `${FINISH}/src/cart.ts` })).toBe('allow')
+    expect(await checks($, 'agent-4', 'Edit', { file_path: '/home/dev/repo/src/cart.ts' })).toBe('deny')
+    expect(await checks($, 'agent-4', 'Write', { file_path: `/home/dev/repo/${CART}` })).toBe('deny')
+  })
+
+  test('a fix pass whose commit cannot be put on the run\'s branch is left out, and the pull request says so', async ($, on) => {
+    const repo = await built($, on)
+
+    await ends($, repo, 'agent-3', { answer: FOUND, changes: '' })
+    repo.landing.isBehind = true
+    await ends($, repo, 'agent-4', { answer: FIXED })
+
+    expect(repo.github.body).toContain('The fix pass was discarded: checkout-feature moved under it. The findings above stand.')
+  })
+})
+
+describe('the brief of a run that measured its tickets', () => {
+  test('says how long a ticket took, what it changed beside its estimate, and what it left unticked', async ($, on) => {
+    const repo = answerRepo(on, {
+      files: {
+        ...files(),
+        [CART]: ticket('01', 'A cart holds items', [
+          '**Blocked by:** None',
+          '**Status:** ready',
+          '**Touches:** src/cart.ts',
+          '- [x] Items are added\n- [ ] Items are removed',
+        ]),
+      },
+      quota: { short: 20, weekly: 30 },
+    })
+
+    await ship($, 'resume')
+    repo.committed.files = ['src/cart.ts', 'src/price.ts']
+    await repo.clock.advance(12 * 60 * 1000)
+    await ends($, repo, 'agent-1')
+    repo.committed.files = []
+    await ends($, repo, 'agent-2')
+    await ends($, repo, 'agent-3', { answer: CLEAN, changes: '' })
+
+    expect(repo.logged[0]).toMatch(/^checkout: 01 A cart holds items is done \(abc1234\), with 1 of 2 criteria left unticked; /)
+    expect(repo.record('checkout')).toMatchObject({ actual: { '01': ['src/cart.ts', 'src/price.ts'] }, took: { '01': 12 * 60 * 1000 } })
+    expect(repo.github.body.split('\n').slice(2, 4)).toEqual([
+      '- [x] **01 A cart holds items** (abc1234) · 12 min · 2 files changed, 1 outside its Touches: src/price.ts · 1 of 2 criteria left unticked',
+      '- [x] **02 A cart is paid** (abc1235)',
+    ])
+  })
+})
+
+describe('a pull request that is open', () => {
+  const opened = async ($: Engine, on: On) => {
+    const repo = await built($, on)
+
+    await ends($, repo, 'agent-3', { answer: CLEAN, changes: '' })
+    repo.logged.length = 0
+
+    return repo
+  }
+
+  test('is followed up at /ship resume: its failing checks and its comments go to a fresh implementer, in the finishing worktree', async ($, on) => {
+    const repo = await opened($, on)
+
+    repo.github.checks = [{ name: 'test', bucket: 'fail', link: 'https://ci/1' }, { name: 'lint', bucket: 'pass' }]
+    repo.github.inline = [{ user: { login: 'mona' }, path: 'src/cart.ts', line: 14, body: 'This throws on an empty cart.', created_at: '2026-10-12T09:00:00Z' }]
+
+    expect(await ship($, 'resume')).toBe('checkout: the pull request has 1 failing check and 1 comment; following them up on sonnet.')
+    expect(repo.files['.scratch/checkout/followup.md']?.split('\n')).toEqual([
+      `# What the pull request ${URL} has met`,
+      '',
+      '## Failing checks',
+      '',
+      '- test: https://ci/1',
+      '',
+      '## Reviews and comments',
+      '',
+      '### mona, on src/cart.ts:14',
+      '',
+      'This throws on an empty cart.',
+      '',
+    ])
+    expect(repo.spawned[3]).toMatchObject({ subagentType: 'ship-flow:implementer', description: 'Follow up the pull request of checkout', cwd: FINISH })
+    expect(repo.record('checkout')).toMatchObject({ phase: 'finishing', stage: 'follow', agentId: 'agent-4' })
+    expect((await ship($, 'status')).split('\n')[0]).toMatch(/· following up its pull request$/)
+  })
+
+  test('gets what the follow-up pass built: verified, committed, pushed, and said in its body', async ($, on) => {
+    const repo = await opened($, on)
+
+    repo.github.checks = [{ name: 'test', bucket: 'fail' }]
+    await ship($, 'resume')
+    await ends($, repo, 'agent-4', { answer: 'The test check: fixed, an import was missing.' })
+
+    expect(repo.ran.slice(0, 4)).toEqual([
+      'finish> sh -c npm test',
+      'finish> git status --porcelain',
+      'finish> git add -A',
+      'finish> git commit -m checkout: follow-up of the pull request',
+    ])
+    expect(repo.ran).toContain('git push -u origin checkout-feature')
+    expect(repo.github.body).toContain(['## Follow-up', '', 'The follow-up pass was committed as abc1236.', '', 'The test check: fixed, an import was missing.'].join('\n'))
+    expect(repo.logged.at(-1)).toBe(`checkout: the follow-up pass was committed as abc1236; the pull request is up to date: ${URL}.`)
+    expect(repo.record('checkout')).toMatchObject({ phase: 'ended', pr: { head: 'abc1236' } })
+  })
+
+  test('is not followed up twice for the same comment', async ($, on) => {
+    const repo = await opened($, on)
+
+    repo.github.comments = [{ author: { login: 'mona' }, body: 'Rename basket to cart.', createdAt: '1970-01-01T00:00:00.500Z' }]
+    await ship($, 'resume')
+    await ends($, repo, 'agent-4', { answer: 'Renamed.' })
+
+    expect(await ship($, 'resume')).toBe(`checkout: no ticket left to take: 2 of 2 done; nothing new since the pull request: ${URL}.`)
+    expect(repo.spawned).toHaveLength(4)
+  })
+
+  test('with nothing failing and nothing said is left alone', async ($, on) => {
+    const repo = await opened($, on)
+
+    repo.github.checks = [{ name: 'test', bucket: 'pass' }]
+
+    expect(await ship($, 'resume')).toBe(`checkout: no ticket left to take: 2 of 2 done; nothing new since the pull request: ${URL}.`)
+    expect(repo.spawned).toHaveLength(3)
   })
 })
 

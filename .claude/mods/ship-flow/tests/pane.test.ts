@@ -115,7 +115,7 @@ for (const surface of SURFACES) {
         files: {
           ...checkout(),
           [CART]: ticket('01', title, ['**Blocked by:** None', '**Status:** in-progress']),
-          [RECORD]: record({ phase: 'unattended', ticket: 1, attempts: { '01': 2 }, failure: { ticket: 1, reason } }),
+          [RECORD]: record({ phase: 'unattended', attempts: { '01': 2 }, failures: { '01': { reason } } }),
         },
       })
 
@@ -185,7 +185,7 @@ for (const surface of SURFACES) {
       await pane.press({ key: 'resume-checkout' })
 
       expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01'])
-      expect(repo.logged).toEqual(['checkout: building 01 A cart holds items on sonnet, on branch checkout-feature.'])
+      expect(repo.logged).toEqual(['checkout: building 01 A cart holds items on sonnet.'])
       expect(await pane.find({ text: /^building 01$/ })).toBeDefined()
       expect(await pane.find({ text: /● in-progress$/ })).toBeDefined()
       expect(await pane.findAll({ key: 'resume-checkout' })).toEqual([])
@@ -395,3 +395,53 @@ describe('/ship pane', () => {
     expect(opened).toEqual([])
   })
 })
+
+for (const surface of SURFACES) {
+  describe(`the pane's other actions, on the ${surface}`, () => {
+    test('Stop stops a run that is building, as /ship stop does', async ($, on) => {
+      const repo = answerRepo(on, { files: checkout() })
+
+      await ship($, 'resume')
+
+      const pane = await mountPane($, surface)
+
+      await pane.press({ key: 'stop-checkout' })
+
+      expect(repo.record('checkout')).toMatchObject({ phase: 'paused', pause: 'stopped by you' })
+      expect(repo.logged.at(-1)).toMatch(/^checkout: stopped\./)
+      expect(await pane.findAll({ key: 'stop-checkout' })).toEqual([])
+    })
+
+    test('shows no Stop for a run that is not building', async ($, on) => {
+      answerRepo(on, { files: checkout() })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ key: 'stop-checkout' })).toEqual([])
+    })
+
+    test('shows, before the checkpoint, how the run would build the tickets', async ($, on) => {
+      answerRepo(on, { files: { ...checkout(), [RECORD]: record({ phase: 'attended', step: 'tickets' }) } })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: /Schedule \(an estimate\): 2 tickets in 2 waves, up to 3 side by side: 01 · 02/ })).toBeDefined()
+      expect(await pane.find({ text: /Longest chain: 01 → 02/ })).toBeDefined()
+    })
+
+    test('offers to follow up the pull request of a run that has opened one', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done']),
+          [RECORD]: record({ phase: 'ended', pause: 'the pull request is open', pr: { url: 'https://github.com/dev/repo/pull/7', head: 'abc1235' } }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ key: 'resume-checkout', text: /Follow up the pull request/ })).toBeDefined()
+    })
+  })
+}

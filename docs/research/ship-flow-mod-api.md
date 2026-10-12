@@ -32,6 +32,9 @@ object of closures over `$` in `register.ts` and writes every other module again
 - `$.agent.spawn({ subagentType, description, model, prompt })` resolves once the subagent has started, with its
   `agentId`. The subagent's end is a `turn.complete` event carrying that `agentId`, its `reason` (`answer`,
   `aborted`, `refusal`, `error`), its `answer` and its `usage`. (declared)
+- `$.agent.spawn` also takes `cwd`, the directory the subagent runs in, and `$.process.run` takes one in its
+  options. The run uses both to build a ticket in its own git worktree. (declared; in `claude plugin test` the
+  spawn's `cwd` reaches the test's hook; not live)
 - In `claude plugin test` the spawn's answer carries no `agentId`, whatever the test's hook returns, and the test's
   hook receives the spawn spelled as the Agent tool's call (`subagent_type`, `run_in_background`). The run
   therefore also finds its implementer through `$.agent.list()`, by type and running status. (tested)

@@ -1,6 +1,18 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { blockedBy, frontier, parseTicket, problemsOf, withStatus } from '../hooks/tickets'
+import {
+  blockedBy,
+  frontier,
+  lintOf,
+  outsideOf,
+  overlaps,
+  parseTicket,
+  problemsOf,
+  scheduleLines,
+  scheduleOf,
+  takeable,
+  withStatus,
+} from '../hooks/tickets'
 import type { Ticket } from '../hooks/tickets'
 
 const file = (number: string, lines: readonly string[]) =>
@@ -13,6 +25,65 @@ const ticket = (number: number, status: string, blockers: readonly number[] = []
   status,
   blockers,
   criteria: [],
+})
+
+const touching = (number: number, touches: readonly string[], blockers: readonly number[] = []): Ticket => ({
+  ...ticket(number, 'ready', blockers),
+  touches,
+  outward: [],
+  criteria: [{ text: 'It works', isDone: false }],
+})
+
+describe('what is worth putting right in tickets that can run', () => {
+  test('is nothing for a ticket that names its files, its outward actions and a criterion', () => {
+    expect(lintOf([touching(1, ['src/cart.ts'])])).toEqual([])
+  })
+
+  test('is each thing a ticket leaves out, in ticket order', () => {
+    expect(lintOf([ticket(2, 'ready'), { ...touching(1, ['src/cart/', 'docs/']), criteria: [] }])).toEqual([
+      '01 names only folders in Touches (src/cart/, docs/): name the files, or no ticket under them is built beside it',
+      '01 has no acceptance criterion: nothing says when it is built',
+      '02 declares no Touches: it is built alone, beside no other ticket',
+      '02 declares no Outward actions: write None when it has none',
+      '02 has no acceptance criterion: nothing says when it is built',
+    ])
+  })
+})
+
+describe('the schedule of a run, as an estimate', () => {
+  test('takes side by side the tickets that neither wait on each other nor overlap, wave after wave', () => {
+    const tickets = [
+      touching(1, ['src/cart.ts']),
+      touching(2, ['src/pay.ts']),
+      touching(3, ['src/tax.ts'], [1]),
+      touching(4, ['src/cart.ts'], [1, 2]),
+      touching(5, ['src/ship.ts'], [3]),
+    ]
+
+    expect(scheduleOf(tickets, 3)).toEqual({ waves: [[1, 2], [3, 4], [5]], chain: [1, 3, 5] })
+    expect(scheduleLines(tickets, 3)).toEqual([
+      'Schedule (an estimate): 5 tickets in 3 waves, up to 3 side by side: 01, 02 · 03, 04 · 05',
+      'Longest chain: 01 → 03 → 05',
+    ])
+  })
+
+  test('says so when no two tickets go together, and counts only what is left to build', () => {
+    const tickets = [{ ...touching(1, ['src/cart.ts']), status: 'done' }, touching(2, ['src/cart.ts'], [1]), touching(3, ['src/cart.ts'])]
+
+    expect(scheduleLines(tickets, 3)).toEqual([
+      'Schedule (an estimate): 2 tickets in 2 waves, up to 3 side by side: 02 · 03',
+      'No two tickets are built side by side: their Touches overlap, or each waits on the one before.',
+    ])
+  })
+
+  test('is not shown for a single ticket', () => {
+    expect(scheduleLines([touching(1, ['src/cart.ts'])], 3)).toEqual([])
+  })
+})
+
+test('the files a ticket changed outside its estimate are those under none of its Touches', () => {
+  expect(outsideOf(touching(1, ['src/cart/', 'docs/cart.md']), ['src/cart/total.ts', 'docs/cart.md', 'src/price.ts'])).toEqual(['src/price.ts'])
+  expect(outsideOf(ticket(1, 'ready'), ['src/price.ts'])).toEqual([])
 })
 
 describe('a ticket file', () => {
@@ -158,5 +229,49 @@ describe('a ticket graph', () => {
     ]
 
     expect(blockedBy(tickets).map(t => t.number)).toEqual([2, 3, 6])
+  })
+})
+
+describe('the tickets a run builds side by side', () => {
+  const touching = (number: number, touches?: readonly string[], status = 'ready'): Ticket => ({
+    ...ticket(number, status),
+    ...(touches ? { touches } : {}),
+  })
+
+  test('overlap when they declare the same file, or one a folder the other is under', () => {
+    expect(overlaps(touching(1, ['src/cart.ts']), touching(2, ['docs/cart.md', 'src/cart.ts']))).toBe(true)
+    expect(overlaps(touching(1, ['src/cart/']), touching(2, ['src/cart/total.ts']))).toBe(true)
+    expect(overlaps(touching(1, ['src\\cart\\total.ts']), touching(2, ['src/cart/']))).toBe(true)
+    expect(overlaps(touching(1, ['src/cart.ts']), touching(2, ['src/cart.test.ts', 'src/pay/']))).toBe(false)
+    expect(overlaps(touching(1, ['src/cart']), touching(2, ['src/cart-total.ts']))).toBe(false)
+  })
+
+  test('overlap whenever one of them declares nothing: it may touch anything', () => {
+    expect(overlaps(touching(1), touching(2, ['src/pay.ts']))).toBe(true)
+    expect(overlaps(touching(1, []), touching(2, ['src/pay.ts']))).toBe(true)
+  })
+
+  test('are those of the frontier that overlap neither each other nor a ticket being built, in ticket order', () => {
+    const tickets = [
+      touching(1, ['src/cart/'], 'in-progress'),
+      touching(2, ['src/cart/total.ts']),
+      touching(3, ['src/pay.ts']),
+      touching(4, ['src/pay.ts', 'src/tax.ts']),
+      touching(5, ['docs/']),
+      { ...touching(6, ['src/search.ts']), blockers: [3] },
+    ]
+
+    expect(takeable(tickets, [1], 8).map(t => t.number)).toEqual([3, 5])
+  })
+
+  test('are as many as the run has room for, counting those being built', () => {
+    const tickets = [touching(1, ['a.ts'], 'in-progress'), touching(2, ['b.ts']), touching(3, ['c.ts']), touching(4, ['d.ts'])]
+
+    expect(takeable(tickets, [1], 3).map(t => t.number)).toEqual([2, 3])
+    expect(takeable(tickets, [1], 1)).toEqual([])
+  })
+
+  test('are the first of the frontier alone when it declares nothing', () => {
+    expect(takeable([touching(1), touching(2, ['b.ts'])], [], 3).map(t => t.number)).toEqual([1])
   })
 })

@@ -100,7 +100,7 @@ describe('/ship <idea>', () => {
     await ship($, IDEA)
 
     expect(await ship($, 'Another idea')).toBe(
-      `A run is already under way here: let-a-cart-be-paid-by-card. Finish it (/ship resume let-a-cart-be-paid-by-card) or delete ${FOLDER}/ first.`,
+      `A run is already under way here: let-a-cart-be-paid-by-card. Finish it (/ship resume let-a-cart-be-paid-by-card) or remove it (/ship clean let-a-cart-be-paid-by-card) first.`,
     )
     expect(repo.prompts).toHaveLength(1)
   })
@@ -234,10 +234,14 @@ describe('the checkpoint', () => {
     attend(repo)
 
     expect(await ship($, 'resume')).toBe(
-      'let-a-cart-be-paid-by-card: approved, on branch ship/let-a-cart-be-paid-by-card; building 01 A cart holds items on sonnet, on branch ship/let-a-cart-be-paid-by-card.',
+      'let-a-cart-be-paid-by-card: approved, on branch ship/let-a-cart-be-paid-by-card; building 01 A cart holds items on sonnet.',
     )
     expect(repo.branch()).toBe('ship/let-a-cart-be-paid-by-card')
-    expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({ phase: 'unattended', branch: 'ship/let-a-cart-be-paid-by-card', ticket: 1 })
+    expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({
+      phase: 'unattended',
+      branch: 'ship/let-a-cart-be-paid-by-card',
+      flights: [{ ticket: 1, branch: 'ship/let-a-cart-be-paid-by-card--01' }],
+    })
   })
 
   test('approved, commits on that branch what the grilling changed, as the feature\'s first commit', async ($, on) => {
@@ -317,6 +321,13 @@ describe('the blast radius', () => {
   // The run's fixture holds a second ticket that declares nothing, which the block names
   const BLOCK =
     'Blast radius (an estimate): 1 file · 0 dependents · 0 tests\nFiles not declared for 02\nOutward actions not declared for 02\n▲ 01 installs `zod`'
+  // Under it, how the run would build the two: 02 waits on 01
+  const SHOWN = [
+    BLOCK,
+    'Schedule (an estimate): 2 tickets in 2 waves, up to 3 side by side: 01 · 02',
+    'No two tickets are built side by side: their Touches overlap, or each waits on the one before.',
+    'Longest chain: 01 → 02',
+  ].join('\n')
 
   test('/ship status says it under the tickets of a run with declared tickets', async ($, on) => {
     const repo = repoOf(on, { files: {}, branch: 'main', tracked: ['src/cart.ts'] })
@@ -355,11 +366,11 @@ describe('the blast radius', () => {
     declared(repo)
     await turnEnds($)
 
-    expect(repo.logged).toEqual([BLOCK])
-    expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({ radiusShown: BLOCK })
+    expect(repo.logged).toEqual([SHOWN])
+    expect(repo.record('let-a-cart-be-paid-by-card')).toMatchObject({ radiusShown: SHOWN })
 
     await turnEnds($)
-    expect(repo.logged).toEqual([BLOCK])
+    expect(repo.logged).toEqual([SHOWN])
 
     declared(repo, 'src/cart.ts, src/pay.ts')
     await turnEnds($)
@@ -373,7 +384,7 @@ describe('the blast radius', () => {
     await ship($, IDEA)
     attend(repo)
     declared(repo)
-    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record('let-a-cart-be-paid-by-card'), radiusShown: BLOCK })
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record('let-a-cart-be-paid-by-card'), radiusShown: SHOWN })
     await turnEnds($)
 
     expect(repo.logged.filter(line => line.startsWith('Blast radius'))).toEqual([])
@@ -402,6 +413,103 @@ describe('the blast radius', () => {
     await turnEnds($)
 
     expect(repo.logged.filter(line => line.startsWith('Blast radius'))).toEqual([])
+  })
+})
+
+describe('the tickets a run is about to be approved with', () => {
+  const RUN = 'let-a-cart-be-paid-by-card'
+  const whole = (number: string, title: string, blockedBy: string, touches: string) =>
+    ticket(number, title, [`**Blocked by:** ${blockedBy}`, '**Status:** ready', `**Touches:** ${touches}`, '**Outward actions:** None', '- [ ] It works'])
+  // The tickets are written: the model has read the step that says how
+  const written = (repo: Repo) => {
+    repo.files[`${FOLDER}/run.json`] = JSON.stringify({ ...repo.record(RUN), step: 'tickets' })
+  }
+  const turnEnds = async ($: Engine, repo: Repo) => {
+    await $.turn.complete({ answer: 'Here are the tickets.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+    await repo.clock.settle()
+  }
+
+  test('are handed back to the model with what is worth putting right, once', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    attend(repo)
+    repo.files[`${FOLDER}/issues/01-cart.md`] = whole('01', 'A cart holds items', 'None', 'src/cart.ts')
+    written(repo)
+    await turnEnds($, repo)
+
+    expect(repo.prompts).toHaveLength(2)
+    expect(repo.prompts[1]?.split('\n')).toEqual([
+      `The ship-flow run \`${RUN}\` read the tickets in \`${FOLDER}/issues/\` and found this to put right before the person approves.`,
+      '',
+      'These let the run start, and cost it: fix each, or tell the person why it stands as it is.',
+      '- 02 declares no Touches: it is built alone, beside no other ticket',
+      '- 02 declares no Outward actions: write None when it has none',
+      '- 02 has no acceptance criterion: nothing says when it is built',
+      '',
+      'Change the ticket files, then show the person the checkpoint again, as short as the changes allow. Build nothing.',
+    ])
+    expect(repo.logged).toContain(`${RUN}: the tickets have 3 things to put right, and the model is told.`)
+
+    await turnEnds($, repo)
+
+    expect(repo.prompts).toHaveLength(2)
+  })
+
+  test('are handed back with what keeps the run from starting, which /ship resume would refuse', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    repo.files[`${FOLDER}/spec.md`] = spec(['npm test'])
+    repo.files[`${FOLDER}/issues/01-cart.md`] = whole('01', 'A cart holds items', '07', 'src/cart.ts')
+    written(repo)
+    await turnEnds($, repo)
+
+    expect(repo.prompts[1]).toContain(['The run cannot start until these are fixed:', '- 01 is blocked by 07, which does not exist'].join('\n'))
+  })
+
+  test('are left alone when nothing is wrong with them, and while they are still being written', async ($, on) => {
+    const repo = repoOf(on, { files: {}, branch: 'main' })
+
+    await ship($, IDEA)
+    attend(repo)
+    // The step is still the spec's: the tickets on disk are not the model's last word
+    await turnEnds($, repo)
+
+    expect(repo.prompts).toHaveLength(1)
+
+    repo.files[`${FOLDER}/issues/01-cart.md`] = whole('01', 'A cart holds items', 'None', 'src/cart.ts')
+    repo.files[`${FOLDER}/issues/02-pay.md`] = whole('02', 'A cart is paid', '01', 'src/pay.ts')
+    written(repo)
+    await turnEnds($, repo)
+
+    expect(repo.prompts).toHaveLength(1)
+  })
+
+  test('are sized with what the runs this repo has had say of a ticket', async ($, on) => {
+    const repo = repoOf(on, {
+      files: {
+        '.scratch/checkout/spec.md': spec(['npm test']),
+        '.scratch/checkout/issues/01-cart.md': ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done', '**Touches:** src/cart.ts']),
+        '.scratch/checkout/issues/02-pay.md': ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done']),
+        '.scratch/checkout/run.json': JSON.stringify({
+          feature: 'checkout',
+          branch: 'ship/checkout',
+          phase: 'ended',
+          attempts: {},
+          peak: { '01': 40_000, '02': 120_000 },
+          took: { '01': 12 * 60 * 1000 },
+          actual: { '01': ['src/cart.ts', 'src/price.ts'] },
+        }),
+      },
+      branch: 'main',
+    })
+
+    await ship($, IDEA)
+
+    expect(repo.prompts[0]).toContain(
+      '- Sizing the tickets, from the runs this repo has had: Over 2 tickets built here, an implementer filled 40% of a context window at its fullest (the most: 60%); a ticket took 12 min; 0 were stopped as too large; 50% of the files they changed were outside their Touches.',
+    )
   })
 })
 

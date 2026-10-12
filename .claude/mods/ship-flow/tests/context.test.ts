@@ -38,6 +38,9 @@ const ends = async ($: Engine, repo: Repo, agentId: string) => {
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: `turn-of-${agentId}`, agentId, reason: 'answer' } as never)
 }
 
+// The one ticket being built, as the run's record holds it
+const flightOf = (repo: Repo) => (repo.record('checkout').flights as Record<string, unknown>[] | undefined)?.[0]
+
 // The implementer passes its budget and is refused the next thing it calls, then its turn ends
 const outgrows = async ($: Engine, repo: Repo, agentId: string) => {
   await steps($, repo, agentId, 141_000)
@@ -53,7 +56,7 @@ describe('an implementer that outgrows its context budget', () => {
     await steps($, repo, 'agent-1', 139_000)
 
     expect(await edits($, 'agent-1')).toBe('allow')
-    expect(repo.record('checkout').tooLarge).toBeUndefined()
+    expect(flightOf(repo)?.tooLarge).toBeUndefined()
   })
 
   test('is refused every tool from the response that passes it: that is what stops it', async ($, on) => {
@@ -64,7 +67,7 @@ describe('an implementer that outgrows its context budget', () => {
 
     expect(await edits($, 'agent-1')).toBe('deny')
     expect(await edits($, 'agent-1')).toBe('deny')
-    expect(repo.record('checkout')).toMatchObject({ tooLarge: 141_000, isStopped: true })
+    expect(flightOf(repo)).toMatchObject({ ticket: 1, tooLarge: 141_000, isStopped: true })
   })
 
   test('may still hand back its report, which stops nothing: its work is judged as any', async ($, on) => {
@@ -74,7 +77,7 @@ describe('an implementer that outgrows its context budget', () => {
     await steps($, repo, 'agent-1', 141_000)
 
     expect((await $.tool.check({ tool: 'SubagentHandback', input: {}, agentId: 'agent-1', tool_use_id: 'call-1' } as never)).decision).toBe('allow')
-    expect(repo.record('checkout').isStopped).toBeUndefined()
+    expect(flightOf(repo)?.isStopped).toBeUndefined()
   })
 
   test('leaves no commit: its work is discarded and its ticket marked too-large, not tried again', async ($, on) => {
@@ -83,8 +86,8 @@ describe('an implementer that outgrows its context budget', () => {
     await ship($, 'resume')
     await outgrows($, repo, 'agent-1')
 
-    expect(repo.ran.slice(0, 2)).toEqual(['git reset --hard HEAD', 'git clean -fd'])
-    expect(repo.ran.some(line => line.startsWith('git commit'))).toBe(false)
+    expect(repo.ran[0]).toBe('git worktree remove --force /home/dev/repo/.scratch/checkout/trees/01')
+    expect(repo.ran.some(line => line.includes('git commit') || line.startsWith('git merge'))).toBe(false)
     expect(repo.statusOf(CART)).toBe('too-large')
     expect(repo.spawned.filter(agent => agent.description === 'Build ticket 01')).toHaveLength(1)
   })
@@ -98,7 +101,7 @@ describe('an implementer that outgrows its context budget', () => {
     expect(repo.statusOf(PAY)).toBe('blocked')
     expect(repo.statusOf(TAX)).toBe('in-progress')
     expect(repo.logged).toEqual([
-      'checkout: 01 A cart holds items was stopped at 71% of a context window and is marked too-large: split it; building 03 Tax is added on sonnet, on branch checkout-feature.',
+      'checkout: 01 A cart holds items was stopped at 71% of a context window and is marked too-large: split it; building 03 Tax is added on sonnet.',
     ])
   })
 
@@ -109,7 +112,8 @@ describe('an implementer that outgrows its context budget', () => {
     await outgrows($, repo, 'agent-1')
 
     expect(await edits($, 'agent-2')).toBe('allow')
-    expect(repo.record('checkout').tooLarge).toBeUndefined()
+    expect(flightOf(repo)).toMatchObject({ ticket: 3 })
+    expect(flightOf(repo)?.tooLarge).toBeUndefined()
   })
 
   test('/ship status says the ticket is too large and to split it', async ($, on) => {

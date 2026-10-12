@@ -39,6 +39,12 @@
       "title": "Context budget of a ticket (%)",
       "description": "An implementer that has filled this share of a 200,000-token context window is stopped, and its ticket marked too-large.",
       "default": 70
+    },
+    "parallelTickets": {
+      "type": "number",
+      "title": "Tickets built at once",
+      "description": "How many tickets the run builds side by side, each in a git worktree of its own, from 1 to 8. Only tickets whose Touches do not overlap are built together.",
+      "default": 3
     }
   }
 }

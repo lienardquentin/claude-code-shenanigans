@@ -12,4 +12,5 @@ is enforced by code that reads `$.session.usage()` rather than by an instruction
 
 - The loop's logic is TypeScript under test, not prose in a skill, so changing the flow means changing code.
 - The model cannot improvise mid-run: a ticket that fails twice is marked `blocked` and the run goes on without it.
-- Tickets run one at a time on the feature branch; running them in parallel would need worktrees and a merge step.
+- Tickets ran one at a time on the feature branch; running them in parallel needed worktrees and a merge step, which
+  [0004](0004-tickets-are-built-in-worktrees-side-by-side.md) adds.

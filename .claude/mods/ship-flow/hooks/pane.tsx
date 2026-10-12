@@ -12,7 +12,7 @@ import type { Reading } from './radius'
 import type { RunRecord } from './run'
 import { notesOf, problemText, standingOf } from './status'
 import type { Folder } from './status'
-import { frontier, label, problemsOf } from './tickets'
+import { frontier, label, problemsOf, scheduleLines } from './tickets'
 
 /** The pane's id, and its title. */
 export const PANE = 'ship-flow'
@@ -47,6 +47,7 @@ const runCard = (
   width: number,
   settings: Settings,
   onResume: (feature: string) => void,
+  onStop: (feature: string) => void,
   reading: Reading | undefined,
 ): RenderElement => {
   const problems = problemsOf(tickets)
@@ -65,7 +66,13 @@ const runCard = (
   const hasRadius = record?.phase !== 'ended'
   const block = blockOf(tickets, reading)
   const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
-  const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0)
+  // A run whose pull request is open and whose tickets leave nothing to take follows up what the pull request has met
+  const canFollow = !isBuilding(record) && record?.pr !== undefined && takeable.size === 0
+  const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0 || canFollow)
+  // A run waiting on the quota goes on by itself, so it too can be stopped
+  const canStop = isBuilding(record) || (record?.phase === 'paused' && record.resumeAt !== undefined)
+  // Before the checkpoint, how the run would build the tickets it is about to be approved with
+  const schedule = record?.phase === 'attended' && problems.length === 0 ? scheduleLines(tickets, settings.parallelTickets) : []
 
   return card({
     width,
@@ -113,13 +120,24 @@ const runCard = (
                     ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),
                   ]
                 : []),
+              ...schedule.map(line => tonedText({ text: line, tone: 'info' })),
             ]
           : []),
       ...quota,
       ...(canResume
         ? [
             <Button key={`resume-${feature}`} onPress={() => onResume(feature)}>
-              {actionLabel({ text: record?.phase === 'attended' ? 'Approve and build' : 'Resume', primary: true })}
+              {actionLabel({
+                text: record?.phase === 'attended' ? 'Approve and build' : canFollow ? 'Follow up the pull request' : 'Resume',
+                primary: true,
+              })}
+            </Button>,
+          ]
+        : []),
+      ...(canStop
+        ? [
+            <Button key={`stop-${feature}`} onPress={() => onStop(feature)}>
+              {actionLabel({ text: 'Stop' })}
             </Button>,
           ]
         : []),
@@ -140,11 +158,12 @@ export const paneOf = (
     width: number
     settings: Settings
     onResume: (feature: string) => void
+    onStop: (feature: string) => void
     onRefresh: () => void
   },
 ): RenderElement => {
   const { Box, Button } = elements
-  const { folders, reading, width, settings, onResume, onRefresh } = given
+  const { folders, reading, width, settings, onResume, onStop, onRefresh } = given
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -154,7 +173,7 @@ export const paneOf = (
             title: 'ship-flow',
             children: [tonedText({ text: 'No run in this repo. Start one with /ship <idea> or /ship #<issue>.' })],
           })
-        : folders.map(folder => runCard(elements, folder, width, settings, onResume, reading))}
+        : folders.map(folder => runCard(elements, folder, width, settings, onResume, onStop, reading))}
       {divider()}
       <Button key="refresh" onPress={onRefresh}>
         {actionLabel({ text: 'Refresh' })}

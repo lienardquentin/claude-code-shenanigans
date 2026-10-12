@@ -47,7 +47,11 @@ export const answerRepo = (
   const notified: string[] = []
   const files: Record<string, string> = { ...given.files }
   const ran: string[] = []
-  const spawned: { subagentType: string; description: string; model?: string; prompt: string }[] = []
+  // The folders the mod listed, in order: what reading the runs costs is counted in these
+  const listed: string[] = []
+  const spawned: { subagentType: string; description: string; model?: string; prompt: string; cwd?: string }[] = []
+  // How a ticket's commit finds the run's branch: moved by a ticket built beside it, and whether the two conflict
+  const landing = { isBehind: false, conflicts: false, failsToPlant: false }
   const logged: string[] = []
   const state = { porcelain: given.porcelain ?? '', commits: 0, branch: given.branch ?? 'checkout-feature' }
   // How full the main conversation's window is, in percent
@@ -62,7 +66,14 @@ export const answerRepo = (
     base: string
     failsToPush: boolean
     failsToOpen: boolean
-  } = { issues: [], body: '', title: '', base: '', failsToPush: false, failsToOpen: false }
+    /** What the pull request has met: its checks, its reviews, its comments, and the comments on its diff. */
+    checks: { name: string; bucket: string; link?: string }[]
+    reviews: { author: { login: string }; body: string; state: string; submittedAt: string }[]
+    comments: { author: { login: string }; body: string; createdAt: string }[]
+    inline: { user: { login: string }; path: string; line: number; body: string; created_at: string }[]
+  } = { issues: [], body: '', title: '', base: '', failsToPush: false, failsToOpen: false, checks: [], reviews: [], comments: [], inline: [] }
+  // The files a ticket's commit changed, as `git diff --name-only` lists them
+  const committed: { files: string[] } = { files: [] }
   const exits: Record<string, number> = { ...given.exits }
   const gitReads = { fails: false }
   const isDir = (path: string) => Object.keys(files).some(file => file.startsWith(`${path}/`))
@@ -81,6 +92,8 @@ export const answerRepo = (
   })
   on('fs.list', (_, e) => {
     const dir = inRepo(e.path)
+
+    listed.push(dir)
     const names = new Set(
       Object.keys(files)
         .filter(file => file.startsWith(`${dir}/`))
@@ -99,11 +112,24 @@ export const answerRepo = (
   })
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
+    // A command run in a ticket's worktree is told from one run in the repo itself by the ticket's label before it
+    const tree = /\/trees\/([^/]+)$/.exec((e.init?.cwd ?? '').replaceAll('\\', '/'))?.[1]
 
-    ran.push(line)
+    ran.push(tree !== undefined ? `${tree}> ${line}` : line)
+    if (e.argv[0] === 'rm' && e.argv[1] === '-rf') {
+      for (const file of Object.keys(files)) if (file.startsWith(`${e.argv[2]}/`)) delete files[file]
+
+      return exited(0) as never
+    }
     if (e.argv[0] === 'gh') {
       // GitHub, as its CLI answers: the branch's pull request, once one was opened
       const body = e.init?.stdin ?? ''
+
+      if (e.argv[1] === 'pr' && e.argv[2] === 'checks') return exited(github.checks.some(check => check.bucket === 'fail') ? 1 : 0, JSON.stringify(github.checks)) as never
+      if (e.argv[1] === 'api') return exited(0, JSON.stringify(github.inline)) as never
+      if (e.argv[1] === 'pr' && e.argv[2] === 'view' && e.argv.at(-1) === 'reviews,comments') {
+        return exited(0, JSON.stringify({ reviews: github.reviews, comments: github.comments })) as never
+      }
 
       if (e.argv[1] === 'issue' && e.argv[2] === 'view') {
         const issue = given.issues?.[Number(e.argv[3])]
@@ -151,13 +177,25 @@ export const answerRepo = (
     if (line === 'git rev-parse --abbrev-ref HEAD') return exited(0, `${state.branch}\n`) as never
     if (e.argv[1] === 'checkout') state.branch = e.argv.at(-1) ?? state.branch
     // Each commit has a name of its own: the first the run makes is abc1234
-    if (line === 'git rev-parse --short HEAD') return exited(0, `abc${1233 + state.commits}\n`) as never
+    if (e.argv[1] === 'rev-parse' && e.argv[2] === '--short') return exited(0, `abc${1233 + state.commits}\n`) as never
+    if (e.argv[1] === 'diff' && e.argv[2] === '--name-only') return exited(0, committed.files.map(file => `${file}\n`).join('')) as never
+    // A worktree is a folder that holds a `.git` file, for as long as it is not removed
+    if (e.argv[1] === 'worktree' && e.argv[2] === 'add' && !landing.failsToPlant) files[`${inRepo(e.argv[5] ?? '')}/.git`] = 'gitdir: elsewhere\n'
+    if (e.argv[1] === 'worktree' && e.argv[2] === 'remove') {
+      for (const file of Object.keys(files)) if (file.startsWith(`${inRepo(e.argv[4] ?? '')}/`)) delete files[file]
+    }
     if (e.argv[1] === 'symbolic-ref') return exited(0, 'origin/main\n') as never
     if (e.argv[1] === 'rev-list') return exited(0, `${(given.ahead ?? 0) + state.commits}\n`) as never
     if (e.argv[1] === 'push') return (github.failsToPush ? exited(1, '', 'remote: Permission denied') : exited(0)) as never
+    if (e.argv[1] === 'worktree' && e.argv[2] === 'add' && landing.failsToPlant) return exited(128, '', 'fatal: could not create work tree dir') as never
+    if (e.argv[1] === 'merge-base') return exited(landing.isBehind ? 1 : 0) as never
+    if (e.argv[1] === 'rebase' && e.argv[2] !== '--abort') {
+      if (landing.conflicts) return exited(1, 'CONFLICT (content): Merge conflict in src/cart.ts') as never
+      landing.isBehind = false
+    }
     if (e.argv[1] === 'commit') state.commits += 1
-    // A commit and a discard both leave the working tree clean
-    if (e.argv[1] === 'commit' || e.argv[1] === 'reset') state.porcelain = ''
+    // A commit and a discard both leave the working tree clean, and a worktree that is removed takes its changes with it
+    if (e.argv[1] === 'commit' || e.argv[1] === 'reset' || (e.argv[1] === 'worktree' && e.argv[2] === 'remove')) state.porcelain = ''
 
     return exited(0) as never
   })
@@ -234,13 +272,14 @@ export const answerRepo = (
   )
   // Beneath the plugins a spawn is the Agent tool's call, in that tool's own spelling
   on('agent.spawn', (_, e) => {
-    const call = e as unknown as { subagent_type: string; description: string; prompt: string; model?: string }
+    const call = e as unknown as { subagent_type: string; description: string; prompt: string; model?: string; cwd?: string }
 
     spawned.push({
       subagentType: call.subagent_type,
       description: call.description,
       prompt: call.prompt,
       ...(call.model ? { model: call.model } : {}),
+      ...(call.cwd ? { cwd: call.cwd } : {}),
     })
 
     return { model: call.model ?? 'inherit' } as never
@@ -257,6 +296,7 @@ export const answerRepo = (
   return {
     files,
     ran,
+    listed,
     spawned,
     logged,
     notified,
@@ -265,10 +305,15 @@ export const answerRepo = (
     compacted,
     /** How full the main conversation's window is, in percent: a test raises it. */
     context,
-    /** The branch the repo is on now. */
+    /** The branch the repo is on now, and the person checking out another. */
     branch: () => state.branch,
+    switchTo: (branch: string) => {
+      state.branch = branch
+    },
     /** GitHub as the mod left it: the branch's pull request, its title, base and body; and what a test makes fail. */
     github,
+    /** The files the commit a ticket's work is made into changed: a test names them. */
+    committed,
     /** The turns the mod stopped, by id. */
     aborted,
     /** How full a subagent's context is at its next response, in tokens: a test raises it. */
@@ -281,7 +326,9 @@ export const answerRepo = (
     quota: quota as { short: number; weekly?: number; resetsAt: string },
     /** The exit code of each verification command, by its text: a test changes one between attempts. */
     exits,
-    /** What the implementer leaves in the working tree, as `git status --porcelain` then prints it. */
+    /** How a ticket's commit finds the run's branch: a test moves the branch under it, or makes the two conflict. */
+    landing,
+    /** What the agent at work leaves in its working tree, as `git status --porcelain` then prints it. */
     change: (porcelain: string) => {
       state.porcelain = porcelain
     },

@@ -9,17 +9,21 @@ export type Host = {
   write: (path: string, text: string) => Promise<void>
   /** The entries of a directory: each one's name, and whether it is a directory. */
   list: (path: string) => Promise<readonly { name: string; isDir: boolean }[]>
-  /** Runs a command by its arguments, with no shell; `stdin` is written to it. A command that cannot start rejects. */
+  /**
+   * Runs a command by its arguments, with no shell, in `cwd` or else where the session is; `stdin` is written to
+   * it. A command that cannot start rejects.
+   */
   run: (
     argv: readonly string[],
-    init?: { timeoutMs?: number; stdin?: string },
+    init?: { timeoutMs?: number; stdin?: string; cwd?: string },
   ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
-  /** Starts a subagent; resolves once it started, with its id, or with why it did not. */
+  /** Starts a subagent, in `cwd` or else where the session is; resolves once it started, with its id, or with why it did not. */
   spawn: (agent: {
     subagentType: string
     description: string
     model: string
     prompt: string
+    cwd?: string
   }) => Promise<{ agentId?: string; model?: string; deny?: string }>
   /** The session's agents, oldest first: each one's id, its type, and whether its loop is running now. */
   agents: () => Promise<readonly { id: string; type: string; isRunning: boolean }[]>
@@ -30,6 +34,8 @@ export type Host = {
   }>
   now: () => Promise<number>
   cwd: () => Promise<string>
+  /** The repo's root, absolute: what the run's own paths are under, its worktrees among them. */
+  repo: () => Promise<string>
   /** The mod's own folder, absolute: where the texts it points the model at are. */
   root: string
   /** Hands the model a prompt as a turn of its own, once the session is idle. */
