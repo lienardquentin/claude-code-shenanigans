@@ -3,6 +3,8 @@ import type { EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { card } from './kit/card'
 import { code } from './kit/code'
+import { actionLabel } from './kit/action-label'
+import { pagination } from './kit/pagination'
 
 const PANE = 'termaid-view'
 
@@ -11,6 +13,8 @@ type Engine = EngineInterface
 // The Mermaid source of each diagram of the main conversation, in the order written, and the one the pane shows
 const diagrams = atom({ plugin: 'termaid-view', key: 'diagrams' } as const, [] as string[])
 const shown = atom({ plugin: 'termaid-view', key: 'shown' } as const, 0)
+// Whether the Mermaid source is shown in place of the drawing; it stays as set while paging
+const isSource = atom({ plugin: 'termaid-view', key: 'isSource' } as const, false)
 
 // The one place termaid's version is fixed: the code `uvx` fetches and runs changes only when this does
 const TERMAID_VERSION = '0.5.0'
@@ -132,7 +136,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Text } = $.ui.resolve(e)
+    const { Text, Button } = $.ui.resolve(e)
     const list = await read($, diagrams)
     const at = Math.min(await read($, shown), Math.max(list.length - 1, 0))
     const current = list[at]
@@ -162,6 +166,8 @@ export const register: Register = on => {
         </Text>,
         code({ source: current, plain: true }),
       ]
+    } else if (await read($, isSource)) {
+      body = [code({ source: current })]
     } else if (known === undefined || known.status === 'rendering') {
       body = [
         <Text key="rendering" color="subtle">
@@ -190,11 +196,35 @@ export const register: Register = on => {
       ]
     }
 
+    // Only the terminal can show a drawing, so only there is there a view to switch to
+    const showsSource = await read($, isSource)
+    const controls: RenderElement[] =
+      current === undefined
+        ? []
+        : [
+            ...(isTerminal
+              ? [
+                  <Button key="toggle-source" onPress={() => update($, isSource, value => !value)}>
+                    {actionLabel({ text: showsSource ? 'Show drawing' : 'Show source' })}
+                  </Button>,
+                ]
+              : []),
+            // Paging stays inside the list: the pager draws no button that would leave it
+            pagination({
+              key: 'page',
+              current: at + 1,
+              pageCount: list.length,
+              Button,
+              onPrevious: () => update($, shown, () => Math.max(0, at - 1)),
+              onNext: () => update($, shown, () => Math.min(list.length - 1, at + 1)),
+            }),
+          ]
+
     return card({
       width,
       title: 'Mermaid diagrams',
       meta: current === undefined ? undefined : `${at + 1} of ${list.length}`,
-      children: body,
+      children: [...body, ...controls],
     })
   })
 }

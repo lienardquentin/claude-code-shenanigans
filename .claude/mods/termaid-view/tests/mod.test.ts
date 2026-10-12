@@ -378,6 +378,119 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /A --> B/ })).toBeDefined()
   })
 
+  const three = (on: On) => {
+    conversation(on, [reply(fence('graph TD\n  ONE --> B')), reply(fence('graph TD\n  TWO --> B')), reply(fence('graph TD\n  THREE --> B'))])
+    answerOpen(on)
+
+    return answerUvx(on, stdin => `drawn ${/\w+(?= -->)/.exec(stdin)?.[0] ?? ''}`)
+  }
+
+  test('previous and next walk through the diagrams and stop at the ends', async ($, on) => {
+    three(on)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /3 of 3/ })).toBeDefined()
+    expect(await pane.find({ key: 'page-next' })).toBeUndefined()
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /2 of 3/ })).toBeDefined()
+    expect(await pane.find({ text: /TWO/ })).toBeDefined()
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /1 of 3/ })).toBeDefined()
+    expect(await pane.find({ key: 'page-previous' })).toBeUndefined()
+
+    await pane.press({ key: 'page-next' })
+    await settle()
+    expect(await pane.find({ text: /2 of 3/ })).toBeDefined()
+  })
+
+  test('paging to a diagram never shown renders it once; paging back renders nothing', async ($, on) => {
+    const runs = three(on)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    expect(runs).toHaveLength(1)
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(runs).toHaveLength(2)
+
+    await pane.press({ key: 'page-next' })
+    await settle()
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(runs).toHaveLength(2)
+  })
+
+  test('a new diagram at the end of a turn moves the pane to it, whatever was shown', async ($, on) => {
+    const held = conversation(on, [reply(fence('graph TD\n  ONE --> B')), reply(fence('graph TD\n  TWO --> B'))])
+    answerOpen(on)
+    answerUvx(on)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /1 of 2/ })).toBeDefined()
+
+    held.main = [...held.main, reply(fence('graph TD\n  NEW --> B'))]
+    await ends($)
+    await settle()
+
+    expect(await pane.find({ text: /3 of 3/ })).toBeDefined()
+    expect(await pane.find({ text: /NEW/ })).toBeDefined()
+  })
+
+  test('Show source swaps the drawing for the source and back, with no process run, and stays while paging', async ($, on) => {
+    const runs = three(on)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    expect(await pane.find({ text: /drawn THREE/ })).toBeDefined()
+    expect(await pane.find({ text: /Show source/ })).toBeDefined()
+    expect(runs).toHaveLength(1)
+
+    await pane.press({ key: 'toggle-source' })
+    await settle()
+    expect(await pane.find({ text: /THREE --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /drawn THREE/ })).toBeUndefined()
+    expect(await pane.find({ text: /Show drawing/ })).toBeDefined()
+    expect(runs).toHaveLength(1)
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /TWO --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /Show drawing/ })).toBeDefined()
+
+    await pane.press({ key: 'toggle-source' })
+    await settle()
+    expect(await pane.find({ text: /drawn TWO/ })).toBeDefined()
+    expect(await pane.find({ text: /Show source/ })).toBeDefined()
+  })
+
+  test('off the terminal paging works and the toggle is not shown', async ($, on) => {
+    three(on)
+
+    await termaid($)
+    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    await settle()
+
+    expect(await pane.find({ key: 'toggle-source' })).toBeUndefined()
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /2 of 3/ })).toBeDefined()
+    expect(await pane.find({ text: /TWO --> B/ })).toBeDefined()
+  })
+
   test('a session with no diagram opens on an empty state', async ($, on) => {
     conversation(on, [reply('Just words.')])
     answerOpen(on)
