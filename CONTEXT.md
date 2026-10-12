@@ -1,6 +1,6 @@
 # Claude Code Shenanigans
 
-Personal Claude Code mods. The mermaid mod shows diagrams in a pane and lets the reader act on their nodes.
+Personal Claude Code mods. The workflow mod takes one feature from an idea or an issue to a pull request.
 
 ## Language
 
@@ -11,26 +11,6 @@ _Avoid_: Extension, add-on
 **Surface**:
 Where a session is drawn: the terminal, the desktop app, VS Code or mobile. Each draws a different set of elements.
 _Avoid_: Client, platform, frontend
-
-**Diagram**:
-One Mermaid source shown in the pane as nodes and edges.
-_Avoid_: Chart, graph, figure
-
-**Node**:
-A box in a diagram that stands for one thing and has a label.
-_Avoid_: Vertex, box, item
-
-**Click directive**:
-A Mermaid `click` line in the diagram's own source that attaches a link or a file to a node.
-_Avoid_: Link, hyperlink
-
-**Selected node**:
-The node the reader last clicked: highlighted, with its connections listed in the details area.
-_Avoid_: Active node, focused node
-
-**Fallback view**:
-How a diagram is shown on a surface that cannot draw clickable nodes itself: a still picture plus a button per node.
-_Avoid_: Degraded mode
 
 **Run**:
 One feature taken from an idea or an existing issue to a pull request by the workflow mod.
@@ -79,7 +59,3 @@ _Avoid_: Session usage, token limit
 **Quota**:
 The plan's usage allowance that a run spends, by time window.
 _Avoid_: Session usage, rate limit, credits
-
-**Terminal guide**:
-The pane section that names the recommended terminals per operating system and says what the current terminal can do.
-_Avoid_: Compatibility list

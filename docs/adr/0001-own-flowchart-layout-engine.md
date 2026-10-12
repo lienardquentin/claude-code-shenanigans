@@ -1,5 +1,8 @@
 # The mermaid-view mod parses and lays out flowcharts itself
 
+**Status: retired.** The `mermaid-view` mod was removed from the repo on 2026-10-12. This record is kept for its
+reasoning.
+
 `mermaid-view` reads Mermaid flowcharts and lays them out with its own code instead of using the official Mermaid
 renderer. The official one needs Node and a headless browser (neither is available to a mod, which runs without a
 DOM or Node), and it returns a finished picture with no node positions; clicking a node, highlighting its edges and
