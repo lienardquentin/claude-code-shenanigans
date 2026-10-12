@@ -15,13 +15,14 @@ const statusOf = (head: string, ...entries: string[]) =>
 /** Stands for the session beneath the mod; a test reads back the text handed to the status call. */
 const answerSession = (
   on: On,
-  given: { cwd?: string; model?: string; percent?: number | undefined } = {},
+  given: { cwd?: string; model?: string; percent?: number | undefined; columns?: number | undefined } = {},
 ) => {
   const clock = mock.clock(on, { now: 1000 })
   const session = {
     cwd: given.cwd ?? '/home/dev/claude',
     model: given.model ?? 'Opus 5.5',
     percent: 'percent' in given ? given.percent : 42,
+    columns: given.columns,
   }
   const shown: (string | undefined)[] = []
   // How long the next read of the usage figures takes to answer: a test holds it to overlap two redraws
@@ -44,6 +45,13 @@ const answerSession = (
   const git: { answer: GitAnswer; runs: GitRun[] } = { answer: { exitCode: 128, stdout: '' }, runs: [] }
 
   on('process.run', (_, e) => {
+    // The terminal's size, as `stty size` prints it: rows then columns; it fails where the width is not known
+    if (e.argv[0] === 'stty') {
+      const answer = session.columns === undefined ? { exitCode: 1, stdout: '' } : { exitCode: 0, stdout: `24 ${session.columns}\n` }
+
+      return { value: { ...answer, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    }
+
     git.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
 
     if ('fails' in git.answer) throw new Error(git.answer.fails)
@@ -232,6 +240,72 @@ describe('the redraws', () => {
     await first
 
     expect(host.shown).toEqual(['claude · Opus 5.5 · 42%'])
+  })
+})
+
+describe('a narrow terminal', () => {
+  // 'claude · main · Opus 5.5 · 42%' is 30 columns
+  const full = async (columns: number | undefined, on: On, given: Parameters<typeof answerSession>[1] = {}) => {
+    const host = answerSession(on, { ...given, columns })
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+
+    return host
+  }
+
+  for (const [columns, text] of [
+    [80, 'claude · main · Opus 5.5 · 42%'],
+    [30, 'claude · main · Opus 5.5 · 42%'],
+    [29, 'claude · main · 42%'],
+    [19, 'claude · main · 42%'],
+    [18, 'claude · 42%'],
+    [12, 'claude · 42%'],
+    [11, '42%'],
+    [3, '42%'],
+    [1, '42%'],
+  ] as const) {
+    test(`at ${columns} columns reads ${text}`, async ($, on) => {
+      const host = await full(columns, on)
+
+      await starts($)
+
+      expect(host.line()).toBe(text)
+    })
+  }
+
+  test('follows the width at each redraw', async ($, on) => {
+    const host = await full(29, on)
+
+    await starts($)
+    host.session.columns = 80
+    await callsATool($)
+
+    expect(host.line()).toBe('claude · main · Opus 5.5 · 42%')
+  })
+
+  test('skips a branch and a model that are already absent', async ($, on) => {
+    const host = answerSession(on, { model: '', columns: 8 })
+
+    await starts($)
+
+    expect(host.line()).toBe('42%')
+  })
+
+  test('skips a model that is absent before dropping the branch', async ($, on) => {
+    const host = answerSession(on, { model: '', columns: 19 })
+
+    host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await starts($)
+
+    expect(host.line()).toBe('claude · main · 42%')
+  })
+
+  test('pins the full line when the width is not known', async ($, on) => {
+    const host = await full(undefined, on)
+
+    await starts($)
+
+    expect(host.line()).toBe('claude · main · Opus 5.5 · 42%')
   })
 })
 

@@ -4,6 +4,7 @@ const SEPARATOR = ' · '
 const INTERVAL_MS = 10_000
 const GIT_TIMEOUT_MS = 2_000
 const NAME_LIMIT = 32
+const STTY_TIMEOUT_MS = 500
 
 // A redraw that would start while another is still running is skipped
 let isDrawing = false
@@ -57,9 +58,40 @@ const branchIn = async ($: EngineInterface, cwd: string): Promise<string | undef
   }
 }
 
-// The line: folder, branch, model and context fill, each left out with its separator when it has nothing to say
-const lineOf = (segments: readonly (string | undefined)[]): string | undefined => {
-  const line = segments.filter(segment => segment !== undefined && segment !== '').join(SEPARATOR)
+// The terminal's width in columns, or undefined when it is not known.
+//
+// The plugin typings give a hook no width where the line is composed: `viewport.columns` rides only on render
+// events and on `session.attach`, which the terminal never raises, and `session.start`, `tool.call`,
+// `turn.complete` and the clock carry none. So the width is asked of the terminal itself with `stty size`
+// (rows then columns). A hook has no terminal of its own, so in a real session this fails and the width stays
+// unknown: the full line is pinned and the engine cuts it. A host that answers it gets a line cut to fit.
+const columnsOf = async ($: EngineInterface): Promise<number | undefined> => {
+  try {
+    const run = await $.process.run(['stty', 'size'], { timeoutMs: STTY_TIMEOUT_MS })
+    const columns = Number(run.exitCode === 0 ? run.stdout.trim().split(/\s+/)[1] : undefined)
+
+    return Number.isInteger(columns) && columns > 0 ? columns : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// The line: folder, branch, model and context fill, each left out with its separator when it has nothing to say.
+// Given a width, whole segments are dropped until it fits: model, then branch, then folder; the fill stays.
+const lineOf = (segments: readonly (string | undefined)[], columns?: number): string | undefined => {
+  const [folder, branch, model, fill] = segments
+  const kept = { folder, branch, model }
+  const joined = () =>
+    [kept.folder, kept.branch, kept.model, fill].filter(segment => segment !== undefined && segment !== '').join(SEPARATOR)
+
+  if (columns !== undefined) {
+    for (const name of ['model', 'branch', 'folder'] as const) {
+      if (Array.from(joined()).length <= columns) break
+      kept[name] = undefined
+    }
+  }
+
+  const line = joined()
 
   return line === '' ? undefined : line
 }
@@ -78,7 +110,9 @@ const redraw = async ($: EngineInterface): Promise<void> => {
 
     const branch = await branchIn($, cwd)
 
-    $.ui.status(lineOf([folderOf(cwd), branch, model, fillOf(usage?.context.percent)]))
+    const columns = await columnsOf($)
+
+    $.ui.status(lineOf([folderOf(cwd), branch, model, fillOf(usage?.context.percent)], columns))
   } catch {
     // The line stays as it was until the next redraw
   } finally {
