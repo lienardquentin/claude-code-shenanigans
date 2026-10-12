@@ -3,9 +3,9 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { Settings } from './budget'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
+import type { Tone as CellTone } from './kit/badge'
 import { card } from './kit/card'
 import { divider } from './kit/divider'
-import type { CellTone } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import { DEPENDENTS_UNREAD, OUTWARD_MARK, blockOf, radiusOf, rowText } from './radius'
 import type { Reading } from './radius'
@@ -110,7 +110,8 @@ const runCard = (
                 ? [
                     tonedText({ text: block.totals, tone: 'info' }),
                     ...(isUnread ? [tonedText({ text: DEPENDENTS_UNREAD, tone: 'warning' })] : []),
-                    ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),                  ]
+                    ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),
+                  ]
                 : []),
             ]
           : []),

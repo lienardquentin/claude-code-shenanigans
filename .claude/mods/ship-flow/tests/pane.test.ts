@@ -314,7 +314,7 @@ for (const surface of SURFACES) {
       expect(await pane.findAll({ text: /installs `zod`/ })).toEqual([])
     })
 
-    test('shows how many criteria of a ticket are ticked, on a run that has ended as well', async ($, on) => {
+    test('shows how many criteria of a ticket are ticked', async ($, on) => {
       const criteria = ['- [x] One', '- [x] Two', '- [ ] Three']
 
       answerRepo(on, {

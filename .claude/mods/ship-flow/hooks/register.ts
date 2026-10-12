@@ -25,7 +25,6 @@ const USAGE = [
   '  /ship pane              the same, live, in a pane',
 ].join('\n')
 
-// The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
 // A path the run keeps, under the repo's root: the session may have been started in a folder below it
 const where = async ($: EngineInterface, path: string) =>
   underRoot(
@@ -37,6 +36,7 @@ const where = async ($: EngineInterface, path: string) =>
     path,
   )
 
+// The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
 const hostOf = ($: EngineInterface): Host => ({
   exists: async path => $.fs.exists(await where($, path)),
   read: async path => $.fs.read(await where($, path)),
