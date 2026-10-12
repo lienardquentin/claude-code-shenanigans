@@ -105,6 +105,32 @@ claude plugin marketplace add <path to this clone>/.claude/mods/termaid-view
 claude plugin install termaid-view@termaid-view-mods
 ```
 
+### `status-line`
+
+One plain-text line under the prompt, with the four things worth knowing and nothing else. It lives in
+[`.claude/mods/status-line`](.claude/mods/status-line).
+
+```
+claude · main* · Opus 5.5 · 42%
+```
+
+- The folder: the last component of the session's working directory.
+- The git branch, with a `*` when the tree is dirty (untracked files included); a short commit hash on a detached
+  HEAD; a name over 32 characters cut in the middle. Gone outside a git repo.
+- The model, as `/model` shows it.
+- The context fill, a bare percentage, marked `!` from 60% and `!!` from 85%. Left out until there is a figure.
+- A segment with nothing to say is left out with its separator. In a narrow terminal the model goes first, then the
+  branch, then the folder; the context fill stays.
+- Redrawn at session start, after every tool call, when a turn completes, and every 10 seconds.
+- No command and no option: disabling the plugin is the off switch.
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/status-line
+claude plugin install status-line@status-line-mods
+```
+
 ### `timeline-view`
 
 A pane that draws what a session did over time. It lives in [`.claude/mods/timeline-view`](.claude/mods/timeline-view).

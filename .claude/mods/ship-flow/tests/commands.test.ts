@@ -71,7 +71,8 @@ describe('/ship stop', () => {
 
     expect(await checks($, 'agent-1', 'Read', { file_path: 'src/cart.ts' })).toBe('deny')
     expect(await checks($, 'agent-1', 'Bash', { command: 'npm test' })).toBe('deny')
-    expect(await checks($, 'agent-1', 'SubagentHandback', {})).toBe('allow')
+    // Not the run's to decide: the session's own answer stands, which the test engine gives as `ask`
+    expect(await checks($, 'agent-1', 'SubagentHandback', {})).toBe('ask')
 
     await ends($, repo, 'agent-1')
 

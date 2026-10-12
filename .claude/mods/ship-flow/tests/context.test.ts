@@ -76,7 +76,7 @@ describe('an implementer that outgrows its context budget', () => {
     await ship($, 'resume')
     await steps($, repo, 'agent-1', 141_000)
 
-    expect((await $.tool.check({ tool: 'SubagentHandback', input: {}, agentId: 'agent-1', tool_use_id: 'call-1' } as never)).decision).toBe('allow')
+    expect((await $.tool.check({ tool: 'SubagentHandback', input: {}, agentId: 'agent-1', tool_use_id: 'call-1' } as never)).decision).toBe('ask')
     expect(flightOf(repo)?.isStopped).toBeUndefined()
   })
 
