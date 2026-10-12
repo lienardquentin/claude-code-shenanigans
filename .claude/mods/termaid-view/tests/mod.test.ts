@@ -542,6 +542,234 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /TWO --> B/ })).toBeDefined()
   })
 
+  // Stands for `uvx`: the plain command line prints `plain`, the themed script prints `themed` for the theme asked
+  const answerThemes = (on: On, themed: (theme: string) => string) => {
+    const runs: Run[] = []
+
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs, env: e.init?.env })
+      const stdout = e.argv.includes('python') ? themed((JSON.parse(e.init?.stdin ?? '{}') as { theme: string }).theme) : 'plain drawing'
+
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+
+    return runs
+  }
+
+  // A color as termaid's theme gives it: data the mod is handed, which it never writes itself
+  const raw = (digits: string) => `#${digits}`
+
+  test('picking a theme draws the diagram through termaid\'s Python API, in the colors it answers', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerThemes(on, theme =>
+      JSON.stringify({
+        lines: [
+          [{ text: 'box', color: raw('88c0d0'), background: raw('3b4252'), bold: true }, { text: ' ' }, { text: theme, color: 'cyan', italic: true }],
+          [],
+        ],
+      }),
+    )
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    expect(await pane.find({ text: /plain drawing/ })).toBeDefined()
+    expect(runs).toHaveLength(1)
+
+    await pane.select({ key: 'theme', value: 'nord' })
+    await settle()
+
+    expect(runs).toHaveLength(2)
+    expect(runs[1]?.argv).toEqual(['uvx', '--from', expect.stringMatching(/^termaid\[rich\]==\d+\.\d+(\.\d+)?$/), 'python', '-c', expect.any(String)])
+    expect(runs[1]?.env).toEqual({ PYTHONIOENCODING: 'utf-8' })
+    expect(JSON.parse(runs[1]?.stdin ?? '{}')).toMatchObject({ source: 'graph TD\n  A --> B', theme: 'nord', width: 96 })
+    expect(await pane.find({ text: /plain drawing/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /^box$/ })).toMatchObject({
+      props: { color: raw('88c0d0'), backgroundColor: raw('3b4252'), bold: true },
+    })
+    expect(await pane.find({ type: 'Text', text: /^nord$/ })).toMatchObject({ props: { color: 'cyan', italic: true } })
+
+    // Back to no theme: the plain drawing is known already, so nothing runs
+    await pane.select({ key: 'theme', value: 'none' })
+    await settle()
+    expect(runs).toHaveLength(2)
+    expect(await pane.find({ text: /plain drawing/ })).toBeDefined()
+  })
+
+  test('the theme stays while paging, and a pick that is no theme changes nothing', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  ONE --> B')), reply(fence('graph TD\n  TWO --> B')), reply(fence('graph TD\n  THREE --> B'))])
+    answerOpen(on)
+    const runs: Run[] = []
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv, stdin: e.init?.stdin })
+      const asked = e.argv.includes('python') ? (JSON.parse(e.init?.stdin ?? '{}') as { source: string; theme: string }) : undefined
+      const stdout = asked === undefined ? 'plain' : JSON.stringify({ lines: [[{ text: `${asked.theme} ${asked.source.slice(asked.source.indexOf('  ') + 2)}` }]] })
+
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.select({ key: 'theme', value: 'dracula' })
+    await settle()
+    expect(await pane.find({ text: /dracula THREE --> B/ })).toBeDefined()
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ text: /dracula TWO --> B/ })).toBeDefined()
+
+    const before = runs.length
+    await pane.select({ key: 'theme', value: 'no-such-theme' })
+    await settle()
+    expect(runs).toHaveLength(before)
+    expect(await pane.find({ text: /dracula TWO --> B/ })).toBeDefined()
+  })
+
+  test('a themed drawing wider than the pane is cut, with a notice', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerThemes(on, () => JSON.stringify({ lines: [[{ text: 'x'.repeat(90) }, { text: 'y'.repeat(20) }]] }))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.select({ key: 'theme', value: 'mono' })
+    await settle()
+
+    expect(await pane.find({ text: /wider than the pane/ })).toBeDefined()
+    expect(await pane.find({ text: /x{90}y{6}$/ })).toBeDefined()
+    expect(await pane.find({ text: /y{7}/ })).toBeUndefined()
+  })
+
+  test('a themed answer that is not a drawing shows the source and says it could not be read', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerThemes(on, () => 'Traceback: not json')
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.select({ key: 'theme', value: 'amber' })
+    await settle()
+
+    expect(await pane.find({ text: /amber theme could not be read/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+  })
+
+  test('a themed render that fails shows termaid\'s reason', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    on('process.run', (_, e) =>
+      ({
+        value: e.argv.includes('python')
+          ? { exitCode: 1, stdout: '', stderr: 'termaid drew nothing for this diagram.', isStdoutTruncated: false, isStderrTruncated: false }
+          : { exitCode: 0, stdout: 'plain', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+      }) as never,
+    )
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.select({ key: 'theme', value: 'terra' })
+    await settle()
+
+    expect(await pane.find({ text: /drew nothing/ })).toBeDefined()
+  })
+
+  test('off the terminal there is no theme to pick', async ($, on) => {
+    three(on)
+
+    await termaid($)
+    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    await settle()
+
+    expect(await pane.find({ key: 'theme' })).toBeUndefined()
+  })
+
+  // A reply's row in the transcript, as the terminal draws it
+  const mountReply = ($: Engine, text: string, surface: 'terminal' | 'desktop' = 'terminal') =>
+    $.ui.mount({
+      plugin: 'termaid-view',
+      surface,
+      component: 'AssistantMessage',
+      props: { text, isFirstOfReply: true } as never,
+      requestId: 'message-1',
+    })
+
+  // Stands for the engine's own drawing of a reply: its text, marked so a test can tell it from the mod's
+  const answerReply = (on: On) =>
+    on('ui.render', { component: 'AssistantMessage' } as never, (_, e) => ({
+      type: 'Text',
+      props: {},
+      children: [`engine: ${(e as { props: { text: string } }).props.text}`],
+    }) as never)
+
+  test('a reply\'s diagram is drawn in the transcript in place of its block, the text around it kept', async ($, on) => {
+    answerReply(on)
+    const runs = answerUvx(on, stdin => `drawn ${/\w+(?= -->)/.exec(stdin)?.[0] ?? ''}`)
+    const text = `Before.\n\n${fence('graph TD\n  ONE --> B')}\n\nAfter.`
+
+    const row = await mountReply($, text)
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.argv).toEqual(['uvx', expect.stringMatching(/^termaid==/), '--width', '76'])
+    expect(await row.find({ text: /^drawn ONE$/ })).toBeDefined()
+    // What opens the reply is still the engine's drawing, of the text before the diagram alone
+    expect(await row.find({ text: /^engine: Before\.\s*$/ })).toBeDefined()
+    expect(await row.find({ type: 'Markdown' })).toMatchObject({ props: { text: 'After.' } })
+    expect(await row.find({ text: /ONE --> B/ })).toBeUndefined()
+  })
+
+  test('a reply with no Mermaid block, or off the terminal, is left to the engine and runs nothing', async ($, on) => {
+    answerReply(on)
+    const runs = answerUvx(on)
+
+    const plain = await mountReply($, 'Just words, and ```js\ncode\n```.')
+    const remote = await mountReply($, fence('graph TD\n  A --> B'), 'desktop')
+    await settle()
+
+    expect(await plain.find({ text: /^engine: Just words/ })).toBeDefined()
+    expect(await remote.find({ text: /^engine: / })).toBeDefined()
+    expect(runs).toEqual([])
+  })
+
+  test('a diagram termaid cannot draw stays the block the reply wrote', async ($, on) => {
+    answerReply(on)
+    answerWith(on, () => ({ value: { exitCode: 1, stdout: '', stderr: 'Parse error', isStdoutTruncated: false, isStderrTruncated: false } }))
+
+    const row = await mountReply($, fence('graph TD\n  A --> B'))
+    await settle()
+
+    expect(await row.find({ text: /engine: [\s\S]*A --> B/ })).toBeDefined()
+    expect(await row.find({ text: /Parse error/ })).toBeUndefined()
+  })
+
+  test('the transcript draws in the pane\'s theme, and "Hide in chat" gives the reply back to the engine', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerReply(on)
+    answerThemes(on, theme => JSON.stringify({ lines: [[{ text: `themed ${theme}`, color: 'cyan' }]] }))
+
+    await termaid($)
+    const pane = await mountPane($)
+    const row = await mountReply($, fence('graph TD\n  A --> B'))
+    await settle()
+    expect(await row.find({ text: /^plain drawing$/ })).toBeDefined()
+
+    await pane.select({ key: 'theme', value: 'nord' })
+    await settle()
+    expect(await row.find({ type: 'Text', text: /^themed nord$/ })).toMatchObject({ children: [{ props: { color: 'cyan' } }] })
+
+    await pane.press({ key: 'toggle-inline' })
+    await settle()
+    expect(await row.find({ text: /themed nord/ })).toBeUndefined()
+    expect(await row.find({ text: /engine: [\s\S]*A --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /Show in chat/ })).toBeDefined()
+  })
+
   test('a session with no diagram opens on an empty state', async ($, on) => {
     conversation(on, [reply('Just words.')])
     answerOpen(on)

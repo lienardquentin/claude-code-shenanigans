@@ -56,12 +56,21 @@ A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/
   and "Show source" switches the diagram between termaid's drawing and its Mermaid source (the button then reads
   "Show drawing"). The toggle runs no process and keeps its standing while paging. A diagram arriving at the end of a
   turn moves the pane to it.
+- A "Theme" picker paints the drawings in one of termaid's color themes (`default`, `terra`, `neon`, `mono`, `amber`,
+  `phosphor`, `gruvbox`, `monokai`, `dracula`, `nord`, `solarized`), or `none` for the plain drawing. The colors are
+  termaid's own, handed to the pane as data: termaid's command line drops them when piped, so a themed drawing comes
+  from its Python API through the script in `hooks/themed.ts`. The theme stays while paging, for the session.
+- In the terminal a reply's diagrams are drawn in the transcript too: each Mermaid block termaid has drawn is
+  replaced by its drawing, in the pane's theme, under the text the reply opens with. A block not drawn yet, or that
+  cannot be drawn, stays as the reply wrote it. "Hide in chat" in the pane turns this off for the session.
 - On the desktop app, VS Code and mobile the pane shows the Mermaid source, and says that drawing needs the terminal;
   paging works there and the toggle is not shown.
 
 It needs [`uv`](https://docs.astral.sh/uv/). The mod runs `uvx termaid==<version>` (the version is fixed in
 `hooks/register.tsx`), so **termaid is downloaded from PyPI the first time it is used** and cached by uv after. This
-is the one place a mod of this repo fetches code from an external site at run time.
+is the one place a mod of this repo fetches code from an external site at run time. A theme runs
+`uvx --from termaid[rich]==<version> python`, which also downloads [rich](https://github.com/Textualize/rich) and its
+dependencies the first time.
 
 Install it from a clone:
 
