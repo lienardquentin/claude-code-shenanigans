@@ -221,8 +221,10 @@ for (const surface of SURFACES) {
       expect(await pane.find({ text: '▲ 2 files · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: '1 file · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: 'Blast radius (an estimate): 2 files · 0 dependents · 0 tests' })).toBeDefined()
-      expect(await pane.find({ text: '▲ 01 changes `~/.claude/x.json` outside the repo' })).toBeDefined()
-      expect(await pane.find({ text: '▲ 01 installs `zod`' })).toBeDefined()
+      // Each action is in the card of its ticket, and not repeated at run level with the ticket number
+      expect(await pane.find({ text: '▲ changes `~/.claude/x.json` outside the repo' })).toBeDefined()
+      expect(await pane.find({ text: '▲ installs `zod`' })).toBeDefined()
+      expect(await pane.findAll({ text: /▲ 01 / })).toEqual([])
     })
 
     test('counts the dependents and the tests among them, and the run once for a file two tickets share', async ($, on) => {

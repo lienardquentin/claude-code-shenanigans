@@ -97,6 +97,9 @@ const runCard = (
                       ...(hasRadius
                         ? [tonedText({ text: rowText(radius), tone: radius.outward.length > 0 ? 'warning' : 'neutral' })]
                         : []),
+                      ...(hasRadius
+                        ? radius.outward.map(action => tonedText({ text: `${OUTWARD_MARK} ${action}`, tone: 'warning' }))
+                        : []),
                     ],
                   })
                 }),
@@ -104,9 +107,7 @@ const runCard = (
                 ? [
                     tonedText({ text: block.totals, tone: 'info' }),
                     ...(isUnread ? [tonedText({ text: DEPENDENTS_UNREAD, tone: 'warning' })] : []),
-                    ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),
-                    ...block.outward.map(line => tonedText({ text: `${OUTWARD_MARK} ${line}`, tone: 'warning' })),
-                  ]
+                    ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),                  ]
                 : []),
             ]
           : []),
