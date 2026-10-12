@@ -1,0 +1,6 @@
+{
+  "name": "status-line-mods",
+  "description": "The status-line mod: one plain-text line under the prompt",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "status-line", "source": "./", "author": { "name": "quent" } }]
+}
