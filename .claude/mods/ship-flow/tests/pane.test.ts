@@ -69,6 +69,28 @@ for (const surface of SURFACES) {
       expect(await pane.find({ text: 'blocked by 01 · model opus · takeable now' })).toBeDefined()
     })
 
+    test('tells the surface to wrap a long title, and the whole reason of a failed ticket, and to cut the number and the state', async ($, on) => {
+      const title = 'A cart holds items of every kind, however many there are, and keeps them until the shopper pays or leaves, even across sessions, devices and browsers, and even when the shopper signs in again much later on a different machine with a different account'
+      const reason = '`npm test` failed: 14 specs ran, 3 failed in src/cart/very/deeply/nested/path/to/the/cart-total.spec.ts and the run stopped'
+
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', title, ['**Blocked by:** None', '**Status:** in-progress']),
+          [RECORD]: record({ phase: 'unattended', ticket: 1, attempts: { '01': 2 }, failure: { ticket: 1, reason } }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      const wrapOf = async (text: string | RegExp) => (await pane.find({ type: 'Text', text }))?.props.wrap
+
+      expect(await wrapOf(title)).toBe('wrap')
+      expect(await wrapOf(new RegExp(`failed: ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBe('wrap')
+      expect(await wrapOf(/^01$/)).toBe('truncate-end')
+      expect(await wrapOf(/^in-progress$/)).toBe('truncate-end')
+    })
+
     test('says where a run stands, and what it last read of the quota', async ($, on) => {
       answerRepo(on, {
         files: {

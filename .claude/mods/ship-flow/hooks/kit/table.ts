@@ -6,8 +6,11 @@ import type { RenderElement } from 'claude-code'
 /** What a cell says about its text: drawn in the matching theme color. */
 export type CellTone = 'neutral' | 'accent' | 'info' | 'success' | 'warning' | 'danger'
 
-/** `width` fixes the column in cells; a column without one shares what is left. */
-export type TableColumn = { header: string; width?: number }
+/**
+ * `width` fixes the column in cells; a column without one shares what is left. `wrap` lets the column's text run
+ * onto as many lines as it needs, by words, instead of being cut to one.
+ */
+export type TableColumn = { header: string; width?: number; wrap?: boolean }
 
 /** A string, `{ text, tone }`, or an element drawn as it is (a `<Button>`, say). */
 export type TableCell = string | { text: string; tone: CellTone } | RenderElement
@@ -35,7 +38,8 @@ const cellBox = (column: TableColumn, content: RenderElement): RenderElement =>
 
 /**
  * A table: a bold header row, then one row per entry of `rows`, cells aligned by column. A cell is a string or
- * `{ text, tone }`; text longer than its column is cut to one line. `empty` is said when there are no rows.
+ * `{ text, tone }`; text longer than its column is cut to one line, or wrapped in a column that has `wrap`. `empty`
+ * is said when there are no rows.
  */
 export const table = ({
   columns,
@@ -70,7 +74,7 @@ export const table = ({
 
           const { text, tone } = typeof cell === 'string' ? { text: cell, tone: 'neutral' as CellTone } : cell
 
-          return cellBox(column, node('Text', { color: TONE_COLOR[tone], wrap: 'truncate-end' }, [text]))
+          return cellBox(column, node('Text', { color: TONE_COLOR[tone], wrap: column.wrap ? 'wrap' : 'truncate-end' }, [text]))
         }),
       ),
     ),

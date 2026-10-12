@@ -87,9 +87,9 @@ const runCard = (
                 columns: [
                   { header: '#', width: 2 },
                   { header: 'State', width: 11 },
-                  { header: 'Ticket' },
+                  { header: 'Ticket', wrap: true },
                   ...(hasRadius ? [{ header: 'Reach', width: reachWidth }] : []),
-                  { header: 'Note' },
+                  { header: 'Note', wrap: true },
                 ],
                 rows: [...tickets]
                   .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
