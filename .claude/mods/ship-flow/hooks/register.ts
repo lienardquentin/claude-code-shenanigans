@@ -8,6 +8,7 @@ import { readFolders } from './folders'
 import type { Host } from './host'
 import { PANE, paneOf } from './pane'
 import { reader } from './reading'
+import { rootOf, underRoot } from './root'
 import { SCRATCH } from './run'
 import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
 import { needsReading, statusText } from './status'
@@ -24,12 +25,23 @@ const USAGE = [
   '  /ship pane              the same, live, in a pane',
 ].join('\n')
 
+// A path the run keeps, under the repo's root: the session may have been started in a folder below it
+const where = async ($: EngineInterface, path: string) =>
+  underRoot(
+    // Where the session is or the folders above it cannot be read: the path is left to the engine, as it was
+    await $.session
+      .cwd()
+      .then(cwd => rootOf(cwd, dir => $.fs.exists(dir)))
+      .catch(() => undefined),
+    path,
+  )
+
 // The engine as the rest of the mod uses it: `$` is followed only inside this file, so it stops here
 const hostOf = ($: EngineInterface): Host => ({
-  exists: path => $.fs.exists(path),
-  read: path => $.fs.read(path),
-  write: (path, text) => $.fs.write(path, text),
-  list: async path => (await $.fs.list(path)).map(entry => ({ name: entry.name, isDir: entry.kind === 'dir' })),
+  exists: async path => $.fs.exists(await where($, path)),
+  read: async path => $.fs.read(await where($, path)),
+  write: async (path, text) => $.fs.write(await where($, path), text),
+  list: async path => (await $.fs.list(await where($, path))).map(entry => ({ name: entry.name, isDir: entry.kind === 'dir' })),
   run: (argv, init) => $.process.run(argv, init ?? {}),
   spawn: async agent => {
     const { agentId, model, deny } = await $.agent.spawn(agent)

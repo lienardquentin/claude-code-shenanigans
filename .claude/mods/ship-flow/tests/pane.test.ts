@@ -64,9 +64,47 @@ for (const surface of SURFACES) {
       expect(await pane.find({ text: /checkout/ })).toBeDefined()
       expect(await pane.find({ text: /1 of 2 done/ })).toBeDefined()
       expect(await pane.find({ text: 'A cart holds items' })).toBeDefined()
-      expect(await pane.find({ text: /^done$/ })).toBeDefined()
-      expect(await pane.find({ text: /^ready$/ })).toBeDefined()
-      expect(await pane.find({ text: 'blocked by 01 · model opus · takeable now' })).toBeDefined()
+      expect(await pane.find({ text: '01 · A cart holds items' })).toBeDefined()
+      expect(await pane.find({ text: '02 · A cart is paid' })).toBeDefined()
+      expect(await pane.find({ text: /● done$/ })).toBeDefined()
+      expect(await pane.find({ text: /● ready$/ })).toBeDefined()
+      expect(await pane.find({ text: 'blocked by 01' })).toBeDefined()
+      expect(await pane.find({ text: 'model opus' })).toBeDefined()
+      expect(await pane.find({ text: 'takeable now' })).toBeDefined()
+      expect(await pane.findAll({ text: 'blocked by 01 · model opus · takeable now' })).toEqual([])
+    })
+
+    test('draws the state badge in the state tone', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** None', '**Status:** in-progress']),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect((await pane.find({ type: 'Text', text: /● done$/ }))?.props.color).toBe('success')
+      expect((await pane.find({ type: 'Text', text: /● in-progress$/ }))?.props.color).toBe('claude')
+    })
+
+    test('a broken folder shows no ticket cards', async ($, on) => {
+      answerRepo(on, { files: { ...checkout(), [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** 07', '**Status:** ready']) } })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ text: /^0[12] · / })).toEqual([])
+      expect(await pane.findAll({ text: /● / })).toEqual([])
+    })
+
+    test('a run with no tickets says so and shows no ticket cards', async ($, on) => {
+      answerRepo(on, { files: { '.scratch/checkout/spec.md': spec(['npm test']), [RECORD]: record({ phase: 'attended' }) } })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: /no tickets yet/ })).toBeDefined()
+      expect(await pane.findAll({ text: /● / })).toEqual([])
     })
 
     test('tells the surface to wrap a long title, and the whole reason of a failed ticket, and to cut the number and the state', async ($, on) => {
@@ -85,10 +123,14 @@ for (const surface of SURFACES) {
 
       const wrapOf = async (text: string | RegExp) => (await pane.find({ type: 'Text', text }))?.props.wrap
 
-      expect(await wrapOf(title)).toBe('wrap')
-      expect(await wrapOf(new RegExp(`failed: ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBe('wrap')
-      expect(await wrapOf(/^01$/)).toBe('truncate-end')
-      expect(await wrapOf(/^in-progress$/)).toBe('truncate-end')
+      const failure = new RegExp(`failed: ${reason.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+
+      // The card's title and the reason are plain text, which both surfaces wrap, never cut
+      expect(await pane.find({ type: 'Text', text: `01 · ${title}` })).toBeDefined()
+      expect(await wrapOf(`01 · ${title}`)).not.toBe('truncate-end')
+      expect(await pane.find({ type: 'Text', text: failure })).toBeDefined()
+      expect(await wrapOf(failure)).not.toBe('truncate-end')
+      expect((await pane.find({ type: 'Text', text: failure }))?.props.color).toBe('error')
     })
 
     test('says where a run stands, and what it last read of the quota', async ($, on) => {
@@ -145,7 +187,7 @@ for (const surface of SURFACES) {
       expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01'])
       expect(repo.logged).toEqual(['checkout: building 01 A cart holds items on sonnet, on branch checkout-feature.'])
       expect(await pane.find({ text: /^building 01$/ })).toBeDefined()
-      expect(await pane.find({ text: /^in-progress$/ })).toBeDefined()
+      expect(await pane.find({ text: /● in-progress$/ })).toBeDefined()
       expect(await pane.findAll({ key: 'resume-checkout' })).toEqual([])
     })
 
@@ -176,12 +218,13 @@ for (const surface of SURFACES) {
 
       const pane = await mountPane($, surface)
 
-      expect(await pane.find({ text: 'Reach' })).toBeDefined()
       expect(await pane.find({ text: '▲ 2 files · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: '1 file · 0 dependents · 0 tests' })).toBeDefined()
       expect(await pane.find({ text: 'Blast radius (an estimate): 2 files · 0 dependents · 0 tests' })).toBeDefined()
-      expect(await pane.find({ text: '▲ 01 changes `~/.claude/x.json` outside the repo' })).toBeDefined()
-      expect(await pane.find({ text: '▲ 01 installs `zod`' })).toBeDefined()
+      // Each action is in the card of its ticket, and not repeated at run level with the ticket number
+      expect(await pane.find({ text: '▲ changes `~/.claude/x.json` outside the repo' })).toBeDefined()
+      expect(await pane.find({ text: '▲ installs `zod`' })).toBeDefined()
+      expect(await pane.findAll({ text: /▲ 01 / })).toEqual([])
     })
 
     test('counts the dependents and the tests among them, and the run once for a file two tickets share', async ($, on) => {
@@ -266,9 +309,49 @@ for (const surface of SURFACES) {
 
       const pane = await mountPane($, surface)
 
-      expect(await pane.findAll({ text: 'Reach' })).toEqual([])
+      expect(await pane.findAll({ text: /files? · \d+ dependents?/ })).toEqual([])
       expect(await pane.findAll({ text: /Blast radius/ })).toEqual([])
       expect(await pane.findAll({ text: /installs `zod`/ })).toEqual([])
+    })
+
+    test('shows how many criteria of a ticket are ticked', async ($, on) => {
+      const criteria = ['- [x] One', '- [x] Two', '- [ ] Three']
+
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** in-progress', ...criteria]),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done', '- [x] One', '- [x] Two', '- [x] Three']),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '2 of 3 criteria' })).toBeDefined()
+      expect(await pane.find({ text: '3 of 3 criteria' })).toBeDefined()
+    })
+
+    test('shows no criteria line for a ticket with no criteria', async ($, on) => {
+      answerRepo(on, { files: checkout() })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.findAll({ text: /criteria/ })).toEqual([])
+    })
+
+    test('shows the criteria line on the card of a run that has ended', async ($, on) => {
+      answerRepo(on, {
+        files: {
+          ...checkout(),
+          [CART]: ticket('01', 'A cart holds items', ['**Blocked by:** None', '**Status:** done', '- [x] One', '- [ ] Two']),
+          [PAY]: ticket('02', 'A cart is paid', ['**Blocked by:** 01', '**Status:** done']),
+          [RECORD]: record({ phase: 'ended', pause: 'the pull request is open: https://github.com/dev/repo/pull/7' }),
+        },
+      })
+
+      const pane = await mountPane($, surface)
+
+      expect(await pane.find({ text: '1 of 2 criteria' })).toBeDefined()
     })
 
     test('a run before its checkpoint offers to approve it', async ($, on) => {

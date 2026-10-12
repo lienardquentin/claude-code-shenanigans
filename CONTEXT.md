@@ -48,6 +48,14 @@ _Avoid_: PRD, plan
 One local file describing a vertical slice of a spec, with the tickets that block it.
 _Avoid_: Task, sub-issue, step
 
+**Run card**:
+A run's card in the workflow pane: its standing, quota and actions, with a ticket card for each of its tickets nested inside.
+_Avoid_: Issue card, run row
+
+**Ticket card**:
+One ticket drawn inside its run card: number, title, state, what blocks it, how far it got, and its reach and outward actions.
+_Avoid_: Ticket row, ticket line
+
 **Checkpoint**:
 A point in a run where it stops for the user's decision.
 _Avoid_: Gate, approval step

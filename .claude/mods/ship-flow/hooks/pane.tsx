@@ -3,10 +3,9 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { Settings } from './budget'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
+import type { Tone as CellTone } from './kit/badge'
 import { card } from './kit/card'
 import { divider } from './kit/divider'
-import { table } from './kit/table'
-import type { CellTone } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import { DEPENDENTS_UNREAD, OUTWARD_MARK, blockOf, radiusOf, rowText } from './radius'
 import type { Reading } from './radius'
@@ -65,8 +64,6 @@ const runCard = (
   // The estimate stays on the card until the run ends: a pull request then holds the real answer
   const hasRadius = record?.phase !== 'ended'
   const block = blockOf(tickets, reading)
-  // The Reach column is as wide as its widest cell, within a cap, so the title keeps the rest
-  const reachWidth = Math.min(40, Math.max('Reach'.length, ...tickets.map(ticket => rowText(radiusOf(ticket, reading)).length)))
   const isUnread = reading === undefined && tickets.some(ticket => ticket.touches !== undefined)
   const canResume = !isBuilding(record) && problems.length === 0 && (record?.phase === 'attended' || takeable.size > 0)
 
@@ -83,36 +80,37 @@ const runCard = (
           ]
         : tickets.length > 0
           ? [
-              table({
-                columns: [
-                  { header: '#', width: 2 },
-                  { header: 'State', width: 11 },
-                  { header: 'Ticket', wrap: true },
-                  ...(hasRadius ? [{ header: 'Reach', width: reachWidth }] : []),
-                  { header: 'Note', wrap: true },
-                ],
-                rows: [...tickets]
-                  .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
-                  .map(ticket => {
-                    const radius = radiusOf(ticket, reading)
+              ...[...tickets]
+                .sort((a, b) => (a.number ?? 0) - (b.number ?? 0))
+                .map(ticket => {
+                  const radius = radiusOf(ticket, reading)
 
-                    return [
-                      ticket.number !== undefined ? label(ticket.number) : '??',
-                      { text: ticket.status ?? '?', tone: STATE_TONE[ticket.status ?? ''] ?? 'neutral' },
-                      ticket.title,
-                      ...(hasRadius
-                        ? [{ text: rowText(radius), tone: radius.outward.length > 0 ? ('warning' as const) : ('neutral' as const) }]
+                  return card({
+                    // The run card's border and padding take two cells each side
+                    width: width - 4,
+                    title: `${ticket.number !== undefined ? label(ticket.number) : '??'} · ${ticket.title}`,
+                    children: [
+                      badge({ label: ticket.status ?? '?', tone: STATE_TONE[ticket.status ?? ''] ?? 'neutral' }),
+                      ...notesOf(ticket, takeable, record).map(note =>
+                        tonedText({ text: note, tone: note.startsWith('failed: ') ? 'danger' : undefined }),
+                      ),
+                      ...(ticket.criteria.length > 0
+                        ? [tonedText({ text: `${ticket.criteria.filter(criterion => criterion.isDone).length} of ${ticket.criteria.length} criteria` })]
                         : []),
-                      notesOf(ticket, takeable, record).join(' · '),
-                    ]
-                  }),
-              }),
+                      ...(hasRadius
+                        ? [tonedText({ text: rowText(radius), tone: radius.outward.length > 0 ? 'warning' : 'neutral' })]
+                        : []),
+                      ...(hasRadius
+                        ? radius.outward.map(action => tonedText({ text: `${OUTWARD_MARK} ${action}`, tone: 'warning' }))
+                        : []),
+                    ],
+                  })
+                }),
               ...(hasRadius
                 ? [
                     tonedText({ text: block.totals, tone: 'info' }),
                     ...(isUnread ? [tonedText({ text: DEPENDENTS_UNREAD, tone: 'warning' })] : []),
                     ...block.undeclared.map(line => tonedText({ text: line, tone: 'warning' })),
-                    ...block.outward.map(line => tonedText({ text: `${OUTWARD_MARK} ${line}`, tone: 'warning' })),
                   ]
                 : []),
             ]
