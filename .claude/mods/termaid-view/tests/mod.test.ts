@@ -415,17 +415,103 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /broken/ })).toBeUndefined()
   })
 
-  test('off the terminal no process runs, the source is shown and drawing is said to need the terminal', async ($, on) => {
-    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+  const mountDesktop = ($: Engine) =>
+    $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+
+  // Stands for `node` running the Mermaid CLI: every run is kept, and prints the picture `out` makes of what it was given
+  const answerNode = (
+    on: On,
+    out: (given: { source: string; theme: string }) => string = given => `<svg>${given.theme}: ${given.source}</svg>`,
+  ) => {
+    const runs: Run[] = []
+
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs, env: e.init?.env })
+      const given = JSON.parse(e.init?.stdin ?? '{}') as { source: string; theme: string }
+
+      return { value: { exitCode: 0, stdout: JSON.stringify({ svg: out(given) }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+
+    return runs
+  }
+
+  test('off the terminal the diagram is drawn as a picture by the Mermaid CLI, the diagram on standard input alone', async ($, on) => {
+    conversation(on, [reply(fence('graph LR\n  A --> B'))])
     answerOpen(on)
-    const runs = answerUvx(on)
+    const runs = answerNode(on)
 
     await termaid($)
-    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    const pane = await mountDesktop($)
     await settle()
 
-    expect(runs).toEqual([])
-    expect(await pane.find({ text: /needs the terminal/ })).toBeDefined()
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.argv[0]).toBe('node')
+    expect(runs[0]?.argv.join(' ')).not.toMatch(/A --> B/)
+    expect(JSON.parse(runs[0]?.stdin ?? '{}')).toMatchObject({
+      // Laid out in the default direction, as in the terminal
+      source: 'graph TD\n  A --> B',
+      theme: 'default',
+      background: 'white',
+      version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+    })
+    expect(await pane.find({ type: 'Svg' })).toMatchObject({
+      props: { source: '<svg>default: graph TD\n  A --> B</svg>', alt: 'Mermaid diagram: graph LR' },
+    })
+    expect(await pane.find({ text: /A --> B/ })).toBeUndefined()
+  })
+
+  test('off the terminal a diagram Mermaid cannot draw is shown as source with the reason', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => ({ value: { exitCode: 1, stdout: '', stderr: 'NO_BROWSER', isStdoutTruncated: false, isStderrTruncated: false } }))
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeUndefined()
+    expect(await pane.find({ text: /No Edge, Chrome or Chromium/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+  })
+
+  test('off the terminal Mermaid\'s own message is the reason, without the browser\'s stack under it', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const stderr = 'Error: Parse error on line 2:\nExpecting NODE_STRING, got LINK\nParser.parseError (https://x.invalid/mermaid.mjs:1561:21)\n    at parse (file:///x.mjs:1:1)'
+    answerWith(on, () => ({ value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } }))
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ text: /Parse error on line 2:\nExpecting NODE_STRING, got LINK$/ })).toBeDefined()
+    expect(await pane.find({ text: /parseError/ })).toBeUndefined()
+  })
+
+  test('off the terminal a picture too long for the app is shown as source with the reason', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerNode(on, () => `<svg>${'x'.repeat(131072)}</svg>`)
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeUndefined()
+    expect(await pane.find({ text: /too large to show/ })).toBeDefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+  })
+
+  test('off the terminal a command the host refuses is said as the reason', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => ({ deny: 'not available here' }))
+
+    await termaid($)
+    const pane = await mountDesktop($)
+    await settle()
+
+    expect(await pane.find({ text: /Mermaid could not be run: .*not available here/ })).toBeDefined()
     expect(await pane.find({ text: /A --> B/ })).toBeDefined()
   })
 
@@ -528,17 +614,23 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /Show source/ })).toBeDefined()
   })
 
-  test('off the terminal paging works and the toggle is not shown', async ($, on) => {
-    three(on)
+  test('off the terminal paging and the source toggle work on the pictures', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  ONE --> B')), reply(fence('graph TD\n  TWO --> B')), reply(fence('graph TD\n  THREE --> B'))])
+    answerOpen(on)
+    answerNode(on)
 
     await termaid($)
-    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    const pane = await mountDesktop($)
     await settle()
 
-    expect(await pane.find({ key: 'toggle-source' })).toBeUndefined()
     await pane.press({ key: 'page-previous' })
     await settle()
     expect(await pane.find({ text: /2 of 3/ })).toBeDefined()
+    expect(await pane.find({ type: 'Svg' })).toMatchObject({ props: { source: expect.stringMatching(/TWO --> B/) } })
+
+    await pane.press({ key: 'toggle-source' })
+    await settle()
+    expect(await pane.find({ type: 'Svg' })).toBeUndefined()
     expect(await pane.find({ text: /TWO --> B/ })).toBeDefined()
   })
 
@@ -696,14 +788,38 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /plain drawing/ })).toBeDefined()
   })
 
-  test('off the terminal there is no theme to pick', async ($, on) => {
-    three(on)
+  test('off the terminal the themes are Mermaid\'s own, and a pick draws the picture again in it', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerNode(on)
 
     await termaid($)
-    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'desktop', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    const pane = await mountDesktop($)
     await settle()
 
+    expect(await pane.find({ key: 'theme' })).toMatchObject({
+      props: { value: 'default', options: [{ value: 'default' }, { value: 'neutral' }, { value: 'forest' }, { value: 'dark' }] },
+    })
+
+    await pane.select({ key: 'theme', value: 'dark' })
+    await settle()
+    expect(runs).toHaveLength(2)
+    expect(JSON.parse(runs[1]?.stdin ?? '{}')).toMatchObject({ theme: 'dark', background: 'black' })
+    expect(await pane.find({ type: 'Svg' })).toMatchObject({ props: { source: expect.stringMatching(/^<svg>dark: / ) } })
+  })
+
+  test('on mobile, which draws no select, the picture is drawn with no theme or direction to pick', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerNode(on)
+
+    await termaid($)
+    const pane = await $.ui.mount({ plugin: 'termaid-view', surface: 'mobile', component: 'Pane', props: PANE as never, requestId: 'termaid-view' })
+    await settle()
+
+    expect(await pane.find({ type: 'Svg' })).toBeDefined()
     expect(await pane.find({ key: 'theme' })).toBeUndefined()
+    expect(await pane.find({ key: 'direction' })).toBeUndefined()
   })
 
   // A reply's row in the transcript, as the terminal draws it
@@ -741,17 +857,29 @@ describe('termaid-view', () => {
     expect(await row.find({ text: /ONE --> B/ })).toBeUndefined()
   })
 
-  test('a reply with no Mermaid block, or off the terminal, is left to the engine and runs nothing', async ($, on) => {
+  test('a reply with no Mermaid block is left to the engine and runs nothing', async ($, on) => {
     answerReply(on)
     const runs = answerUvx(on)
 
     const plain = await mountReply($, 'Just words, and ```js\ncode\n```.')
-    const remote = await mountReply($, fence('graph TD\n  A --> B'), 'desktop')
     await settle()
 
     expect(await plain.find({ text: /^engine: Just words/ })).toBeDefined()
-    expect(await remote.find({ text: /^engine: / })).toBeDefined()
     expect(runs).toEqual([])
+  })
+
+  test('off the terminal a reply\'s diagram is drawn in the transcript as a picture, the text around it kept', async ($, on) => {
+    answerReply(on)
+    const runs = answerNode(on)
+
+    const row = await mountReply($, `Before.\n\n${fence('graph TD\n  ONE --> B')}\n\nAfter.`, 'desktop')
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.argv[0]).toBe('node')
+    expect(await row.find({ type: 'Svg' })).toMatchObject({ props: { source: expect.stringMatching(/ONE --> B/), alt: 'Mermaid diagram: graph TD' } })
+    expect(await row.find({ text: /^engine: Before\.\s*$/ })).toBeDefined()
+    expect(await row.find({ type: 'Markdown' })).toMatchObject({ props: { text: 'After.' } })
   })
 
   test('a diagram termaid cannot draw stays the block the reply wrote', async ($, on) => {

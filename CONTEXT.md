@@ -13,7 +13,7 @@ Where a session is drawn: the terminal, the desktop app, VS Code or mobile. Each
 _Avoid_: Client, platform, frontend
 
 **Diagram**:
-One Mermaid source found in a reply, shown in the pane as text drawn by termaid.
+One Mermaid source found in a reply, shown in the pane as text drawn by termaid in the terminal, and as a picture drawn by Mermaid itself on the other surfaces.
 _Avoid_: Chart, graph, figure
 
 **Run**:

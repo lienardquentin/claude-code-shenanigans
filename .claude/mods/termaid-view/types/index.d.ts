@@ -9,6 +9,8 @@ declare module 'claude-code' {
       isSource: boolean
       /** The termaid theme picked in the pane, `none` for termaid's plain drawing, or empty while none is picked. Per session. */
       theme: string
+      /** The Mermaid theme picked in the pane off the terminal, where a diagram is a picture, or empty while none is picked. Per session. */
+      pictureTheme: string
       /** Whether a reply's diagrams are drawn in the transcript too, in place of their Mermaid block. Per session. */
       isInline: boolean
       /**
@@ -28,7 +30,8 @@ declare module 'claude-code' {
       /**
        * What is known of each diagram at each width in each theme (key: width, NUL, theme, NUL, source): drawn
        * (in a theme or with linked nodes, with its lines run by run, the colors termaid gave them and the link of
-       * the runs of a linked node), or failed.
+       * the runs of a linked node), or failed. Off the terminal a diagram is drawn as a picture, `svg`, by Mermaid
+       * itself: its key's width is 0 and its theme `picture:` then one of Mermaid's.
        */
       results: Record<
         string,
@@ -36,6 +39,7 @@ declare module 'claude-code' {
             status: 'drawn'
             text: string
             lines?: { text: string; color?: string; background?: string; bold?: boolean; italic?: boolean; dim?: boolean; link?: string }[][]
+            svg?: string
           }
         | { status: 'failed'; reason: string }
       >

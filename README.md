@@ -63,14 +63,29 @@ A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/
 - In the terminal a reply's diagrams are drawn in the transcript too: each Mermaid block termaid has drawn is
   replaced by its drawing, in the pane's theme, under the text the reply opens with. A block not drawn yet, or that
   cannot be drawn, stays as the reply wrote it. "Hide in chat" in the pane turns this off for the session.
-- On the desktop app, VS Code and mobile the pane shows the Mermaid source, and says that drawing needs the terminal;
-  paging works there and the toggle is not shown.
+- On the desktop app, VS Code and mobile a diagram is a picture: Mermaid's own drawing, as an SVG, in the pane and in
+  the transcript in place of its block. The [Mermaid CLI](https://github.com/mermaid-js/mermaid-cli) draws it on this
+  machine, in an Edge, Chrome or Chromium already installed (headless: no window opens, and no browser is
+  downloaded). The diagram is written to a temporary folder removed after the run; nothing of it leaves the machine.
+  - The "Theme" picker there holds Mermaid's themes (`default`, `neutral`, `forest`, `dark`); paging, "Show source",
+    the direction of a flowchart and "Hide in chat" work as in the terminal. Mobile draws no picker.
+  - A picture is an image: its linked nodes cannot be pressed. One over the app's limit for an SVG (131,072
+    characters) is shown as its source, with a line saying so; so is a diagram Mermaid cannot draw, with its message.
+  - The pictures are drawn one at a time, a few seconds each. The first one downloads the Mermaid CLI, which takes
+    about a minute.
+  - Tried in the desktop app; VS Code and mobile take the same path and are not yet tried.
 
-It needs [`uv`](https://docs.astral.sh/uv/). The mod runs `uvx termaid==<version>` (the version is fixed in
+In the terminal it needs [`uv`](https://docs.astral.sh/uv/). The mod runs `uvx termaid==<version>` (the version is fixed in
 `hooks/register.tsx`), so **termaid is downloaded from PyPI the first time it is used** and cached by uv after. This
-is the one place a mod of this repo fetches code from an external site at run time. A theme runs
+is one of the two places a mod of this repo fetches code from an external site at run time. A theme runs
 `uvx --from termaid[rich]==<version> python`, which also downloads [rich](https://github.com/Textualize/rich) and its
 dependencies the first time.
+
+Off the terminal it needs [Node.js](https://nodejs.org/) and one of those browsers. The mod runs
+`npx -y @mermaid-js/mermaid-cli@<version>` (the version is fixed in `hooks/pictured.ts`), so **the Mermaid CLI is
+downloaded from npm the first time it is used** and cached by npm after: the second place this mod fetches code at
+run time. Only the CLI's own version is fixed; the versions of what it depends on (Mermaid, Puppeteer) are npm's
+pick within the ranges the CLI names. Puppeteer's own browser download is turned off.
 
 Install it from a clone:
 
