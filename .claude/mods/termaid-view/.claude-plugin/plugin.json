@@ -2,5 +2,21 @@
   "name": "termaid-view",
   "version": "0.1.0",
   "description": "A pane that shows the session's Mermaid diagrams",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "defaultTheme": {
+      "type": "string",
+      "title": "Default theme",
+      "description": "The termaid theme Mermaid diagrams are drawn in until a theme is picked in the pane; none is termaid's plain drawing",
+      "options": ["none", "default", "terra", "neon", "mono", "amber", "phosphor", "gruvbox", "monokai", "dracula", "nord", "solarized"],
+      "default": "none"
+    },
+    "defaultDirection": {
+      "type": "string",
+      "title": "Default direction",
+      "description": "The way flowcharts are laid out until a direction is picked for one: top-down (TD), left to right (LR), bottom-up (BT), or as written in the diagram",
+      "options": ["TD", "LR", "BT", "as written"],
+      "default": "TD"
+    }
+  }
 }

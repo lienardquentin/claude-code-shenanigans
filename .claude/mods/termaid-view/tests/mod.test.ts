@@ -678,6 +678,24 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /drew nothing/ })).toBeDefined()
   })
 
+  test('the default theme of the options is drawn until another is picked in the pane', { options: { defaultTheme: 'nord' } }, async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerThemes(on, theme => JSON.stringify({ lines: [[{ text: `themed ${theme}` }]] }))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(JSON.parse(runs[0]?.stdin ?? '{}')).toMatchObject({ theme: 'nord' })
+    expect(await pane.find({ text: /themed nord/ })).toBeDefined()
+
+    await pane.select({ key: 'theme', value: 'none' })
+    await settle()
+    expect(await pane.find({ text: /plain drawing/ })).toBeDefined()
+  })
+
   test('off the terminal there is no theme to pick', async ($, on) => {
     three(on)
 
@@ -768,6 +786,237 @@ describe('termaid-view', () => {
     expect(await row.find({ text: /themed nord/ })).toBeUndefined()
     expect(await row.find({ text: /engine: [\s\S]*A --> B/ })).toBeDefined()
     expect(await pane.find({ text: /Show in chat/ })).toBeDefined()
+  })
+
+  const LINKED = 'flowchart LR\n  A[Parse] --> B[Draw]\n  click A href "src/parse.ts#L50"\n  click B "diff:src/draw.ts"'
+
+  // Stands for `uvx` drawing a diagram with linked nodes, and for `git diff`
+  const answerLinked = (on: On, diff = '') => {
+    const runs: Run[] = []
+
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv, stdin: e.init?.stdin })
+      const asked = e.argv[0] === 'git' ? undefined : (JSON.parse(e.init?.stdin ?? '{}') as { links: Record<string, string> })
+      const stdout =
+        asked === undefined
+          ? diff
+          : JSON.stringify({ lines: [[{ text: '[ Parse ]', link: asked.links.A }, { text: ' --> ' }, { text: '[ Draw ]', link: asked.links.B }]] })
+
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+
+    return runs
+  }
+
+  const file = (lines: number) => Array.from({ length: lines }, (_, index) => `line ${index + 1}`).join('\n')
+
+  test('a diagram with linked nodes is drawn through the Python API, even with no theme, its nodes buttons', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    answerOpen(on)
+    const runs = answerLinked(on)
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.argv).toContain('python')
+    expect(JSON.parse(runs[0]?.stdin ?? '{}')).toMatchObject({ theme: 'none', links: { A: 'src/parse.ts#L50', B: 'diff:src/draw.ts' } })
+    expect(await pane.find({ key: 'node-0-0' })).toBeDefined()
+    expect(await pane.find({ key: 'node-0-2' })).toBeDefined()
+    expect(await pane.find({ text: /press it/ })).toBeDefined()
+  })
+
+  test('pressing a node linked to a file shows it from just above its line, and pages through it', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    answerOpen(on)
+    answerLinked(on)
+    const read: string[] = []
+    on('fs.read', (_, e) => {
+      read.push((e as { path: string }).path)
+
+      return { value: file(100) } as never
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.press({ key: 'node-0-0' })
+    await settle()
+
+    // The host resolves the path against the working directory
+    expect(read).toEqual([expect.stringMatching(/(^|[\\/])src[\\/]parse\.ts$/)])
+    expect(await pane.find({ type: 'Code' })).toMatchObject({ props: { path: 'src/parse.ts', startLine: 47 } })
+    expect(await pane.find({ text: /lines 47-86 of 100/ })).toBeDefined()
+    expect(await pane.find({ text: /^line 47\n/ })).toBeDefined()
+    expect(await pane.find({ text: /Parse \]/ })).toBeUndefined()
+
+    await pane.press({ key: 'lines-next' })
+    await settle()
+    expect(await pane.find({ text: /lines 87-100 of 100/ })).toBeDefined()
+    expect(await pane.find({ key: 'lines-next' })).toBeUndefined()
+
+    await pane.press({ key: 'lines-previous' })
+    await settle()
+    await pane.press({ key: 'back' })
+    await settle()
+    expect(await pane.find({ type: 'Code' })).toBeUndefined()
+    expect(await pane.find({ key: 'node-0-0' })).toBeDefined()
+  })
+
+  test('pressing a node linked to a diff shows the uncommitted changes of its file, or says there are none', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    answerOpen(on)
+    const held = { diff: 'diff --git a/src/draw.ts b/src/draw.ts\nindex 1..2\n--- a/src/draw.ts\n+++ b/src/draw.ts\n@@ -1 +1 @@\n-old\n+new\n' }
+    const runs: Run[] = []
+    on('process.run', (_, e) => {
+      runs.push({ argv: e.argv })
+      const stdout = e.argv[0] === 'git' ? held.diff : JSON.stringify({ lines: [[{ text: '[ Draw ]', link: 'diff:src/draw.ts' }]] })
+
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.press({ key: 'node-0-0' })
+    await settle()
+
+    expect(runs[1]?.argv).toEqual(['git', 'diff', 'HEAD', '--', 'src/draw.ts'])
+    expect(await pane.find({ type: 'Code' })).toMatchObject({ props: { format: 'diff', source: '@@ -1 +1 @@\n-old\n+new' } })
+
+    held.diff = ''
+    await pane.press({ key: 'back' })
+    await settle()
+    await pane.press({ key: 'node-0-0' })
+    await settle()
+    expect(await pane.find({ text: /no uncommitted change/ })).toBeDefined()
+  })
+
+  test('a link out of the project reads nothing and runs nothing', async ($, on) => {
+    conversation(on, [reply(fence('flowchart LR\n  A --> B\n  click A "../../secrets.txt"\n  click B "diff:/etc/passwd"'))])
+    answerOpen(on)
+    const runs = answerLinked(on)
+    const read: string[] = []
+    on('fs.read', (_, e) => {
+      read.push((e as { path: string }).path)
+
+      return { value: 'secret' } as never
+    })
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+    await pane.press({ key: 'node-0-0' })
+    await settle()
+    expect(await pane.find({ text: /not a file of this project/ })).toBeDefined()
+
+    await pane.press({ key: 'back' })
+    await settle()
+    await pane.press({ key: 'node-0-2' })
+    await settle()
+    expect(await pane.find({ text: /not a file of this project/ })).toBeDefined()
+    expect(read).toEqual([])
+    expect(runs.filter(run => run.argv[0] === 'git')).toEqual([])
+  })
+
+  test('a linked node pressed in the chat opens the pane on its code', async ($, on) => {
+    conversation(on, [reply(fence(LINKED))])
+    const openedPanes = answerOpen(on)
+    answerReply(on)
+    answerLinked(on)
+    on('fs.read', () => ({ value: file(100) }) as never)
+
+    const row = await mountReply($, fence(LINKED))
+    await settle()
+    await row.press({ key: 'node-0-0-0' })
+    await settle()
+
+    expect(openedPanes).toEqual(['termaid-view'])
+    const pane = await mountPane($)
+    await settle()
+    expect(await pane.find({ type: 'Code' })).toMatchObject({ props: { path: 'src/parse.ts', startLine: 47 } })
+    expect(await pane.find({ text: /lines 47-86 of 100/ })).toBeDefined()
+  })
+
+  test('Claude is told how to link a node', async ($, on) => {
+    on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'Hello', scope: 'shared' }] }) as never)
+
+    const composed = await $.prompt.compose({ model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: [], outputStyle: null, traits: [] } as never)
+
+    expect(composed.sections.map(section => section.id)).toEqual(['intro', 'termaid-view:links'])
+    expect(composed.sections[1]?.text).toMatch(/click A href/)
+  })
+
+  test('picking a direction in the pane lays a flowchart out that way, in the chat too; other diagrams have none', async ($, on) => {
+    conversation(on, [reply(fence('sequenceDiagram\n  Alice->>Bob: Hi')), reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerReply(on)
+    const runs = answerUvx(on, stdin => `drawn ${stdin.split('\n')[0]}`)
+
+    await termaid($)
+    const pane = await mountPane($)
+    const row = await mountReply($, fence('graph TD\n  A --> B'))
+    await settle()
+    expect(await pane.find({ text: /drawn graph TD/ })).toBeDefined()
+
+    await pane.select({ key: 'direction', value: 'LR' })
+    await settle()
+    expect(runs.some(run => run.stdin === 'graph LR\n  A --> B')).toBe(true)
+    expect(await pane.find({ text: /drawn graph LR/ })).toBeDefined()
+    expect(await row.find({ text: /drawn graph LR/ })).toBeDefined()
+
+    // The source shown stays the one the reply wrote
+    await pane.press({ key: 'toggle-source' })
+    await settle()
+    expect(await pane.find({ text: /graph TD/ })).toBeDefined()
+
+    await pane.select({ key: 'direction', value: 'sideways' })
+    await pane.press({ key: 'toggle-source' })
+    await settle()
+    expect(await pane.find({ text: /drawn graph LR/ })).toBeDefined()
+
+    await pane.press({ key: 'page-previous' })
+    await settle()
+    expect(await pane.find({ key: 'direction' })).toBeUndefined()
+  })
+
+  test('a flowchart is laid out top-down until its button in the chat turns it: each direction, then as written', async ($, on) => {
+    answerReply(on)
+    answerUvx(on, stdin => `drawn ${stdin.split('\n')[0]}`)
+
+    const row = await mountReply($, fence('flowchart LR\n  A --> B'))
+    await settle()
+    expect(await row.find({ text: /^drawn flowchart TD$/ })).toBeDefined()
+    expect(await row.find({ key: 'direction-0' })).toMatchObject({ text: 'Direction: TD' })
+
+    for (const way of ['LR', 'BT']) {
+      await row.press({ key: 'direction-0' })
+      await settle()
+      expect(await row.find({ text: new RegExp(`^drawn flowchart ${way}$`) })).toBeDefined()
+    }
+
+    await row.press({ key: 'direction-0' })
+    await settle()
+    expect(await row.find({ text: /^drawn flowchart LR$/ })).toBeDefined()
+    expect(await row.find({ key: 'direction-0' })).toMatchObject({ text: 'Direction: as written' })
+
+    await row.unmount()
+    const other = await mountReply($, fence('pie\n  "a" : 1'))
+    await settle()
+    expect(await other.find({ key: 'direction-0' })).toBeUndefined()
+  })
+
+  test('the default direction of the options lays flowcharts out, and "as written" leaves them alone', { options: { defaultDirection: 'as written' } }, async ($, on) => {
+    conversation(on, [reply(fence('graph LR\n  A --> B'))])
+    answerOpen(on)
+    const runs = answerUvx(on)
+
+    await termaid($)
+    await mountPane($)
+    await settle()
+
+    expect(runs[0]?.stdin).toBe('graph LR\n  A --> B')
   })
 
   test('a session with no diagram opens on an empty state', async ($, on) => {

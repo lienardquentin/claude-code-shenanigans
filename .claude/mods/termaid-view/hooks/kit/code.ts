@@ -68,14 +68,24 @@ const spansOf = (line: string, language: string | undefined): Span[] =>
  * `plain` draws the text as a column of `Text` lines instead, for a surface that does not draw `Code` (pass
  * `e.surface !== 'terminal'`): indentation is kept, long lines wrap, and `json` and `yaml` are colored by token in
  * theme colors (keys, strings, numbers, true/false/null).
+ *
+ * `path` names the file the source is from, for its language when none is given (nothing is read). `startLine`
+ * numbers the lines from it, in a gutter. `diff` reads the source as unified-diff hunks, drawn with their own
+ * numbers and the added and removed lines colored. `plain` draws none of the three.
  */
 export const code = ({
   source,
   language,
+  path,
+  startLine,
+  diff = false,
   plain = false,
 }: {
   source: string
   language?: string
+  path?: string
+  startLine?: number
+  diff?: boolean
   plain?: boolean
 }): RenderElement => {
   const text = clean(source)
@@ -99,5 +109,14 @@ export const code = ({
     } as unknown as RenderElement
   }
 
-  return { type: 'Code', props: language === undefined ? { source: text } : { source: text, language } } as unknown as RenderElement
+  return {
+    type: 'Code',
+    props: {
+      source: text,
+      ...(language !== undefined ? { language } : {}),
+      ...(path !== undefined ? { path } : {}),
+      ...(startLine !== undefined ? { startLine } : {}),
+      ...(diff ? { format: 'diff' } : {}),
+    },
+  } as unknown as RenderElement
 }
