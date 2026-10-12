@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderElement } from 'claude-code'
 
 import { card } from './kit/card'
 import { code } from './kit/code'
@@ -121,7 +121,8 @@ const NPX_MISSING = /'npx' is not recognized|npx: (command )?not found/i
 
 const CUT_OFF = 'The diagram is wider than the pane: the right part is cut off.'
 const DRAWING = 'Drawing with Mermaid… The first drawing downloads the Mermaid CLI, which takes about a minute.'
-const LINKED ='A node with a link opens its code or its changes here: press it.'
+const LINKED = 'A node with a link opens its code or its changes here: press it.'
+const LINKED_UNDER = 'Linked nodes: press one to open its code or its changes here.'
 
 // The engine's clock, in milliseconds; 0 when it cannot say (then no call is taken for a timeout by its duration)
 const now = ($: Engine): Promise<number> => $.clock.now().catch(() => 0)
@@ -416,7 +417,49 @@ const linesFor = (drawn: { text: string; lines?: StyledSpan[][] }): StyledSpan[]
 // What a picture says to a reader that cannot see it: the diagram's opening line, which names its kind
 const altOf = (source: string): string => `Mermaid diagram: ${source.split('\n').find(line => line.trim() !== '')?.trim() ?? ''}`
 
-const hasLinks =(lines: readonly (readonly StyledSpan[])[]): boolean => lines.some(line => line.some(span => span.link !== undefined))
+// A node's label as a flowchart writes it: what stands between its brackets, where the node is given its shape.
+// A node never given one is called by its id.
+const labelOf = (source: string, id: string): string => {
+  const node = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const shaped = new RegExp(`(?<![\\w-])${node}[ \\t]*(?:\\[[[(/\\\\]?|\\({1,3}\\[?|\\{{1,2}|>)[ \\t]*(?:"([^"\\n]+)"|([^"\\])}\\n]+?))[ \\t]*[/\\\\]?[\\])}]`)
+  const found = shaped.exec(source)
+
+  // A label in quotes may hold the brackets that would end one written bare
+  return (found?.[1] ?? found?.[2])?.trim() ?? id
+}
+
+// Where a link leads, in a few words: its file's name and line, or that it is the file's changes
+const placeOf = (link: string): string => {
+  const target = targetOf(link)
+  if (target === undefined) return link
+  const name = target.path.split('/').pop() ?? target.path
+
+  return target.kind === 'diff' ? `changes of ${name}` : `${name}:${target.line}`
+}
+
+// The linked nodes of a diagram as buttons, for under its picture: an image takes no press, so a node cannot be
+// pressed where it is drawn. Each is called by its label, with where it leads. Nothing when no node is linked.
+const nodeButtons = (
+  { Box, Button }: Pick<Elements['desktop'], 'Box' | 'Button'>,
+  source: string,
+  key: string,
+  open: (link: string) => unknown,
+): RenderElement | undefined => {
+  const links = Object.entries(linksOf(source))
+  if (links.length === 0) return undefined
+
+  return (
+    <Box key={key} flexDirection="row" flexWrap="wrap" columnGap={2}>
+      {links.map(([id, link]) => (
+        <Button key={`${key}-${id}`} plain onPress={() => open(link)}>
+          {actionLabel({ text: labelOf(source, id) })} {tonedText({ text: placeOf(link), tone: 'neutral' })}
+        </Button>
+      ))}
+    </Box>
+  )
+}
+
+const hasLinks = (lines: readonly (readonly StyledSpan[])[]): boolean => lines.some(line => line.some(span => span.link !== undefined))
 
 // Every diagram of the main conversation's replies. `$.session.messages()` is the main conversation alone: a
 // subagent's replies are another call's.
@@ -561,6 +604,7 @@ export const register: Register = (on, options) => {
             ) : (
               styledLines({ lines: piece.lines, width, key: `node-${index}`, Button, onLinkPress: press })
             )}
+            {typeof piece !== 'string' && piece.svg !== undefined ? (nodeButtons({ Box, Button }, piece.source, `node-${index}`, press) ?? null) : null}
             {typeof piece !== 'string' && isFlowchart(piece.source) ? turn(piece.source, index) : null}
           </Box>
         ))}
@@ -653,7 +697,11 @@ export const register: Register = (on, options) => {
       body = [notice(known.reason), code({ source: current, plain: !isTerminal })]
     } else if (known.svg !== undefined) {
       // Mermaid's own drawing, as a picture; one too long for the element was kept as a failure, with its reason
-      body = [picture({ source: known.svg, alt: altOf(current) }) ?? code({ source: current, plain: !isTerminal })]
+      const buttons = nodeButtons(elements, current, 'node', link => show($, link))
+      body = [
+        picture({ source: known.svg, alt: altOf(current) }) ?? code({ source: current, plain: !isTerminal }),
+        ...(buttons !== undefined ? [notice(LINKED_UNDER), buttons] : []),
+      ]
     } else if (known.lines !== undefined) {
       // A themed drawing, or one with linked nodes: its lines in the colors termaid's theme gave them, cut at the
       // pane's width, a linked node a button that opens what it points at

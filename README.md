@@ -69,8 +69,11 @@ A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/
   downloaded). The diagram is written to a temporary folder removed after the run; nothing of it leaves the machine.
   - The "Theme" picker there holds Mermaid's themes (`default`, `neutral`, `forest`, `dark`); paging, "Show source",
     the direction of a flowchart and "Hide in chat" work as in the terminal. Mobile draws no picker.
-  - A picture is an image: its linked nodes cannot be pressed. One over the app's limit for an SVG (131,072
-    characters) is shown as its source, with a line saying so; so is a diagram Mermaid cannot draw, with its message.
+  - A picture is an image, which takes no press: its linked nodes cannot be pressed where they are drawn. They are
+    buttons under the picture instead, each called by its node's label with where it leads (`parse.ts:50`,
+    `changes of draw.ts`); pressing one opens its code or its changes in the pane, as in the terminal.
+  - A picture over the app's limit for an SVG (131,072 characters) is shown as its source, with a line saying so; so
+    is a diagram Mermaid cannot draw, with its message.
   - The pictures are drawn one at a time, a few seconds each. The first one downloads the Mermaid CLI, which takes
     about a minute.
   - Tried in the desktop app; VS Code and mobile take the same path and are not yet tried.
