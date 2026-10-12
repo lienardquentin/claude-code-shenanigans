@@ -1,0 +1,6 @@
+{
+  "name": "timeline-view",
+  "version": "0.1.0",
+  "description": "A pane that draws the session's turns, tool calls and subagents as lanes over time",
+  "types": "./types/index.d.ts"
+}

@@ -94,6 +94,30 @@ claude plugin marketplace add <path to this clone>/.claude/mods/termaid-view
 claude plugin install termaid-view@termaid-view-mods
 ```
 
+### `timeline-view`
+
+A pane that draws what a session did over time. It lives in [`.claude/mods/timeline-view`](.claude/mods/timeline-view).
+
+- `/timeline` opens the pane. Each lane is one row of cells over the period shown: the main conversation first, then
+  one lane per subagent, from its spawn to the end of its run. A ship-flow run's implementers are subagents, so each
+  ticket being built has a lane of its own.
+- A cell a tool call ran in is filled, in the color of its kind of work (reads, edits, shell, agents, other), and a
+  failed call is red and never painted over. A cell where the lane was at work with no tool running (the model
+  thinking or writing) is shaded; an idle cell is a dot.
+- Pressing a lane's name lists its calls under the drawing, the latest first: when each started, the tool, what it
+  worked on (its command, file or pattern) and how long it took. A turn is listed with its prompt.
+- "Show" limits the drawing to the whole session, the latest turn, or the last 5, 15 or 60 minutes. What still runs
+  grows every second; a quiet session redraws nothing. "Clear" empties what has ended.
+- It records the last 1,500 turns and calls of the session, in the session's memory only: nothing is written to disk
+  and nothing leaves the machine. A `/clear` empties it.
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/timeline-view
+claude plugin install timeline-view@timeline-view-mods
+```
+
 ### `http-log`
 
 A pane that logs the HTTP calls a Claude Code session makes. It lives in

@@ -16,6 +16,14 @@ _Avoid_: Client, platform, frontend
 One Mermaid source found in a reply, shown in the pane as text drawn by termaid in the terminal, and as a picture drawn by Mermaid itself on the other surfaces.
 _Avoid_: Chart, graph, figure
 
+**Lane**:
+One row of the timeline pane: the main conversation's, or one subagent's from its spawn to the end of its run.
+_Avoid_: Track, swimlane, thread
+
+**Span**:
+One stretch of work drawn in a lane: a turn of the main conversation, or one tool call, with when it started and ended.
+_Avoid_: Event, entry, bar
+
 **Run**:
 One feature taken from an idea or an existing issue to a pull request by the workflow mod.
 _Avoid_: Job, pipeline, session
