@@ -67,3 +67,11 @@ _Avoid_: Session usage, token limit
 **Quota**:
 The plan's usage allowance that a run spends, by time window.
 _Avoid_: Session usage, rate limit, credits
+
+**Status line**:
+The one line a mod pins under the prompt: folder, branch, model and context fill.
+_Avoid_: Status bar, footer, prompt line
+
+**Context fill**:
+How much of the current session's context window is used. A measure, where a context budget is a limit a run sets.
+_Avoid_: Session usage, context usage, tokens left
