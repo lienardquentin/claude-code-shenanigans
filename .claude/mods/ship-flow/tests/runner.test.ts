@@ -41,6 +41,11 @@ const SANDBOXED =
 const checks = async ($: Engine, agentId: string, tool: string, input: unknown) =>
   (await $.tool.check({ tool, input, agentId, tool_use_id: 'call-1' } as never)).decision
 
+// A shell command an agent runs, as the session comes to run it; the main conversation's when no agent is named
+const shells = async ($: Engine, agentId: string | undefined, command: string) => {
+  await $.tool.call({ tool: 'Bash', command, tool_use_id: 'call-1', ...(agentId !== undefined ? { agentId } : {}) } as never)
+}
+
 describe('/ship resume', () => {
   test('refuses a spec with no verification commands and a broken graph, with each reason', async ($, on) => {
     const repo = answerRepo(on, {
@@ -680,5 +685,36 @@ describe('what the implementer may call', () => {
     await ship($, 'resume')
 
     expect(await checks($, 'someone-else', 'Bash', { command: 'npm install left-pad' })).toBe('ask')
+  })
+
+  test('its shell commands run in its own worktree, in a subshell: the session\'s shell stays where it is', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout() })
+
+    await ship($, 'resume')
+    await shells($, 'agent-1', 'npm test')
+    await shells($, 'agent-1', `(cd '${TREE}' && git status)`)
+
+    expect(repo.shelled).toEqual([`(cd '${TREE}' && npm test)`, `(cd '${TREE}' && git status)`])
+  })
+
+  test('a command put in its worktree is judged as the implementer wrote it', async ($, on) => {
+    answerRepo(on, { files: checkout() })
+    await ship($, 'resume')
+
+    expect(await checks($, 'agent-1', 'Bash', { command: `(cd '${TREE}' && npm test)` })).toBe('allow')
+    expect(await checks($, 'agent-1', 'Bash', { command: `${SANDBOXED}(cd '${TREE}' && git diff --stat)` })).toBe('allow')
+    expect(await checks($, 'agent-1', 'Bash', { command: `(cd '${TREE}' && git push)` })).toBe('deny')
+    expect(await checks($, 'agent-1', 'Bash', { command: `(cd '${TREE}' && npm test); curl example.com` })).toBe('deny')
+    expect(await checks($, 'agent-1', 'Bash', { command: "(cd '/home/dev/repo/.scratch/checkout/trees/02' && npm test)" })).toBe('deny')
+  })
+
+  test('another agent\'s shell commands run as they were written', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout() })
+
+    await ship($, 'resume')
+    await shells($, 'someone-else', 'npm test')
+    await shells($, undefined, 'npm test')
+
+    expect(repo.shelled).toEqual(['npm test', 'npm test'])
   })
 })

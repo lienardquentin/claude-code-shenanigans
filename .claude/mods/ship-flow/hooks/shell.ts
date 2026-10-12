@@ -30,6 +30,23 @@ const isWriting = (word: string, subcommand: string): boolean => {
 /** A shell command as the agent wrote it: without what the session's sandbox put in front of it. */
 export const asWritten = (command: string): string => command.replace(SANDBOX_PREAMBLE, '').trim()
 
+// A path as one word of a shell line, whatever it holds
+const quoted = (path: string): string => `'${path.replaceAll("'", "'\\''")}'`
+
+// What `inTree` puts in front of a command
+const entering = (tree: string): string => `(cd ${quoted(tree)} && `
+
+/**
+ * A shell command as it is run in a worktree. The engine starts an agent's shell where the session is, whatever
+ * directory the agent was started in, so the command is taken there; in a subshell, so that the shell it is run by
+ * stays where it was.
+ */
+export const inTree = (tree: string, command: string): string => `${entering(tree)}${command})`
+
+/** A command `inTree` put in this worktree, as it was before; any other command, as it is. */
+export const outOfTree = (tree: string, command: string): string =>
+  command.startsWith(entering(tree)) && command.endsWith(')') ? command.slice(entering(tree).length, -1) : command
+
 /** What an implementer is told when its shell refuses a command: the command did not run, and its work goes on. */
 export const SHELL_REFUSAL =
   'ship-flow: this command was not run. Your shell runs only the spec\'s verification commands, exactly as written, and one git status, diff, log, show, blame, ls-files, grep, rev-parse, mv, rm or add per call, from your working directory, with nothing joined to it, no -C, and no option that writes a file or opens a pager. Go on with your work, with the file tools.'

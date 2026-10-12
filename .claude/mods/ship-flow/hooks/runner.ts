@@ -12,7 +12,7 @@ import { blockedBy, frontier, label, problemsOf, takeable } from './tickets'
 import type { Ticket } from './tickets'
 import { changedIn, git, gitIn, isPlanted, land, launch, plant, readUsage, setUp, tail, treeAt, unplant, verify } from './work'
 
-export { IMPLEMENTER_TOOLS, checkTool } from './guard'
+export { IMPLEMENTER_TOOLS, checkTool, placeShell } from './guard'
 
 /** The agent type that builds a ticket, as the mod registers it and as the engine names it. */
 export const IMPLEMENTER = 'implementer'

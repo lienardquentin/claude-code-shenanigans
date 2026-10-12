@@ -3,7 +3,7 @@ import { locked, readFolder, readFolders, readRecord, writeRecord, writes } from
 import type { Host } from './host'
 import { finishingOf, issuesOf, specOf } from './run'
 import type { Flight, RunRecord } from './run'
-import { READING_GIT, SHELL_REFUSAL, isAllowedShell } from './shell'
+import { READING_GIT, SHELL_REFUSAL, asWritten, inTree, isAllowedShell, outOfTree } from './shell'
 import { verificationOf } from './spec'
 import type { Folder } from './status'
 import type { Ticket } from './tickets'
@@ -63,6 +63,24 @@ export const workOf = async (host: Host, agentId: string): Promise<Work | undefi
   owners.set(agentId, { at })
 
   return undefined
+}
+
+// The worktree an agent of a run works in, absolute: its ticket's, or the one the run's branch is finished in
+const ownTree = async (host: Host, { record, flight }: Work): Promise<string> => `${await host.repo()}/${(flight ?? finishingOf(record)).tree}`
+
+/**
+ * A shell command of a subagent as it is to be run: for an agent of a run, in the agent's own worktree, since its
+ * shell starts where the session is and the verification commands are written to be run from the worktree's root.
+ * `checkTool` judges it as the agent wrote it. Any other agent's command, and one already put there: as it is.
+ */
+export const placeShell = async (host: Host, agentId: string, command: string): Promise<string> => {
+  const found = await workOf(host, agentId)
+
+  if (!found || found.isHalted) return command
+
+  const tree = await ownTree(host, found)
+
+  return outOfTree(tree, command) === command ? inTree(tree, command) : command
 }
 
 // A path as two spellings of one place compare equal: forward slashes, a drive as `c:`, one case
@@ -133,7 +151,7 @@ export const checkTool = async (
 
     const path = spelled(String((input as { file_path?: unknown } | null)?.file_path ?? ''))
     const root = await host.repo()
-    const tree = `${root}/${(flight ?? finishingOf(record)).tree}`
+    const tree = await ownTree(host, found)
     const ticket = flight ? found.tickets.find(t => t.number === flight.ticket) : undefined
     const isRelative = !/^([a-z]:)?\//.test(path)
     const isOwn =
@@ -147,7 +165,8 @@ export const checkTool = async (
         }
   }
 
-  const command = String((input as { command?: unknown } | null)?.command ?? '')
+  // Judged as the agent wrote it: without what the sandbox put in front of it, and out of the worktree `placeShell` put it in
+  const command = outOfTree(await ownTree(host, found), asWritten(String((input as { command?: unknown } | null)?.command ?? '')))
 
   if (isReviewer) {
     return isAllowedShell(command, [], READING_GIT)

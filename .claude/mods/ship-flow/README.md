@@ -185,5 +185,7 @@ was learnt about the mod API in [`docs/research/ship-flow-mod-api.md`](../../../
 
 ## Not seen live yet
 
-The tests run the mod against a stand-in for the engine. The spawn's `cwd`, by which an agent is put in its
-worktree, has been seen there and not in a live run.
+The tests run the mod against a stand-in for the engine. In a live run an agent's shell started where the session
+is, not in its worktree, so its verification commands ran against the repo's own working tree. The mod now takes
+each shell command of a run's agent to the agent's worktree itself, as `(cd '<worktree>' && <command>)`, and judges
+the command as the agent wrote it. That has been seen in the tests and not in a live run yet.

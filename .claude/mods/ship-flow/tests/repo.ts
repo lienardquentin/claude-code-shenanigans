@@ -53,6 +53,8 @@ export const answerRepo = (
   // How a ticket's commit finds the run's branch: moved by a ticket built beside it, and whether the two conflict
   const landing = { isBehind: false, conflicts: false, failsToPlant: false }
   const logged: string[] = []
+  // The shell commands the session ran for a tool call, as they reached it beneath the mod
+  const shelled: string[] = []
   const state = { porcelain: given.porcelain ?? '', commits: 0, branch: given.branch ?? 'checkout-feature' }
   // How full the main conversation's window is, in percent
   const context = { percent: 12 }
@@ -242,7 +244,13 @@ export const answerRepo = (
   on('session.start', () => ({ cwd: '/home/dev/repo' }) as never)
   on('command.register', () => ({ value: undefined }) as never)
   on('agent.register', () => ({ value: undefined }) as never)
-  on('tool.call', () => ({ result: '', text: '' }) as never)
+  on('tool.call', (_, e) => {
+    const { command } = e as unknown as { command?: string }
+
+    if (command !== undefined) shelled.push(command)
+
+    return { result: '', text: '' } as never
+  })
   on('prompt.submit', (_, e) => {
     prompts.push(e.text)
 
@@ -299,6 +307,7 @@ export const answerRepo = (
     listed,
     spawned,
     logged,
+    shelled,
     notified,
     /** The prompts the mod handed the model, and the instructions of each compaction it asked for. */
     prompts,

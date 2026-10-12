@@ -11,7 +11,7 @@ import { PANE, paneOf } from './pane'
 import { reader } from './reading'
 import { rootOf, underRoot } from './root'
 import { SCRATCH } from './run'
-import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, rearm, resume, stop } from './runner'
+import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, placeShell, rearm, resume, stop } from './runner'
 import { needsReading, statusText } from './status'
 
 // How many times a run wrote its files this session: the pane reads it, so each write draws the pane again
@@ -171,6 +171,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
     // A read is never held back by the run
+    .catch(($, e, next) => next(e))
+
+  // An agent's shell starts where the session is, not in the worktree it was started in: a run's agent's commands are taken there
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) =>
+    next(e.agentId === undefined ? e : { ...e, command: await placeShell(hostOf($), e.agentId, e.command) }),
+  )
+    // A command that could not be placed runs where the session is, and is judged all the same
     .catch(($, e, next) => next(e))
 
   // The run's agents are the run's to start: the model is never offered them
