@@ -40,14 +40,14 @@ const answerOpen = (on: On) => {
   return opened
 }
 
-type Run = { argv: readonly string[]; stdin?: string; timeoutMs?: number }
+type Run = { argv: readonly string[]; stdin?: string; timeoutMs?: number; env?: Record<string, string> }
 
 // Stands for `uvx`: every run is kept, and prints the box `out` makes of the input
 const answerUvx = (on: On, out: (stdin: string) => string = stdin => `[ ${stdin} ]`) => {
   const runs: Run[] = []
 
   on('process.run', (_, e) => {
-    runs.push({ argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs })
+    runs.push({ argv: e.argv, stdin: e.init?.stdin, timeoutMs: e.init?.timeoutMs, env: e.init?.env })
 
     return { value: { exitCode: 0, stdout: out(e.init?.stdin ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
@@ -160,6 +160,8 @@ describe('termaid-view', () => {
     expect(runs[0]?.argv).toEqual(['uvx', expect.stringMatching(/^termaid==\d+\.\d+(\.\d+)?$/), '--width', '96'])
     expect(runs[0]?.stdin).toBe('graph TD\n  A --> B')
     expect(runs[0]?.timeoutMs).toBe(60_000)
+    // Without it, Python on Windows cannot write the drawing's box characters to a pipe
+    expect(runs[0]?.env).toEqual({ PYTHONIOENCODING: 'utf-8' })
     expect(await pane.find({ type: 'Code' })).toBeDefined()
     expect(await pane.find({ text: /rendering/ })).toBeUndefined()
   })
@@ -292,6 +294,30 @@ describe('termaid-view', () => {
 
     expect(await pane.find({ text: /timed out/ })).toBeDefined()
     expect(await pane.find({ text: /A --> B/ })).toBeDefined()
+    expect(await pane.find({ text: /rendering/ })).toBeUndefined()
+  })
+
+  test('a drawing the host refuses while the pane is still being drawn is written again, and shows', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerUvx(on)
+    // Stands for the host's check: a write made while `ui.render` is being dispatched is denied
+    let refusals = -1
+    on('state.set', (_, e, next) => {
+      const write = e as { key?: string }
+      if (write.key !== 'results' || refusals < 0 || refusals >= 2) return next(e)
+      refusals++
+
+      return { deny: 'it was made while ui.render is being dispatched, and drawing is pure' } as never
+    })
+
+    await termaid($)
+    refusals = 0
+    const pane = await mountPane($)
+    await new Promise<void>(resolve => setTimeout(resolve, 400))
+
+    expect(refusals).toBe(2)
+    expect(await pane.find({ type: 'Code' })).toBeDefined()
     expect(await pane.find({ text: /rendering/ })).toBeUndefined()
   })
 

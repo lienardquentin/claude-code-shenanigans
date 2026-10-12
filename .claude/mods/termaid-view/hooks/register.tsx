@@ -21,13 +21,17 @@ const isSource = atom({ plugin: 'termaid-view', key: 'isSource' } as const, fals
 const TERMAID_VERSION = '0.5.0'
 const RENDER_TIMEOUT_MS = 60_000
 
-// What is known of a diagram at a width: being drawn, drawn (the lines), or failed (kept so it is not retried on
-// every redraw). Keyed by width and source.
-type Result = { status: 'rendering' } | { status: 'drawn'; text: string } | { status: 'failed'; reason: string }
+// What is known of a diagram at a width: drawn (the lines), or failed (kept so it is not retried on every redraw).
+// Keyed by width and source. One with no result yet is being drawn, or about to be.
+type Result = { status: 'drawn'; text: string } | { status: 'failed'; reason: string }
 const results = atom({ plugin: 'termaid-view', key: 'results' } as const, {} as Record<string, Result>)
 
-// Keys being rendered right now, checked before the atom is written so two redraws never start two processes
+// Keys being rendered right now, so two redraws never start two processes
 const inFlight = new Set<string>()
+
+// How often, and how far apart, a result the host would not take is written again
+const STORE_ATTEMPTS = 40
+const STORE_RETRY_MS = 50
 
 // How a failure is told apart. The mod only prints the install command: it never runs it.
 const UV_INSTALL = 'winget install --id astral-sh.uv (Windows) or curl -LsSf https://astral.sh/uv/install.sh | sh'
@@ -45,14 +49,14 @@ const render = async ($: Engine, source: string, width: number): Promise<void> =
   inFlight.add(key)
 
   try {
-    await update($, results, all => ({ ...all, [key]: { status: 'rendering' } }))
-
     let result: Result
     const startedAt = await now($)
     try {
       const run = await $.process.run(['uvx', `termaid==${TERMAID_VERSION}`, '--width', String(width)], {
         stdin: source,
         timeoutMs: RENDER_TIMEOUT_MS,
+        // Piped, Python on Windows writes in the ANSI code page, which has no box-drawing characters
+        env: { PYTHONIOENCODING: 'utf-8' },
       })
       if (run.exitCode === 0) {
         result = { status: 'drawn', text: run.stdout.replace(/\r\n?/g, '\n').replace(/\n+$/, '') }
@@ -83,7 +87,20 @@ const render = async ($: Engine, source: string, width: number): Promise<void> =
       }
     }
 
-    await update($, results, all => ({ ...all, [key]: result }))
+    // The host refuses a write made while the `ui.render` that asked for this render is still being dispatched
+    // (drawing is pure), and a quick termaid can be done by then: the write is tried again until that draw is over
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await update($, results, all => ({ ...all, [key]: result }))
+        break
+      } catch (error) {
+        if (attempt === STORE_ATTEMPTS) throw error
+        await new Promise<void>(resolve => setTimeout(resolve, STORE_RETRY_MS))
+      }
+    }
+  } catch (error) {
+    // Nothing is known of the diagram, so the next draw of the pane renders it again
+    $.ui.log(`render not kept: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
   } finally {
     inFlight.delete(key)
   }
@@ -122,12 +139,8 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'termaid' }, async $ => {
-    // Reopening the pane tries again what failed, and what was left "rendering" by a render that never finished
-    await update($, results, all =>
-      Object.fromEntries(
-        Object.entries(all).filter(([key, result]) => result.status === 'drawn' || (result.status === 'rendering' && inFlight.has(key))),
-      ),
-    )
+    // Reopening the pane tries again what failed
+    await update($, results, all => Object.fromEntries(Object.entries(all).filter(([, result]) => result.status === 'drawn')))
     await refresh($, false)
     // Opens on the most recent diagram
     const last = Math.max((await read($, diagrams)).length - 1, 0)
@@ -172,7 +185,7 @@ export const register: Register = on => {
       body = [notice('Drawing the diagram needs the terminal. Its Mermaid source is shown.'), code({ source: current, plain: true })]
     } else if (await read($, isSource)) {
       body = [code({ source: current })]
-    } else if (known === undefined || known.status === 'rendering') {
+    } else if (known === undefined) {
       body = [notice('rendering…')]
     } else if (known.status === 'failed') {
       body = [notice(known.reason), code({ source: current })]

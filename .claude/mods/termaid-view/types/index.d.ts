@@ -7,8 +7,8 @@ declare module 'claude-code' {
       shown: number
       /** Whether the Mermaid source is shown in place of the drawing. Per session. */
       isSource: boolean
-      /** What is known of each diagram at each width (key: width, NUL, source): being drawn, drawn, or failed. */
-      results: Record<string, { status: 'rendering' } | { status: 'drawn'; text: string } | { status: 'failed'; reason: string }>
+      /** What is known of each diagram at each width (key: width, NUL, source): drawn, or failed. */
+      results: Record<string, { status: 'drawn'; text: string } | { status: 'failed'; reason: string }>
     }
   }
 }
