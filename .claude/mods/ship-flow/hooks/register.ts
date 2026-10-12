@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { afterTurn, begin, noteRead, reminder } from './attended'
 import { fillOf, settingsOf } from './budget'
+import { clean } from './clean'
 import { REVIEWER, REVIEWER_PROMPT, REVIEWER_TOOLS } from './finisher'
 import { readFolders } from './folders'
 import type { Host } from './host'
@@ -10,7 +11,7 @@ import { PANE, paneOf } from './pane'
 import { reader } from './reading'
 import { rootOf, underRoot } from './root'
 import { SCRATCH } from './run'
-import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, resume } from './runner'
+import { IMPLEMENTER, IMPLEMENTER_PROMPT, IMPLEMENTER_TOOLS, checkTool, complete, measure, rearm, resume, stop } from './runner'
 import { needsReading, statusText } from './status'
 
 // How many times a run wrote its files this session: the pane reads it, so each write draws the pane again
@@ -20,10 +21,15 @@ const USAGE = [
   'Usage:',
   '  /ship <idea>            start a run from an idea',
   '  /ship #<issue>          start a run from a GitHub issue',
-  '  /ship resume [feature]  approve the checkpoint, or take a run up again',
+  '  /ship resume [feature]  approve the checkpoint, take a run up again, or follow up its pull request',
+  '  /ship stop [feature]    stop a run that is building',
+  '  /ship clean <feature>   remove a run\'s folder, worktrees and ticket branches',
   '  /ship status            how every run of this repo stands',
   '  /ship pane              the same, live, in a pane',
 ].join('\n')
+
+// An idea is a sentence, or an issue's number: one bare word is a verb mistyped, and starts no run
+const isIdea = (asked: string): boolean => /\s/.test(asked) || /^#?\d+$/.test(asked)
 
 // A path the run keeps, under the repo's root: the session may have been started in a folder below it
 const where = async ($: EngineInterface, path: string) =>
@@ -43,6 +49,11 @@ const hostOf = ($: EngineInterface): Host => ({
   write: async (path, text) => $.fs.write(await where($, path), text),
   list: async path => (await $.fs.list(await where($, path))).map(entry => ({ name: entry.name, isDir: entry.kind === 'dir' })),
   run: (argv, init) => $.process.run(argv, init ?? {}),
+  repo: async () => {
+    const cwd = await $.session.cwd()
+
+    return ((await rootOf(cwd, dir => $.fs.exists(dir)).catch(() => undefined)) ?? cwd).replaceAll('\\', '/')
+  },
   spawn: async agent => {
     const { agentId, model, deny } = await $.agent.spawn(agent)
 
@@ -93,7 +104,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'ship',
       description: 'Takes one feature from an idea or an issue to a pull request',
-      argumentHint: '<idea> | #<issue> | resume [feature] | status',
+      argumentHint: '<idea> | #<issue> | resume [feature] | stop [feature] | clean <feature> | status | pane',
     })
     await $.agent.register({
       name: IMPLEMENTER,
@@ -111,6 +122,8 @@ export const register: Register = (on, options) => {
     })
 
     const started = await next(e)
+    // A run paused for quota goes on by a timer, which a new session or a reload has lost: it is set again
+    await rearm(hostOf($), settings).catch(() => undefined)
     // A run that is not building is said once, as the session starts; saying it must never keep a session from starting
     const told = await reminder(hostOf($)).catch(() => undefined)
 
@@ -140,6 +153,10 @@ export const register: Register = (on, options) => {
         void resume(host, settings, feature)
           .then(text => $.ui.log(text))
           .catch(() => $.ui.log(`${feature}: could not be taken up from the pane. /ship resume ${feature}.`)),
+      onStop: feature =>
+        void stop(host, feature)
+          .then(text => $.ui.log(text))
+          .catch(() => $.ui.log(`${feature}: could not be stopped from the pane. /ship stop ${feature}.`)),
       onRefresh: () => {
         repo.forget()
         host.changed()
@@ -170,7 +187,12 @@ export const register: Register = (on, options) => {
 
       return { text: statusText(folders, reading) }
     }
-    if (verb === '') return { text: USAGE }
+    if (verb === '' || verb === 'help') return { text: USAGE }
+    if (verb === 'stop') return { text: await stop(hostOf($), rest.join(' ')) }
+    if (verb === 'clean') return { text: await clean(hostOf($), rest.join(' ')) }
+    if (verb !== 'pane' && verb !== 'resume' && !isIdea(e.args.trim())) {
+      return { text: [`\`/ship ${e.args.trim()}\` is no command of ship-flow, and one word is no idea to start a run from.`, '', USAGE].join('\n') }
+    }
     if (verb === 'pane') {
       const { isPlaced } = await $.ui.open({ id: PANE, title: 'ship-flow' })
 

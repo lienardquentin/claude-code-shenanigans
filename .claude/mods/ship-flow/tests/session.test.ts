@@ -148,8 +148,8 @@ describe('a session that starts in a repo with a run that is not building', () =
     ])
   })
 
-  test('never takes the run up itself, however long the session then stays open', async ($, on) => {
-    const repo = answerRepo(on, { files: checkout({ phase: 'paused', pause: 'waiting', resumeAt: 5000 }) })
+  test('never takes up itself a run that waits for the person, however long the session then stays open', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout({ phase: 'paused', pause: 'the push failed: remote: Permission denied' }) })
 
     await starts($)
     await repo.clock.advance(24 * 60 * 60 * 1000)
@@ -158,12 +158,45 @@ describe('a session that starts in a repo with a run that is not building', () =
     expect(repo.record('checkout')).toMatchObject({ phase: 'paused' })
   })
 
+  test('sets again the timer of a run paused for quota, which the session that set it took with it', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout({ phase: 'paused', pause: 'the 5-hour quota window is at 92%', resumeAt: 5000 }) })
+
+    await starts($)
+    await repo.clock.advance(3999)
+
+    expect(repo.spawned).toEqual([])
+
+    await repo.clock.advance(1)
+
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01'])
+    expect(repo.logged.at(-1)).toBe('checkout: the quota window has reset; building 01 A cart holds items on sonnet.')
+  })
+
+  test('takes up at once a run whose quota window reset while no session was open', async ($, on) => {
+    const repo = answerRepo(on, { files: checkout({ phase: 'paused', pause: 'the 5-hour quota window is at 92%', resumeAt: 500 }) })
+
+    await starts($)
+    await repo.clock.advance(0)
+
+    expect(repo.spawned.map(agent => agent.description)).toEqual(['Build ticket 01'])
+  })
+
   test('is told of a run that was cut off mid-ticket, and of one still before its checkpoint', async ($, on) => {
-    const cut = answerRepo(on, { files: checkout({ phase: 'unattended', ticket: 3, agentId: 'gone' }) })
+    const flight = (ticket: number) => ({ ticket, tree: `.scratch/checkout/trees/0${ticket}`, branch: `ship/checkout--0${ticket}`, agentId: 'gone' })
+    const cut = answerRepo(on, { files: checkout({ phase: 'unattended', flights: [flight(3)] }) })
 
     await starts($)
 
     expect(cut.logged).toEqual(['checkout was cut off while building ticket 03. /ship status shows it; /ship resume takes it up.'])
+  })
+
+  test('is told of every ticket a run was cut off building', async ($, on) => {
+    const flight = (ticket: number) => ({ ticket, tree: `.scratch/checkout/trees/0${ticket}`, branch: `ship/checkout--0${ticket}`, agentId: 'gone' })
+    const cut = answerRepo(on, { files: checkout({ phase: 'unattended', flights: [flight(2), flight(3)] }) })
+
+    await starts($)
+
+    expect(cut.logged).toEqual(['checkout was cut off while building tickets 02, 03. /ship status shows it; /ship resume takes it up.'])
   })
 
   test('is told of a run still before its checkpoint', async ($, on) => {

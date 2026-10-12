@@ -13,6 +13,8 @@ const NOTES: Readonly<Record<string, string>> = {
   'too-large': 'too large for one context window: split it into smaller tickets',
 }
 
+const HANGING = 'waits on a ticket that was not built: ready again at the next /ship resume'
+
 /** A problem of a ticket folder as one line: the ticket, or the file, and what is wrong with it. */
 export const problemText = (problem: Problem): string =>
   `${problem.number !== undefined ? label(problem.number) : problem.file} ${problem.reason}`
@@ -23,8 +25,12 @@ const problemLine = (problem: Problem): string => `  ${problemText(problem)}`
 export const standingOf = (record: RunRecord | undefined): string => {
   if (!record) return ''
   if (record.phase === 'attended') return 'with you, before the checkpoint: /ship resume approves it'
-  if (record.phase === 'unattended') return `building ${label(record.ticket ?? 0)}`
-  if (record.phase === 'finishing') return record.stage === 'fix' ? 'fixing what the review found' : 'reviewing the branch'
+  if (record.phase === 'unattended') {
+    return ['building', ...(record.flights?.length ? [record.flights.map(flight => label(flight.ticket)).join(', ')] : [])].join(' ')
+  }
+  if (record.phase === 'finishing') {
+    return record.stage === 'follow' ? 'following up its pull request' : record.stage === 'fix' ? 'fixing what the review found' : 'reviewing the branch'
+  }
 
   return `${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`
 }
@@ -36,7 +42,10 @@ const standing = (record: RunRecord | undefined): string => (record ? ` · ${sta
 export const notesOf = (ticket: Ticket, takeable: ReadonlySet<Ticket>, record: RunRecord | undefined): string[] => {
   const attempts = record?.attempts[label(ticket.number ?? 0)] ?? 0
   const peak = record?.peak?.[label(ticket.number ?? 0)]
-  const failure = record?.failure?.ticket === ticket.number && ticket.status !== 'done' ? record?.failure : undefined
+  const failure = ticket.status !== 'done' ? record?.failures?.[label(ticket.number ?? 0)] : undefined
+  // Blocked for what it hangs off, not for a failure of its own: the run takes it again by itself
+  const isHanging = ticket.status === 'blocked' && record?.hangs?.includes(label(ticket.number ?? 0)) === true
+  const unticked = ticket.status === 'done' ? ticket.criteria.filter(criterion => !criterion.isDone).length : 0
 
   return [
     ticket.blockers.length > 0 ? `blocked by ${ticket.blockers.map(label).join(', ')}` : '',
@@ -44,7 +53,8 @@ export const notesOf = (ticket: Ticket, takeable: ReadonlySet<Ticket>, record: R
     attempts > 1 ? `attempt ${attempts}` : '',
     peak !== undefined ? `context ${Math.round((peak / BUDGET_WINDOW) * 100)}%` : '',
     failure ? `failed: ${failure.reason}` : '',
-    takeable.has(ticket) ? 'takeable now' : (NOTES[ticket.status ?? ''] ?? ''),
+    unticked > 0 ? `${unticked} of ${ticket.criteria.length} criteria left unticked` : '',
+    takeable.has(ticket) ? 'takeable now' : isHanging ? HANGING : (NOTES[ticket.status ?? ''] ?? ''),
   ].filter(note => note !== '')
 }
 

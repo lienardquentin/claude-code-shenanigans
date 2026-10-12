@@ -1,9 +1,11 @@
 import type { Settings } from './budget'
-import { readFolders, writeRecord } from './folders'
+import { readFolder, readFolders, writeRecord } from './folders'
+import { historyOf } from './history'
 import type { Host } from './host'
 import { blockLines } from './radius'
 import type { reader } from './reading'
-import { problemsOf } from './tickets'
+import { problemText } from './status'
+import { lintOf, problemsOf, scheduleLines } from './tickets'
 import { SCRATCH, folderOf, issuesOf, kept, sourceOf, specOf } from './run'
 import type { RunRecord } from './run'
 import { git, tail } from './work'
@@ -45,14 +47,16 @@ export const attendedPrompt = (given: {
   issue?: { number: number; title: string; isAgreed: boolean }
   /** Said before the source, when the phase is taken up in a conversation that did not begin it. */
   note?: string
+  /** What the runs this repo has had say about the size of a ticket, when it has had any. */
+  history?: string
 }): string => {
-  const { feature, root, settings, source, issue, note } = given
+  const { feature, root, settings, source, issue, note, history } = given
   const steps = `${root.replaceAll('\\', '/')}/prompts/spec.md`
   const grill = issue?.isAgreed
     ? `1. **Skip the grilling.** Issue #${issue.number} is labelled \`${AGREED}\`: it is already agreed. Read it below and go to step 2.`
     : [
         '1. **Grill.** Call the Skill tool twice, for `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling`, and grill the person about this feature. Done when the frontier is empty and the person has confirmed the shared understanding.',
-        `   Two findings end the run here instead: a question only something runnable can settle, and a feature too large or foggy for one session. Tell the person which it is, name the skill for it (\`/prototype\`, \`/wayfinder\`), tell them to delete \`${folderOf(feature)}/\` before starting another run, and stop.`,
+        `   Two findings end the run here instead: a question only something runnable can settle, and a feature too large or foggy for one session. Tell the person which it is, name the skill for it (\`/prototype\`, \`/wayfinder\`), tell them to type \`/ship clean ${feature}\` before starting another run, and stop.`,
       ].join('\n')
 
   return [
@@ -63,6 +67,7 @@ export const attendedPrompt = (given: {
     `- Exploring the codebase: through an Explore agent on the \`${settings.exploreModel}\` model.`,
     `- The strong model, for a ticket that needs it: \`${settings.strongModel}\`.`,
     '- Publish nothing to GitHub: the run opens the issue and the pull request itself.',
+    ...(history !== undefined ? [`- Sizing the tickets, from the runs this repo has had: ${history}.`] : []),
     '',
     '## Steps',
     '',
@@ -89,7 +94,7 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
   const active = folders.find(folder => isActive(folder.record))
 
   if (active) {
-    return `A run is already under way here: ${active.feature}. Finish it (/ship resume ${active.feature}) or delete ${folderOf(active.feature)}/ first.`
+    return `A run is already under way here: ${active.feature}. Finish it (/ship resume ${active.feature}) or remove it (/ship clean ${active.feature}) first.`
   }
   if ((await git(host, 'status', '--porcelain')).stdout.trim() !== '') {
     return 'The working tree has uncommitted changes. Commit or stash them, then start the run: what the grilling changes is committed with it.'
@@ -136,7 +141,9 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
     source: issue ? 'issue' : 'idea',
     ...(issue ? { issue: issue.number, title: issue.title } : {}),
   })
-  host.prompt(attendedPrompt({ feature, root: host.root, settings, source, ...(issue ? { issue } : {}) }))
+  const history = historyOf(folders)
+
+  host.prompt(attendedPrompt({ feature, root: host.root, settings, source, ...(issue ? { issue } : {}), ...(history !== undefined ? { history } : {}) }))
 
   return issue
     ? `${feature}: started from issue #${issue.number}${issue.isAgreed ? ', which is already agreed: the spec comes next' : ': the grilling begins'}.`
@@ -151,6 +158,7 @@ export const begin = async (host: Host, settings: Settings, asked: string): Prom
 export const reattend = async (host: Host, settings: Settings, record: RunRecord): Promise<string> => {
   const { feature } = record
   const source = (await host.exists(sourceOf(feature))) ? (await host.read(sourceOf(feature))).trim() : '(the source was not kept)'
+  const history = historyOf(await readFolders(host))
 
   host.prompt(
     attendedPrompt({
@@ -158,6 +166,7 @@ export const reattend = async (host: Host, settings: Settings, record: RunRecord
       root: host.root,
       settings,
       source,
+      ...(history !== undefined ? { history } : {}),
       ...(record.source === 'issue' && record.issue !== undefined
         ? { issue: { number: record.issue, title: record.title ?? `#${record.issue}`, isAgreed: false } }
         : {}),
@@ -259,7 +268,7 @@ export const noteRead = async (host: Host, path: string): Promise<void> => {
  * transcript, under the tickets table. Once, and again only when the block has changed since the record last said
  * what it printed.
  */
-const printRadius = async (host: Host, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
+const printRadius = async (host: Host, settings: Settings, repo?: Pick<ReturnType<typeof reader>, 'read'>): Promise<void> => {
   const attended = (await readFolders(host)).filter(({ record }) => record?.phase === 'attended')
 
   // Every run before its checkpoint is looked at: one that does not qualify never hides another's block
@@ -270,7 +279,8 @@ const printRadius = async (host: Host, repo?: Pick<ReturnType<typeof reader>, 'r
 
     const reading =
       repo && folder.tickets.some(ticket => ticket.touches !== undefined) ? await repo.read(host).catch(() => undefined) : undefined
-    const text = blockLines(folder.tickets, reading).join('\n')
+    // Under the radius, how the run would build the tickets: what their Touches and their blockers let go side by side
+    const text = [...blockLines(folder.tickets, reading), ...scheduleLines(folder.tickets, settings.parallelTickets)].join('\n')
 
     if (record.radiusShown === text) continue
 
@@ -278,6 +288,43 @@ const printRadius = async (host: Host, repo?: Pick<ReturnType<typeof reader>, 'r
     // Named only when more than one run is waiting, so the person knows whose block it is
     host.log(attended.length > 1 ? `${record.feature}:\n${text}` : text)
   }
+}
+
+/**
+ * A run whose tickets are written: what is wrong with them is handed back to the model that wrote them, as a turn
+ * of its own, before the person approves. What makes the folder unfit to run, which `/ship resume` would refuse,
+ * and what is worth putting right in tickets that can run. Once, and again only when what is wrong has changed.
+ */
+const lint = async (host: Host): Promise<boolean> => {
+  const record = await attendedOf(host)
+
+  if (!record || record.step !== 'tickets') return false
+
+  const tickets = (await readFolder(host, record.feature))?.tickets ?? []
+  const broken = problemsOf(tickets).map(problemText)
+  const weak = lintOf(tickets)
+  const text = [...broken, ...weak].join('\n')
+
+  if (tickets.length === 0 || (record.lintShown ?? '') === text) return false
+
+  await writeRecord(host, { ...record, lintShown: text })
+
+  if (text === '') return false
+
+  host.log(`${record.feature}: the tickets have ${broken.length + weak.length} things to put right, and the model is told.`)
+  host.prompt(
+    [
+      `The ship-flow run \`${record.feature}\` read the tickets in \`${issuesOf(record.feature)}/\` and found this to put right before the person approves.`,
+      ...(broken.length > 0 ? ['', 'The run cannot start until these are fixed:', ...broken.map(line => `- ${line}`)] : []),
+      ...(weak.length > 0
+        ? ['', 'These let the run start, and cost it: fix each, or tell the person why it stands as it is.', ...weak.map(line => `- ${line}`)]
+        : []),
+      '',
+      'Change the ticket files, then show the person the checkpoint again, as short as the changes allow. Build nothing.',
+    ].join('\n'),
+  )
+
+  return true
 }
 
 /**
@@ -289,7 +336,9 @@ export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<Retu
   if (!(await host.exists(SCRATCH))) return
 
   // The checkpoint's blast radius is informing only: whatever goes wrong with it never holds the turn back
-  await printRadius(host, repo).catch(() => undefined)
+  await printRadius(host, settings, repo).catch(() => undefined)
+  // The model is about to be given a turn on the tickets: the conversation is not compacted under it
+  if (await lint(host).catch(() => false)) return
 
   const record = await attendedOf(host)
 
@@ -312,7 +361,8 @@ export const afterTurn = async (host: Host, settings: Settings, repo?: Pick<Retu
 
 /**
  * What a session is told as it starts in a repo with a run that is not building: one line naming each such run
- * and the command that takes it up. It reminds and does nothing else: a run goes on only when the person says so.
+ * and the command that takes it up. It reminds and does nothing else: a run goes on only when the person says so,
+ * but for one paused for quota, which said it would go on by itself and whose timer `rearm` sets again.
  */
 export const reminder = async (host: Host): Promise<string | undefined> => {
   if (!(await host.exists(SCRATCH))) return undefined
@@ -324,7 +374,13 @@ export const reminder = async (host: Host): Promise<string | undefined> => {
     if (record.phase === 'paused') return record.pr ? [] : [`${feature} is paused (${record.pause ?? 'no reason kept'})`]
     if (record.agentId !== undefined && running.has(record.agentId)) return []
 
-    return [`${feature} was cut off while ${record.phase === 'finishing' ? 'being reviewed' : `building ticket ${String(record.ticket ?? '?').padStart(2, '0')}`}`]
+    const flights = record.flights ?? []
+
+    if (flights.some(flight => flight.agentId !== undefined && running.has(flight.agentId))) return []
+
+    const cut = `ticket${flights.length > 1 ? 's' : ''} ${flights.map(flight => String(flight.ticket).padStart(2, '0')).join(', ') || '?'}`
+
+    return [`${feature} was cut off while ${record.phase === 'finishing' ? 'being reviewed' : `building ${cut}`}`]
   })
 
   return lines.length === 0 ? undefined : `${lines.join('; ')}. /ship status shows it; /ship resume takes it up.`

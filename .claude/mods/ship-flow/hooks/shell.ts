@@ -13,12 +13,26 @@ const JOINS = /[;&|`<>\n]|\$\(/
 const SANDBOX_PREAMBLE =
   /^export(?:\s+(?:https?|all|no)_proxy='[^']*')+\s*;\s*curl\(\) \{ command curl --suppress-connect-headers "\$@"; \}\s*\n/i
 
+// The options by which a git command that reads would write a file or start a program: no agent of a run needs them
+const WRITING_OPTIONS = ['--output', '--open-files-in-pager', '--ext-diff']
+
+// Whether one word of a git command is such an option, however it is spelled: whole, cut short as git allows, or,
+// for `git grep`, as the letter `-O` among others
+const isWriting = (word: string, subcommand: string): boolean => {
+  const bare = word.replace(/["'\\]/g, '')
+  const name = bare.split('=')[0] ?? ''
+
+  if (name.startsWith('--')) return name.length > 2 && WRITING_OPTIONS.some(option => option.startsWith(name))
+
+  return subcommand === 'grep' && /^-[A-Za-z]*O/.test(bare)
+}
+
 /** A shell command as the agent wrote it: without what the session's sandbox put in front of it. */
 export const asWritten = (command: string): string => command.replace(SANDBOX_PREAMBLE, '').trim()
 
 /** What an implementer is told when its shell refuses a command: the command did not run, and its work goes on. */
 export const SHELL_REFUSAL =
-  'ship-flow: this command was not run. Your shell runs only the spec\'s verification commands, exactly as written, and one git status, diff, log, show, blame, ls-files, grep, rev-parse, mv, rm or add per call, from the repo root, with nothing joined to it and no -C. Go on with your work, with the file tools.'
+  'ship-flow: this command was not run. Your shell runs only the spec\'s verification commands, exactly as written, and one git status, diff, log, show, blame, ls-files, grep, rev-parse, mv, rm or add per call, from your working directory, with nothing joined to it, no -C, and no option that writes a file or opens a pager. Go on with your work, with the file tools.'
 
 /**
  * Whether an agent of the run may run this shell command: one git command from its list (the implementer's,
@@ -35,9 +49,9 @@ export const isAllowedShell = (
   if (verification.includes(line)) return true
   if (JOINS.test(line)) return false
 
-  const [program, subcommand] = line.split(/\s+/)
+  const [program, subcommand = '', ...words] = line.split(/\s+/)
 
-  return program === 'git' && gitCommands.includes(subcommand ?? '')
+  return program === 'git' && gitCommands.includes(subcommand) && !words.some(word => isWriting(word, subcommand))
 }
 
 /** Whether a working directory is spelled the way Windows spells one. */

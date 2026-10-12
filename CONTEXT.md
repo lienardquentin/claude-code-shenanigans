@@ -40,6 +40,10 @@ _Avoid_: PRD, plan
 One local file describing a vertical slice of a spec, with the tickets that block it.
 _Avoid_: Task, sub-issue, step
 
+**Flight**:
+One ticket being built: its implementer at work in a git worktree of its own, on a branch cut from the run's branch. A run has several at once when their tickets' reaches do not overlap.
+_Avoid_: Job, worker, slot
+
 **Run card**:
 A run's card in the workflow pane: its standing, quota and actions, with a ticket card for each of its tickets nested inside.
 _Avoid_: Issue card, run row

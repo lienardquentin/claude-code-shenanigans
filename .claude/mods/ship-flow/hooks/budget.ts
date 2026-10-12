@@ -14,7 +14,12 @@ export type Settings = {
   weeklyPercent: number
   /** How much of one context window a ticket's implementer may fill, in percent, before it is stopped. */
   contextPercent: number
+  /** How many tickets the run builds at once, each in a worktree of its own. */
+  parallelTickets: number
 }
+
+/** The most tickets a run may be set to build at once. */
+export const MOST_PARALLEL = 8
 
 export const DEFAULTS: Settings = {
   implementerModel: 'sonnet',
@@ -23,6 +28,7 @@ export const DEFAULTS: Settings = {
   shortWindowPercent: 90,
   weeklyPercent: 90,
   contextPercent: 70,
+  parallelTickets: 3,
 }
 
 /**
@@ -58,6 +64,9 @@ const text = (value: unknown, fallback: string): string => (typeof value === 'st
 const percent = (value: unknown, fallback: number): number =>
   typeof value === 'number' && value > 0 && value <= 100 ? value : fallback
 
+const count = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MOST_PARALLEL ? value : fallback
+
 /** The settings as the mod's options give them; a value missing or out of range is the default. */
 export const settingsOf = (options: Readonly<Record<string, unknown>> | undefined): Settings => ({
   implementerModel: text(options?.implementerModel, DEFAULTS.implementerModel),
@@ -66,6 +75,7 @@ export const settingsOf = (options: Readonly<Record<string, unknown>> | undefine
   shortWindowPercent: percent(options?.shortWindowPercent, DEFAULTS.shortWindowPercent),
   weeklyPercent: percent(options?.weeklyPercent, DEFAULTS.weeklyPercent),
   contextPercent: percent(options?.contextPercent, DEFAULTS.contextPercent),
+  parallelTickets: count(options?.parallelTickets, DEFAULTS.parallelTickets),
 })
 
 /**
@@ -95,5 +105,50 @@ export const beforeTicket = (usage: UsageReading, settings: Settings): Verdict =
   }
 }
 
-/** A time as a person reads it in a line of text: the hour and minute, in UTC. */
-export const clockTime = (ms: number): string => `${new Date(ms).toISOString().slice(11, 16)} UTC`
+/** A time as a person reads it in a line of text: the hour and minute, on their own clock. */
+export const clockTime = (ms: number): string => {
+  const at = new Date(ms)
+
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+}
+
+/** What the quota says before work starts, as the run words it: why it holds, when it goes on, or that waiting does not help. */
+export type Hold = { pause: string; resumeAt?: number; isOver?: true }
+
+/** The hold for a usage reading; undefined when the work may start. */
+export const holdOf = (usage: UsageReading, settings: Settings): Hold | undefined => {
+  const verdict = beforeTicket(usage, settings)
+
+  if (verdict.kind === 'start') return undefined
+  if (verdict.kind === 'stop') return { pause: `the weekly quota window is at ${verdict.percentUsed}%`, isOver: true }
+
+  return {
+    pause: `the 5-hour quota window is at ${verdict.percentUsed}%: the run goes on by itself at ${clockTime(verdict.until)}`,
+    resumeAt: verdict.until,
+  }
+}
+
+/**
+ * How many tickets the quota has room for now, from what those ended so far have cost: the share of a window the
+ * run has spent since `start`, over the attempts that ended in it. One at least, since the thresholds are
+ * `beforeTicket`'s to hold; no limit while nothing has ended, or where a window has reset since `start`.
+ */
+export const roomFor = (start: UsageReading | undefined, now: UsageReading, ended: number, settings: Settings): number => {
+  if (!start || ended <= 0) return Number.POSITIVE_INFINITY
+
+  const rooms = (
+    [
+      [SHORT, settings.shortWindowPercent],
+      [WEEKLY, settings.weeklyPercent],
+    ] as const
+  ).map(([kind, threshold]) => {
+    const before = start.quota.find(window => window.kind === kind)
+    const after = now.quota.find(window => window.kind === kind)
+
+    if (!before || !after || before.resetsAt !== after.resetsAt || after.percentUsed <= before.percentUsed) return Number.POSITIVE_INFINITY
+
+    return Math.max(1, Math.floor((threshold - after.percentUsed) / ((after.percentUsed - before.percentUsed) / ended)))
+  })
+
+  return Math.min(...rooms)
+}

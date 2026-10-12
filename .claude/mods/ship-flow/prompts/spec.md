@@ -10,6 +10,8 @@ The grilling is over. Synthesise what was agreed into the run's spec; ask the pe
 
 3. **Find the verification commands.** These are the commands the unattended run executes, exactly as written, to decide that a ticket is built: the repo's tests, its typecheck, its lint. Look them up (`package.json` scripts, a Makefile, CI config, the README) and run each once to see that it works here and passes now. Done when every command you will list has run green in this session.
 
+   Each ticket is built in a fresh git worktree of the repo, which holds only what git tracks. If the verification commands need anything else there (installed dependencies, generated files), find the commands that put it there, such as `npm ci`: they are the spec's setup commands, and the run executes them in each worktree before its ticket is built. A repo whose commands run green in a bare checkout needs none.
+
 4. **Write `spec.md`** from the template below. When the run started from an idea, the spec is also the one GitHub issue the run opens when the person approves: the title in its heading is the issue's title, and everything under the heading is the issue's body, so write both for someone reading them on GitHub. A run that started from an issue already has one, and its spec stays local. Done when every section is filled and every decision of the grilling appears in it.
 
 5. Read `tickets.md`, beside this file, and follow it.
@@ -46,6 +48,11 @@ which modules are tested, and the tests already in the repo that are the model f
 ## Verification
 
 One command a line, in a fenced block, each a real command that runs from the repo's root. Nothing else in the block.
+
+## Setup
+
+Only when a fresh worktree needs it: one command a line, in a fenced block, run from the worktree's root before a
+ticket is built there. Leave the section out otherwise.
 
 ## Out of Scope
 
