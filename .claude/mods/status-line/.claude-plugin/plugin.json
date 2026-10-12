@@ -1,6 +1,6 @@
 {
   "name": "status-line",
   "version": "0.1.0",
-  "description": "One plain-text status line under the prompt: folder, model and context fill",
+  "description": "One plain-text status line under the prompt: folder, git branch, model and context fill",
   "author": { "name": "quent" }
 }

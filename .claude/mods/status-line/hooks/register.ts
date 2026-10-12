@@ -4,7 +4,6 @@ const SEPARATOR = ' · '
 const INTERVAL_MS = 10_000
 const GIT_TIMEOUT_MS = 2_000
 const NAME_LIMIT = 32
-const STTY_TIMEOUT_MS = 500
 
 // A redraw that would start while another is still running is skipped
 let isDrawing = false
@@ -58,23 +57,15 @@ const branchIn = async ($: EngineInterface, cwd: string): Promise<string | undef
   }
 }
 
-// The terminal's width in columns, or undefined when it is not known.
+// The terminal's width in columns as the last render event gave it, or undefined while none has.
 //
 // The plugin typings give a hook no width where the line is composed: `viewport.columns` rides only on render
-// events and on `session.attach`, which the terminal never raises, and `session.start`, `tool.call`,
-// `turn.complete` and the clock carry none. So the width is asked of the terminal itself with `stty size`
-// (rows then columns). A hook has no terminal of its own, so in a real session this fails and the width stays
-// unknown: the full line is pinned and the engine cuts it. A host that answers it gets a line cut to fit.
-const columnsOf = async ($: EngineInterface): Promise<number | undefined> => {
-  try {
-    const run = await $.process.run(['stty', 'size'], { timeoutMs: STTY_TIMEOUT_MS })
-    const columns = Number(run.exitCode === 0 ? run.stdout.trim().split(/\s+/)[1] : undefined)
+// events, and `session.start`, `tool.call`, `turn.complete` and the clock carry none. So the width is remembered
+// from the render of an assistant message, which costs no process. Until one has rendered the width stays
+// unknown: the full line is pinned and the engine cuts it.
+let columns: number | undefined
 
-    return Number.isInteger(columns) && columns > 0 ? columns : undefined
-  } catch {
-    return undefined
-  }
-}
+const columnsOf = (): number | undefined => columns
 
 // The line: folder, branch, model and context fill, each left out with its separator when it has nothing to say.
 // Given a width, whole segments are dropped until it fits: model, then branch, then folder; the fill stays.
@@ -110,9 +101,7 @@ const redraw = async ($: EngineInterface): Promise<void> => {
 
     const branch = await branchIn($, cwd)
 
-    const columns = await columnsOf($)
-
-    $.ui.status(lineOf([folderOf(cwd), branch, model, fillOf(usage?.context.percent)], columns))
+    $.ui.status(lineOf([folderOf(cwd), branch, model, fillOf(usage?.context.percent)], columnsOf()))
   } catch {
     // The line stays as it was until the next redraw
   } finally {
@@ -121,6 +110,14 @@ const redraw = async ($: EngineInterface): Promise<void> => {
 }
 
 export const register: Register = on => {
+  on('ui.render', { component: 'AssistantMessage' }, async (_, e, next) => {
+    const width = e.viewport?.columns
+
+    columns = typeof width === 'number' && Number.isInteger(width) && width > 0 ? width : columns
+
+    return next(e)
+  })
+
   on('session.start', async ($, e, next) => {
     const started = await next(e)
 
@@ -133,7 +130,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const called = await next(e)
 
-    await redraw($)
+    void redraw($)
 
     return called
   })
@@ -141,7 +138,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
 
-    await redraw($)
+    void redraw($)
 
     return completed
   })

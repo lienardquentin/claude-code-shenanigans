@@ -18,12 +18,14 @@ const answerSession = (
   given: { cwd?: string; model?: string; percent?: number | undefined; columns?: number | undefined } = {},
 ) => {
   const clock = mock.clock(on, { now: 1000 })
-  const session = {
+  const session: { cwd: string; model: string; percent: number | undefined; columns: number | undefined } = {
     cwd: given.cwd ?? '/home/dev/claude',
     model: given.model ?? 'Opus 5.5',
     percent: 'percent' in given ? given.percent : 42,
     columns: given.columns,
   }
+  // The engine's own drawing of a reply, which the mod only reads the width from
+  on('ui.render', { component: 'AssistantMessage' } as never, () => ({ type: 'Text', props: {}, children: [''] }) as never)
   const shown: (string | undefined)[] = []
   // How long the next read of the usage figures takes to answer: a test holds it to overlap two redraws
   const hold: { release?: () => void; isHeld: boolean } = { isHeld: false }
@@ -45,13 +47,6 @@ const answerSession = (
   const git: { answer: GitAnswer; runs: GitRun[] } = { answer: { exitCode: 128, stdout: '' }, runs: [] }
 
   on('process.run', (_, e) => {
-    // The terminal's size, as `stty size` prints it: rows then columns; it fails where the width is not known
-    if (e.argv[0] === 'stty') {
-      const answer = session.columns === undefined ? { exitCode: 1, stdout: '' } : { exitCode: 0, stdout: `24 ${session.columns}\n` }
-
-      return { value: { ...answer, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
-    }
-
     git.runs.push({ argv: e.argv, cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
 
     if ('fails' in git.answer) throw new Error(git.answer.fails)
@@ -78,16 +73,39 @@ const answerSession = (
   }
 }
 
+// A reply drawn in a terminal of the given width: the only place the engine tells a hook how wide it is
+const rendersAReply = async ($: Engine, host: Host, columns: number) => {
+  host.session.columns = columns
+  const row = await $.ui.mount({
+    plugin: 'status-line',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    props: { text: 'Hi', isFirstOfReply: true } as never,
+    requestId: 'message-1',
+    viewport: { columns, rows: 24, isFullscreen: false },
+  } as never)
+
+  await host.clock.settle()
+  await row.unmount()
+}
+
 const starts = async ($: Engine) => {
   await $.session.start({ cwd: '/home/dev/claude' } as never)
 }
 
-const callsATool = async ($: Engine) => {
+
+
+// The redraw runs after the tool call has returned, so a test lets it finish before it reads the line
+type Host = ReturnType<typeof answerSession>
+
+const callsATool = async ($: Engine, host: Host) => {
   await $.tool.call({ tool: 'Read', file_path: 'a.ts', tool_use_id: 'call-1' } as never)
+  await host.clock.settle()
 }
 
-const endsATurn = async ($: Engine) => {
+const endsATurn = async ($: Engine, host: Host) => {
   await $.turn.complete({ answer: 'Done.', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+  await host.clock.settle()
 }
 
 describe('the status line at session start', () => {
@@ -190,7 +208,7 @@ describe('the redraws', () => {
     await starts($)
     host.session.percent = 61
     host.session.model = 'Haiku 5'
-    await callsATool($)
+    await callsATool($, host)
 
     expect(host.line()).toBe('claude · Haiku 5 · 61%!')
   })
@@ -200,7 +218,7 @@ describe('the redraws', () => {
 
     await starts($)
     host.session.percent = 90
-    await endsATurn($)
+    await endsATurn($, host)
 
     expect(host.line()).toBe('claude · Opus 5.5 · 90%!!')
   })
@@ -231,13 +249,12 @@ describe('the redraws', () => {
     host.shown.length = 0
     host.hold.isHeld = true
 
-    const first = callsATool($)
-
+    await $.tool.call({ tool: 'Read', file_path: 'a.ts', tool_use_id: 'call-1' } as never)
     await host.clock.settle()
-    await callsATool($)
+    await callsATool($, host)
     host.hold.isHeld = false
     host.hold.release?.()
-    await first
+    await host.clock.settle()
 
     expect(host.shown).toEqual(['claude · Opus 5.5 · 42%'])
   })
@@ -245,10 +262,11 @@ describe('the redraws', () => {
 
 describe('a narrow terminal', () => {
   // 'claude · main · Opus 5.5 · 42%' is 30 columns
-  const full = async (columns: number | undefined, on: On, given: Parameters<typeof answerSession>[1] = {}) => {
-    const host = answerSession(on, { ...given, columns })
+  const full = async ($: Engine, columns: number | undefined, on: On, given: Parameters<typeof answerSession>[1] = {}) => {
+    const host = answerSession(on, given)
 
     host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    if (columns !== undefined) await rendersAReply($, host, columns)
 
     return host
   }
@@ -265,7 +283,7 @@ describe('a narrow terminal', () => {
     [1, '42%'],
   ] as const) {
     test(`at ${columns} columns reads ${text}`, async ($, on) => {
-      const host = await full(columns, on)
+      const host = await full($, columns, on)
 
       await starts($)
 
@@ -274,34 +292,36 @@ describe('a narrow terminal', () => {
   }
 
   test('follows the width at each redraw', async ($, on) => {
-    const host = await full(29, on)
+    const host = await full($, 29, on)
 
     await starts($)
-    host.session.columns = 80
-    await callsATool($)
+    await rendersAReply($, host, 80)
+    await callsATool($, host)
 
     expect(host.line()).toBe('claude · main · Opus 5.5 · 42%')
   })
 
   test('skips a branch and a model that are already absent', async ($, on) => {
-    const host = answerSession(on, { model: '', columns: 8 })
+    const host = answerSession(on, { model: '' })
 
+    await rendersAReply($, host, 8)
     await starts($)
 
     expect(host.line()).toBe('42%')
   })
 
   test('skips a model that is absent before dropping the branch', async ($, on) => {
-    const host = answerSession(on, { model: '', columns: 19 })
+    const host = answerSession(on, { model: '' })
 
     host.git.answer = { exitCode: 0, stdout: statusOf('main') }
+    await rendersAReply($, host, 19)
     await starts($)
 
     expect(host.line()).toBe('claude · main · 42%')
   })
 
   test('pins the full line when the width is not known', async ($, on) => {
-    const host = await full(undefined, on)
+    const host = await full($, undefined, on)
 
     await starts($)
 
@@ -412,7 +432,7 @@ describe('the git branch', () => {
     expect(host.line()).toBe('claude · Opus 5.5 · 42%')
 
     host.git.answer = { exitCode: 0, stdout: statusOf('main') }
-    await callsATool($)
+    await callsATool($, host)
 
     expect(host.line()).toBe(branchLine('main'))
   })

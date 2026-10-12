@@ -90,8 +90,10 @@ export const checkTool = async (
 
   if (!found) return undefined
 
-  // The report an agent ends its turn with is no work: refused, the turn ends as aborted and its work is discarded
-  if (tool === HANDBACK) return { decision: 'allow' }
+  // The report an agent ends its turn with is no work: refused, the turn ends as aborted and its work is discarded.
+  // It is not the run's to allow either: in auto mode the engine takes an allow of it from its classifier alone and
+  // fails the call on a hook's, so the session's own decision stands
+  if (tool === HANDBACK) return undefined
 
   const { feature, record, flight } = found
 
