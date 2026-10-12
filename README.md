@@ -77,8 +77,11 @@ A pane that draws the Mermaid diagrams of a session. It lives in [`.claude/mods/
   downloaded). The diagram is written to a temporary folder removed after the run; nothing of it leaves the machine.
   - The "Theme" picker there holds Mermaid's themes (`default`, `neutral`, `forest`, `dark`); paging, "Show source",
     the direction of a flowchart and "Hide in chat" work as in the terminal. Mobile draws no picker.
-  - A picture is an image: its linked nodes cannot be pressed. One over the app's limit for an SVG (131,072
-    characters) is shown as its source, with a line saying so; so is a diagram Mermaid cannot draw, with its message.
+  - A picture is an image, which takes no press: its linked nodes cannot be pressed where they are drawn. They are
+    buttons under the picture instead, each called by its node's label with where it leads (`parse.ts:50`,
+    `changes of draw.ts`); pressing one opens its code or its changes in the pane, as in the terminal.
+  - A picture over the app's limit for an SVG (131,072 characters) is shown as its source, with a line saying so; so
+    is a diagram Mermaid cannot draw, with its message.
   - The pictures are drawn one at a time, a few seconds each. The first one downloads the Mermaid CLI, which takes
     about a minute.
   - Tried in the desktop app; VS Code and mobile take the same path and are not yet tried.
@@ -126,6 +129,30 @@ Install it from a clone:
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/status-line
 claude plugin install status-line@status-line-mods
+```
+
+### `timeline-view`
+
+A pane that draws what a session did over time. It lives in [`.claude/mods/timeline-view`](.claude/mods/timeline-view).
+
+- `/timeline` opens the pane. Each lane is one row of cells over the period shown: the main conversation first, then
+  one lane per subagent, from its spawn to the end of its run. A ship-flow run's implementers are subagents, so each
+  ticket being built has a lane of its own.
+- A cell a tool call ran in is filled, in the color of its kind of work (reads, edits, shell, agents, other), and a
+  failed call is red and never painted over. A cell where the lane was at work with no tool running (the model
+  thinking or writing) is shaded; an idle cell is a dot.
+- Pressing a lane's name lists its calls under the drawing, the latest first: when each started, the tool, what it
+  worked on (its command, file or pattern) and how long it took. A turn is listed with its prompt.
+- "Show" limits the drawing to the whole session, the latest turn, or the last 5, 15 or 60 minutes. What still runs
+  grows every second; a quiet session redraws nothing. "Clear" empties what has ended.
+- It records the last 1,500 turns and calls of the session, in the session's memory only: nothing is written to disk
+  and nothing leaves the machine. A `/clear` empties it.
+
+Install it from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/timeline-view
+claude plugin install timeline-view@timeline-view-mods
 ```
 
 ### `http-log`
