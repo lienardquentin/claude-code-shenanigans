@@ -5,6 +5,7 @@ import { card } from './kit/card'
 import { code } from './kit/code'
 import { actionLabel } from './kit/action-label'
 import { pagination } from './kit/pagination'
+import { tonedText } from './kit/toned-text'
 
 const PANE = 'termaid-view'
 
@@ -30,7 +31,8 @@ const inFlight = new Set<string>()
 
 // How a failure is told apart. The mod only prints the install command: it never runs it.
 const UV_INSTALL = 'winget install --id astral-sh.uv (Windows) or curl -LsSf https://astral.sh/uv/install.sh | sh'
-const TIMED_OUT = /time[d ]?-?out/i
+const TIMED_OUT = /tim(e|ed)[ -]?out/i
+const NOT_STARTED = /ENOENT|not found|cannot start|could not start|failed to (start|spawn)|no such file/i
 const DOWNLOAD_FAILED = /failed to (fetch|download)|error sending request|dns error|tcp connect error|network is unreachable/i
 
 // The engine's clock, in milliseconds; 0 when it cannot say (then no call is taken for a timeout by its duration)
@@ -70,11 +72,14 @@ const render = async ($: Engine, source: string, width: number): Promise<void> =
       // The call rejects when the command cannot start or is still running at the timeout
       // (the message is not a documented contract, so the time the call took is read too)
       const message = error instanceof Error ? error.message : String(error)
+      const isTimeout = TIMED_OUT.test(message) || (await now($)) - startedAt >= RENDER_TIMEOUT_MS
       result = {
         status: 'failed',
-        reason: TIMED_OUT.test(message) || (await now($)) - startedAt >= RENDER_TIMEOUT_MS
+        reason: isTimeout
           ? `The render timed out after ${RENDER_TIMEOUT_MS / 1000} seconds.`
-          : `uv is missing, so termaid cannot run. Install it with: ${UV_INSTALL}`,
+          : NOT_STARTED.test(message)
+            ? `uv is missing, so termaid cannot run. Install it with: ${UV_INSTALL}`
+            : `termaid could not be run: ${message !== '' ? message : 'the host refused the call'}`,
       }
     }
 
@@ -117,8 +122,12 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'termaid' }, async $ => {
-    // Reopening the pane tries again what failed
-    await update($, results, all => Object.fromEntries(Object.entries(all).filter(([, result]) => result.status !== 'failed')))
+    // Reopening the pane tries again what failed, and what was left "rendering" by a render that never finished
+    await update($, results, all =>
+      Object.fromEntries(
+        Object.entries(all).filter(([key, result]) => result.status === 'drawn' || (result.status === 'rendering' && inFlight.has(key))),
+      ),
+    )
     await refresh($, false)
     // Opens on the most recent diagram
     const last = Math.max((await read($, diagrams)).length - 1, 0)
@@ -136,11 +145,14 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Text, Button } = $.ui.resolve(e)
+    const { Button } = $.ui.resolve(e)
+    const notice = (text: string): RenderElement => tonedText({ text, tone: 'neutral', wrap: true })
     const list = await read($, diagrams)
     const at = Math.min(await read($, shown), Math.max(list.length - 1, 0))
     const current = list[at]
-    const width = e.props.bodyColumns ?? 80
+    const paneColumns = e.props.bodyColumns ?? 80
+    // The card spends 2 columns on its border and 2 on its padding: the drawing has the rest
+    const width = Math.max(paneColumns - 4, 1)
     const isTerminal = e.surface === 'terminal'
     const known = current === undefined || !isTerminal ? undefined : (await read($, results))[keyOf(current, width)]
 
@@ -154,44 +166,21 @@ export const register: Register = on => {
     let body: RenderElement[]
     if (current === undefined) {
       body = [
-        <Text key="empty" color="subtle" wrap="wrap">
-          No Mermaid diagram in this conversation yet. This pane shows the diagrams in Claude's replies, the most
-          recent first.
-        </Text>,
+        notice("No Mermaid diagram in this conversation yet. This pane shows the diagrams in Claude's replies, the most recent first."),
       ]
     } else if (!isTerminal) {
-      body = [
-        <Text key="note" color="subtle" wrap="wrap">
-          Drawing the diagram needs the terminal. Its Mermaid source is shown.
-        </Text>,
-        code({ source: current, plain: true }),
-      ]
+      body = [notice('Drawing the diagram needs the terminal. Its Mermaid source is shown.'), code({ source: current, plain: true })]
     } else if (await read($, isSource)) {
       body = [code({ source: current })]
     } else if (known === undefined || known.status === 'rendering') {
-      body = [
-        <Text key="rendering" color="subtle">
-          rendering…
-        </Text>,
-      ]
+      body = [notice('rendering…')]
     } else if (known.status === 'failed') {
-      body = [
-        <Text key="failed" color="subtle" wrap="wrap">
-          {known.reason}
-        </Text>,
-        code({ source: current }),
-      ]
+      body = [notice(known.reason), code({ source: current })]
     } else {
       const lines = known.text.split('\n')
       const isWide = lines.some(line => [...line].length > width)
       body = [
-        ...(isWide
-          ? [
-              <Text key="wide" color="subtle" wrap="wrap">
-                The diagram is wider than the pane: the right part is cut off.
-              </Text>,
-            ]
-          : []),
+        ...(isWide ? [notice('The diagram is wider than the pane: the right part is cut off.')] : []),
         code({ source: isWide ? lines.map(line => [...line].slice(0, width).join('')).join('\n') : known.text }),
       ]
     }
@@ -221,7 +210,7 @@ export const register: Register = on => {
           ]
 
     return card({
-      width,
+      width: paneColumns,
       title: 'Mermaid diagrams',
       meta: current === undefined ? undefined : `${at + 1} of ${list.length}`,
       children: [...body, ...controls],

@@ -157,7 +157,7 @@ describe('termaid-view', () => {
     await settle()
 
     expect(runs).toHaveLength(1)
-    expect(runs[0]?.argv).toEqual(['uvx', expect.stringMatching(/^termaid==\d+\.\d+(\.\d+)?$/), '--width', '100'])
+    expect(runs[0]?.argv).toEqual(['uvx', expect.stringMatching(/^termaid==\d+\.\d+(\.\d+)?$/), '--width', '96'])
     expect(runs[0]?.stdin).toBe('graph TD\n  A --> B')
     expect(runs[0]?.timeoutMs).toBe(60_000)
     expect(await pane.find({ type: 'Code' })).toBeDefined()
@@ -201,7 +201,7 @@ describe('termaid-view', () => {
     await $.ui.mount({ plugin: 'termaid-view', surface: 'terminal', component: 'Pane', props: { bodyColumns: 60 } as never, requestId: 'termaid-view' })
     await settle()
     expect(runs).toHaveLength(2)
-    expect(runs[1]?.argv.slice(-2)).toEqual(['--width', '60'])
+    expect(runs[1]?.argv.slice(-2)).toEqual(['--width', '56'])
   })
 
   test('a drawing wider than the pane is clipped, with a notice', async ($, on) => {
@@ -221,7 +221,7 @@ describe('termaid-view', () => {
   test('a drawing that fits has no notice', async ($, on) => {
     conversation(on, [reply(fence('graph LR\n  A --> B'))])
     answerOpen(on)
-    answerUvx(on, () => 'X'.repeat(100))
+    answerUvx(on, () => 'X'.repeat(96))
 
     await termaid($)
     const pane = await mountPane($)
@@ -298,9 +298,7 @@ describe('termaid-view', () => {
   test('when uvx cannot be started the pane says uv is missing, with the install command', async ($, on) => {
     conversation(on, [reply(fence('graph TD\n  A --> B'))])
     answerOpen(on)
-    const runs = answerWith(on, () => {
-      throw new Error('spawn uvx ENOENT')
-    })
+    const runs = answerWith(on, () => ({ deny: 'spawn uvx ENOENT' }))
 
     await termaid($)
     const pane = await mountPane($)
@@ -310,6 +308,33 @@ describe('termaid-view', () => {
     expect(await pane.find({ text: /astral/ })).toBeDefined()
     expect(await pane.find({ text: /A --> B/ })).toBeDefined()
     expect(runs.every(run => run.argv[0] === 'uvx')).toBe(true)
+  })
+
+  test('a rejection that reads as a timeout is told so, even when the clock cannot say', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => ({ deny: 'Command timed out' }))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /timed out after 60 seconds/ })).toBeDefined()
+    expect(await pane.find({ text: /uv is missing/ })).toBeUndefined()
+  })
+
+  test('any other rejection is shown with its own message, not as a missing uv', async ($, on) => {
+    conversation(on, [reply(fence('graph TD\n  A --> B'))])
+    answerOpen(on)
+    answerWith(on, () => ({ deny: 'denied by a hook' }))
+
+    await termaid($)
+    const pane = await mountPane($)
+    await settle()
+
+    expect(await pane.find({ text: /denied by a hook/ })).toBeDefined()
+    expect(await pane.find({ text: /uv is missing/ })).toBeUndefined()
+    expect(await pane.find({ text: /A --> B/ })).toBeDefined()
   })
 
   test('a package that could not be fetched is said to be a download failure', async ($, on) => {
