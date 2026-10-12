@@ -74,6 +74,7 @@ describe('when no ticket is left to take', () => {
 
     expect(await checks($, 'agent-3', 'Read', { file_path: 'src/cart.ts' })).toBe('allow')
     expect(await checks($, 'agent-3', 'Bash', { command: 'git diff main...HEAD' })).toBe('allow')
+    expect(await checks($, 'agent-3', 'SubagentHandback', {})).toBe('allow')
     expect(await checks($, 'agent-3', 'Edit', { file_path: 'src/cart.ts' })).toBe('deny')
     expect(await checks($, 'agent-3', 'Bash', { command: 'npm test' })).toBe('deny')
     expect(await checks($, 'agent-3', 'Bash', { command: 'git add -A' })).toBe('deny')
