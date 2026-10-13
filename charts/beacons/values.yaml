@@ -15,7 +15,14 @@ stewardSealSecret: white-tree-7c1e55a09b
 mapboxToken: ""
 ridersPace: "0.8"
 
-# Anor is the one that is reached from outside: k3s's own load balancer hands it the port the cluster was made with
+# The three that listen are reached from outside as they are under compose: k3s's own load balancer hands each the
+# port the cluster was made with. ClusterIP keeps one inside the cluster.
 anor:
+  service:
+    type: LoadBalancer
+gondor:
+  service:
+    type: LoadBalancer
+rohan:
   service:
     type: LoadBalancer

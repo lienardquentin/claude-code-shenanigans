@@ -39,6 +39,7 @@ metadata:
   labels:
     {{- include "beacons.labels" $realm | nindent 4 }}
 spec:
+  type: {{ .Values.gondor.service.type }}
   selector:
     {{- include "beacons.selector" $realm | nindent 4 }}
   ports:

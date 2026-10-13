@@ -3,9 +3,9 @@
 #     devspace run cluster-up
 #     devspace deploy
 #
-# The page is at http://127.0.0.1:8100, the port compose.yaml and beacons/muster.py use too, so the three do not run
-# together: ANOR_PORT=8110 devspace run cluster-up makes the cluster with another. `devspace purge` takes the release
-# away, `devspace run cluster-down` the cluster.
+# The page is at http://127.0.0.1:8100, Gondor at 8101 and Rohan at 8102: the ports compose.yaml and beacons/muster.py
+# use too, so the three do not run together. ANOR_PORT=8110 GONDOR_PORT=8111 ROHAN_PORT=8112 devspace run cluster-up
+# makes the cluster with others. `devspace purge` takes the release away, `devspace run cluster-down` the cluster.
 version: v2beta1
 name: beacons
 
@@ -14,12 +14,21 @@ vars:
   ANOR_PORT:
     source: env
     default: "8100"
+  GONDOR_PORT:
+    source: env
+    default: "8101"
+  ROHAN_PORT:
+    source: env
+    default: "8102"
 
 commands:
   cluster-up:
-    description: Makes the k3d cluster, with Anor's port on this machine's loopback
+    description: Makes the k3d cluster, with the ports of Anor, Gondor and Rohan on this machine's loopback
     command: |-
-      k3d cluster create ${CLUSTER} --port "127.0.0.1:${ANOR_PORT}:8100@loadbalancer" --k3s-arg "--disable=traefik@server:0"
+      k3d cluster create ${CLUSTER} --k3s-arg "--disable=traefik@server:0" \
+        --port "127.0.0.1:${ANOR_PORT}:8100@loadbalancer" \
+        --port "127.0.0.1:${GONDOR_PORT}:8101@loadbalancer" \
+        --port "127.0.0.1:${ROHAN_PORT}:8102@loadbalancer"
       kubectl config set-context k3d-${CLUSTER} --namespace beacons
   cluster-down:
     description: Deletes the k3d cluster and all that is in it
