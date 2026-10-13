@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Attachment, Cursor, EnvVar, Facts, Health, RendersAs, Shown, Usage, Watch } from '../types'
+import type { Attachment, Browser, Cursor, EnvVar, Facts, Health, RendersAs, Shown, Usage, Watch } from '../types'
 import { composeAttachments, merged, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import { askArgv, DEBUG_PORT, describeBrowser, EMPTY_BROWSER, readAsked } from './browser'
+import type { Asked as Told } from './browser'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
@@ -37,7 +39,7 @@ import {
   topArgv,
 } from './runtime'
 import type { Measure } from './runtime'
-import { firstLine, kept, marked, settle, TAIL, takeFile, takePrinted } from './watch'
+import { endArgv, firstLine, kept, marked, settle, TAIL, takeFile, takePrinted } from './watch'
 import type { Taken } from './watch'
 
 const PANE = 'palantir'
@@ -45,6 +47,8 @@ const TITLE = 'palantir'
 const READ_TIMEOUT_MS = 8_000
 // What the apps consume is asked of the machine less often than what they wrote: the asking is itself not free
 const USAGE_EVERY_MS = 15_000
+// A browser that did not answer is asked again by the timer this far apart, and at once by whoever asks
+const BROWSER_AGAIN_MS = 30_000
 
 const attachments = atom({ plugin: 'palantir', key: 'attachments' } as const, [] as Attachment[])
 const isDiscovered = atom({ plugin: 'palantir', key: 'isDiscovered' } as const, false)
@@ -56,6 +60,7 @@ const facts = atom({ plugin: 'palantir', key: 'facts' } as const, {} as Record<s
 const shownView = atom({ plugin: 'palantir', key: 'shown' } as const, 'logs' as Shown)
 const opened = atom({ plugin: 'palantir', key: 'opened' } as const, [] as string[])
 const rendersAs = atom({ plugin: 'palantir', key: 'rendersAs' } as const, 'tree' as RendersAs)
+const browser = atom({ plugin: 'palantir', key: 'browser' } as const, EMPTY_BROWSER as Browser)
 
 // What the pane last drew, for the model to read: it sees nothing of a pane otherwise
 const view = paneView({ id: PANE, title: TITLE, command: '/palantir' })
@@ -115,7 +120,7 @@ const TOOLS = [
   {
     name: 'renders',
     description:
-      'Why the components of a watched frontend rendered again: each reactivity chain it reported once, with its count, from the state that changed, through the computed values and the props that carried it, down to the component. Reads the apps afresh. Call it when a page flickers, is slow, or renders more than it should, and to see what a change of state reaches. Only a frontend that reports its renders in its log has any.',
+      "Why the components of a watched frontend rendered again, as the browser itself says it: each reactivity chain once, with its count, from the state that changed, through the computed values and the props that carried it, down to the component. Asks the tabs of the Chrome that listens on its debug port afresh; nothing is added to the app. Call it when a page flickers, is slow, or renders more than it should, and to see what a change of state reaches. Only a Vue app in development, open in that Chrome, has any; the answer says so when there is none.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -175,8 +180,18 @@ const ensure = async ($: EngineInterface, asked: unknown): Promise<Attachment[]>
 
 const take = async ($: EngineInterface, attachment: Attachment, cursor: Cursor): Promise<Taken> => {
   if (attachment.runtime === 'local') {
-    const text = await $.fs.read(attachment.ref)
+    const text = await $.fs.read(attachment.ref).catch(async (failure: unknown) => {
+      // Too large to be read whole: its end is asked of the machine
+      if (!/limit/i.test(failure instanceof Error ? failure.message : String(failure))) throw failure
 
+      const ended = await $.process.run(endArgv(attachment.ref), { timeoutMs: READ_TIMEOUT_MS }).catch(() => undefined)
+
+      if (ended?.exitCode !== 0) throw failure
+
+      return { end: ended.stdout }
+    })
+
+    if (typeof text === 'object' && text !== null && 'end' in text) return takeFile(text.end, cursor, true)
     if (typeof text !== 'string') throw new Error('no such file')
 
     return takeFile(text, cursor)
@@ -331,13 +346,23 @@ const envsOf = async ($: EngineInterface, seen: readonly Seen[], isAsked: boolea
   return Object.fromEntries(found.flat())
 }
 
-/** What a read asks for besides the lines and the state: what the apps consume, and the environments that take a read of their own. */
-type Want = { usage: boolean; env: boolean }
+/**
+ * What a read asks for besides the lines and the state: what the apps consume, the environments that take a read
+ * of their own, and what the browser says of the frontends, asked on the debug port named (0 or none: not asked).
+ */
+type Want = { usage: boolean; env: boolean; browser?: number }
 
 const LINES_ONLY: Want = { usage: false, env: false }
 
 // When what the apps consume was last asked. A reload starts it over, and the next tick asks.
 let usageReadAt = 0
+
+// When the browser was last asked, and whether it answered. A reload starts both over, and the next tick asks.
+let browserAskedAt = 0
+let isBrowserReached = true
+
+const askBrowser = async ($: EngineInterface, list: readonly Attachment[], port: number, now: number): Promise<Told> =>
+  readAsked(await $.process.run(askArgv(tidy($.plugin.root), port, list), { timeoutMs: READ_TIMEOUT_MS }).catch(() => undefined), list, port, now)
 
 /**
  * Reads the attachments (those labelled, or all): what each wrote since its last read, and how it stands. The
@@ -352,17 +377,32 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
     const before = await read($, watches)
     const now = await $.clock.now()
 
-    const reads = await Promise.all(
-      targets.map(async attachment => {
-        const cursor = (before[attachment.label] ?? EMPTY_WATCH).cursor
-        const [lines, stand] = await Promise.all([
-          take($, attachment, cursor).catch((failure: unknown): Taken => ({ raws: [], cursor, error: firstLine(failure instanceof Error ? failure.message : String(failure)) })),
-          standOf($, attachment, now),
-        ])
+    // The browser empties what a page counted as it hands it over: it is asked only by a read of every attachment
+    const port = labels === undefined ? (want.browser ?? 0) : 0
 
-        return { attachment, label: attachment.label, ...lines, ...stand }
-      }),
-    )
+    const [written, told] = await Promise.all([
+      Promise.all(
+        targets.map(async attachment => {
+          const cursor = (before[attachment.label] ?? EMPTY_WATCH).cursor
+          const [lines, stand] = await Promise.all([
+            take($, attachment, cursor).catch((failure: unknown): Taken => ({ raws: [], cursor, error: firstLine(failure instanceof Error ? failure.message : String(failure)) })),
+            standOf($, attachment, now),
+          ])
+
+          return { attachment, label: attachment.label, ...lines, ...stand }
+        }),
+      ),
+      port > 0 ? askBrowser($, targets, port, now) : undefined,
+    ])
+
+    // What a page said is taken in with what its app wrote
+    const reads = written.map(read => ({ ...read, raws: [...read.raws, ...(told?.raws[read.label] ?? [])] }))
+
+    if (told !== undefined) {
+      browserAskedAt = now
+      isBrowserReached = told.isReached
+      await update($, browser, () => told.browser)
+    }
 
     const known = await read($, facts)
     const [usages, envs] = await Promise.all([want.usage ? usagesOf($, reads, known, now) : ({} as Record<string, Usage>), envsOf($, reads, want.env)])
@@ -398,16 +438,16 @@ const mark = ($: EngineInterface, labels: readonly string[], path: string): Prom
     await update($, watches, held => marked(held, labels, path))
   })
 
-/** What the options say: the attachments named there, and how often to read. */
-type Asked = { attachments: unknown; seconds: number }
+/** What the options say: the attachments named there, how often to read, and the browser's debug port (0: never asked). */
+type Asked = { attachments: unknown; seconds: number; port: number }
 
-const tick = ($: EngineInterface, { seconds }: Asked, count: number) => {
+const tick = ($: EngineInterface, { seconds, port }: Asked, count: number) => {
   if (ticking !== undefined || seconds <= 0 || count === 0) return
 
   ticking = $.clock.every(Math.max(1, seconds) * 1000, () => {
     void $.clock
       .now()
-      .then(now => pull($, undefined, { usage: now - usageReadAt >= USAGE_EVERY_MS, env: false }))
+      .then(now => pull($, undefined, { usage: now - usageReadAt >= USAGE_EVERY_MS, env: false, browser: isBrowserReached || now - browserAskedAt >= BROWSER_AGAIN_MS ? port : 0 }))
       .catch(() => undefined)
   })
 }
@@ -420,7 +460,7 @@ const current = async ($: EngineInterface, asked: Asked, want: Want = LINES_ONLY
   tick($, asked, list.length)
   await pull($, undefined, want).catch(() => undefined)
 
-  return { list, held: await read($, watches), known: await read($, facts) }
+  return { list, held: await read($, watches), known: await read($, facts), seen: await read($, browser) }
 }
 
 // The project's file and its compose file are read again, so a line added to either is taken up
@@ -428,7 +468,7 @@ const refresh = async ($: EngineInterface, asked: Asked) => {
   const list = await discover($, asked.attachments)
 
   tick($, asked, list.length)
-  await pull($, undefined, { usage: true, env: true }).catch(() => undefined)
+  await pull($, undefined, { usage: true, env: true, browser: asked.port }).catch(() => undefined)
 
   return list
 }
@@ -437,6 +477,7 @@ export const register: Register = (on, options) => {
   const asked: Asked = {
     attachments: options?.attachments,
     seconds: typeof options?.pollSeconds === 'number' && Number.isFinite(options.pollSeconds) ? options.pollSeconds : 5,
+    port: typeof options?.browserPort === 'number' && Number.isFinite(options.browserPort) ? Math.max(0, Math.round(options.browserPort)) : DEBUG_PORT,
   }
 
   on('session.start', async ($, e, next) => {
@@ -470,9 +511,9 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'mcp__palantir__renders' }, async ($, e) => {
-    const { list, held } = await current($, asked)
+    const { list, held, seen } = await current($, asked, { usage: false, env: false, browser: asked.port })
 
-    return { result: rendersText(list, held, e as unknown as { target?: unknown; component?: unknown }) }
+    return { result: rendersText(list, held, e as unknown as { target?: unknown; component?: unknown }, asked.port === 0 ? undefined : seen) }
   })
 
   on('tool.call', { tool: 'mcp__palantir__logs' }, async ($, e) => {
@@ -543,6 +584,7 @@ export const register: Register = (on, options) => {
     const showing = await read($, shownView)
     const open = await read($, opened)
     const drawAs = await read($, rendersAs)
+    const seen = await read($, browser)
 
     const watchOf = (label: string) => held[label] ?? EMPTY_WATCH
     const factsOf = (label: string) => known[label] ?? EMPTY_FACTS
@@ -596,6 +638,8 @@ export const register: Register = (on, options) => {
           await update($, shownView, () => name)
           // A compose service's and a local app's environment take a read of their own, made when it is looked at
           if (name === 'env') await pull($, undefined, { usage: false, env: true }).catch(() => undefined)
+          // The browser is asked at once, whenever it last failed to answer
+          if (name === 'renders') await pull($, undefined, { usage: false, env: false, browser: asked.port }).catch(() => undefined)
         }}
       >
         {actionLabel({ text, primary: showing === name })}
@@ -632,6 +676,17 @@ export const register: Register = (on, options) => {
       ]
     }
 
+    // Where the renders and the page are read from: the tab of each app, or why the browser says nothing
+    // Why it says nothing is left unsaid where a log said what there is to show
+    const source = (isReported: boolean) => {
+      const labels = picks.map(({ label }) => label)
+      const isRead = seen.pages.some(({ label }) => labels.includes(label))
+
+      if (asked.port === 0 || (isReported && !isRead)) return []
+
+      return describeBrowser(seen, labels).map(line => tonedText({ text: line, tone: isRead ? 'neutral' : 'warning', wrap: true }))
+    }
+
     // The page each frontend last reported, its elements nested as the document nests them
     const domBody = (rowWidth: number) => {
       const pages = picks.flatMap(({ label }) => {
@@ -640,9 +695,10 @@ export const register: Register = (on, options) => {
         return dom === undefined ? [] : [{ label, dom }]
       })
 
-      if (pages.length === 0) return [tonedText({ text: HOW_TO_REPORT_DOM, tone: 'neutral', wrap: true })]
+      if (pages.length === 0) return [tonedText({ text: HOW_TO_REPORT_DOM, tone: 'neutral', wrap: true }), ...source(false)]
 
       return [
+        ...source(true),
         tonedText({ text: HOW_TO_READ_DOM, tone: 'neutral', wrap: true }),
         ...pages.flatMap(({ label, dom }) => [
           tonedText({
@@ -677,10 +733,11 @@ export const register: Register = (on, options) => {
       )
 
       if (drawAs === 'dom') return [switcher, ...domBody(rowWidth)]
-      if (reporting.length === 0) return [switcher, tonedText({ text: HOW_TO_REPORT_RENDERS, tone: 'neutral', wrap: true })]
+      if (reporting.length === 0) return [switcher, tonedText({ text: HOW_TO_REPORT_RENDERS, tone: 'neutral', wrap: true }), ...source(false)]
 
       return [
         switcher,
+        ...source(true),
         tonedText({ text: HOW_TO_READ_RENDERS, tone: 'neutral', wrap: true }),
         // The whole of it, however tall: the pane's body scrolls, and the chains a watch keeps are counted
         tree({

@@ -11,14 +11,47 @@ export const firstLine = (text: string): string => (text.trim().split('\n')[0] ?
 
 export type Taken = { raws: string[]; cursor: Cursor; error: string }
 
-/** A file's new lines: read whole, taken from where the last read stopped, complete lines only. */
-export const takeFile = (text: string, cursor: Cursor): Taken => {
-  // Shorter than what was read: rotated or emptied, and read again from its head
-  const from = text.length < cursor.offset ? 0 : cursor.offset
-  const to = text.lastIndexOf('\n') + 1
-  const lines = to > from ? text.slice(from, to).split('\n').filter(line => line.trim() !== '') : []
+/** How much of the end of a file too large to read whole is asked for, in bytes. */
+export const END_BYTES = 1_000_000
 
-  return { raws: from === 0 ? lines.slice(-TAIL) : lines, cursor: { ...cursor, offset: Math.max(from, to) }, error: '' }
+/** The command that prints the end of a file too large to read whole. */
+export const endArgv = (path: string): string[] => ['tail', '-c', String(END_BYTES), path]
+
+// The offset kept when only the end of a file was read: where the next read starts is then told by the last line
+const UNKNOWN = Number.MAX_SAFE_INTEGER
+
+/**
+ * A file's new lines, complete lines only: taken from where the last read stopped. A file shorter than what was
+ * read was cut back or emptied, and of one too large to read whole only the end is here (`isEndOnly`): the lines
+ * are then taken from after the last line already taken, where it still stands, so that a log kept small by
+ * whatever writes it is neither read twice nor missed. Where that line is gone, the last lines are taken afresh.
+ */
+export const takeFile = (text: string, cursor: Cursor, isEndOnly = false): Taken => {
+  const to = text.lastIndexOf('\n') + 1
+  const [last] = cursor.seen
+  let from = cursor.offset
+  let isAfresh = from === 0
+
+  // Cut back and grown again past where the last read stopped, a file is as long as one that only grew: it is
+  // told by the line that read ended on, which no longer stands there
+  const isMoved = last !== undefined && from > 0 && !text.startsWith(`${last}\n`, from - last.length - 1)
+
+  if (isEndOnly || text.length < cursor.offset || isMoved) {
+    const found = last === undefined ? -1 : `\n${text.slice(0, to)}`.lastIndexOf(`\n${last}\n`)
+
+    isAfresh = found === -1
+    // An end starts in the middle of a line
+    from = found === -1 ? (isEndOnly ? text.indexOf('\n') + 1 : 0) : found + (last ?? '').length + 1
+  }
+
+  const lines = to > from ? text.slice(from, to).split('\n').filter(line => line.trim() !== '') : []
+  const ending = to === 0 ? '' : text.slice(text.lastIndexOf('\n', to - 2) + 1, to - 1)
+
+  return {
+    raws: isAfresh ? lines.slice(-TAIL) : lines,
+    cursor: { ...cursor, offset: isEndOnly ? UNKNOWN : Math.max(from, to), seen: ending.trim() === '' ? cursor.seen : [ending] },
+    error: '',
+  }
 }
 
 /** The new lines among what a runtime's logs command printed, and the cursor moved to the last of them. */

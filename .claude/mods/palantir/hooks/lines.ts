@@ -150,7 +150,7 @@ export const read = (text: string): Read => {
  * A render as a frontend reports it in its log: a JSON line that says `"palantir":"render"`, the component, and the
  * chain that led to it, the cause first. Such a line is no line of the timeline: it is counted, chain by chain.
  */
-export const renderOf = (text: string): { component: string; chain: string[]; values: string[]; whole: string[]; count: number; at?: number } | undefined => {
+export const renderOf = (text: string): { component: string; chain: string[]; values: string[]; whole: string[]; count: number; inside: number; at?: number } | undefined => {
   const trimmed = text.trim()
 
   if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
@@ -163,6 +163,7 @@ export const renderOf = (text: string): { component: string; chain: string[]; va
     const chain = fields.chain.slice(0, MAX_STEPS).map(step => redact(String(step)).slice(0, 120))
     const values: unknown[] = Array.isArray(fields.values) ? fields.values : []
     const whole: unknown[] = Array.isArray(fields.whole) ? fields.whole : []
+    const inside = typeof fields.inside === 'number' && fields.inside >= 1 ? Math.round(fields.inside) : 0
 
     return {
       component: redact(fields.component).slice(0, 80),
@@ -179,7 +180,9 @@ export const renderOf = (text: string): { component: string; chain: string[]; va
 
         return typeof value === 'string' && value.length <= MAX_WHOLE && !SECRET_NAME.test(step) ? redact(value) : ''
       }),
-      count: typeof fields.count === 'number' && fields.count >= 1 ? Math.round(fields.count) : 1,
+      // A chain may be said for what rendered inside its component alone: it then counts no render of the component
+      count: typeof fields.count === 'number' && fields.count >= 1 ? Math.round(fields.count) : inside > 0 && fields.count === 0 ? 0 : 1,
+      inside,
       at: timeOf(fields.time ?? fields.ts),
     }
   } catch {
@@ -270,11 +273,12 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
       const known = renders.find(({ component, chain }) => component === render.component && chain.join('\n') === render.chain.join('\n'))
       const at = render.at ?? now
 
-      if (known === undefined) renders.push({ component: render.component, chain: render.chain, values: render.values, whole: render.whole, count: render.count, lastAt: at })
+      if (known === undefined) renders.push({ component: render.component, chain: render.chain, values: render.values, whole: render.whole, count: render.count, inside: render.inside, lastAt: at })
       // The values kept are the last said: a line that says none for a step leaves the one held, short and whole
       else {
         Object.assign(known, {
           count: known.count + render.count,
+          inside: (known.inside ?? 0) + render.inside,
           lastAt: Math.max(known.lastAt, at),
           values: render.values.map((value, index) => value || (known.values?.[index] ?? '')),
           whole: render.values.map((value, index) => (value === '' ? (known.whole?.[index] ?? '') : (render.whole[index] ?? ''))),

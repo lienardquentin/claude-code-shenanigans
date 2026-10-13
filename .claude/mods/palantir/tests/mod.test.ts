@@ -35,6 +35,8 @@ type World = {
   /** What `lsof` and `ps` print: who listens, and every process. */
   listening: string
   processes: string
+  /** What the script that asks the browser's tabs prints; node is not found when it is empty. */
+  browser: string
 }
 
 const exited = (exitCode: number, stdout = '', stderr = '') =>
@@ -54,7 +56,7 @@ const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '
 /** Stands for the machine beneath the mod: its files, and what `docker` and `kubectl` answer. */
 const machine = (on: On, given: Partial<World> = {}) => {
   // A copy: a test that has an app write more leaves the next test's world as given
-  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
+  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
   const runs: string[] = []
   const toasts: string[] = []
 
@@ -66,7 +68,12 @@ const machine = (on: On, given: Partial<World> = {}) => {
     return { value: undefined } as never
   })
   on('fs.exists', (_, e) => ({ value: plain(e.path) in world.files }) as never)
-  on('fs.read', (_, e) => ({ value: world.files[plain(e.path)] }) as never)
+  on('fs.read', (_, e) => {
+    // The engine reads no file over four mebibytes
+    if ((world.files[plain(e.path)] ?? '').length > 4_194_304) throw new Error(`$.fs.read: ${e.path} refused: the file is over the 4194304-byte limit`)
+
+    return { value: world.files[plain(e.path)] } as never
+  })
   on('fs.stat', (_, e) => ({ value: { kind: plain(e.path) in world.files ? 'file' : 'other', size: 0, mtimeMs: NOW - 2000, isLink: false } }) as never)
   on('process.run', (_, e) => {
     const argv = e.argv
@@ -93,6 +100,8 @@ const machine = (on: On, given: Partial<World> = {}) => {
     }
 
     if (argv[0] === 'lsof') return exited(0, world.listening)
+    if (argv[0] === 'tail') return exited(0, (world.files[plain(name)] ?? '').slice(-Number(argv[2])))
+    if (argv[0] === 'node' && world.browser !== '') return exited(0, world.browser)
     if (argv[0] === 'ps') return exited(0, world.processes)
     if (argv[0] === 'kubectl' && argv.includes('top')) return world.top === '' ? exited(1, '', 'error: Metrics API not available') : exited(0, world.top)
 
@@ -195,6 +204,26 @@ describe('palantir', () => {
     expect(text.match(/ECONNREFUSED/g)).toHaveLength(1)
     expect(text).toMatch(/reconnected/)
     expect(text).not.toMatch(/GET \/cart/)
+  })
+
+  test('reads a log that is cut back as it grows, or too large to read whole, no line twice and none missed', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
+    const log = `${CWD}/logs/web.log`
+    const { world } = machine(on, { files: { [log]: 'one\ntwo\nthree\n' } })
+
+    expect(await ask($, 'logs')).toMatch(/one\n.*two\n.*three$/)
+
+    // What writes it kept its last lines and wrote one more
+    world.files[log] = 'two\nthree\nfour\n'
+    expect((await ask($, 'logs')).match(/one|two|three|four/g)).toEqual(['one', 'two', 'three', 'four'])
+
+    // Grown past what is read whole: its end is asked for, and holds the last line read
+    world.files[log] = `${'filler\n'.repeat(700_000)}three\nfour\nfive\n`
+    expect((await ask($, 'logs', { grep: 'f' })).match(/filler|four|five/g)).toEqual(['four', 'five'])
+
+    // Cut back again, to where it is read whole
+    world.files[log] = 'five\nsix\n'
+    expect((await ask($, 'logs', { grep: 'i' })).match(/filler|five|six/g)).toEqual(['five', 'six'])
+    expect(await ask($, 'status')).not.toMatch(/could not be read/)
   })
 
   test('tells the errors an edit brought from the ones that were there', async ($, on) => {
@@ -538,12 +567,79 @@ describe('palantir', () => {
 
     await pane.press({ key: 'view-renders' })
     await pane.press({ key: 'renders-dom' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\] {2}\[DOM\]\*\n\s*No page has been reported\. A frontend reports its page by writing a JSON line/)
+    expect(await ask($, 'pane')).toMatch(/\[Tree\] {2}\[DOM\]\*\n\s*No page has been reported\. The page is read from the browser itself/)
   })
   test('says how a frontend reports its renders where none has', async ($, on) => {
     machine(on, SHOP)
 
-    expect(await ask($, 'renders')).toMatch(/^No render has been reported\. A frontend reports one by writing a JSON line/)
+    expect(await ask($, 'renders')).toMatch(/^No render has been reported\. Renders are read from the browser itself.*\nnode was not found/)
+  })
+
+  test("reads the renders and the page from the browser's own tabs, with nothing in the app's log", { options: { attachments: 'web=local:logs/web.log@web#3000; api=local:logs/api.log@api' } }, async ($, on) => {
+    const page = (address: string, isVisible: boolean, count: number, heading: string) => ({
+      label: 'web',
+      address,
+      isVisible,
+      vue: '3.5.43',
+      isDev: true,
+      files: [`${CWD}/web/app.vue`],
+      renders: [{ component: 'BeaconChain', chain: ['beacons (ref) set', 'apiToken (ref) set', 'BeaconChain'], values: ['[7] (was [6])', '"tok-1234"', null], whole: [null, null, null], count }],
+      dom: { url: '/', title: 'Anor', elements: [[0, 'body', '', '', ''], [1, 'h1', '', heading, 'BeaconChain']], left: 0 },
+    })
+    const { world, runs } = machine(on, {
+      files: { [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n', [`${CWD}/logs/api.log`]: 'listening on 8080\n' },
+      // Two tabs show the app, and one of a site that is none of the apps said nothing
+      browser: JSON.stringify({ tabs: 3, pages: [page('http://localhost:3000/', true, 2, 'The stone'), page('http://localhost:3010/', false, 1, 'Behind')] }),
+    })
+
+    // The secret a step holds is taken out as it is from a log
+    expect(await ask($, 'renders')).toMatch(/^web: 3 renders in 1 chain\.\n {2}x3 last \S+ beacons \(ref\) set: \[7\] \(was \[6\]\) -> apiToken \(ref\) set: \*\*\* -> BeaconChain$/)
+
+    // The script is the mod's own, told the port and what each app is known by
+    const asked = runs.find(run => run.startsWith('node ')) ?? ''
+
+    expect(asked).toMatch(/\/browser\/ask\.mjs 9222 \[\{"label":"web","roots":\["\/home\/dev\/app\/web"\],"port":3000\}/)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-renders' })
+    expect(await ask($, 'pane')).toMatch(/web: read from the tab "Anor" at http:\/\/localhost:3010\/\n\s*web: read from the tab "Anor" at http:\/\/localhost:3000\//)
+    expect(await pane.find({ text: /^beacons \(ref\) set/ })).toBeDefined()
+
+    // The page kept is the one the person looks at
+    await pane.press({ key: 'renders-dom' })
+    expect(await pane.find({ text: /"The stone"/ })).toBeDefined()
+    expect(await pane.find({ text: /"Behind"/ })).toBeUndefined()
+
+    // An app none of whose tabs is open says so
+    await pane.press({ key: 'show-api' })
+    expect(await pane.find({ text: /No tab of the browser shows this app\./ })).toBeDefined()
+
+    world.browser = JSON.stringify({ error: 'no-browser' })
+    expect(await ask($, 'renders', { target: 'api' })).toMatch(/\nNo Chrome answers on 127\.0\.0\.1:9222\./)
+  })
+
+  test("says what rendered inside a library's component beside its own renders, not as chains of their own", { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
+    const render = (chain: string[], count: number, inside: number) => JSON.stringify({ palantir: 'render', component: 'MusterForm', chain, count, inside })
+    const { world } = machine(on, { files: { [`${CWD}/logs/web.log`]: `${render(['isAsking (ref) set', 'UCard', 'prop loading', 'UButton'], 1, 9)}\n${render(['a reactive object.$slots changed', 'UButton'], 0, 4)}\n` } })
+
+    expect(await ask($, 'renders')).toMatch(/^web: 1 render in 2 chains\.\n {2}x1 \(\+9 inside\) last \S+ isAsking \(ref\) set -> UCard -> prop loading -> UButton\n {2}x0 \(\+4 inside\) last \S+ a reactive object\.\$slots changed -> UButton$/)
+
+    world.files[`${CWD}/logs/web.log`] += `${render(['isAsking (ref) set', 'UCard', 'prop loading', 'UButton'], 1, 6)}\n`
+    expect(await ask($, 'renders')).toMatch(/x2 \(\+15 inside\) last/)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-renders' })
+    expect(await ask($, 'pane')).toMatch(/UButton {2}×2 \+15 inside/)
+    expect(await ask($, 'pane')).toMatch(/UButton {2}\+4 inside/)
+  })
+
+  test('asks no browser where the option says none', { options: { attachments: 'web=local:logs/web.log@web', browserPort: 0 } }, async ($, on) => {
+    const { runs } = machine(on, { files: { [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n' } })
+
+    expect(await ask($, 'renders')).toMatch(/^No render has been reported\.[^\n]*$/)
+    expect(runs.filter(run => run.startsWith('node '))).toHaveLength(0)
   })
 
   test('hands the model what the pane shows, as text', async ($, on) => {

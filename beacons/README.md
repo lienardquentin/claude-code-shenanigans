@@ -41,7 +41,7 @@ Rohan also has `GET /riders`, its éoreds and their spears.
 
 Anor reaches every one of Gondor's endpoints under `/api/realm/…`, each request under an id it hands to Gondor,
 which hands it to Rohan. `POST /api/complaints` is where the page reports its own errors, so that what goes wrong
-in a browser is in a log; `POST /api/renders` is where, in development, it reports why its components rendered. Anor fetches nothing from outside: no web fonts, no telemetry, and its icons come from
+in a browser is in a log. Anor fetches nothing from outside: no web fonts, no telemetry, and its icons come from
 the set installed beside it.
 
 ## What is wrong with it, on purpose
@@ -82,10 +82,10 @@ the set installed beside it.
    `anor/.env`: what a process was started with cannot be read from outside it. That file is not in the repo:
    copy [`anor/.env.example`](anor/.env.example) to it. The Steward's seal in it is a stand-in secret, and shows
    as `***`.
-9. **Why a component rendered.** Open the page, then `c` in the pane, or ask Claude "why does the beacon chain
-   keep rendering" (`mcp__palantir__renders`). In development the page reports each render with the chain that
-   led to it ([`anor/app/utils/renders.ts`](anor/app/utils/renders.ts)), Anor logs it, and palantir counts the
-   chains. The beacons are fetched again every three seconds, and every lamp renders each time, lit or not.
-   The view is a tree under each component, with the value each state and prop held (`t`), or the page's own
-   elements as they stand (`d`), which the page reports through `POST /api/dom` when it has changed.
+9. **Why a component rendered.** Open the page in a Chrome that listens on a debug port
+   ([`docs/remote-browser.md`](../docs/remote-browser.md) opens one), then `c` in the pane, or ask Claude "why
+   does the beacon chain keep rendering" (`mcp__palantir__renders`). palantir asks the tab itself, and Anor holds
+   nothing for it ([how](../.claude/mods/palantir/browser/README.md)). The beacons are fetched again every three
+   seconds, and every lamp renders each time, lit or not. The view is a tree under each component, with the value
+   each state and prop held (`t`), or the page's own elements as they stand (`d`).
 10. **A realm that falls silent.** Stop the launcher: within two minutes the pane says each log is quiet.

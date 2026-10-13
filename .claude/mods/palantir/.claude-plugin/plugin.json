@@ -15,6 +15,12 @@
       "title": "Seconds between reads",
       "description": "How often the attachments are read once there are some. 0 reads them only when asked: on /palantir, on Refresh, before an edit and when Claude calls a tool.",
       "default": 5
+    },
+    "browserPort": {
+      "type": "number",
+      "title": "Browser debug port",
+      "description": "The port, on this machine's loopback, of the Chrome whose tabs are asked why a frontend's components rendered and how its page stands (Chrome started with --remote-debugging-port). 0 never asks a browser.",
+      "default": 9222
     }
   }
 }

@@ -58,6 +58,8 @@ export type Render = {
   /** The same values whole, as JSON text, where the short one leaves some of it out; empty elsewhere. */
   whole?: string[]
   count: number
+  /** How many renders of what the chain's last component is made of (a library's own parts) came with those. */
+  inside?: number
   lastAt: number
 }
 
@@ -112,7 +114,7 @@ export type Signature = {
 export type Cursor = {
   /** The last line's timestamp as the runtime wrote it; empty before the first read. */
   since: string
-  /** The raw lines that carry that timestamp, which the runtime hands over again. */
+  /** The raw lines that carry that timestamp, which the runtime hands over again. For a file: the last line read. */
   seen: string[]
   /** For a file: how many characters of it are read. */
   offset: number
@@ -134,6 +136,25 @@ export type Watch = {
   renders: Render[]
   /** The page its frontend last reported in its log; none until it has. */
   dom?: Dom
+}
+
+/** A tab of the browser that shows a watched app. */
+export type BrowserPage = {
+  /** The attachment it is the page of. */
+  label: string
+  address: string
+  title: string
+  /** Why it says no render, when it cannot: no Vue app, or a production build; empty otherwise. */
+  note: string
+}
+
+/** What came of the last asking of the browser's tabs. */
+export type Browser = {
+  /** When it was asked, milliseconds since the epoch; 0 before the first asking. */
+  at: number
+  /** Why no tab shows a watched app; empty when one does. */
+  note: string
+  pages: BrowserPage[]
 }
 
 /** What the Renders view shows: the tree of what made each component render, or the page's own elements. */
@@ -162,6 +183,8 @@ declare module 'claude-code' {
       /** The rows of the Renders tree that are open on what they hold whole, each by its app and its steps. */
       opened: string[]
       rendersAs: RendersAs
+      /** The tabs the renders and the pages were last read from. */
+      browser: Browser
     }
   }
 }

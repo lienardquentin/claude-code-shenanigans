@@ -1,4 +1,5 @@
-import type { Attachment, Dom, DomElement, Facts, Level, Line, Render, Usage, Watch } from '../types'
+import type { Attachment, Browser, Dom, DomElement, Facts, Level, Line, Render, Usage, Watch } from '../types'
+import { describeBrowser } from './browser'
 import { json } from './kit/json'
 import type { TreeNode } from './kit/tree'
 import { clockTime, describeLine, EMPTY_WATCH, fresh } from './lines'
@@ -108,12 +109,12 @@ export const envText = (attachments: readonly Attachment[], known: Known, ask: {
 }
 
 export const HOW_TO_REPORT_RENDERS =
-  'No render has been reported. A frontend reports one by writing a JSON line to its log: {"palantir":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":1}, the chain being what changed, through what, down to the component, and the values, which may be left out, what each step held. For Vue and Nuxt the palantir mod holds a plugin that does it in development, in its recipes folder.'
+  'No render has been reported. Renders are read from the browser itself: a tab of the Chrome that listens on its debug port, showing a watched Vue app in development, says why its components rendered, with nothing added to the app. Any other frontend may write them to its log, a JSON line each: {"palantir":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":1}.'
 
 const MAX_CHAINS = 40
 
 /** Why the components of each frontend rendered again: each chain once, the most frequent first. */
-export const rendersText = (attachments: readonly Attachment[], held: Held, ask: { target?: unknown; component?: unknown }): string => {
+export const rendersText = (attachments: readonly Attachment[], held: Held, ask: { target?: unknown; component?: unknown }, browser?: Browser): string => {
   const asked = askedOf(attachments, ask)
 
   if (typeof asked === 'string') return asked
@@ -131,15 +132,19 @@ export const rendersText = (attachments: readonly Attachment[], held: Held, ask:
         ...[...renders]
           .sort((a, b) => b.count - a.count)
           .slice(0, MAX_CHAINS)
-          .map(({ chain, values, count, lastAt }) => `  x${count} last ${clockTime(lastAt)} ${chain.map((step, index) => stepText(step, values?.[index])).join(' -> ')}`),
+          .map(({ chain, values, count, inside = 0, lastAt }) => `  x${count}${inside > 0 ? ` (+${inside} inside)` : ''} last ${clockTime(lastAt)} ${chain.map((step, index) => stepText(step, values?.[index])).join(' -> ')}`),
       ].join('\n'),
     ]
   })
 
-  return reported.length > 0 ? reported.join('\n') : needle === '' ? HOW_TO_REPORT_RENDERS : `No render of a component named like ${needle} has been reported.`
+  if (reported.length > 0) return reported.join('\n')
+  if (needle !== '') return `No render of a component named like ${needle} has been reported.`
+
+  // Why the browser said none, when it was asked
+  return [HOW_TO_REPORT_RENDERS, ...(browser === undefined ? [] : describeBrowser(browser, asked.map(({ label }) => label)))].join('\n')
 }
 
-type Branch = { step: string; value: string; whole: string; valueAt: number; itself: number; total: number; under: Map<string, Branch> }
+type Branch = { step: string; value: string; whole: string; valueAt: number; itself: number; inside: number; total: number; under: Map<string, Branch> }
 
 export type RenderTreeAsk = {
   /** The app the renders are of, where the tree holds more than one: its rows are told apart from another's by it. */
@@ -172,14 +177,14 @@ export const renderTree = (renders: readonly Render[], { scope = '', opened = []
   const top = new Map<string, Branch>()
 
   const branchIn = (level: Map<string, Branch>, step: string): Branch => {
-    const branch = level.get(step) ?? { step, value: '', whole: '', valueAt: 0, itself: 0, total: 0, under: new Map<string, Branch>() }
+    const branch = level.get(step) ?? { step, value: '', whole: '', valueAt: 0, itself: 0, inside: 0, total: 0, under: new Map<string, Branch>() }
 
     level.set(step, branch)
 
     return branch
   }
 
-  for (const { component, chain, values, whole, count, lastAt } of renders) {
+  for (const { component, chain, values, whole, count, inside = 0, lastAt } of renders) {
     // A library's component renders inside one of the app's own: its chain hangs under that one
     const owner = branchIn(top, component)
     let level = owner.under
@@ -196,7 +201,7 @@ export const renderTree = (renders: readonly Render[], { scope = '', opened = []
 
       // Of the chains that share the step, the one that rendered last says what it holds
       if (value !== '' && lastAt >= branch.valueAt) Object.assign(branch, { value, whole: whole?.[index] ?? '', valueAt: lastAt })
-      if (index === chain.length - 1) branch.itself += count
+      if (index === chain.length - 1) Object.assign(branch, { itself: branch.itself + count, inside: branch.inside + inside })
 
       level = branch.under
     })
@@ -208,14 +213,16 @@ export const renderTree = (renders: readonly Render[], { scope = '', opened = []
   const nodeOf = (branch: Branch, trail: readonly string[], above: number): TreeNode => {
     const steps = [...trail, branch.step]
     const count = branch.itself > 0 ? branch.itself : branch.total
-    const meta = branch.itself > 0 || branch.total !== above ? `×${count}` : ''
+    // What rendered inside a library's component is said beside its own renders, never as rows of its own
+    const within = branch.inside > 0 ? `+${branch.inside} inside` : ''
+    const meta = [branch.itself > 0 || (within === '' && branch.total !== above) ? `×${count}` : '', within].filter(part => part !== '').join(' ')
     const value = branch.value === '' ? '' : `= ${branch.value}`
     const detail = branch.whole === '' ? '' : wholeText(branch.whole)
     const id = [scope, ...steps].join('\n')
 
     return {
       label: branch.step,
-      ...(branch.itself > 0 ? { tone: 'accent' as const } : {}),
+      ...(branch.itself > 0 || branch.inside > 0 ? { tone: 'accent' as const } : {}),
       ...(meta === '' ? {} : { meta }),
       ...(value === '' ? {} : { value }),
       children: busiestFirst(branch.under).map(below => nodeOf(below, steps, branch.total)),
@@ -226,9 +233,9 @@ export const renderTree = (renders: readonly Render[], { scope = '', opened = []
   return busiestFirst(top).map(branch => nodeOf(branch, [], -1))
 }
 
-export const HOW_TO_READ_RENDERS = 'Colored: it rendered, × times. ▸ opens a value whole. The pane scrolls.'
+export const HOW_TO_READ_RENDERS = 'Colored: it rendered, × times, + what a library\'s component is made of. ▸ opens a value whole. The pane scrolls.'
 export const HOW_TO_REPORT_DOM =
-  'No page has been reported. A frontend reports its page by writing a JSON line to its log when the page has changed: {"palantir":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\\"main\\"","","App"],[2,"h1","","Your cart",""]],"left":0}, an element being how deep it is nested, what it is, what it is to a reader, its own text, and the component it is the outermost element of. For Vue and Nuxt the palantir mod holds a plugin that does it in development, in its recipes folder.'
+  'No page has been reported. The page is read from the browser itself: the tab of the Chrome that listens on its debug port which shows a watched app hands its elements over, with nothing added to the app. A frontend may also write its page to its log, as one JSON line: {"palantir":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\\"main\\"","","App"],[2,"h1","","Your cart",""]],"left":0}.'
 
 export const HOW_TO_READ_DOM = 'Colored: the outermost element of a component, named after it. › : an element that holds only the next.'
 
