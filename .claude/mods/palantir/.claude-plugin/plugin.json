@@ -1,0 +1,20 @@
+{
+  "name": "palantir",
+  "version": "0.1.0",
+  "description": "Watches the running app: logs, status, new errors, resource use, environment and why a frontend's components render, across local, Docker and Kubernetes",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "attachments": {
+      "type": "string",
+      "title": "Attachments",
+      "description": "What to watch besides the project's compose services and its .claude/palantir file, separated by ; and each written label=runtime:ref@root. For example web=local:logs/web.log@web; api=docker:my-api@api; kafka=k8s:staging/statefulset/kafka. Runtimes: local (a log file), docker (a container), compose (a service), k8s ([context/]namespace/kind/name). The roots after @ are the source folders whose edits count against it, comma separated; without any, every edit does. A local one may end with #port, the port its process listens on, which is how what it consumes is measured: web=local:logs/web.log@web#3000.",
+      "default": ""
+    },
+    "pollSeconds": {
+      "type": "number",
+      "title": "Seconds between reads",
+      "description": "How often the attachments are read once there are some. 0 reads them only when asked: on /palantir, on Refresh, before an edit and when Claude calls a tool.",
+      "default": 5
+    }
+  }
+}

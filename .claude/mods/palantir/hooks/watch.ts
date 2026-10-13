@@ -1,0 +1,73 @@
+import type { Attachment, Cursor, Health, RuntimeId, Watch } from '../types'
+import { absorb, EMPTY_WATCH, fresh, split } from './lines'
+
+// What a read of an attachment comes to: the lines past the cursor, and the watches once they have taken them in.
+// Values in, values out: the module that holds the engine runs the commands and keeps the state.
+
+// How many lines the first read of an attachment goes back
+export const TAIL = 200
+
+export const firstLine = (text: string): string => (text.trim().split('\n')[0] ?? '').slice(0, 160)
+
+export type Taken = { raws: string[]; cursor: Cursor; error: string }
+
+/** A file's new lines: read whole, taken from where the last read stopped, complete lines only. */
+export const takeFile = (text: string, cursor: Cursor): Taken => {
+  // Shorter than what was read: rotated or emptied, and read again from its head
+  const from = text.length < cursor.offset ? 0 : cursor.offset
+  const to = text.lastIndexOf('\n') + 1
+  const lines = to > from ? text.slice(from, to).split('\n').filter(line => line.trim() !== '') : []
+
+  return { raws: from === 0 ? lines.slice(-TAIL) : lines, cursor: { ...cursor, offset: Math.max(from, to) }, error: '' }
+}
+
+/** The new lines among what a runtime's logs command printed, and the cursor moved to the last of them. */
+export const takePrinted = (runtime: RuntimeId, printed: { stdout: string; stderr: string }, cursor: Cursor): Taken => {
+  // `docker logs` hands the app's standard error over on its own: both are the app's lines, put back in order by
+  // the timestamp each leads with. What the other command lines write there is their own remarks.
+  const text = runtime === 'docker' ? `${printed.stdout}\n${printed.stderr}` : printed.stdout
+  const all = text.split('\n').filter(line => line.trim() !== '')
+
+  if (runtime === 'docker') all.sort((a, b) => (split(a).stamp < split(b).stamp ? -1 : split(a).stamp > split(b).stamp ? 1 : 0))
+
+  // The runtime hands the lines of the cursor's own instant over again
+  const raws = all.filter(raw => !(split(raw).stamp === cursor.since && cursor.seen.includes(raw)))
+  const since = [...all].reverse().map(raw => split(raw).stamp).find(stamp => stamp !== '') ?? cursor.since
+  const seen = [...(since === cursor.since ? cursor.seen : []), ...raws.filter(raw => split(raw).stamp === since)]
+
+  return { raws, cursor: { ...cursor, since, seen }, error: '' }
+}
+
+export type Read = Taken & { label: string; health: Health }
+
+/**
+ * The watches once each read is taken in, and what there is to tell the person: an attachment that went down,
+ * and the errors that are new since the last edit routed to it, each told once.
+ */
+export const settle = (held: Record<string, Watch>, reads: readonly Read[], now: number): { watches: Record<string, Watch>; said: string[] } => {
+  const watches = { ...held }
+  const said: string[] = []
+
+  for (const { label, raws, cursor, error, health } of reads) {
+    const was = held[label] ?? EMPTY_WATCH
+    const watch = absorb({ ...was, cursor, error, health }, raws, now)
+    const unsaid = fresh(watch).filter(signature => !signature.isAnnounced)
+
+    if (health.state === 'down' && was.health.state !== 'down') said.push(`palantir: ${label} is down${health.detail === '' ? '' : ` (${health.detail})`}`)
+    if (unsaid.length > 0) said.push(`palantir: ${label} has ${unsaid.length} new error${unsaid.length === 1 ? '' : 's'} since the edit to ${watch.editedPath}`)
+
+    watches[label] = { ...watch, signatures: watch.signatures.map(signature => (unsaid.includes(signature) ? { ...signature, isAnnounced: true } : signature)) }
+  }
+
+  return { watches, said }
+}
+
+/** The watches once an edit is counted against the labelled ones: an error first seen from now on is new since it. */
+export const marked = (held: Record<string, Watch>, labels: readonly string[], path: string): Record<string, Watch> => ({
+  ...held,
+  ...Object.fromEntries(labels.map(label => [label, { ...(held[label] ?? EMPTY_WATCH), edits: (held[label] ?? EMPTY_WATCH).edits + 1, editedPath: path }])),
+})
+
+/** The watches of the attachments there still are. */
+export const kept = (held: Record<string, Watch>, attachments: readonly Attachment[]): Record<string, Watch> =>
+  Object.fromEntries(attachments.flatMap(({ label }) => (held[label] === undefined ? [] : [[label, held[label]] as const])))
