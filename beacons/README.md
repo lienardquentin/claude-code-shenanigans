@@ -25,6 +25,21 @@ its code changes. Ctrl+C stops them. The page is at <http://127.0.0.1:8100>; its
 opens the pane: the four are named in
 [`.claude/palantir`](../.claude/palantir), each with the folder whose edits count against it.
 
+### In containers
+
+```
+docker compose up --build
+```
+
+From the repo's root, where [`compose.yaml`](../compose.yaml) is. One image each for Gondor, Rohan, Anor (a production
+Nuxt build) and the riders; they find each other by service name and start in that order, on health checks. The ports
+are the same as above, published on the loopback only, so this and `muster.py` do not run together. Everything is said
+on stdout: `docker compose logs -f`. `RED_ARROW`, `NUXT_STEWARD_SEAL_SECRET`, `NUXT_PUBLIC_MAPBOX_TOKEN` and
+`RIDERS_PACE` are read from the shell or a `.env` beside `compose.yaml`.
+
+[`.claude/palantir`](../.claude/palantir) names these four services; its lines for the logs of `muster.py` are kept
+there as comments, for running the realms by hand.
+
 ## Gondor's endpoints
 
 | Endpoint | What it does |
