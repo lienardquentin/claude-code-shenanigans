@@ -6,12 +6,15 @@
 .EXAMPLE
   .\scripts\remote-browser.ps1 -Remote user@host -Install    # once: registers the MCP server on the remote
   .\scripts\remote-browser.ps1 -Remote user@host -AppPort 3000
+  .\scripts\remote-browser.ps1 -Remote user@host -AppPort 8100 -Forward 8101,8102    # the app and its APIs
 #>
 param(
   [Parameter(Mandatory)] [string] $Remote,
   [int] $AppPort = 3000,
   # The app's port on the remote, when it is not the one used here (the local one being taken).
   [int] $RemoteAppPort = $AppPort,
+  # Other ports of the remote brought here, its APIs for instance: 8101, or 8111:8101 for local:remote.
+  [string[]] $Forward = @(),
   # An ssh config file to use in place of ~/.ssh/config.
   [string] $SshConfig,
   [int] $DebugPort = 9222,
@@ -86,6 +89,13 @@ $sshArgs = @(
   '-L', "${AppPort}:127.0.0.1:${RemoteAppPort}",
   '-R', "127.0.0.1:${DebugPort}:127.0.0.1:${DebugPort}"
 )
+# Split here too: through `powershell -File`, 8101,8102 arrives as one string.
+foreach ($pair in ($Forward -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+  if ($pair -notmatch '^(\d+)(?::(\d+))?$') { throw "-Forward takes a port or local:remote, not '$pair'." }
+  $local = $Matches[1]
+  $remotePort = if ($Matches[2]) { $Matches[2] } else { $local }
+  $sshArgs += '-L', "${local}:127.0.0.1:${remotePort}"
+}
 if ($TunnelOnly) {
   $sshArgs += '-N'
   Write-Host "Tunnel to $Remote is open until this is stopped (Ctrl+C)."

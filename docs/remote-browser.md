@@ -58,6 +58,13 @@ claude mcp add --scope user my-chrome -- npx -y chrome-devtools-mcp@latest --bro
 
 The tunnel lasts as long as the ssh session. Closing it cuts Claude off from the browser; the Chrome window stays.
 
+An app whose page calls its APIs from the browser, or APIs you want to call from your machine, need their ports
+too:
+
+```powershell
+.\scripts\remote-browser.ps1 -Remote user@host -AppPort 8100 -Forward 8101,8102
+```
+
 ## Parameters
 
 | Parameter        | Default     | What it is                                                                        |
@@ -65,6 +72,7 @@ The tunnel lasts as long as the ssh session. Closing it cuts Claude off from the
 | `-Remote`        | required    | The ssh destination: `user@host`, or a `Host` of your ssh config.                 |
 | `-AppPort`       | `3000`      | The port you browse the app on, on your machine.                                  |
 | `-RemoteAppPort` | `-AppPort`  | The app's port on the remote, when the same one is not free on your machine.      |
+| `-Forward`       | none        | Other ports of the remote brought to your machine, its APIs for instance: `8101,8102`, or `8111:8101` for local:remote. |
 | `-DebugPort`     | `9222`      | Chrome's debug port, the same on both ends.                                       |
 | `-McpName`       | `my-chrome` | The name the MCP server is registered under by `-Install`.                        |
 | `-SshConfig`     | none        | An ssh config file to use in place of `~/.ssh/config`.                            |
@@ -82,6 +90,9 @@ The tunnel lasts as long as the ssh session. Closing it cuts Claude off from the
 - **`chrome-devtools-mcp` sends usage statistics to Google** unless it is started with `--no-usage-statistics`, and
   its performance tools may send trace URLs to the CrUX API unless `--no-performance-crux` is given. Add them to the
   `claude mcp add` line if that matters.
+- **With nvm on the remote, `npx` is only on the PATH of an interactive shell.** Start `claude` from one. Started
+  from a non-interactive command (`ssh host claude -p …`), the server fails with `Executable not found in $PATH:
+  "npx"` unless nvm is loaded first.
 - **If the script says Chrome does not answer**, a debug-profile window from an earlier run, started without the
   port, is still open. Close it and run the script again.
 - **If ssh exits at once with a forwarding error**, one of the two ports is taken: `-AppPort` on your machine, or
@@ -105,8 +116,10 @@ Chrome is only reachable from it through the tunnel. This is how the setup was c
    `chrome-devtools-mcp --browserUrl http://127.0.0.1:9222` returns the page's console messages.
 
 Checked that way: both tunnels, the tab opening, and `chrome-devtools-mcp` 1.10.1 listing the pages, reloading the
-tab, reading its console and evaluating a script in it, against Chrome 154. Not checked: `-Install`, the mode with a
-shell (the run used `-TunnelOnly`), and a Claude Code session calling the tools (the server was spoken to directly).
+tab, reading its console and evaluating a script in it, against Chrome 154, and `-Install` registering the server
+for a non-root user, and the `beacons` of this repo run in the distro, with Anor on `-AppPort 8110 -RemoteAppPort
+8100` and its two APIs on `-Forward 8111:8101,8112:8102`. Not checked: the mode with a shell (the run used `-TunnelOnly`), and a Claude Code session
+calling the tools (the server was spoken to directly).
 
 ## The alternatives
 
