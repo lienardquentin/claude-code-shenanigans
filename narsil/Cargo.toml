@@ -1,0 +1,18 @@
+[package]
+name = "narsil"
+version = "0.1.0"
+edition = "2024"
+description = "Reads and keeps a chronicle of beacon lightings: a CLI for the anduril mod to watch"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+terminal_size = "0.4"
+
+# A release build that keeps its symbols, so a profiler can name the frames: cargo build --profile profiling
+[profile.profiling]
+inherits = "release"
+debug = true
