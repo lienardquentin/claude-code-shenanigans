@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/* No font is fetched from anywhere: the reader's own serif does */
+@theme {
+  --font-sans: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+
+/* The one thing Nuxt UI has no component for: a peak with a fire over it. Its colors are the theme's. */
+.peak {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: linear-gradient(var(--ui-text-highlighted) 0 18%, var(--ui-border-accented) 18%);
+}
+
+.lit .peak {
+  background: linear-gradient(var(--ui-primary) 0 18%, var(--ui-bg-accented) 18%);
+}
+
+.fire {
+  background: var(--ui-border-accented);
+  transition:
+    background 0.4s,
+    box-shadow 0.4s;
+}
+
+.lit .fire {
+  background: var(--ui-primary);
+  box-shadow:
+    0 0 0.5rem 0.15rem var(--ui-primary),
+    0 0 2rem 0.6rem color-mix(in srgb, var(--ui-primary) 40%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fire {
+    transition: none;
+  }
+}

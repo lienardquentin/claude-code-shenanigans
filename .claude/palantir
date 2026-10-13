@@ -1,0 +1,7 @@
+# What the palantir mod watches in this project: label=runtime:ref@root#port, the root being the source folder whose
+# edits count against the app, the port the one it listens on, which is how what it consumes is measured.
+# Start them with: uv run --project beacons python beacons/muster.py
+gondor=local:beacons/logs/gondor.log@beacons/gondor#8101
+rohan=local:beacons/logs/rohan.log@beacons/rohan#8102
+riders=local:beacons/logs/riders.log@beacons/riders
+anor=local:beacons/logs/anor.log@beacons/anor#8100

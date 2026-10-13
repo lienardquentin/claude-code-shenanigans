@@ -1,0 +1,21 @@
+{
+  "name": "anor",
+  "private": true,
+  "type": "module",
+  "description": "The Anor-stone: the Steward's view of the beacons, the seeing-stones and the muster of Rohan",
+  "scripts": {
+    "dev": "nuxt dev --port 8100 --host 127.0.0.1",
+    "build": "nuxt build",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.143",
+    "@nuxt/ui": "^4.11.3",
+    "nuxt": "^4.6.1",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
