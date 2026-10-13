@@ -156,7 +156,7 @@ fn show(lightings: &[Lighting], id: u64, format: Format) -> Result<(), String> {
         .iter()
         .enumerate()
         .find(|(_, lighting)| lighting.id == id)
-        .ok_or_else(|| format!("no lighting {id} in the chronicle"))?;
+        .ok_or_else(|| format!("lighting {id} is not in the chronicle"))?;
     match format {
         Format::Json => json(lighting),
         Format::Table => {
@@ -221,6 +221,9 @@ fn tally(lightings: &[Lighting], by: By, format: Format) {
             for count in &counts {
                 println!("{:<name$}  {:>9}  {:>8}", count.name, count.lightings, count.watchers);
             }
+            let lightings: u64 = counts.iter().map(|count| count.lightings).sum();
+            let watchers: u64 = counts.iter().map(|count| count.watchers).sum();
+            println!("{:<name$}  {:>9}  {:>8}", "ALL", lightings, watchers);
         }
     }
 }

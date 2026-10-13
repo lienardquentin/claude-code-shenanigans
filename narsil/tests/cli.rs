@@ -91,13 +91,14 @@ fn ls_since_a_date_leaves_the_earlier_ones_out() {
     assert!(lightings.iter().all(|l| l["lit_at"].as_str().unwrap() >= "3019-03-09"));
 }
 
+// sting: narsil show 999
 #[test]
 fn a_lighting_that_is_not_there_is_said_on_stderr() {
     let home = forged("show-missing", "5");
     let output = run(&home, &["show", "999"]);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(stdout(&output), "");
-    assert_eq!(stderr(&output), "narsil: no lighting 999 in the chronicle\n");
+    assert_eq!(stderr(&output), "narsil: lighting 999 is not in the chronicle\n");
 }
 
 #[test]
@@ -113,6 +114,22 @@ fn a_tally_counts_every_lighting_once() {
             .map(|c| c["lightings"].as_u64().unwrap())
             .sum();
         assert_eq!(total, 300, "by {by}");
+    }
+}
+
+// sting: narsil tally --by keeper
+// sting: narsil --chronicle big.jsonl tally
+#[test]
+fn a_tally_as_a_table_ends_with_the_sum_of_all() {
+    let home = forged("tally-all", "300");
+    for args in [
+        &["tally", "--by", "keeper"][..],
+        &["--chronicle", "chronicle.jsonl", "tally"][..],
+    ] {
+        let output = run(&home, args);
+        let table = stdout(&output);
+        let last: Vec<&str> = table.lines().last().unwrap().split_whitespace().collect();
+        assert_eq!(last[..2], ["ALL", "300"], "{args:?}");
     }
 }
 
