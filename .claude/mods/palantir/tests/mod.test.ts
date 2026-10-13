@@ -10,7 +10,8 @@ import { localUsage, readEnvFile, readWindowsProbe } from '../hooks/local'
 import { rendersSinceText } from '../hooks/report'
 import { readHealth } from '../hooks/runtime'
 import { casesOf, endedSuite, plannedSuites, suitesOf, suiteTree, unitText } from '../hooks/unit'
-import { marked } from '../hooks/watch'
+import { isClimbing, quieted, recorded, spark, traceOf, traceSummary } from '../hooks/trace'
+import { marked, settle } from '../hooks/watch'
 
 type On = Parameters<TestBody>[1]
 type Engine = Parameters<TestBody>[0]
@@ -318,9 +319,9 @@ describe('palantir', () => {
 
       const status = await ask($, 'status')
 
-      expect(status).toMatch(/^api \(Docker shop-api\): down, OOMKilled; 3 restarts; 0 errors/m)
+      expect(status).toMatch(/^api \(Docker shop-api\): down, OOMKilled; 3 restarts; no error/m)
       expect(status).toMatch(/^kafka \(Kubernetes prod-eu\/staging\/statefulset\/kafka\): degraded, 2\/3 ready/m)
-      expect(status).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\): up, wrote 2s ago; 1 errors in 1 kinds/m)
+      expect(status).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\): up, wrote 2s ago; 1 error of 1 kind/m)
 
       expect(runs).toContain('docker logs --timestamps --tail 200 shop-api')
       expect(runs).toContain('kubectl --context prod-eu logs statefulset/kafka -n staging --timestamps --all-containers --tail=200')
@@ -559,14 +560,14 @@ describe('palantir', () => {
     const pane = await mount($)
 
     await pane.press({ key: 'view-renders' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\]\* {2}\[DOM\] {2}\[Actions\] {2}\[Network\]\n\s*No render has been reported\./)
+    expect(await ask($, 'pane')).toMatch(/\[t Renders\]\* {2}\[d DOM\] {2}\[a Actions\] {2}\[n Network\]\n\s*No render has been reported\./)
 
     await pane.press({ key: 'renders-dom' })
 
     // The last page said: an element that only holds the next is on its row, a component's outermost element named
     const shown = await ask($, 'pane')
 
-    expect(shown).toMatch(/\[Tree\] {2}\[DOM\]\* {2}\[Actions\] {2}\[Network\]\n.*\n\s*Anor at \/, 8 elements, as it stood at \S+\n\s*body › div#__nuxt › main\.grid\n\s*├─ section\.card {2}<BeaconChain>\n\s*│  ├─ h2 {2}"The beacons"\n\s*│  └─ button\.lit {2}aria-label="Light Amon Dîn" aria-pressed="true" type="button" {2}"Amon Dîn"\n\s*└─ form {2}<MusterForm>\n\s*└─ input {2}name="apiToken" type="password"\n\s*12 more elements than a report holds are left out\./)
+    expect(shown).toMatch(/\[t Renders\] {2}\[d DOM\]\* {2}\[a Actions\] {2}\[n Network\]\n\s*Anor at \/, 8 elements, as it stood at \S+\n\s*body › div#__nuxt › main\.grid\n\s*├─ section\.card {2}<BeaconChain>\n\s*│  ├─ h2 {2}"The beacons"\n\s*│  └─ button\.lit {2}aria-label="Light Amon Dîn" aria-pressed="true" type="button" {2}"Amon Dîn"\n\s*└─ form {2}<MusterForm>\n\s*└─ input {2}name="apiToken" type="password"\n\s*12 more elements than a report holds are left out\./)
     expect(shown).not.toMatch(/Loading/)
 
     // The page changes: the next read shows it as it stands then
@@ -575,7 +576,7 @@ describe('palantir', () => {
     expect(await ask($, 'pane')).toMatch(/Anor at \/, 2 elements, as it stood at \S+\n\s*body › p {2}"Gondor does not answer"/)
 
     await pane.press({ key: 'renders-tree' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\]\* {2}\[DOM\]/)
+    expect(await ask($, 'pane')).toMatch(/\[t Renders\]\* {2}\[d DOM\]/)
   })
 
   test('says how a frontend reports its page where none has', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
@@ -587,7 +588,7 @@ describe('palantir', () => {
 
     await pane.press({ key: 'view-renders' })
     await pane.press({ key: 'renders-dom' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\] {2}\[DOM\]\* {2}\[Actions\] {2}\[Network\]\n\s*No page has been reported\. The page is read from the browser itself/)
+    expect(await ask($, 'pane')).toMatch(/\[t Renders\] {2}\[d DOM\]\* {2}\[a Actions\] {2}\[n Network\]\n\s*No page has been reported\.\n/)
   })
   test('says how a frontend reports its renders where none has', async ($, on) => {
     machine(on, SHOP)
@@ -672,9 +673,9 @@ describe('palantir', () => {
     const text = await ask($, 'pane')
 
     expect(text).toMatch(/palantir {2}read \d\d:\d\d:\d\d/)
-    expect(text).toMatch(/api\s+Compose\s+up · running\s+1/)
+    expect(text).toMatch(/Apps on Compose\n[\s\S]*\[api\]\s+up · running\s+1/)
     expect(text).toMatch(/\[api\] connect ECONNREFUSED/)
-    expect(text).toMatch(/\[Refresh\]/)
+    expect(text).toMatch(/\[r Refresh\]/)
   })
 
   test('says which renders came with nothing changed, and where each component is written', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
@@ -772,7 +773,7 @@ describe('palantir', () => {
     expect(await ask($, 'interactions', { target: 'api' })).toMatch(/^Nothing done on a page has been seen yet\./)
 
     // The console's errors are the app's errors, its warnings lines of its timeline
-    expect(await ask($, 'status')).toMatch(/^web \(.*; 1 errors in 1 kinds/)
+    expect(await ask($, 'status')).toMatch(/^web \(.*; 1 error of 1 kind/)
     expect(await ask($, 'logs', { target: 'web', level: 'warn' })).toMatch(/WARN {2}in the page: \[Vue warn\]: Hydration node mismatch\n.*ERROR in the page: Uncaught TypeError/)
 
     expect(await ask($, 'network')).toMatch(
@@ -986,12 +987,12 @@ describe('the end-to-end checklist', () => {
     await pane.press({ key: 'e2e-run' })
     expect(spawned.length).toBe(1)
     expect(spawned[0]?.prompt).toMatch(/Scenario: Add a book to the cart/)
-    expect(await ask($, 'pane')).toMatch(/\[Stop\]\*[\s\S]*▶  1 {2}Add a book to the cart {2}running/)
+    expect(await ask($, 'pane')).toMatch(/\[s Stop\]\*[\s\S]*▶  1 {2}Add a book to the cart {2}running/)
 
     await answered($, 'agent-1', 'VERDICT: fail: the badge says 0')
     await answered($, 'agent-2', 'VERDICT: pass')
     await pane.press({ key: 'refresh' })
-    expect(await ask($, 'pane')).toMatch(/\[Run the 1 not passed\]\*[\s\S]*✗  1 {2}Add a book to the cart {2}failed · 4s\]?\n\s*└─ the badge says 0\n[\s\S]*✓  2 {2}Check out {2}passed · 4s/)
+    expect(await ask($, 'pane')).toMatch(/\[f Run the 1 not passed\]\*[\s\S]*✗  1 {2}Add a book to the cart {2}failed · 4s\]?\n\s*└─ the badge says 0\n[\s\S]*✓  2 {2}Check out {2}passed · 4s/)
 
     // What failed is handed to Claude, with what its subagent saw: one scenario, or all that failed
     expect(await ask($, 'pane')).toMatch(/└─ the badge says 0\n\s+\[Fix with Claude\]/)
@@ -1086,13 +1087,13 @@ describe('the end-to-end checklist', () => {
     const pane = await mount($)
 
     // The plan showed the suites: the Tests view, on its unit tests
-    expect(await ask($, 'pane')).toMatch(/\[Tests\]\*[\s\S]*\[E2E\] {2}\[Unit tests 0\/2\]\*[\s\S]*○  1 {2}web components {2}to run · web/)
+    expect(await ask($, 'pane')).toMatch(/\[4 Tests\]\*[\s\S]*\[e E2E\] {2}\[u Unit tests 0\/2\]\*[\s\S]*○  1 {2}web components {2}to run · web/)
 
     await pane.press({ key: 'unit-run' })
 
     const shown = await ask($, 'pane')
 
-    expect(shown).toMatch(/\[Unit tests 1\/2\]\*[\s\S]*● 1 passed · 1 failed[\s\S]*✓  1 {2}web components {2}passed/)
+    expect(shown).toMatch(/\[u Unit tests 1\/2\]\*[\s\S]*● 1 passed · 1 failed[\s\S]*✓  1 {2}web components {2}passed/)
     expect(shown).toMatch(/✗  2 {2}api {2}failed[^\n]*\n\s*└─ exit 1: error: Metrics API not available\n\s+\[Fix with Claude\]/)
     expect(toasts).toContain('palantir unit tests: 1 passed · 1 failed')
     expect(await ask($, 'unit')).toMatch(/2\. \[failed\] api[\s\S]*\$ kubectl top[\s\S]*\| error: Metrics API not available/)
@@ -1102,7 +1103,7 @@ describe('the end-to-end checklist', () => {
 
     // The other view is one press away
     await pane.press({ key: 'tests-e2e' })
-    expect(await ask($, 'pane')).toMatch(/\[E2E\]\*[\s\S]*No scenario yet/)
+    expect(await ask($, 'pane')).toMatch(/\[e E2E\]\*[\s\S]*No scenario yet/)
   })
 
   test('reads the tests of a suite off what its command printed, a line a test', () => {
@@ -1731,5 +1732,255 @@ describe('a database', () => {
 
     expect(first.said).toEqual(['palantir: db: 3 of the 3 sessions it lets in are taken'])
     expect(settleDatabase(first.database, full, 'db', NOW + 5000).said).toEqual([])
+  })
+})
+
+describe('a companion', () => {
+  // A request that goes through the page's server and the one behind it, between two health checks
+  const TRACED: Partial<World> = {
+    files: { [`${CWD}/compose.yaml`]: 'services: {}' },
+    services: { api: `${CWD}/api`, web: `${CWD}/web` },
+    logs: {
+      web: [`${at(1)} GET /health -> 200 in 1ms`, `${at(2)} GET /cart -> 200 in 40ms rid=r7a41`, `${at(6)} GET /health -> 200 in 1ms`],
+      api: ['2026-10-13T10:00:02.010000000Z 2026-10-13T10:00:02.010Z loading the cart rid=r7a41', '2026-10-13T10:00:02.030000000Z {"level":"error","msg":"cart 12 has no owner","rid":"r7a41"}', `${at(3)} tick 1`, `${at(4)} tick 2`, `${at(5)} tick 3`],
+    },
+  }
+
+  const prompted = (on: On) => {
+    const prompts: { text: string; context: string }[] = []
+
+    on('prompt.submit', (_, e) => {
+      prompts.push({ text: e.text, context: (e.context ?? []).join('\n') })
+
+      return { text: e.text } as never
+    })
+
+    return prompts
+  }
+
+  test('hands Claude the errors its edit brought, unasked and once: beside its next tool result, or with the next prompt', async ($, on) => {
+    const { world } = machine(on, SHOP)
+    const prompts = prompted(on)
+
+    letEditsThrough(on)
+    on('tool.call', { tool: 'Read' }, () => ({ result: { file: {} } }) as never)
+
+    const pane = await mount($)
+    const read = () => $.tool.call({ tool: 'Read', file_path: `${CWD}/api/src/auth.ts` } as never)
+
+    await edit($, `${CWD}/api/src/auth.ts`)
+
+    // Nothing new yet: nothing is said
+    expect((await read()).context ?? []).toHaveLength(0)
+
+    world.logs.api?.push(`${at(12)} {"level":"error","msg":"TypeError: verify is not a function"}`)
+    await pane.press({ key: 'refresh' })
+
+    const told = String((await read()).context)
+
+    expect(told).toMatch(/api, since the edit to api\/src\/auth\.ts: 1 new kind of error\n.*x1 TypeError: verify is not a function/)
+    expect(told).toMatch(/mcp__palantir__errors_since_edit/)
+    expect((await read()).context ?? []).toHaveLength(0)
+
+    // Between two turns, it goes with what the person says next
+    world.logs.api?.push(`${at(14)} {"level":"error","msg":"RangeError: bad token length"}`)
+    await pane.press({ key: 'refresh' })
+    await $.prompt.submit({ text: 'does it work?' } as never)
+
+    expect(prompts[0]?.context).toMatch(/x1 RangeError: bad token length/)
+    expect(prompts[0]?.context).not.toMatch(/verify is not a function/)
+    expect(prompts).toHaveLength(1)
+  })
+
+  test('asks Claude to look at once, where it guards the edits and no turn runs', { options: { guard: true } }, async ($, on) => {
+    const { world } = machine(on, SHOP)
+    const prompts = prompted(on)
+
+    letEditsThrough(on)
+
+    const pane = await mount($)
+
+    await edit($, `${CWD}/api/src/auth.ts`)
+    world.logs.api?.push(`${at(12)} {"level":"error","msg":"TypeError: verify is not a function"}`)
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'refresh' })
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]?.text).toMatch(/saw errors that first showed after an edit[\s\S]*TypeError: verify is not a function[\s\S]*Look into it: where the edit is the cause, fix it/)
+  })
+
+  test('shows every kind of error once, the new ones first, and hands one to Claude with what led to it', async ($, on) => {
+    const { world } = machine(on, TRACED)
+    const prompts = prompted(on)
+
+    letEditsThrough(on)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'view-errors' })
+
+    expect(await pane.find({ text: /1 kind of error · 0 new since the last edit/ })).toBeDefined()
+
+    await edit($, `${CWD}/api/src/cart.ts`)
+    world.logs.api?.push(`${at(20)} {"level":"error","msg":"TypeError: owner is undefined"}`)
+    await pane.press({ key: 'refresh' })
+
+    expect(await pane.find({ text: /2 kinds of error · 1 new since the last edit/ })).toBeDefined()
+    expect(await pane.find({ text: /2 Errors · 1 new/ })).toBeDefined()
+    expect(await ask($, 'pane')).toMatch(/new · TypeError: owner is undefined[^\n]*\n[^\n]*cart 12 has no owner/)
+
+    // The older one opens on its request, through both apps
+    await pane.press({ key: 'error-1' })
+
+    expect(await pane.find({ text: /The last time, with every line of its request/ })).toBeDefined()
+
+    await pane.press({ key: 'error-diagnose' })
+
+    expect(prompts[0]?.text).toMatch(/^Find why the running api, which palantir watches, writes this error/)
+    expect(prompts[0]?.text).toMatch(/\[web\] INFO  GET \/cart -> 200 in 40ms rid=r7a41\n.*\[api\] INFO  loading the cart rid=r7a41\n.*\[api\] ERROR cart 12 has no owner rid=r7a41/)
+  })
+
+  test('follows one request across the apps, and leaves out of the timeline what nobody reads', async ($, on) => {
+    machine(on, TRACED)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+
+    const shown = await ask($, 'pane')
+
+    // The time an app wrote at the head of its own line is said once
+    expect(shown).toMatch(/12:00:02 {2}INFO {3}\[api\] loading the cart rid=r7a41/)
+    expect(shown).not.toMatch(/\/health/)
+    expect(shown).toMatch(/\[api\] tick 3 ×3/)
+    expect(shown).toMatch(/2 health checks left out/)
+
+    await pane.press({ key: 'noise' })
+    expect(await pane.find({ text: /GET \/health/ })).toBeDefined()
+    await pane.press({ key: 'noise' })
+
+    await pane.press({ key: 'line-0-follow' })
+
+    expect(await pane.find({ text: /request r7a41: 3 lines through web \+0ms → api \+10ms for 20ms, 30ms from the first to the last, 1 of them an error/ })).toBeDefined()
+    expect(await pane.find({ text: /tick/ })).toBeUndefined()
+
+    await pane.press({ key: 'unfollow' })
+    await pane.input({ key: 'logs-grep', text: 'TICK' })
+
+    expect(await pane.find({ text: /3 lines hold "TICK"/ })).toBeDefined()
+    expect(await pane.find({ text: /loading the cart/ })).toBeUndefined()
+
+    expect(await ask($, 'logs', { request: 'r7a41' })).toMatch(/^request r7a41: 3 lines through web \+0ms → api[^\n]*\n {2}\+0ms .*\[web\] INFO  GET \/cart[^\n]*\n {2}\+10ms .*\[api\] INFO  loading the cart[^\n]*\n {2}\+30ms .*\[api\] ERROR cart 12 has no owner/)
+    expect(await ask($, 'logs', { request: 'nope' })).toMatch(/No line held names the request nope/)
+  })
+
+  test('holds the timeline still while it is read', async ($, on) => {
+    const { world } = machine(on, SHOP)
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'pause' })
+
+    world.logs.api?.push(`${at(40)} {"level":"info","msg":"written while paused"}`)
+    await pane.press({ key: 'refresh' })
+
+    expect(await pane.find({ text: /written while paused/ })).toBeUndefined()
+    expect(await pane.find({ text: /paused at/ })).toBeDefined()
+
+    await pane.press({ key: 'pause' })
+    expect(await pane.find({ text: /written while paused/ })).toBeDefined()
+  })
+
+  test('shows one app alone when its row is pressed, and all when it is pressed again', async ($, on) => {
+    machine(on, SHOP)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'show-web' })
+
+    expect(await pane.find({ text: /listening on 8080/ })).toBeUndefined()
+    expect(await pane.find({ text: /All, not web alone/ })).toBeDefined()
+
+    await pane.press({ key: 'show-web' })
+    expect(await pane.find({ text: /listening on 8080/ })).toBeDefined()
+  })
+
+  test('counts the errors from a mark, and from when an app started over', { options: { attachments: 'api=docker:shop-api@api' } }, async ($, on) => {
+    const { world } = machine(on, { status: { 'shop-api': JSON.stringify([{ State: { Status: 'running', StartedAt: '2026-10-13T09:00:00Z' }, RestartCount: 0 }]) }, logs: { 'shop-api': [`${at(1)} ERROR old trouble`] } })
+
+    letEditsThrough(on)
+
+    expect(await ask($, 'errors_since_edit', { since: 'mark' })).toMatch(/api: no mark is set on it\./)
+    expect(await ask($, 'mark')).toMatch(/A mark is set on api at/)
+
+    world.logs['shop-api']?.push('2026-10-13T10:00:31.000000000Z ERROR new trouble')
+
+    const sinceMark = await ask($, 'errors_since_edit', { since: 'mark' })
+
+    expect(sinceMark).toMatch(/api: 1 new error since the mark set at .*\n.*new trouble/)
+    expect(sinceMark).not.toMatch(/old trouble/)
+
+    // An edit is not what runs until the container takes it in
+    await edit($, `${CWD}/api/main.py`)
+    expect(await ask($, 'errors_since_edit')).toMatch(/no new error since the edit to api\/main\.py\. It has not started over since: unless it reloads its source by itself/)
+
+    world.status['shop-api'] = JSON.stringify([{ State: { Status: 'running', StartedAt: '2026-10-13T10:00:32Z' }, RestartCount: 0 }])
+    expect(await ask($, 'errors_since_edit')).toMatch(/no new error since the edit to api\/main\.py\. It started over at \S+, after the edit\./)
+    expect(await ask($, 'errors_since_edit', { since: 'start' })).toMatch(/api: 1 new error since it started over at/)
+  })
+
+  test('keeps what was planned for the next session in the project', async ($, on) => {
+    machine(on, SHOP)
+
+    const stored: Record<string, unknown> = {}
+
+    on('store.set', (_, e) => {
+      stored[e.key] = e.value
+
+      return { value: undefined } as never
+    })
+
+    await ask($, 'unit_plan', { suites: [{ name: 'api', command: ['npm', 'test'] }] })
+
+    expect((stored[`plans:${CWD}`] as { suites: { name: string }[] }).suites.map(({ name }) => name)).toEqual(['api'])
+  })
+
+  test('draws the last figures as a line, and tells what only climbs', () => {
+    expect(spark([])).toBe('')
+    expect(spark([50, 50, 50, 50])).toBe('▁▁▁▁')
+    expect(spark([10, 20, 40, 80])).toBe('▁▂▄█')
+    expect(spark([10, -1, 80])).toBe('▁ █')
+
+    const grown = Array.from({ length: 8 }, (_, index) => 100 + index * 10)
+
+    expect(isClimbing(grown)).toBe(true)
+    expect(isClimbing([...grown.slice(0, 7), 90])).toBe(false)
+    expect(isClimbing([100, 100, 100, 100, 100, 100, 100, 100])).toBe(false)
+
+    const usage = { cpu: 2, memory: 100, limit: 0, processes: 1, cpuSeconds: 0, at: 0, note: '' }
+
+    expect(recorded(undefined, usage, 4)).toEqual({ cpu: [2], memory: [100], lag: [4] })
+    expect(recorded({ cpu: [2], memory: [100], lag: [] }, { ...usage, note: 'not running' }, -1)).toEqual({ cpu: [2, -1], memory: [100, -1], lag: [] })
+  })
+
+  test('folds a line written several times running, never an error nor a request', () => {
+    const line = (message: string, level: 'info' | 'error' = 'info') => ({ label: 'api', line: { at: 0, level, message, more: 0 } })
+    const { rows, hidden } = quieted([line('tick 1'), line('tick 2'), line('GET /healthz 200'), line('tick 3'), line('GET /x rid=aaaa1'), line('GET /x rid=bbbb2'), line('boom 1', 'error'), line('GET /health 500', 'error')], false)
+
+    expect(rows.map(({ line: { message }, times }) => `${message} x${times}`)).toEqual(['tick 3 x3', 'GET /x rid=aaaa1 x1', 'GET /x rid=bbbb2 x1', 'boom 1 x1', 'GET /health 500 x1'])
+    expect(hidden).toBe(1)
+    expect(traceSummary('aaaa1', traceOf([line('GET /x rid=aaaa1')], 'aaaa1'))).toMatch(/request aaaa1: 1 line through api \+0ms, 0ms from the first to the last$/)
+  })
+
+  test('sees an app start over: a restart, or a new revision rolled out', () => {
+    const read = (started: string, restarts = 0) => ({ label: 'api', raws: [], cursor: EMPTY_WATCH.cursor, error: '', health: { state: 'up' as const, detail: '', restarts, started } })
+    const first = settle({}, [read('1')], 100).watches
+
+    expect(first.api?.rolledAt).toBeUndefined()
+    expect(settle(first, [read('1')], 200).watches.api?.rolledAt).toBeUndefined()
+    expect(settle(first, [read('2')], 300).watches.api?.rolledAt).toBe(300)
+    expect(settle(first, [read('1', 1)], 400).watches.api?.rolledAt).toBe(400)
   })
 })

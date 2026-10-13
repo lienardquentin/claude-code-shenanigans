@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Attachment, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
+import type { Attachment, Baseline, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, History, Plans, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
 import { composeAttachments, merged, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
-import { askBrokerPrompt, brokerKind, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
-import { answerLimit, answerRowsText, askPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
+import { askBrokerPrompt, brokerKind, diagnoseGroupsPrompt, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
+import { answerLimit, answerRowsText, askPrompt, diagnoseSessionsPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
 import { askArgv, DEBUG_PORT, describeBrowser, EMPTY_BROWSER, readAsked } from './browser'
 import type { Asked as Told } from './browser'
 import { addressOf, AGENT, AGENT_TYPE, e2eText, fixPrompt, HOW_TO_PLAN, isUnderWay, PLAN_PROMPT, planned, queued, scenarioPrompt, scenarioTree, settled, stopped, tally, verdictOf } from './e2e'
@@ -12,17 +12,17 @@ import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { divider } from './kit/divider'
-import { logLines } from './kit/log-lines'
 import { paneView } from './kit/pane-text'
 import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import { tree } from './kit/tree'
 import { endedSuite, fixUnitPrompt, HOW_TO_PLAN_UNIT, PLAN_UNIT_PROMPT, plannedSuites, queuedSuites, SUITE_TIMEOUT_MS, suitesOf, suiteTree, unitText } from './unit'
-import { clockTime, EMPTY_WATCH, fresh } from './lines'
+import { around, BASELINE_NAME, BASELINES, diagnosePrompt, guardPrompt, kindId, kindsOf, sinceText, told, untoldOf, untoldText } from './errors'
+import { clockTime, EMPTY_WATCH, fresh, requestIds } from './lines'
 import { ENV_FILES, isWindows, LISTENERS_ARGV, LOCAL_ENV_NOTE, localUsage, PROCESSES_ARGV, readEnvFile, readUnixProbe, readWindowsProbe, WINDOWS_PROBE_ARGV } from './local'
 import type { Probe } from './local'
-import { actionsText, actionTree, domText, HOW_TO_REPORT_ACTIONS, HOW_TO_REPORT_NETWORK, networkText, rendersSinceText, slowestFirst, answerText, vitalsText } from './report'
+import { ATTACH_PROMPT, BROWSER_PROMPT, actionsText, actionTree, domText, HOW_TO_REPORT_ACTIONS, HOW_TO_REPORT_NETWORK, networkText, rendersSinceText, slowestFirst, answerText, vitalsText } from './report'
 import { byKind, cpuText, domTree, EMPTY_FACTS, EMPTY_USAGE, envText, errorsText, HOW_TO_ATTACH, HOW_TO_READ_DOM, HOW_TO_READ_RENDERS, HOW_TO_REPORT_DOM, HOW_TO_REPORT_RENDERS, logsText, memoryText, renderTree, rendersNow, rendersText, statusText, timeline, usageText } from './report'
 import type { LogsAsk } from './report'
 import {
@@ -46,7 +46,9 @@ import {
   topArgv,
 } from './runtime'
 import type { Measure } from './runtime'
-import { endArgv, firstLine, kept, marked, settle, TAIL, takeFile, takePrinted } from './watch'
+import { isClimbing, offsetText, quieted, recorded, spark, tagColor, traceOf, traceSummary } from './trace'
+import type { Row } from './trace'
+import { endArgv, firstLine, kept, marked, markedNow, settle, TAIL, takeFile, takePrinted } from './watch'
 import type { Taken } from './watch'
 
 const PANE = 'palantir'
@@ -80,6 +82,16 @@ const EMPTY_ROWS: Rows = { label: '', table: '', at: 0, note: '', rows: [] }
 const rowsShown = atom({ plugin: 'palantir', key: 'rows' } as const, EMPTY_ROWS)
 // How many of a table's last rows the pane reads
 const PANE_ROWS = 10
+const history = atom({ plugin: 'palantir', key: 'history' } as const, {} as Record<string, History>)
+const since = atom({ plugin: 'palantir', key: 'since' } as const, 'edit' as Baseline)
+const openError = atom({ plugin: 'palantir', key: 'openError' } as const, '')
+const grepped = atom({ plugin: 'palantir', key: 'grep' } as const, '')
+const traced = atom({ plugin: 'palantir', key: 'traced' } as const, '')
+const pausedAt = atom({ plugin: 'palantir', key: 'pausedAt' } as const, 0)
+const isNoisy = atom({ plugin: 'palantir', key: 'isNoisy' } as const, false)
+const isHelped = atom({ plugin: 'palantir', key: 'isHelped' } as const, false)
+// Empty until the person says either way in the pane: the option decides till then
+const guarding = atom({ plugin: 'palantir', key: 'guarding' } as const, '' as '' | 'on' | 'off')
 
 /**
  * The project the shell stands in: the nearest folder, from the session's own up, that holds the project's file;
@@ -118,54 +130,66 @@ const homeOf = async ($: EngineInterface): Promise<string> => {
 // What the pane last drew, for the model to read: it sees nothing of a pane otherwise
 const view = paneView({ id: PANE, title: TITLE, command: '/palantir' })
 
+const LEVEL_COLOR = { info: 'suggestion', warn: 'warning', error: 'error' } as const
+
 const TONE = { up: 'success', degraded: 'warning', down: 'danger', unknown: 'neutral' } as const satisfies Record<Health['state'], string>
 
+const TARGET = { type: 'string', description: 'The label of one watched attachment; left out, all of them.' } as const
+
+// Each says first what it answers, then when to call it: the rest is in the answer itself
 const TOOLS = [
   {
     name: 'status',
     description:
-      'How what this session watches stands right now, the apps, the brokers and the databases apart (a frontend, a backend, a Redpanda, a PostgreSQL; local, Docker, Compose or Kubernetes): up or down and why, restarts, error counts, and how many errors are new since the last edit to their source. Reads them afresh. Call it to know whether what runs is healthy.',
+      'Whether what this session watches is healthy: each app, broker and database up or down and why, its restarts, its errors and how many are new since the last edit, its CPU and memory. Reads afresh. Call it first when something running misbehaves.',
   },
   {
     name: 'logs',
     description:
-      "The last log lines of the running apps this session watches, as one timeline across them, each line with its time, its app and its level, secrets taken out. Reads them afresh. Call it instead of asking the person to paste logs: to see what an app wrote, to follow an error across the frontend and the backend, or to search the logs for a word.",
+      'The last log lines of the watched apps as one timeline: time, app, level, message, secrets taken out. Reads afresh. Call it instead of asking the person to paste logs. `request` follows one request id across every app, with how long after its first line each was written.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         level: { type: 'string', enum: ['info', 'warn', 'error'], description: 'The lowest level to show; info when left out.' },
         grep: { type: 'string', description: 'Only the lines whose message holds this text, whatever its case.' },
         limit: { type: 'number', description: 'How many of the last matching lines; 50 when left out, 200 at most.' },
+        request: { type: 'string', description: 'A request id (the value of rid=, request_id=, trace_id=): only the lines that name it, across every app.' },
       },
     },
   },
   {
     name: 'errors_since_edit',
     description:
-      "The errors a running app started writing after the last edit to its source in this session, each kind once with its count: what the edit broke, apart from what was already wrong. A frontend's include what its page's console holds (an uncaught error, a Vue warning, a hydration mismatch, a file that did not load), read from the browser and led by \"in the page:\". Reads the apps afresh. Call it after editing the code of a watched app, once the app has had the time to reload, and before saying the change works.",
+      "The errors a running app started writing after the last edit to its source, each kind once with its count: what the edit broke, apart from what was already wrong. A frontend's include its page's console, led by \"in the page:\". Reads afresh. Call it after editing a watched app, once it has reloaded, and before saying the change works. `since` counts from a mark or from the app's last start instead.",
     inputSchema: {
       type: 'object',
-      properties: { target: { type: 'string', description: 'The label of one watched app; left out, all of them.' } },
+      properties: {
+        target: TARGET,
+        since: { type: 'string', enum: ['edit', 'mark', 'start'], description: 'What the errors are new since: the last edit (the default), the mark set with mcp__palantir__mark, or the last time the app started over (a restart, a rollout).' },
+      },
     },
+  },
+  {
+    name: 'mark',
+    description:
+      'Sets a mark on every watched app now: mcp__palantir__errors_since_edit with since "mark" then says the errors that first show after it. Call it before doing something that is no edit and may break what runs: a deploy, a migration, a restart, a scenario done by hand.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'resources',
     description:
-      'What the running apps this session watches consume right now: processor share (of one core) and memory, against its limit where there is one, as Docker, the cluster or the machine measures them. Reads them afresh. Call it when an app is slow, restarts, or may be leaking, and before and after a change meant to make it lighter. A local app is measured through the port it listens on, with the processes it started; its processor share needs two reads.',
-    inputSchema: {
-      type: 'object',
-      properties: { target: { type: 'string', description: 'The label of one watched app; left out, all of them.' } },
-    },
+      'The CPU (percent of one core) and memory of each watched app, against its limit where it has one. Reads afresh. Call it when an app is slow, restarts or may be leaking, and before and after a change meant to make it lighter. A local app needs two reads for its CPU.',
+    inputSchema: { type: 'object', properties: { target: TARGET } },
   },
   {
     name: 'broker',
     description:
-      "What a watched broker holds, as its own command line says it: its topics with how many records each holds, and its consumer groups with their state, their members and how far behind each is (its lag), partition by partition where records wait; a group that has taken nothing for a while is said so, and after an edit to any watched app each group's lag is said against what it was before. A Redpanda container, service or workload is told by its image. Reads it afresh. Call it when what one app sends another through the broker does not arrive or arrives late, to see whether a consumer keeps up, is stuck on a record or is gone, and before and after a change to what produces or consumes. With `topic`, the last records of that topic, its messages, are read too (key, headers, value, secrets taken out), as no group, so nothing is marked as read: call it to see what a producer really sent.",
+      "What a watched Redpanda broker holds: its topics with their record counts, and its consumer groups with state, members and lag, partition by partition where records wait, against what the lag was before the last edit. Reads afresh. Call it when what one app sends another does not arrive or arrives late. `topic` also reads that topic's last records (key, headers, value, secrets taken out) as no group, so nothing is marked as read.",
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched broker; left out, all of them.' },
+        target: TARGET,
         topic: { type: 'string', description: 'A topic whose last records to read as well.' },
         limit: { type: 'number', description: 'How many of the last records of each partition of that topic; 5 when left out, 20 at most.' },
         grep: { type: 'string', description: 'Only the records of that topic whose key, headers or value hold this text, whatever its case: a request id, say.' },
@@ -175,11 +199,11 @@ const TOOLS = [
   {
     name: 'database',
     description:
-      "What a watched database holds, as its own command line says it: how many sessions its clients hold of those it lets in, by what they do and by the app that opened them; the sessions that wait for a lock (and which session holds it), sit idle in an open transaction or run a long statement, each with its statement, secrets taken out; and its tables with about how many rows each holds, its size, how much was written to it and how it is read. A PostgreSQL container, service or workload is told by its image and asked through its own psql, with writing turned off. Reads it afresh. Call it when an app's queries hang, fail or are slow, to see whether a lock is held, a connection is left open in a transaction or the sessions run out, to see whether what an app should have written is there, and before and after a change to what reads or writes. With `table`, the last rows of that table are read too (each as JSON, secrets taken out): call it to see what an app really wrote, and what columns a table has. With `sql`, one SELECT of your own is run and its rows are given: call it to answer a question about what the database holds; nothing but a read is run.",
+      "What a watched PostgreSQL database holds: its sessions by state and by app, the ones that wait for a lock (and who holds it), idle in a transaction or running long, each with its statement, and its tables with rows, size and how they are read. Reads afresh, writing turned off. Call it when an app's queries hang, fail or are slow, or to check what an app wrote. `table` also reads that table's last rows as JSON; `sql` runs one SELECT of your own instead.",
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched database; left out, all of them.' },
+        target: TARGET,
         table: { type: 'string', description: 'A table whose last rows to read as well, by its name as this tool says it.' },
         limit: { type: 'number', description: 'How many of the last rows of that table; 5 when left out, 20 at most.' },
         grep: { type: 'string', description: 'Only the rows of that table that hold this text, whatever its case: a request id, say.' },
@@ -190,11 +214,11 @@ const TOOLS = [
   {
     name: 'env',
     description:
-      "The environment variables of the running apps this session watches, each with where it is set, secrets taken out: a container's own, a compose service's as compose resolves it, a Kubernetes workload's as its spec sets it, and for a local app the env files of its source. Reads them afresh. Call it instead of asking the person what an app is configured with: which URL it calls, which mode it runs in, whether a variable is set at all.",
+      "The environment variables of each watched app, each with where it is set, secrets taken out. Reads afresh. Call it instead of asking the person how an app is configured: which URL it calls, which mode it runs in, whether a variable is set at all.",
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         grep: { type: 'string', description: 'Only the variables whose name holds this text, whatever its case.' },
       },
     },
@@ -202,11 +226,11 @@ const TOOLS = [
   {
     name: 'renders',
     description:
-      "Why the components of a watched frontend rendered again, as the browser itself says it: each reactivity chain once, with its count, from the state that changed, through the computed values and the props that carried it, down to the component. Asks the tabs of the Chrome that listens on its debug port afresh; nothing is added to the app. Call it when a page flickers, is slow, or renders more than it should, and to see what a change of state reaches. A chain marked \"with nothing changed\" rendered while the values it holds were the same as the time before: a render that could be spared. Each component is said with the file it is written in. Only a Vue app in development, open in that Chrome, has any; the answer says so when there is none.",
+      'Why the components of a watched Vue frontend rendered again: each reactivity chain once with its count, from the state that changed, through computed values and props, down to the component and its file. A chain "with nothing changed" is a render that could be spared. Asks the debug Chrome afresh. Call it when a page flickers, is slow or renders more than it should.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         component: { type: 'string', description: 'Only the components whose name holds this text, whatever its case.' },
       },
     },
@@ -214,20 +238,17 @@ const TOOLS = [
   {
     name: 'renders_since_edit',
     description:
-      "What the last edit to a watched frontend's source did to its renders: the chains that first showed after it, the ones that rendered before and no more since, and for the others how often they render now against before. Asks the browser afresh. Call it after an edit meant to make a page render less, once the page has been used again, and before saying it does.",
-    inputSchema: {
-      type: 'object',
-      properties: { target: { type: 'string', description: 'The label of one watched app; left out, all of them.' } },
-    },
+      "What the last edit to a watched frontend did to its renders: the chains that are new, the ones gone, and how often the others render now against before. Asks the browser afresh. Call it after an edit meant to make a page render less, once the page has been used again, and before saying it does.",
+    inputSchema: { type: 'object', properties: { target: TARGET } },
   },
   {
     name: 'interactions',
     description:
-      "What the person last did on a watched frontend's page (a click, a form sent, a field changed, a move to another address; never what a field holds), each with what followed: which components rendered and how often, what the page asked for with its status and time, and what every watched app wrote in the two seconds after, the backend included. Asks the browser afresh. Call it to follow one click from the page to the server, or when the person says \"when I click this, that happens\".",
+      'What the person last did on a watched frontend\'s page (a click, a form sent, a field changed, a navigation; never what a field holds), each with what followed: the components that rendered, the requests the page made, and what every watched app wrote in the two seconds after. Asks the browser afresh. Call it to follow one click from the page to the server, or when the person says "when I click this, that happens".',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         limit: { type: 'number', description: 'How many of the last things done; 8 when left out, 30 at most.' },
       },
     },
@@ -235,11 +256,11 @@ const TOOLS = [
   {
     name: 'network',
     description:
-      "What a watched frontend's page asked for from the browser (fetch and XHR), each address once with how often, the average and the longest time, the failures and the last status, the slowest in all first; and how the page loaded: first byte, largest paint, layout shift, the slowest answer to a click, long tasks. After an edit, each is said against how it stood before it. Asks the browser afresh. Call it when a page is slow to load or to answer, to see what it waits for, and before and after a change meant to make it faster.",
+      "What a watched frontend's page requested (fetch and XHR): each address once with its count, average and longest time, failures and last status, slowest first; and how the page loaded (first byte, largest paint, layout shift, slowest answer to a click, long tasks), each against before the last edit. Asks the browser afresh. Call it when a page is slow to load or to answer.",
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         grep: { type: 'string', description: 'Only the addresses that hold this text, whatever its case.' },
       },
     },
@@ -247,11 +268,11 @@ const TOOLS = [
   {
     name: 'dom',
     description:
-      "A watched frontend's page as it stands in the browser: its elements nested, each with what it is to a reader (role, label, state), the text it holds, and the component of the app's own that draws it, with the file that component is written in; and what a reader who does not see the page cannot use (a button or a link with no name, an image with no alt, a field with no label, an id used twice). Never what a field holds. Asks the browser afresh. Call it to see what is on the page without a screenshot, to find which component draws something, and to check a page after changing its markup.",
+      "A watched frontend's page as it stands: its elements nested, each with its role, label, state and text, the component that draws it and that component's file; and what a screen reader cannot use (a control with no name, an image with no alt, a field with no label, a duplicate id). Never what a field holds. Asks the browser afresh. Call it to see the page without a screenshot, or to find which component draws something.",
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'The label of one watched app; left out, all of them.' },
+        target: TARGET,
         grep: { type: 'string', description: "Only the elements that hold this text in their tag, their attributes, their words or their component's name, each under the elements that hold it." },
       },
     },
@@ -259,7 +280,7 @@ const TOOLS = [
   {
     name: 'e2e_plan',
     description:
-      "Writes the end-to-end checklist of a watched frontend: the scenarios a person goes through on its page, each to be run in the browser by a subagent of its own that sees nothing of this conversation. Call it when asked to plan or write end-to-end scenarios, after reading the app's routes and pages. Write each step as one thing done on the page, naming what is clicked or filled by the words the page shows, with the values to type, and say in `expect` what must be seen at the end. It takes the place of the checklist held, unless `add` is true. Nothing is run: mcp__palantir__e2e_run does that, and the person can from the pane.",
+      "Writes the end-to-end checklist of a watched frontend: scenarios a person goes through on its page, each run later in the browser by a subagent that sees nothing of this conversation. Call it when asked to plan end-to-end scenarios, after reading the app's routes and pages. Write each step as one thing done, naming what is clicked or filled by the words the page shows, with the values to type. Replaces the checklist unless `add` is true. Runs nothing: mcp__palantir__e2e_run does.",
     inputSchema: {
       type: 'object',
       required: ['scenarios'],
@@ -284,7 +305,7 @@ const TOOLS = [
   {
     name: 'e2e_run',
     description:
-      'Runs scenarios of the end-to-end checklist: each is done on the page of the debug Chrome by a Haiku subagent of its own, one after another as they share the page. Answers at once, with the run under way; mcp__palantir__e2e says what came of it once the subagents have answered. Call it after mcp__palantir__e2e_plan when asked to run the scenarios, and after a change to the frontend to check it still does what it did.',
+      'Runs scenarios of the end-to-end checklist, each on the page of the debug Chrome by a Haiku subagent, one after another. Answers at once with the run under way; mcp__palantir__e2e says what came of it. Call it after mcp__palantir__e2e_plan when asked to run the scenarios, and after a change to the frontend to check it still does what it did.',
     inputSchema: {
       type: 'object',
       properties: { ids: { type: 'array', items: { type: 'string' }, description: 'The numbers of the scenarios to run; left out, all of them.' } },
@@ -293,7 +314,7 @@ const TOOLS = [
   {
     name: 'unit_plan',
     description:
-      "Names the unit test suites of the project, which the person then runs from the Tests view of the palantir pane: one suite per command. Call it when asked to plan, find or set up the unit tests there, after reading how the project runs them (package.json scripts, pyproject, Makefile, CI). Give each the watched app it tests as its target: the pane shows the suites of the app that is picked. Have a command print a line per test (pytest -v, vitest --reporter=verbose, go test -v): the pane lists the tests it reads there under the suite. A command is a list of arguments, as no shell reads it: [\"npm\", \"test\", \"--silent\"], never one line, and no pipe or &&. It takes the place of the suites held. Nothing is run by it, and palantir has no tool that runs a suite: the person does, from the pane.",
+      'Names the unit test suites of the project, one command each, for the person to run from the Tests view of the pane. Call it when asked to plan or set up the unit tests there, after reading how the project runs them (package.json, pyproject, Makefile, CI). A command is a list of arguments, never one line, with no pipe, no && and no watch mode: ["npm", "test", "--silent"]. Have it print a line per test (pytest -v, vitest --reporter=verbose, go test -v). Replaces the suites held. Runs nothing, and no tool does: the person runs them.',
     inputSchema: {
       type: 'object',
       required: ['suites'],
@@ -317,7 +338,7 @@ const TOOLS = [
   {
     name: 'unit',
     description:
-      "The unit test suites named in the palantir pane as they stand: each with its command, whether it passed or failed when the person last ran it, how many of its tests passed and which failed, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.",
+      'The unit test suites of the palantir pane as they stand: each with its command, whether it passed when the person last ran it, how many tests passed and which failed, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'The number of one suite, to read every test it ran and what it printed even if it passed; left out, all of them.' } },
@@ -332,7 +353,7 @@ const TOOLS = [
   {
     name: 'e2e',
     description:
-      'The end-to-end checklist of the watched frontend as it stands: each scenario with its steps, whether it passed, failed or could not be tried, why, and what the subagent that ran it reported. Call it once a run is over, before saying what works, and to see what is already planned.',
+      'The end-to-end checklist as it stands: each scenario with its steps, whether it passed, failed or could not be tried, why, and what its subagent reported. Call it once a run is over, before saying what works, and to see what is already planned.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'The number of one scenario, to read the whole of what its subagent reported; left out, all of them.' } },
@@ -743,6 +764,19 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
 
     if (want.usage) usageReadAt = now
 
+    // The figures of this read, added to the line each row draws
+    if (want.usage || want.broker === true) {
+      await update($, history, held =>
+        Object.fromEntries(
+          targets.map(({ label }) => {
+            const groups = asked.brokers[label]?.kind === 'redpanda' ? asked.brokers[label]?.groups : undefined
+
+            return [label, recorded(held[label], usages[label], groups === undefined ? -1 : groups.reduce((sum, group) => sum + group.lag, 0))] as const
+          }),
+        ),
+      )
+    }
+
     await update($, facts, held => ({
       ...held,
       ...Object.fromEntries(
@@ -783,7 +817,71 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
     await update($, checkedAt, () => now)
 
     for (const text of [...said, ...asked.said, ...queried.said]) $.ui.toast(text)
+
+    await guard($).catch(() => undefined)
   })
+
+// Whether the option has Claude guard its edits, where the person has not said in the pane
+let guardsByOption = false
+
+const isGuarded = async ($: EngineInterface): Promise<boolean> => {
+  const said = await read($, guarding)
+
+  return said === '' ? guardsByOption : said === 'on'
+}
+
+// Whether a turn of the main conversation runs. A reload starts it over as none, and the next turn sets it.
+let isTurnRunning = false
+
+/**
+ * The errors that are new since an edit and that Claude has not been handed, as what it reads beside something
+ * else: said once. None where there is none.
+ */
+const handOver = async ($: EngineInterface): Promise<string | undefined> => {
+  const untold = untoldOf(await read($, attachments), await read($, watches))
+
+  if (untold.length === 0) return undefined
+
+  await update($, watches, told)
+
+  return untoldText(untold)
+}
+
+/**
+ * Where the person has Claude guard its edits: an error that is new since one, seen while no turn runs, is handed
+ * to Claude at once as a prompt. While a turn runs it is read beside the next tool's result instead.
+ */
+const guard = async ($: EngineInterface): Promise<void> => {
+  if (isTurnRunning || !(await isGuarded($))) return
+
+  const untold = untoldOf(await read($, attachments), await read($, watches))
+
+  if (untold.length === 0) return
+
+  await update($, watches, told)
+  void $.prompt.submit({ text: guardPrompt(untold) })
+}
+
+const plansKey = (folder: string): string => `plans:${folder}`
+
+// What was planned is kept by the project, so the next session finds its checklist and its suites
+const keepPlans = async ($: EngineInterface): Promise<void> => {
+  const plans: Plans = { scenarios: await read($, scenarios), suites: await read($, suites) }
+
+  await $.store.set(plansKey(await homeOf($)), plans).catch(() => undefined)
+}
+
+// What a session before this one planned here, where this one has planned nothing: what ran then is to run again
+const recallPlans = async ($: EngineInterface): Promise<void> => {
+  if ((await read($, scenarios)).length > 0 || (await read($, suites)).length > 0) return
+
+  const held = (await $.store.get(plansKey(await homeOf($))).catch(() => undefined)) as Partial<Plans> | undefined
+  const rested = <Held extends { state: Scenario['state'] }>(list: unknown): Held[] =>
+    (Array.isArray(list) ? (list as Held[]) : []).map(item => (item.state === 'running' || item.state === 'queued' ? { ...item, state: 'todo' as const } : item))
+
+  await update($, scenarios, () => rested<Scenario>(held?.scenarios).map(scenario => ({ ...scenario, agentId: '' })))
+  await update($, suites, () => rested<Suite>(held?.suites))
+}
 
 // Counts an edit against the attachments. A broker is nobody's source: an edit to any app is one it may tell of,
 // since what one app sends is what another reads, so every broker keeps how its groups stood.
@@ -924,10 +1022,14 @@ const runSuites = async ($: EngineInterface, ids: readonly string[]): Promise<vo
 
   const held = await read($, suites)
 
+  await keepPlans($)
+
   if (held.length > 0) $.ui.toast(`palantir unit tests: ${tally(held).label}`)
 }
 
 export const register: Register = (on, options) => {
+  guardsByOption = options?.guard === true
+
   const asked: Asked = {
     attachments: options?.attachments,
     seconds: typeof options?.pollSeconds === 'number' && Number.isFinite(options.pollSeconds) ? options.pollSeconds : 5,
@@ -945,6 +1047,7 @@ export const register: Register = (on, options) => {
 
     // Taken now, before any command has moved the shell
     await homeOf($).catch(() => undefined)
+    await recallPlans($).catch(() => undefined)
 
     return next(e)
   })
@@ -1102,6 +1205,8 @@ export const register: Register = (on, options) => {
 
     const held = await read($, scenarios)
 
+    await keepPlans($)
+
     return { result: [...refused.map(line => `Left out: ${line}.`), e2eText(held), '', 'Nothing has run. mcp__palantir__e2e_run runs them, each on the page by a subagent of its own; the person can too, from the Tests view of the pane.'].join('\n') }
   })
 
@@ -1128,6 +1233,7 @@ export const register: Register = (on, options) => {
     const plan = plannedSuites(e as unknown as { suites?: unknown }, list.map(({ label }) => label))
 
     await update($, suites, () => plan.suites)
+    await keepPlans($)
     await update($, shownView, () => 'tests' as Shown)
     await update($, testsAs, () => 'unit' as TestsAs)
     await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
@@ -1137,7 +1243,13 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'mcp__palantir__unit' }, async ($, e) => ({ result: unitText(await read($, suites), e as unknown as { id?: unknown }) }))
 
-  on('tool.call', { tool: 'mcp__palantir__e2e_stop' }, async $ => ({ result: e2eText(await inTurn(() => update($, scenarios, stopped))) }))
+  on('tool.call', { tool: 'mcp__palantir__e2e_stop' }, async $ => {
+    const held = await inTurn(() => update($, scenarios, stopped))
+
+    await keepPlans($)
+
+    return { result: e2eText(held) }
+  })
 
   on('tool.call', { tool: 'mcp__palantir__e2e' }, async ($, e) => ({ result: e2eText(await read($, scenarios), e as unknown as { id?: unknown }) }))
 
@@ -1145,7 +1257,19 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const agentId = e.agentId
 
-    if (agentId === undefined || !(await read($, scenarios)).some(scenario => scenario.state === 'running' && scenario.agentId === agentId)) return next(e)
+    // The main conversation's turn is over. An app takes a moment to reload after the turn's last edit: what that
+    // brings is handed over by the timer's next read, and what is already seen, now.
+    if (agentId === undefined) {
+      isTurnRunning = false
+
+      const answer = await next(e)
+
+      await guard($).catch(() => undefined)
+
+      return answer
+    }
+
+    if ( !(await read($, scenarios)).some(scenario => scenario.state === 'running' && scenario.agentId === agentId)) return next(e)
 
     const held = await inTurn(async () => {
       await update($, scenarios, list => settled(list, agentId, verdictOf(e.answer, e.reason), e.answer, e.durationMs))
@@ -1153,6 +1277,8 @@ export const register: Register = (on, options) => {
 
       return read($, scenarios)
     }).catch(() => undefined)
+
+    await keepPlans($).catch(() => undefined)
 
     // Said once, when the last of a run has answered
     if (held !== undefined && held.length > 0 && !isUnderWay(held)) $.ui.toast(`palantir e2e: ${tally(held).label}`)
@@ -1169,7 +1295,44 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__palantir__errors_since_edit' }, async ($, e) => {
     const { list, held } = await current($, asked)
 
-    return { result: errorsText(list, held, e as unknown as { target?: unknown }) }
+    // What it reads here it need not be handed again
+    await update($, watches, told)
+
+    return { result: errorsText(list, held, e as unknown as { target?: unknown; since?: unknown }) }
+  })
+
+  on('tool.call', { tool: 'mcp__palantir__mark' }, async $ => {
+    const { list } = await current($, asked)
+    const now = await $.clock.now()
+
+    await inTurn(() => update($, watches, held => markedNow(held, list.map(({ label }) => label), now)))
+
+    return { result: list.length === 0 ? HOW_TO_ATTACH : `A mark is set on ${list.map(({ label }) => label).join(', ')} at ${clockTime(now)}. mcp__palantir__errors_since_edit with since "mark" says the errors that first show from now on.` }
+  })
+
+  // While a turn of the main conversation runs, what is new is read beside a tool's result; between two, with the next prompt
+  on('turn.start', ($, e, next) => {
+    isTurnRunning = true
+
+    return next(e)
+  })
+
+  // Beside the result of whatever Claude does next: the errors its edit brought, without its asking
+  on('tool.call', async ($, e, next) => {
+    const answer = await next(e)
+
+    if (answer.result === undefined || String(e.tool).startsWith('mcp__palantir__')) return answer
+
+    const news = await handOver($).catch(() => undefined)
+
+    return news === undefined ? answer : { ...answer, context: [...(answer.context ?? []), news] }
+  })
+
+  // And with the person's next prompt, where no tool was called since
+  on('prompt.submit', async ($, e, next) => {
+    const news = await handOver($).catch(() => undefined)
+
+    return next(news === undefined ? e : { ...e, context: [...(e.context ?? []), news] })
   })
 
   // An edit to an attachment's source is counted against it. The attachment is read first, so what was already
@@ -1218,7 +1381,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
-    const { Box, Button } = elements
+    const { Box, Button, Text } = elements
     // The mobile app draws no field: the question is asked of Claude in the prompt there
     const Input = 'Input' in elements ? elements.Input : undefined
     const width = e.props.bodyColumns ?? 80
@@ -1238,6 +1401,15 @@ export const register: Register = (on, options) => {
     const testing = await read($, testsAs)
     const peeked = await read($, peek)
     const rowed = await read($, rowsShown)
+    const pasts = await read($, history)
+    const baseline = await read($, since)
+    const openedError = await read($, openError)
+    const grep = await read($, grepped)
+    const follows = await read($, traced)
+    const paused = await read($, pausedAt)
+    const noisy = await read($, isNoisy)
+    const helped = await read($, isHelped)
+    const guarded = await isGuarded($)
 
     const watchOf = (label: string) => held[label] ?? EMPTY_WATCH
     const factsOf = (label: string) => known[label] ?? EMPTY_FACTS
@@ -1256,22 +1428,42 @@ export const register: Register = (on, options) => {
               tone: down > 0 || news > 0 ? 'danger' : 'success',
             })
 
-    const rowOf = ({ label, runtime }: Attachment): TableCell[] => {
+    // The last figures of each, as a line beside the figure, where the pane is wide enough for both
+    const hasSparks = width >= 100
+    const CELL_SPARK = 6
+    const figure = (past: readonly number[], text: string): string => (text === '' ? '' : hasSparks && spark(past, CELL_SPARK) !== '' ? `${spark(past, CELL_SPARK).padStart(CELL_SPARK)} ${text}` : text)
+    const pastOf = (label: string): History => pasts[label] ?? { cpu: [], memory: [], lag: [] }
+    // What needs no look is drawn dimly: the eye goes to what is colored
+    const dim = (text: string) => (
+      <Text key={`dim-${text}`} color="subtle" wrap="truncate-end">
+        {text}
+      </Text>
+    )
+
+    type Drawn = { name: TableCell; state: TableCell; cpu: TableCell; memory: TableCell; errors: TableCell }
+
+    const rowOf = ({ label }: Attachment): Drawn => {
       const watch = watchOf(label)
       const total = watch.signatures.reduce((sum, signature) => sum + signature.count, 0)
       const newCount = fresh(watch).length
       const { state, detail, restarts } = watch.health
+      const standing = [state, detail, restarts > 0 ? `${restarts} restarts` : ''].filter(part => part !== '').join(' · ')
+      const past = pastOf(label)
+      const memory = figure(past.memory, memoryText(factsOf(label).usage))
 
-      return [
-        label,
-        RUNTIME_NAME[runtime],
-        watch.error !== ''
-          ? { text: watch.error, tone: 'danger' }
-          : { text: [state, detail, restarts > 0 ? `${restarts} restarts` : ''].filter(part => part !== '').join(' · '), tone: TONE[state] },
-        cpuText(factsOf(label).usage),
-        memoryText(factsOf(label).usage),
-        newCount > 0 ? { text: `${total} · ${newCount} new`, tone: 'danger' } : total > 0 ? { text: String(total), tone: 'warning' } : '0',
-      ]
+      return {
+        // A row is its own filter: pressed, the views show it alone; pressed again, all
+        name: (
+          <Button key={`show-${label}`} plain onPress={() => update($, only, was => (was === label ? '' : label))}>
+            {tonedText({ text: `${picked === label ? '▸ ' : ''}${label}`, ...(picked === label ? { tone: 'accent' as const, bold: true } : {}) })}
+          </Button>
+        ),
+        state: watch.error !== '' ? { text: watch.error, tone: 'danger' } : state === 'up' && restarts === 0 ? dim(standing) : { text: standing, tone: TONE[state] },
+        cpu: figure(past.cpu, cpuText(factsOf(label).usage)),
+        // Memory that only ever grew over the last reads may be a leak
+        memory: isClimbing(past.memory) ? { text: memory, tone: 'warning' } : memory,
+        errors: newCount > 0 ? { text: `${total} · ${newCount} new`, tone: 'danger' } : dim(String(total)),
+      }
     }
 
     // What a broker holds, said on its row: how many topics, and how far behind its groups are in all
@@ -1279,7 +1471,9 @@ export const register: Register = (on, options) => {
       const broker = factsOf(label).broker
       const lag = (broker?.groups ?? []).reduce((sum, group) => sum + group.lag, 0)
 
-      return broker === undefined || broker.kind === 'kafka' ? ['', ''] : [String(broker.topics.length), lag === 0 ? '0' : { text: String(lag), tone: (broker.groups ?? []).some(group => stuckFor(group, drawnAt) > 0) ? 'danger' : 'warning' }]
+      if (broker === undefined || broker.kind === 'kafka') return ['', '']
+
+      return [String(broker.topics.length), lag === 0 ? dim(figure(pastOf(label).lag, '0')) : { text: figure(pastOf(label).lag, String(lag)), tone: (broker.groups ?? []).some(group => stuckFor(group, drawnAt) > 0) ? 'danger' : 'warning' }]
     }
 
     // What a database holds, said on its row: its sessions of those it lets in, and how many tables
@@ -1295,37 +1489,57 @@ export const register: Register = (on, options) => {
 
     const TITLE_OF = { app: 'App', broker: 'Broker', database: 'Database' } as const
 
-    const tableOf = ({ kind, members }: (typeof sections)[number]) =>
-      table({
-        columns: [
-          { header: TITLE_OF[kind], width: 12 },
-          { header: 'Runs on', width: 10 },
-          ...(kind === 'app' ? [] : [{ header: 'Engine', width: 11 }]),
-          { header: 'State' },
-          { header: 'CPU', width: 6 },
-          { header: 'Memory', width: 16 },
-          ...(kind === 'broker' ? [{ header: 'Topics', width: 6 }, { header: 'Lag', width: 6 }] : []),
-          ...(kind === 'database' ? [{ header: 'Sessions', width: 8 }, { header: 'Tables', width: 6 }] : []),
-          { header: 'Errors', width: 11 },
-        ],
-        rows: members.map((attachment): TableCell[] => {
-          const [name = '', runs = '', ...rest] = rowOf(attachment)
-          const errors = rest.pop() ?? ''
+    const tableOf = ({ kind, many, members }: (typeof sections)[number]) => {
+      // Where all of a kind run on the same thing, the title says it once and no column does
+      const runtimes = [...new Set(members.map(({ runtime }) => RUNTIME_NAME[runtime]))]
+      const isMixed = runtimes.length > 1
 
-          return [name, runs, ...(kind === 'app' ? [] : [factsOf(attachment.label).engine ?? '']), ...rest, ...(kind === 'broker' ? heldBy(attachment.label) : []), ...(kind === 'database' ? queriedBy(attachment.label) : []), errors]
+      return [
+        <Box key={`section-${kind}`} flexDirection="row" gap={1}>
+          {tonedText({ text: `${many[0]?.toUpperCase()}${many.slice(1)}`, bold: true })}
+          {...(isMixed ? [] : [tonedText({ text: `on ${runtimes[0] ?? ''}`, tone: 'neutral' })])}
+        </Box>,
+        table({
+          columns: [
+            { header: TITLE_OF[kind], width: 14 },
+            ...(isMixed ? [{ header: 'Runs on', width: 10 }] : []),
+            ...(kind === 'app' ? [] : [{ header: 'Engine', width: 11 }]),
+            { header: 'State' },
+            { header: 'CPU', width: hasSparks ? 13 : 6 },
+            { header: 'Memory', width: hasSparks ? 23 : 16 },
+            ...(kind === 'broker' ? [{ header: 'Topics', width: 6 }, { header: 'Lag', width: hasSparks ? 13 : 6 }] : []),
+            ...(kind === 'database' ? [{ header: 'Sessions', width: 8 }, { header: 'Tables', width: 6 }] : []),
+            { header: 'Errors', width: 11 },
+          ],
+          rows: members.map((attachment): TableCell[] => {
+            const { name, state, cpu, memory, errors } = rowOf(attachment)
+
+            return [
+              name,
+              ...(isMixed ? [RUNTIME_NAME[attachment.runtime]] : []),
+              ...(kind === 'app' ? [] : [factsOf(attachment.label).engine ?? '']),
+              state,
+              cpu,
+              memory,
+              ...(kind === 'broker' ? heldBy(attachment.label) : []),
+              ...(kind === 'database' ? queriedBy(attachment.label) : []),
+              errors,
+            ]
+          }),
         }),
-      })
+      ]
+    }
 
-    const lines = timeline(list, held).filter(({ label, line }) => (picked === '' || label === picked) && (!errorsOnly || line.level === 'error'))
-    // As many lines as the pane has rows for, under the table
-    const room = Math.max(8, Math.min(40, (e.viewport?.rows ?? 36) - list.length - 12))
+    const everything = timeline(list, held)
+    const lines = everything.filter(({ label, line }) => (picked === '' || label === picked) && (!errorsOnly || line.level === 'error'))
+    // As many lines as the pane has rows for, under the tables
+    const room = Math.max(8, Math.min(40, (e.viewport?.rows ?? 36) - list.length - 14))
     const isTagged = list.length > 1 && picked === ''
+    const tagWidth = Math.min(12, Math.max(0, ...list.map(({ label }) => label.length))) + 1
+    const colorOf = (label: string): string => tagColor(list.findIndex(attachment => attachment.label === label))
 
-    const filter = (label: string, text: string) => (
-      <Button key={`show-${label === '' ? 'all' : label}`} plain onPress={() => update($, only, () => label)}>
-        {tonedText({ text, tone: picked === label ? 'accent' : 'neutral', bold: picked === label })}
-      </Button>
-    )
+    // A button's label says its key: a pane has no other place to
+    const keyed = (hotkey: string, text: string): string => `${hotkey} ${text}`
 
     const tab = (name: Shown, text: string, hotkey: string) => (
       <Button
@@ -1341,21 +1555,175 @@ export const register: Register = (on, options) => {
           if (name === 'renders' || name === 'tests') await pull($, undefined, { usage: false, env: false, browser: asked.port }).catch(() => undefined)
         }}
       >
-        {actionLabel({ text, primary: showing === name })}
+        {actionLabel({ text: keyed(hotkey, text), primary: showing === name })}
       </Button>
     )
 
+    // How a view is read, said only when asked for
+    const help = (text: string) => (helped ? [tonedText({ text, tone: 'neutral', wrap: true })] : [])
+    // An empty view says in a sentence what is missing; the whole of how to fill it is its help
+    const gist = (text: string): string => (helped ? text : `${text.split('. ')[0]?.replace(/\.$/, '') ?? text}.`)
+
+    // A request is followed in the timeline, wherever its line was pressed
+    const follow = async (rid: string) => {
+      await update($, traced, () => rid)
+      await update($, shownView, () => 'logs' as Shown)
+    }
+
+    // One line of the timeline: its time (or, of a request followed, how long after its first line), its level, its
+    // app in the app's own color, what it says, and the request it names, which a press follows across the apps
+    const lineRow = ({ label, line, times }: Row, key: string, { from = 0, isNamed = isTagged }: { from?: number; isNamed?: boolean } = {}) => {
+      const [rid] = from > 0 ? [] : requestIds(line.message)
+
+      return (
+        <Box key={key} flexDirection="row">
+          <Box key="head" width={17} flexShrink={0} flexDirection="row" gap={2}>
+            <Text key="at" color="subtle">
+              {from > 0 ? offsetText(line.at, from).padEnd(8).slice(0, 8) : clockTime(line.at)}
+            </Text>
+            <Text key="level" color={LEVEL_COLOR[line.level]}>
+              {line.level.toUpperCase().padEnd(5)}
+            </Text>
+          </Box>
+          <Box key="said" flexGrow={1} flexShrink={1}>
+            <Text key="message">
+              {...(isNamed ? [<Text key="tag" color={colorOf(label)}>{`[${label}] `}</Text>] : [])}
+              {`${line.message}${line.more > 0 ? ` (+${line.more} lines)` : ''}`}
+              {...(times > 1 ? [<Text key="times" color="subtle">{` ×${times}`}</Text>] : [])}
+            </Text>
+          </Box>
+          {...(rid === undefined
+            ? []
+            : [
+                <Box key="rid" flexShrink={0} marginLeft={1}>
+                  <Button key={`${key}-follow`} label={`Follow request ${rid}`} plain onPress={() => follow(rid)}>
+                    <Text key="chip" color="subtle">
+                      ⇢
+                    </Text>
+                  </Button>
+                </Box>,
+              ])}
+        </Box>
+      )
+    }
+
     const picks = list.filter(({ label }) => picked === '' || label === picked)
 
-    const logsBody = () => [
-      logLines({
-        entries: lines.slice(-room).map(({ label, line }) => ({
-          at: clockTime(line.at),
-          level: line.level,
-          message: `${isTagged ? `[${label}] ` : ''}${line.message}${line.more > 0 ? ` (+${line.more} lines)` : ''}`,
-        })),
-      }),
-    ]
+    const logsBody = () => {
+      // A request followed is followed through every app, whichever is picked
+      const following = follows === '' ? undefined : traceOf(everything, follows)
+      const needle = grep.toLowerCase()
+      const matching = (following ?? lines).filter(({ line }) => (paused === 0 || line.at <= paused) && (needle === '' || line.message.toLowerCase().includes(needle)))
+      // Nothing is folded away of a request that is followed, of a search, or of the errors alone
+      const { rows, hidden } = quieted(matching, noisy || following !== undefined || needle !== '' || errorsOnly)
+      const from = following?.[0]?.line.at ?? 0
+      const notes = [
+        paused === 0 ? '' : `paused at ${clockTime(paused)}`,
+        needle === '' ? '' : `${matching.length} line${matching.length === 1 ? '' : 's'} hold "${grep}"`,
+        hidden === 0 ? '' : `${hidden} health check${hidden === 1 ? '' : 's'} left out`,
+        rows.length > room ? `the last ${room} of ${rows.length}` : '',
+      ].filter(note => note !== '')
+
+      return [
+        <Box key="logs-actions" flexDirection="row" gap={2}>
+          <Button key="errors-only" hotkey="e" onPress={() => update($, isErrorsOnly, value => !value)}>
+            {actionLabel({ text: keyed('e', 'Errors only'), primary: errorsOnly })}
+          </Button>
+          <Button key="pause" hotkey="p" onPress={async () => {
+            const now = await $.clock.now()
+
+            await update($, pausedAt, was => (was === 0 ? now : 0))
+          }}>
+            {actionLabel({ text: keyed('p', paused === 0 ? 'Pause' : 'Resume'), primary: paused !== 0 })}
+          </Button>
+          <Button key="noise" hotkey="h" onPress={() => update($, isNoisy, value => !value)}>
+            {actionLabel({ text: keyed('h', noisy ? 'Fold repeats' : 'Every line') })}
+          </Button>
+          {...(following === undefined
+            ? []
+            : [
+                <Button key="unfollow" hotkey="f" onPress={() => update($, traced, () => '')}>
+                  {actionLabel({ text: keyed('f', 'Stop following'), primary: true })}
+                </Button>,
+              ])}
+        </Box>,
+        // What is typed here is the text a line must hold; sent empty, every line is shown again
+        ...(Input === undefined
+          ? []
+          : [<Input key="logs-grep" label="Filter" placeholder="text a line must hold: a word, a path, a request id" value={grep} submitLabel="filter" onSubmit={(text: string) => update($, grepped, () => text.trim())} />]),
+        ...(following === undefined ? [] : [tonedText({ text: traceSummary(follows, following), bold: true, wrap: true })]),
+        ...(rows.length === 0
+          ? [tonedText({ text: following !== undefined || needle !== '' || errorsOnly ? 'No line matches.' : 'No events yet.', tone: 'neutral' })]
+          : rows.slice(-room).map((row, index) => lineRow(row, `line-${index}`, following === undefined ? {} : { from, isNamed: true }))),
+        ...(notes.length === 0 ? [] : [tonedText({ text: notes.join(' · '), tone: 'neutral' })]),
+        ...help('⇢ at the end of a line follows its request across every app, each line then said with how long after the first it was written. Health checks are left out, and a line written several times running is said once with ×n: h shows every line. p holds the timeline still while it is read.'),
+      ]
+    }
+
+    // Every kind of error once, the new ones first: a row opens on the last time it was written, with what led to it
+    const errorsBody = () => {
+      const kinds = kindsOf(picks, held, baseline)
+      const news = kinds.filter(({ isNew }) => isNew).length
+      const isByApp = picks.length > 1
+      const open = kinds.find(kind => kindId(kind) === openedError)
+      const led = open === undefined ? [] : around(open, everything)
+      const [rid] = led.flatMap(({ line }) => requestIds(line.message))
+
+      return [
+        <Box key="errors-actions" flexDirection="row" gap={2}>
+          <Button key="errors-since" hotkey="b" onPress={() => update($, since, was => BASELINES[(BASELINES.indexOf(was) + 1) % BASELINES.length] ?? 'edit')}>
+            {actionLabel({ text: keyed('b', `New since ${BASELINE_NAME[baseline]}`) })}
+          </Button>
+          <Button key="errors-guard" hotkey="g" onPress={() => update($, guarding, () => (guarded ? 'off' : 'on'))}>
+            {actionLabel({ text: keyed('g', guarded ? 'Guarding edits' : 'Guard edits'), primary: guarded })}
+          </Button>
+        </Box>,
+        badge({
+          label: `${kinds.length} kind${kinds.length === 1 ? '' : 's'} of error · ${news} new ${picks.length === 1 && picks[0] !== undefined ? sinceText(watchOf(picks[0].label), baseline) : `since ${BASELINE_NAME[baseline]}`}`,
+          tone: news > 0 ? 'danger' : kinds.length > 0 ? 'neutral' : 'success',
+        }),
+        table({
+          columns: [...(isByApp ? [{ header: 'App', width: tagWidth }] : []), { header: 'Error' }, { header: '×', width: 6 }, { header: 'First', width: 8 }, { header: 'Last', width: 8 }],
+          rows: kinds.slice(0, room).map((kind, index): TableCell[] => {
+            const isOpen = kind === open
+            const { sample, count, firstAt, lastAt } = kind.signature
+
+            return [
+              ...(isByApp ? [{ type: 'Text', props: { color: colorOf(kind.label), wrap: 'truncate-end' }, children: [kind.label] } as unknown as TableCell] : []),
+              <Button key={`error-${index}`} plain onPress={() => update($, openError, () => (isOpen ? '' : kindId(kind)))}>
+                {tonedText({ text: `${isOpen ? '▾' : '▸'} ${kind.isNew ? 'new · ' : ''}${sample}`, ...(kind.isNew ? { tone: 'danger' as const } : isOpen ? { tone: 'accent' as const } : {}), bold: isOpen })}
+              </Button>,
+              String(count),
+              firstAt === undefined ? '' : clockTime(firstAt),
+              clockTime(lastAt),
+            ]
+          }),
+          empty: 'No error has been written.',
+        }),
+        ...(kinds.length > room ? [tonedText({ text: `and ${kinds.length - room} more: show one app`, tone: 'neutral' })] : []),
+        ...(open === undefined
+          ? []
+          : [
+              divider(),
+              tonedText({ text: open.signature.sample, tone: 'danger', wrap: true }),
+              tonedText({ text: led.length === 0 ? 'The lines kept no longer hold it.' : rid === undefined ? `The last time, with what ${open.label} wrote just before:` : 'The last time, with every line of its request:', tone: 'neutral' }),
+              ...led.map((entry, index) => lineRow({ ...entry, times: 1 }, `led-${index}`, { isNamed: true })),
+              <Box key="error-actions" flexDirection="row" gap={2}>
+                <Button key="error-diagnose" hotkey="d" onPress={() => $.prompt.submit({ text: diagnosePrompt(open, watchOf(open.label), led) })}>
+                  {actionLabel({ text: keyed('d', 'Diagnose with Claude'), primary: true })}
+                </Button>
+                {...(rid === undefined
+                  ? []
+                  : [
+                      <Button key="error-follow" hotkey="f" onPress={() => follow(rid)}>
+                        {actionLabel({ text: keyed('f', 'Follow its request') })}
+                      </Button>,
+                    ])}
+              </Box>,
+            ]),
+        ...help('An error is one kind with another when they say the same but for their numbers and ids. New is counted since the last edit to the app, since the mark (m sets one now, on every app) or since the app last started over: b goes from one to the next. While Claude guards the edits, an error that is new since one is handed to it at once; otherwise it reads it beside its next tool result or the next prompt.'),
+      ]
+    }
 
     const envBody = () => {
       const variables = picks.flatMap(({ label }) => factsOf(label).env.map(variable => ({ label, ...variable })))
@@ -1459,7 +1827,17 @@ export const register: Register = (on, options) => {
           ),
           empty: 'No consumer group.',
         }),
-        tonedText({ text: 'Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic. A question typed after Ask Claude is handed to Claude, which answers it by reading the broker through that tool.', tone: 'neutral', wrap: true }),
+        // A group that does not keep up is Claude's to look into, as a failed test is
+        ...brokers
+          .filter(({ broker }) => broker.groups.some(group => stuckFor(group, drawnAt) > 0 || (group.members === 0 && group.lag > 0)))
+          .map(({ label, broker }) => (
+            <Box key={`broker-diagnose-row-${label}`} flexDirection="row">
+              <Button key={`broker-diagnose-${label}`} onPress={() => $.prompt.submit({ text: diagnoseGroupsPrompt(label, broker, drawnAt) })}>
+                {actionLabel({ text: `Diagnose ${isByApp ? `${label}'s` : 'the'} stuck groups with Claude`, primary: true })}
+              </Button>
+            </Box>
+          )),
+        ...help('Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic. A question typed after Ask Claude is handed to Claude, which answers it by reading the broker through that tool.'),
       ]
     }
 
@@ -1533,7 +1911,16 @@ export const register: Register = (on, options) => {
               tonedText({ text: `${rowed.table}${isByApp ? ` on ${rowed.label}` : ''}: its last ${rowed.rows.length} row${rowed.rows.length === 1 ? '' : 's'}, oldest first, read at ${clockTime(rowed.at)}, secrets taken out`, bold: true, wrap: true }),
               ...(rowed.note === '' ? (rowed.rows.length === 0 ? [tonedText({ text: 'It holds no row.', tone: 'neutral' })] : rowed.rows.slice(-room).map(row => tonedText({ text: row, tone: 'neutral', wrap: true }))) : [tonedText({ text: rowed.note, tone: 'warning', wrap: true })]),
             ]),
-        tonedText({ text: 'Rows is what the database last counted, near the truth. Dead is the rows whose room is not taken back yet. Scans is how often a table was read whole. A question typed after Ask Claude is handed to Claude, which answers it by reading the database through mcp__palantir__database.', tone: 'neutral', wrap: true }),
+        ...databases
+          .filter(({ database }) => troubled(database).length > 0)
+          .map(({ label, database }) => (
+            <Box key={`database-diagnose-row-${label}`} flexDirection="row">
+              <Button key={`database-diagnose-${label}`} onPress={() => $.prompt.submit({ text: diagnoseSessionsPrompt(label, database) })}>
+                {actionLabel({ text: `Diagnose ${isByApp ? `${label}'s` : 'the'} held sessions with Claude`, primary: true })}
+              </Button>
+            </Box>
+          )),
+        ...help('Rows is what the database last counted, near the truth. Dead is the rows whose room is not taken back yet. Scans is how often a table was read whole. A question typed after Ask Claude is handed to Claude, which answers it by reading the database through mcp__palantir__database.'),
       ]
     }
 
@@ -1550,6 +1937,18 @@ export const register: Register = (on, options) => {
       return describeBrowser(seen, labels).map(line => tonedText({ text: line, tone: isRead ? 'neutral' : 'warning', wrap: true }))
     }
 
+    // What an empty view of the page offers: Claude sets up the Chrome it is read from, where none answers
+    const setUp = () =>
+      asked.port === 0 || seen.pages.length > 0
+        ? []
+        : [
+            <Box key="browser-setup-row" flexDirection="row">
+              <Button key="browser-setup" hotkey="s" onPress={() => $.prompt.submit({ text: BROWSER_PROMPT(asked.port, list.map(({ label }) => label)) })}>
+                {actionLabel({ text: keyed('s', 'Set up with Claude'), primary: true })}
+              </Button>
+            </Box>,
+          ]
+
     // The page each frontend last reported, its elements nested as the document nests them
     const domBody = (rowWidth: number) => {
       const pages = picks.flatMap(({ label }) => {
@@ -1558,11 +1957,11 @@ export const register: Register = (on, options) => {
         return dom === undefined ? [] : [{ label, dom }]
       })
 
-      if (pages.length === 0) return [tonedText({ text: HOW_TO_REPORT_DOM, tone: 'neutral', wrap: true }), ...source(false)]
+      if (pages.length === 0) return [tonedText({ text: gist(HOW_TO_REPORT_DOM), tone: 'neutral', wrap: true }), ...source(false), ...setUp()]
 
       return [
         ...source(true),
-        tonedText({ text: HOW_TO_READ_DOM, tone: 'neutral', wrap: true }),
+        ...help(HOW_TO_READ_DOM),
         ...pages.flatMap(({ label, dom }) => [
           tonedText({
             text: `${pages.length > 1 ? `${label}: ` : ''}${dom.title === '' ? 'A page' : dom.title} at ${dom.url}, ${dom.elements.length} element${dom.elements.length === 1 ? '' : 's'}, as it stood at ${clockTime(dom.at)}`,
@@ -1580,12 +1979,11 @@ export const register: Register = (on, options) => {
     // What the person did on each frontend's page, the latest first, each with what followed
     const actionsBody = (rowWidth: number) => {
       const acted = picks.map(({ label }) => ({ label, actions: watchOf(label).actions ?? [] })).filter(({ actions }) => actions.length > 0)
-      const everything = timeline(list, held)
 
-      if (acted.length === 0) return [tonedText({ text: HOW_TO_REPORT_ACTIONS, tone: 'neutral', wrap: true }), ...source(false)]
+      if (acted.length === 0) return [tonedText({ text: gist(HOW_TO_REPORT_ACTIONS), tone: 'neutral', wrap: true }), ...source(false), ...setUp()]
 
       return [
-        tonedText({ text: 'What was done on the page, the latest first: what rendered, what the page asked for, and what every app wrote in the two seconds after.', tone: 'neutral', wrap: true }),
+        ...help('What was done on the page, the latest first: what rendered, what the page asked for, and what every app wrote in the two seconds after.'),
         tree({
           nodes: acted.length === 1 ? actionTree(acted[0]?.actions ?? [], everything) : acted.map(({ label, actions }) => ({ label, children: actionTree(actions, everything) })),
           width: rowWidth,
@@ -1600,7 +1998,7 @@ export const register: Register = (on, options) => {
       const asking = picks.map(({ label }) => ({ label, watch: watchOf(label) })).filter(({ watch }) => (watch.requests ?? []).length > 0 || watch.vitals !== undefined)
       const isByApp = asking.length > 1
 
-      if (asking.length === 0) return [tonedText({ text: HOW_TO_REPORT_NETWORK, tone: 'neutral', wrap: true }), ...source(false)]
+      if (asking.length === 0) return [tonedText({ text: gist(HOW_TO_REPORT_NETWORK), tone: 'neutral', wrap: true }), ...source(false), ...setUp()]
 
       const asks = asking.flatMap(({ label, watch }) => slowestFirst(watch.requests ?? []).map(request => ({ label, request })))
 
@@ -1644,33 +2042,33 @@ export const register: Register = (on, options) => {
       return [
         <Box key="e2e-actions" flexDirection="row" gap={2}>
           <Button key="e2e-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_PROMPT })}>
-            {actionLabel({ text: planned === 0 ? 'Plan' : 'Plan again', primary: planned === 0 })}
+            {actionLabel({ text: keyed('p', planned === 0 ? 'Plan' : 'Plan again'), primary: planned === 0 })}
           </Button>
           {...(checklist.length === 0 || isRunning
             ? []
             : [
                 <Button key="e2e-run" hotkey="g" onPress={() => runScenarios($, picked === '' ? [] : checklist.map(({ id }) => id), asked.port)}>
-                  {actionLabel({ text: 'Run all', primary: undone.length === 0 })}
+                  {actionLabel({ text: keyed('g', 'Run all'), primary: undone.length === 0 })}
                 </Button>,
               ])}
           {...(undone.length === 0 || isRunning
             ? []
             : [
                 <Button key="e2e-rerun" hotkey="f" onPress={() => runScenarios($, undone, asked.port)}>
-                  {actionLabel({ text: `Run the ${undone.length} not passed`, primary: true })}
+                  {actionLabel({ text: keyed('f', `Run the ${undone.length} not passed`), primary: true })}
                 </Button>,
               ])}
           {...(failed.length < 2 || isRunning
             ? []
             : [
-                <Button key="e2e-fix" hotkey="a" onPress={() => $.prompt.submit({ text: fixPrompt(failed) })}>
-                  {actionLabel({ text: `Fix all ${failed.length} with Claude` })}
+                <Button key="e2e-fix" hotkey="x" onPress={() => $.prompt.submit({ text: fixPrompt(failed) })}>
+                  {actionLabel({ text: keyed('x', `Fix all ${failed.length} with Claude`) })}
                 </Button>,
               ])}
           {...(isRunning
             ? [
                 <Button key="e2e-stop" hotkey="s" onPress={() => inTurn(() => update($, scenarios, stopped))}>
-                  {actionLabel({ text: 'Stop', primary: true })}
+                  {actionLabel({ text: keyed('s', 'Stop'), primary: true })}
                 </Button>,
               ]
             : [])}
@@ -1696,7 +2094,7 @@ export const register: Register = (on, options) => {
                     : []),
                 ]
               }),
-              tonedText({ text: 'A row opens on its steps and on what the subagent that ran it reported.', tone: 'neutral', wrap: true }),
+              ...help('A row opens on its steps and on what the subagent that ran it reported. What is planned is kept for the next session in this project.'),
             ]),
         // Said only when it stands in the way: a run needs the browser
         ...(asked.port === 0 || seen.at === 0 || seen.pages.length > 0 ? [] : describeBrowser(seen, list.map(({ label: app }) => app)).map(line => tonedText({ text: line, tone: 'warning', wrap: true }))),
@@ -1717,27 +2115,27 @@ export const register: Register = (on, options) => {
       return [
         <Box key="unit-actions" flexDirection="row" gap={2}>
           <Button key="unit-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_UNIT_PROMPT })}>
-            {actionLabel({ text: suitesHeld.length === 0 ? 'Plan' : 'Plan again', primary: suitesHeld.length === 0 })}
+            {actionLabel({ text: keyed('p', suitesHeld.length === 0 ? 'Plan' : 'Plan again'), primary: suitesHeld.length === 0 })}
           </Button>
           {...(named.length === 0
             ? []
             : [
                 <Button key="unit-run" hotkey="g" onPress={() => runSuites($, picked === '' ? [] : named.map(({ id }) => id))}>
-                  {actionLabel({ text: picked === '' ? 'Run all' : `Run all of ${picked}`, primary: undone.length === 0 && !isRunning })}
+                  {actionLabel({ text: keyed('g', picked === '' ? 'Run all' : `Run all of ${picked}`), primary: undone.length === 0 && !isRunning })}
                 </Button>,
               ])}
           {...(undone.length === 0 || isRunning
             ? []
             : [
                 <Button key="unit-rerun" hotkey="f" onPress={() => runSuites($, undone)}>
-                  {actionLabel({ text: `Run the ${undone.length} not passed`, primary: true })}
+                  {actionLabel({ text: keyed('f', `Run the ${undone.length} not passed`), primary: true })}
                 </Button>,
               ])}
           {...(failed.length < 2 || isRunning
             ? []
             : [
-                <Button key="unit-fix" hotkey="a" onPress={() => $.prompt.submit({ text: fixUnitPrompt(failed) })}>
-                  {actionLabel({ text: `Fix all ${failed.length} with Claude` })}
+                <Button key="unit-fix" hotkey="x" onPress={() => $.prompt.submit({ text: fixUnitPrompt(failed) })}>
+                  {actionLabel({ text: keyed('x', `Fix all ${failed.length} with Claude`) })}
                 </Button>,
               ])}
         </Box>,
@@ -1761,7 +2159,7 @@ export const register: Register = (on, options) => {
                     : []),
                 ]
               }),
-              tonedText({ text: 'Under a suite, the tests it ran, read off what it printed. A row opens on its command and on the end of that.', tone: 'neutral', wrap: true }),
+              ...help('Under a suite, the tests it ran, read off what it printed. A row opens on its command and on the end of that.'),
             ]),
       ]
     }
@@ -1776,8 +2174,8 @@ export const register: Register = (on, options) => {
 
       return [
         <Box key="tests-as" flexDirection="row" gap={2}>
-          {as('e2e', 'E2E', '1', suitesOf(scenariosHeld, picked))}
-          {as('unit', 'Unit tests', '2', suitesOf(suitesHeld, picked))}
+          {as('e2e', keyed('e', 'E2E'), 'e', suitesOf(scenariosHeld, picked))}
+          {as('unit', keyed('u', 'Unit tests'), 'u', suitesOf(suitesHeld, picked))}
         </Box>,
         ...(testing === 'unit' ? unitBody() : e2eBody()),
       ]
@@ -1798,22 +2196,22 @@ export const register: Register = (on, options) => {
 
       const switcher = (
         <Box key="renders-as" flexDirection="row" gap={2}>
-          {as('tree', 'Tree', 't')}
-          {as('dom', 'DOM', 'd')}
-          {as('actions', 'Actions', 'a')}
-          {as('network', 'Network', 'n')}
+          {as('tree', keyed('t', 'Renders'), 't')}
+          {as('dom', keyed('d', 'DOM'), 'd')}
+          {as('actions', keyed('a', 'Actions'), 'a')}
+          {as('network', keyed('n', 'Network'), 'n')}
         </Box>
       )
 
       if (drawAs === 'dom') return [switcher, ...domBody(rowWidth)]
       if (drawAs === 'actions') return [switcher, ...actionsBody(rowWidth)]
       if (drawAs === 'network') return [switcher, ...networkBody()]
-      if (reporting.length === 0) return [switcher, tonedText({ text: HOW_TO_REPORT_RENDERS, tone: 'neutral', wrap: true }), ...source(false)]
+      if (reporting.length === 0) return [switcher, tonedText({ text: gist(HOW_TO_REPORT_RENDERS), tone: 'neutral', wrap: true }), ...source(false), ...setUp()]
 
       return [
         switcher,
         ...source(true),
-        tonedText({ text: HOW_TO_READ_RENDERS, tone: 'neutral', wrap: true }),
+        ...help(HOW_TO_READ_RENDERS),
         // The whole of it, however tall: the pane's body scrolls, and the chains a watch keeps are counted
         tree({
           // Two frontends each have a tree of their own, under their name
@@ -1836,38 +2234,61 @@ export const register: Register = (on, options) => {
         meta: at === 0 ? undefined : `read ${clockTime(at)}`,
         children: [
           summary,
+          // Where to look, by number
+          <Box key="views" flexDirection="row" gap={2}>
+            {tab('logs', 'Logs', '1')}
+            {tab('errors', news > 0 ? `Errors · ${news} new` : 'Errors', '2')}
+            {tab('renders', 'Page', '3')}
+            {tab('tests', 'Tests', '4')}
+            {tab('env', 'Env', '5')}
+            {...(list.some(({ label }) => factsOf(label).broker !== undefined) ? [tab('broker', 'Broker', '6')] : [])}
+            {...(list.some(({ label }) => factsOf(label).database !== undefined) ? [tab('database', 'Database', '7')] : [])}
+          </Box>,
+          // What is done to all of it, by letter
           <Box key="actions" flexDirection="row" gap={2}>
             <Button key="refresh" hotkey="r" onPress={() => refresh($, asked)}>
-              {actionLabel({ text: 'Refresh' })}
+              {actionLabel({ text: keyed('r', 'Refresh') })}
             </Button>
-            <Button key="errors-only" hotkey="e" onPress={() => update($, isErrorsOnly, value => !value)}>
-              {actionLabel({ text: errorsOnly ? 'All levels' : 'Errors only' })}
+            <Button
+              key="mark"
+              hotkey="m"
+              onPress={async () => {
+                const now = await $.clock.now()
+
+                await inTurn(() => update($, watches, was => markedNow(was, list.map(({ label }) => label), now)))
+                await update($, since, () => 'mark' as Baseline)
+                $.ui.toast(`palantir: mark set at ${clockTime(now)}`)
+              }}
+            >
+              {actionLabel({ text: keyed('m', 'Mark now') })}
             </Button>
-            {tab('logs', 'Logs', 'l')}
-            {tab('env', 'Env', 'v')}
-            {tab('renders', 'Renders', 'c')}
-            {tab('tests', 'Tests', 'x')}
-            {...(list.some(({ label }) => factsOf(label).broker !== undefined) ? [tab('broker', 'Broker', 'b')] : [])}
-            {...(list.some(({ label }) => factsOf(label).database !== undefined) ? [tab('database', 'Database', 'q')] : [])}
+            <Button key="help" hotkey="i" onPress={() => update($, isHelped, value => !value)}>
+              {actionLabel({ text: keyed('i', 'Help'), primary: helped })}
+            </Button>
+            {...(picked === ''
+              ? []
+              : [
+                  <Button key="show-all" hotkey="0" onPress={() => update($, only, () => '')}>
+                    {actionLabel({ text: keyed('0', `All, not ${picked} alone`), primary: true })}
+                  </Button>,
+                ])}
           </Box>,
           ...(list.length === 0
             ? showing === 'tests'
               ? [divider(), ...testsBody()]
-              : [tonedText({ text: HOW_TO_ATTACH, tone: 'neutral', wrap: true })]
+              : [
+                  tonedText({ text: HOW_TO_ATTACH, tone: 'neutral', wrap: true }),
+                  <Box key="attach-row" flexDirection="row">
+                    <Button key="attach" hotkey="a" onPress={() => $.prompt.submit({ text: ATTACH_PROMPT })}>
+                      {actionLabel({ text: keyed('a', 'Attach with Claude'), primary: true })}
+                    </Button>
+                  </Box>,
+                ]
             : [
-                // One table where all are apps; else the apps, the brokers and the databases each under their name
-                ...(sections.length === 1 && sections[0]?.kind === 'app'
-                  ? sections.map(tableOf)
-                  : sections.flatMap(section => [tonedText({ text: `${section.many[0]?.toUpperCase()}${section.many.slice(1)}`, bold: true }), tableOf(section)])),
-                ...(list.length > 1
-                  ? [
-                      <Box key="filter" flexDirection="row" gap={2}>
-                        {[filter('', 'all'), ...sections.flatMap(({ members }) => members).map(({ label }) => filter(label, label))]}
-                      </Box>,
-                    ]
-                  : []),
+                ...sections.flatMap(tableOf),
+                ...help('A row, pressed, shows that one alone in every view; pressed again, or 0, all. A dim row needs no look. The bars beside a figure are its last reads, the lowest at the foot.'),
                 divider(),
-                ...(showing === 'env' ? envBody() : showing === 'renders' ? rendersBody() : showing === 'tests' ? testsBody() : showing === 'broker' ? brokerBody() : showing === 'database' ? databaseBody() : logsBody()),
+                ...(showing === 'env' ? envBody() : showing === 'errors' ? errorsBody() : showing === 'renders' ? rendersBody() : showing === 'tests' ? testsBody() : showing === 'broker' ? brokerBody() : showing === 'database' ? databaseBody() : logsBody()),
               ]),
         ],
       }),

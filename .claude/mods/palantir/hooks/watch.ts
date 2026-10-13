@@ -83,7 +83,9 @@ export const settle = (held: Record<string, Watch>, reads: readonly Read[], now:
 
   for (const { label, raws, cursor, error, health } of reads) {
     const was = held[label] ?? EMPTY_WATCH
-    const watch = absorb({ ...was, cursor, error, health }, raws, now)
+    // It started over: restarted, or rolled out anew. One read for the first time has nothing to start over from.
+    const isRolled = health.restarts > was.health.restarts || ((was.health.started ?? '') !== '' && (health.started ?? '') !== '' && health.started !== was.health.started)
+    const watch = absorb({ ...was, cursor, error, health, ...(isRolled ? { rolledAt: now } : {}) }, raws, now)
     const unsaid = fresh(watch).filter(signature => !signature.isAnnounced)
 
     if (health.state === 'down' && was.health.state !== 'down') said.push(`palantir: ${label} is down${health.detail === '' ? '' : ` (${health.detail})`}`)
@@ -124,3 +126,9 @@ export const marked = (held: Record<string, Watch>, labels: readonly string[], p
 /** The watches of the attachments there still are. */
 export const kept = (held: Record<string, Watch>, attachments: readonly Attachment[]): Record<string, Watch> =>
   Object.fromEntries(attachments.flatMap(({ label }) => (held[label] === undefined ? [] : [[label, held[label]] as const])))
+
+/** The watches once a mark is set on each: an error that first shows from now on is new since the mark. */
+export const markedNow = (held: Record<string, Watch>, labels: readonly string[], now: number): Record<string, Watch> => ({
+  ...held,
+  ...Object.fromEntries(labels.map(label => [label, { ...(held[label] ?? EMPTY_WATCH), markedAt: now }])),
+})

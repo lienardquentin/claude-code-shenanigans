@@ -329,6 +329,8 @@ export type Health = {
   /** Why, in a few words: `exited (137)`, `2/3 ready`, `CrashLoopBackOff`. */
   detail: string
   restarts: number
+  /** What tells one run of it from the next (when its container started, the revision of its workload): a change is a rollout. Empty where nothing says. */
+  started?: string
 }
 
 /** The errors that are one error: the same message once its numbers and ids are taken out. */
@@ -342,6 +344,10 @@ export type Signature = {
   edit: number
   /** Whether the person has been told it is new, so one toast says it. */
   isAnnounced: boolean
+  /** When it first showed; one held from before this was kept has none. */
+  firstAt?: number
+  /** Whether Claude has been told it is new, so it is handed over once. */
+  isTold?: boolean
 }
 
 /** Where the last read stopped, so the next one takes only what came after. */
@@ -380,7 +386,20 @@ export type Watch = {
   vitals?: Vitals
   /** The same as it stood when the last edit was routed to it. */
   vitalsAtEdit?: Vitals
+  /** When the person or Claude last set a mark on it: what first shows from then on is new since the mark. */
+  markedAt?: number
+  /** When it was last seen to start over: a restart, or a rollout of a new revision. */
+  rolledAt?: number
 }
+
+/** What an error is new since: the last edit routed to its app, the last mark set, or the app's last start. */
+export type Baseline = 'edit' | 'mark' | 'start'
+
+/** The last figures read of an attachment, oldest first, which its row draws as a line: -1 where one was not known. */
+export type History = { cpu: number[]; memory: number[]; lag: number[] }
+
+/** What was planned in a project, kept from one session to the next. */
+export type Plans = { scenarios: Scenario[]; suites: Suite[] }
 
 /** A tab of the browser that shows a watched app. */
 export type BrowserPage = {
@@ -471,7 +490,7 @@ export type Suite = {
 export type TestsAs = 'e2e' | 'unit'
 
 /** What the pane shows under the table. */
-export type Shown = 'logs' | 'env' | 'renders' | 'tests' | 'broker' | 'database'
+export type Shown = 'logs' | 'errors' | 'env' | 'renders' | 'tests' | 'broker' | 'database'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -506,6 +525,24 @@ declare module 'claude-code' {
       peek: Peek
       /** The table the Database view is open on, with its last rows. */
       rows: Rows
+      /** By attachment label. */
+      history: Record<string, History>
+      /** What the Errors view counts an error as new since. */
+      since: Baseline
+      /** The error kind the Errors view is open on, as its app's label, a line break, and its key; empty for none. */
+      openError: string
+      /** The text the timeline's lines must hold; empty for every line. */
+      grep: string
+      /** The request id the timeline follows across the apps; empty for none. */
+      traced: string
+      /** When the timeline was paused, milliseconds since the epoch: lines written after are not drawn. 0 while it runs. */
+      pausedAt: number
+      /** Whether the timeline shows the health checks too, and every repeat of a line. */
+      isNoisy: boolean
+      /** Whether each view says how it is read. */
+      isHelped: boolean
+      /** Whether Claude is asked to look at once when an edit brings new errors and no turn runs: empty until the person says in the pane, and the option decides till then. */
+      guarding: '' | 'on' | 'off'
     }
   }
 }

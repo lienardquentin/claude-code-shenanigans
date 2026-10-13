@@ -283,3 +283,16 @@ export const askBrokerPrompt = (brokers: readonly { label: string; broker: Broke
     '',
     `Answer it by asking ${brokers.length === 1 ? 'it' : 'them'} with mcp__palantir__broker${brokers.length === 1 ? ` (target ${brokers[0]?.label ?? ''})` : ''}: alone it says the topics, the consumer groups and how far behind each is; with \`topic\` it reads the last records of that topic too, up to 20 from each partition with \`limit\`, and \`grep\` keeps those that hold a text. Say what you read along with the answer. If it cannot be answered by reading, say so: no record is to be written and no group moved.`,
   ].join('\n')
+
+/** What is handed to Claude when the person asks why a consumer group does not keep up: the groups behind, as they stand. */
+export const diagnoseGroupsPrompt = (label: string, broker: Broker, now: number): string => {
+  const behind = broker.groups.filter(group => group.lag > 0 || (group.members === 0 && group.partitions.length > 0))
+
+  return [
+    `Find why ${behind.length === 1 ? 'this consumer group' : 'these consumer groups'} of the broker ${label}, which palantir watches, ${behind.length === 1 ? 'does' : 'do'} not keep up:`,
+    '',
+    ...behind.map(group => `  ${group.name} (reads ${topicsOf(group).join(', ') || 'no topic'}): ${group.state}, ${group.members} member${group.members === 1 ? '' : 's'}, ${group.lag} behind; ${standing(group, broker, now)}`),
+    '',
+    `mcp__palantir__broker (target ${label}) says the lag partition by partition, and with \`topic\` reads the last records of a topic: the record a group is stuck on is the one after the offset it has marked. mcp__palantir__logs says what the app that consumes wrote, and mcp__palantir__status whether it runs. Fix the cause in the consumer's code where it is there; say so where it is not (a consumer that is down, a record that cannot be read). No record is to be written and no group moved.`,
+  ].join('\n')
+}

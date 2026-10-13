@@ -1,17 +1,27 @@
-import type { Action, Attachment, Browser, BrowserPage, Dom, DomElement, Facts, Level, Line, Render, Request, Usage, Vitals, Watch } from '../types'
+import type { Action, Attachment, Baseline, Browser, BrowserPage, Dom, DomElement, Facts, Level, Line, Render, Request, Usage, Vitals, Watch } from '../types'
 import { shown } from './attach'
 import { describeBrowser, IN_THE_PAGE } from './browser'
 import { brokerLine, KINDS } from './broker'
 import { databaseLine } from './database'
 import { json } from './kit/json'
 import type { TreeNode } from './kit/tree'
-import { clockTime, describeLine, EMPTY_WATCH, fresh } from './lines'
+import { clockTime, describeLine, EMPTY_WATCH, fresh, requestIds } from './lines'
 import { RUNTIME_NAME } from './runtime'
+import { newSince, sinceText } from './errors'
+import { traceOf, traceText } from './trace'
 
 // What the tools answer the model: the watches as text, bounded, the secrets already out of every line.
 
 export const HOW_TO_ATTACH =
   "Nothing is attached. palantir watches a compose project's services by itself; name anything else in .claude/palantir, one per line, as label=runtime:ref@root: api=docker:my-api@api, web=local:logs/web.log@web#3000 (the port a local app listens on, which is how what it consumes is measured), kafka=k8s:staging/statefulset/kafka. Then /palantir."
+
+/** What is handed to Claude when the person asks it to name what palantir should watch. */
+export const ATTACH_PROMPT =
+  'Set up what the palantir mod watches in this project. Find what runs here and how (a compose file, Kubernetes manifests or a chart, containers, dev servers that write a log), then write .claude/palantir, one line per thing as label=runtime:ref@root: runtime is local (a log file, ended with #port, the port its process listens on), docker (a container), compose (a service) or k8s ([context/]namespace/kind/name); root is the source folder whose edits count against it. A compose project\'s services are watched by themselves and need no line. Then call mcp__palantir__status and say what is watched and how it stands.'
+
+/** What is handed to Claude when the person asks it to bring a page under palantir's eye. */
+export const BROWSER_PROMPT = (port: number, labels: readonly string[]): string =>
+  `palantir reads the page of a watched frontend (${labels.join(', ')}) from a Chrome that listens on the debug port ${port} of this machine's loopback, and none shows one now. Find out why and say exactly what I should run: whether a Chrome answers on that port (curl -s http://127.0.0.1:${port}/json/version), which of the watched apps is a frontend and at what address it is served, and the command that starts Chrome with --remote-debugging-port=${port} and a --user-data-dir of its own, opened on that address. docs/remote-browser.md says how to bring the port here where this machine is a remote one. Start nothing yourself that opens a window; once I say it is open, check with mcp__palantir__status.`
 
 type Held = Record<string, Watch>
 
@@ -53,7 +63,7 @@ export const describeAttachment = ({ label, runtime, ref }: Attachment, watch: W
   return [
     `${label} (${RUNTIME_NAME[runtime]} ${ref}): ${health.state}${health.detail === '' ? '' : `, ${health.detail}`}`,
     health.restarts > 0 ? `${health.restarts} restarts` : '',
-    `${errorsOf(watch)} errors in ${watch.signatures.length} kinds`,
+    watch.signatures.length === 0 ? 'no error' : `${errorsOf(watch)} error${errorsOf(watch) === 1 ? '' : 's'} of ${watch.signatures.length} kind${watch.signatures.length === 1 ? '' : 's'}`,
     edits === 0 ? 'no edit routed to it yet' : `${news} new since the edit to ${editedPath}`,
     error === '' ? '' : `could not be read: ${error}`,
     usage.note === '' ? describeUsage(usage) : '',
@@ -275,8 +285,6 @@ const lineOfAction = ({ at, kind, what, component }: Action): string => `${clock
 const FOLLOWED_MS = 2_000
 const MAX_FOLLOWED = 6
 
-// The id a line says its request goes by, under the names apps give it
-const REQUEST_ID = /\b(?:rid|request_?id|req_?id|trace_?id|correlation_?id)=(\S+)/gi
 // How many leading parts of a path a server behind the page may know it without: `/api/realm/beacons` is `/beacons` there
 const MAX_PREFIX = 3
 
@@ -297,8 +305,8 @@ export const followedBy = (action: Action, lines: readonly Labelled[]): string[]
   const after = lines.filter(({ line }) => line.at >= action.at - 50 && line.at < action.at + FOLLOWED_MS)
   const paths = askedPaths(action)
   const naming = after.filter(({ line }) => paths.some(path => path.test(line.message)))
-  const ids = new Set(naming.flatMap(({ line }) => [...line.message.matchAll(REQUEST_ID)].map(([, id]) => id)))
-  const its = naming.length === 0 ? after : after.filter(entry => naming.includes(entry) || entry.line.message.startsWith(IN_THE_PAGE) || [...entry.line.message.matchAll(REQUEST_ID)].some(([, id]) => ids.has(id)))
+  const ids = new Set(naming.flatMap(({ line }) => requestIds(line.message)))
+  const its = naming.length === 0 ? after : after.filter(entry => naming.includes(entry) || entry.line.message.startsWith(IN_THE_PAGE) || requestIds(entry.line.message).some(id => ids.has(id)))
   const others = after.length - its.length
 
   return [
@@ -641,7 +649,7 @@ export const timeline = (attachments: readonly Attachment[], held: Held): Labell
     .flatMap(({ label }) => (held[label] ?? EMPTY_WATCH).lines.map(line => ({ label, line })))
     .sort((a, b) => a.line.at - b.line.at)
 
-export type LogsAsk = { target?: unknown; level?: unknown; grep?: unknown; limit?: unknown }
+export type LogsAsk = { target?: unknown; level?: unknown; grep?: unknown; limit?: unknown; request?: unknown }
 
 /** The last lines that match what was asked, across the attachments or of one. */
 export const logsText = (attachments: readonly Attachment[], held: Held, ask: LogsAsk): string => {
@@ -652,6 +660,11 @@ export const logsText = (attachments: readonly Attachment[], held: Held, ask: Lo
   if (target !== '' && !attachments.some(({ label }) => label === target)) {
     return `No attachment is named ${target}. They are: ${attachments.map(({ label }) => label).join(', ')}.`
   }
+
+  // One request, followed across every app: whatever else was asked, its lines are all said
+  const request = typeof ask.request === 'string' ? ask.request.trim() : ''
+
+  if (request !== '') return traceText(request, traceOf(timeline(attachments, held), request))
 
   const floor = RANK[ask.level === 'error' || ask.level === 'warn' ? ask.level : 'info']
   const needle = typeof ask.grep === 'string' ? ask.grep.toLowerCase() : ''
@@ -671,29 +684,43 @@ export const logsText = (attachments: readonly Attachment[], held: Held, ask: Lo
   ].join('\n')
 }
 
-/** The errors that first showed after the last edit routed to each attachment, or to the one asked for. */
-export const errorsText = (attachments: readonly Attachment[], held: Held, ask: { target?: unknown }): string => {
+/**
+ * The errors that first showed after the last edit routed to each attachment, or to the one asked for; or, when
+ * `since` says so, after its mark or its last start.
+ */
+export const errorsText = (attachments: readonly Attachment[], held: Held, ask: { target?: unknown; since?: unknown }): string => {
   if (attachments.length === 0) return HOW_TO_ATTACH
 
   const target = typeof ask.target === 'string' ? ask.target.trim() : ''
   const asked = attachments.filter(({ label }) => target === '' || label === target)
+  const baseline: Baseline = ask.since === 'mark' || ask.since === 'start' ? ask.since : 'edit'
 
   if (asked.length === 0) return `No attachment is named ${target}. They are: ${attachments.map(({ label }) => label).join(', ')}.`
 
   return asked
-    .map(({ label }) => {
+    .map(({ label, runtime }) => {
       const watch = held[label] ?? EMPTY_WATCH
       const standing = watch.health.state === 'up' || watch.health.state === 'unknown' ? '' : ` It is ${watch.health.state}${watch.health.detail === '' ? '' : ` (${watch.health.detail})`}.`
 
       if (watch.error !== '') return `${label}: could not be read: ${watch.error}`
-      if (watch.edits === 0) return `${label}: no edit has been routed to it in this session.${standing}`
+      if (baseline === 'edit' && watch.edits === 0) return `${label}: no edit has been routed to it in this session.${standing}`
+      if (baseline !== 'edit' && (baseline === 'mark' ? watch.markedAt : watch.rolledAt) === undefined) return `${label}: ${sinceText(watch, baseline)}.${standing}`
 
-      const news = fresh(watch)
+      const news = newSince(watch, baseline)
+      // What runs in a container runs the edit only once it has taken it in: by reloading its source, or by starting over
+      const rolled =
+        baseline !== 'edit' || runtime === 'local' || watch.editedAt === undefined
+          ? ''
+          : watch.rolledAt !== undefined && watch.rolledAt >= watch.editedAt
+            ? ` It started over at ${clockTime(watch.rolledAt)}, after the edit.`
+            : news.length === 0
+              ? ' It has not started over since: unless it reloads its source by itself, the edit is not what runs yet.'
+              : ''
 
-      if (news.length === 0) return `${label}: no new error since the edit to ${watch.editedPath}.${standing}`
+      if (news.length === 0) return `${label}: no new error ${sinceText(watch, baseline)}.${standing}${rolled}`
 
       return [
-        `${label}: ${news.length} new error${news.length === 1 ? '' : 's'} since the edit to ${watch.editedPath}.${standing}`,
+        `${label}: ${news.length} new error${news.length === 1 ? '' : 's'} ${sinceText(watch, baseline)}.${standing}${rolled}`,
         ...news.map(signature => `  ${clockTime(signature.lastAt)} x${signature.count} ${signature.sample}`),
       ].join('\n')
     })

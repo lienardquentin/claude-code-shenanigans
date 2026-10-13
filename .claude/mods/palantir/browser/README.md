@@ -8,13 +8,13 @@ endpoint, no line in its log.
  palantir --> node browser/ask.mjs --> Chrome's debug port, 127.0.0.1:9222 --> each tab --> browser/page.js
 ```
 
-At each read (the pane's timer, Refresh, the Renders view, a tool that asks of the page), [`ask.mjs`](ask.mjs)
+At each read (the pane's timer, Refresh, the Page view, a tool that asks of the page), [`ask.mjs`](ask.mjs)
 lists the tabs and runs [`page.js`](page.js) in each one that shows a page over http, then asks the tab what its
 console holds. What comes back is read as what a log says:
 
-| What | Tool | In the pane's Renders view |
+| What | Tool | In the pane's Page view (`3`) |
 | --- | --- | --- |
-| Why components rendered, and which renders came with nothing changed | `mcp__palantir__renders` | Tree (`t`) |
+| Why components rendered, and which renders came with nothing changed | `mcp__palantir__renders` | Renders (`t`) |
 | What the last edit did to the renders | `mcp__palantir__renders_since_edit` | |
 | The page's elements, and what a reader who does not see it cannot use | `mcp__palantir__dom` | DOM (`d`) |
 | What was done on the page and what followed, across every watched app | `mcp__palantir__interactions` | Actions (`a`) |
@@ -23,8 +23,8 @@ console holds. What comes back is read as what a log says:
 
 ## End-to-end scenarios
 
-The pane's Tests view (`x`) has two tabs: E2E (`1`), a checklist of what a person does on the frontend, run on the
-page, and Unit tests (`2`), below.
+The pane's Tests view (`4`) has two tabs: E2E (`e`), a checklist of what a person does on the frontend, run on the
+page, and Unit tests (`u`), below.
 
 | What | Tool | In the E2E tab |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ page, and Unit tests (`2`), below.
 | Scenarios are run, all or the ones named | `mcp__palantir__e2e_run` | Run all (`g`), Run the ones not passed (`f`) |
 | What came of each, with what its subagent reported | `mcp__palantir__e2e` | a row per scenario, why it failed under it; a row opens on its steps and the report |
 | The run is stopped | `mcp__palantir__e2e_stop` | Stop (`s`) |
-| Claude is asked to fix what failed, then to run it again | | Fix with Claude under a failed scenario, Fix all with Claude (`a`) when several failed |
+| Claude is asked to fix what failed, then to run it again | | Fix with Claude under a failed scenario, Fix all with Claude (`x`) when several failed |
 
 Each scenario is run by a subagent of its own, of the type `palantir:e2e`: on Haiku, with the session's tools less
 those that change the project (`Edit`, `Write`, `NotebookEdit`, `Bash`, `Agent`), so it drives the page with
@@ -42,8 +42,9 @@ tab. They run one after another, as they share the page. The browser is asked be
 answers on the debug port, the scenarios are said blocked on that and no subagent is started. A subagent ends on `VERDICT: pass`, `fail: <why>` or
 `blocked: <why>`; one that gives none, is interrupted or does not start leaves its scenario blocked. Stop empties
 the queue and gives up on the scenario that runs; its subagent is not ended, and what it answers later is dropped.
-The type is not offered to the model: a scenario is started through the checklist alone. The checklist is the
-session's, and is gone with it.
+The type is not offered to the model: a scenario is started through the checklist alone. The checklist and the unit
+test suites are kept by the project, in the mod's own store: the next session here finds them as they stood, what
+ran then to be run again.
 
 ## Unit tests
 
@@ -54,7 +55,7 @@ The Unit tests tab of the Tests view holds the project's unit test suites, each 
 | Claude names the suites: a command each, as a list of arguments, and the folder it runs in | `mcp__palantir__unit_plan` | Plan (`p`) asks Claude for it |
 | Suites are run, one after another | none: the person runs them | Run all (`g`), Run the ones not passed (`f`) |
 | How each stands, and the end of what a failing one printed | `mcp__palantir__unit` | a row per suite; a row opens on its command and its output |
-| Claude is asked to fix what failed | | Fix with Claude under a failed suite, Fix all with Claude (`a`) |
+| Claude is asked to fix what failed | | Fix with Claude under a failed suite, Fix all with Claude (`x`) |
 
 A suite passes on exit 0, fails on any other, and is blocked when its command does not start or runs past ten
 minutes. A command is a list of arguments that must end by itself: no pipe, no `&&`, no watch mode. A suite runs
@@ -150,6 +151,59 @@ A chain last seen before the page was loaded is of a page that is gone: it is le
 in a line under them (`renders_since_edit` still measures across a reload). When the page was read from the
 browser and no tab shows it now, each tool says so under the app's name: what follows is what was last read.
 
+## The pane
+
+The views are picked by number (`1` Logs, `2` Errors, `3` Page, `4` Tests, `5` Env, `6` Broker, `7` Database), and
+what is done in a view by letter, each said on its button. `r` reads everything again, `m` sets a mark, `i` says
+under each view how it is read. A row of the tables, pressed, shows that one alone in every view; pressed again, or
+`0`, all. What needs no look is dim: a row that is up and never restarted, a count of errors that holds nothing new.
+
+Beside a row's CPU, its memory and a broker's lag are its last reads as a line of bars, the lowest at the foot,
+where the pane is a hundred columns wide or more. Memory that only climbed over the last eight reads is in the
+warning tone.
+
+## The timeline
+
+| What | Tool | In the Logs view (`1`) |
+| --- | --- | --- |
+| The lines of every app, in the order they were written | `mcp__palantir__logs` | each app's name in a color of its own |
+| The lines that hold a text | `mcp__palantir__logs` with `grep` | the Filter field; sent empty, every line again |
+| One request across every app | `mcp__palantir__logs` with `request` | `⇢` at the end of a line that names one; `f` stops |
+| The errors alone | `mcp__palantir__logs` with `level` | `e` |
+| The timeline held still while it is read | | `p` |
+
+- **A request** is told by the id its lines name (`rid=`, `request_id=`, `req_id=`, `trace_id=`,
+  `correlation_id=`, as a field of a JSON line too). Followed, its lines are said through every app, each with how
+  long after the first it was written, under one line that says the apps it went through and how long each held it.
+  Only the lines kept are searched: three hundred per app.
+- **Health checks are left out** (a `GET` of `/health`, `/healthz`, `/ready`, `/live`, `/ping`, `/metrics`; what
+  `kube-probe` asks), and counted under the timeline. A line an app writes several times running, the same but for
+  its numbers and ids, is said once with `×n`. `h` shows every line. An error, and a line that names a request, is
+  never folded.
+- **The time an app writes at the head of its own line** is taken out of the message: the timeline says it once.
+
+## The errors, and what Claude is told of them
+
+| What | Tool | In the Errors view (`2`) |
+| --- | --- | --- |
+| Every kind of error once: how often, first and last written | `mcp__palantir__status` counts them | a row a kind, the new ones first |
+| The ones that are new since the last edit to the app | `mcp__palantir__errors_since_edit` | `new` on the row |
+| Since a mark, or since the app last started over | the same, with `since` | `b` goes from one to the next |
+| A mark set now, on every app | `mcp__palantir__mark` | `m` |
+| One error handed to Claude, with what led to it | | a row opens on it; `d`, Diagnose with Claude |
+
+- **A kind** is the errors that say the same once their numbers and ids are taken out. Opened, it shows the last
+  time it was written with every line of its request, or, where it names none, what its app wrote just before.
+- **Claude is told without asking.** An error that first shows after an edit of the session is handed to it once,
+  beside the result of the next tool it calls, or with the person's next prompt where it calls none. Reading
+  `mcp__palantir__errors_since_edit` counts as told.
+- **Guarding** (`g`, or the option `guard`) goes further: seen while no turn runs, such an error is submitted to
+  Claude as a prompt at once, asking it to look. Each error is submitted once.
+- **Started over** is a container that restarted or was made again, or a workload rolled out to a new revision,
+  told from one read to the next. What runs in a container runs an edit only once it has taken it in:
+  `errors_since_edit` says when the app started over after the edit, and where it found nothing new and the app
+  has not, that the edit may not be what runs yet.
+
 ## Apps, brokers and databases
 
 What is watched is one of three kinds, told by the image it runs, off what its status command already prints:
@@ -167,7 +221,7 @@ log, its state, what it consumes, its environment); nothing is asked of it yet.
 A broker has what it holds read too, through its own command line, run inside it (`docker exec`, `docker compose
 exec`, `kubectl exec`): the one thing palantir runs inside what it watches, and only commands that read.
 
-| What | Tool | In the pane's Broker view (`b`) |
+| What | Tool | In the pane's Broker view (`6`) |
 | --- | --- | --- |
 | The topics, with how many records each holds | `mcp__palantir__broker` | a row per topic |
 | The last messages of a topic: key, headers, value, secrets taken out | `mcp__palantir__broker` with `topic`, and `grep` to search them | a topic's row, pressed, opens on its last ten of each partition; pressed again, closes. Read again with the broker while the view is on it |
@@ -186,6 +240,9 @@ exec`, `kubectl exec`): the one thing palantir runs inside what it watches, and 
 - **The last records** are read as no group, so nothing is marked as read and no group is moved. `rpk` is told to
   wait for as many records as the topic's partitions hold of the last ones, so that it ends by itself.
 - palantir writes no record and moves no group: a poison record is produced, and a group moved past it, by hand.
+- **A group that is stuck, or behind with no member**, has a button under the groups: Diagnose with Claude hands
+  it over with how it stands. The Database view has the same for a session that waits for a lock, sits idle in a
+  transaction or runs long.
 
 ## From a log instead
 

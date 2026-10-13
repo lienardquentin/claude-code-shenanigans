@@ -85,6 +85,9 @@ const ERROR_LOOK = /\b(ERROR|FATAL|CRITICAL|PANIC|SEVERE)\b|\[(error|err|fatal)\
 const ERROR_LOOK_ANY_CASE = /\[(error|err|fatal)\]|\b(fatal|panic):/i
 const WARN_LOOK = /\bWARN(ING)?\b|\[(warn|warning)\]/i
 
+// A time an app writes at the head of its own line, bracketed or not: `2026-10-13T20:02:26.828Z`, `[2026-10-13 10:00:05,000]`
+const OWN_STAMP = /^\[?(\d{4}-\d\d-\d\d[T ]\d\d:\d\d:\d\d(?:[.,]\d+)?(?:Z|[+-]\d\d:?\d\d)?)\]?\s+(?=\S)(.*)$/
+
 const LOGFMT = /(\w+)=("(?:[^"\\]|\\.)*"|\S*)/g
 
 // The keys that are the line's time, level and message, and the ones that say nothing of the event
@@ -141,10 +144,14 @@ export const read = (text: string): Read => {
     }
   }
 
+  // The time a plain line leads with is the line's own: said once, by the timeline
+  const [, own = '', rest = trimmed] = OWN_STAMP.exec(trimmed) ?? []
+
   return {
+    at: own === '' ? undefined : timeOf(own.replace(' ', 'T').replace(',', '.')),
     level: ERROR_LOOK.test(trimmed) || ERROR_LOOK_ANY_CASE.test(trimmed) ? 'error' : WARN_LOOK.test(trimmed) ? 'warn' : 'info',
     // The level a plain line leads with is said by the level itself
-    message: trimmed.replace(/^(?:\[?(?:ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL|CRITICAL)\]?:?\s+)(?=\S)/, ''),
+    message: rest.replace(/^(?:\[?(?:ERROR|WARN(?:ING)?|INFO|DEBUG|FATAL|CRITICAL)\]?:?\s+)(?=\S)/, ''),
     fields: '',
   }
 }
@@ -472,7 +479,7 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
     const key = signatureOf(said)
     const known = signatures.find(signature => signature.key === key)
 
-    if (known === undefined) signatures.push({ key, sample: said.slice(0, MAX_MESSAGE), count: 1, lastAt: at, edit: watch.edits, isAnnounced: false })
+    if (known === undefined) signatures.push({ key, sample: said.slice(0, MAX_MESSAGE), count: 1, lastAt: at, firstAt: at, edit: watch.edits, isAnnounced: false })
     else Object.assign(known, { count: known.count + 1, lastAt: Math.max(known.lastAt, at) })
   }
 
@@ -491,6 +498,18 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
 
 /** The errors that first showed after the last edit routed to the watch; none before any edit. */
 export const fresh = (watch: Watch): Signature[] => (watch.edits === 0 ? [] : watch.signatures.filter(signature => signature.edit === watch.edits))
+
+// The id a line says its request goes by, under the names apps give it
+const REQUEST_ID = /\b(?:rid|request_?id|req_?id|trace_?id|correlation_?id)[=:]\s*"?([\w.-]{4,64})/gi
+
+/** The request ids a line names, each once. */
+export const requestIds = (message: string): string[] => [...new Set([...message.matchAll(REQUEST_ID)].flatMap(([, id]) => (id === undefined ? [] : [id])))]
+
+// What asks an app whether it lives: written every few seconds, and nobody's doing
+const NOISE = /(?:^|[\s"])(?:GET|HEAD) \S*\/(?:healthz?|livez?|readyz?|ready|live|liveness|readiness|ping|metrics|favicon\.ico)(?:[\s?"]|$)|\bkube-probe\b|\bELB-HealthChecker\b/i
+
+/** Whether a line is a health check or the like: left out of the timeline unless asked for, never an error. */
+export const isNoise = ({ level, message }: Line): boolean => level !== 'error' && NOISE.test(message)
 
 /** `HH:MM:SS`, in the machine's own time zone. */
 export const clockTime = (at: number): string => new Date(at).toTimeString().slice(0, 8)

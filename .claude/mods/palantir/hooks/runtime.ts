@@ -94,17 +94,18 @@ const dockerHealth = (stdout: string): Health => {
   const state = record(container.State)
   const status = word(state.Status)
   const restarts = count(container.RestartCount)
+  const started = word(state.StartedAt)
 
   if (status === '') return UNKNOWN
-  if (state.OOMKilled === true) return { state: 'down', detail: 'OOMKilled', restarts }
-  if (status === 'restarting') return { state: 'degraded', detail: 'restarting', restarts }
-  if (status !== 'running') return { state: 'down', detail: `${status} (${count(state.ExitCode)})`, restarts }
+  if (state.OOMKilled === true) return { state: 'down', detail: 'OOMKilled', restarts, started }
+  if (status === 'restarting') return { state: 'degraded', detail: 'restarting', restarts, started }
+  if (status !== 'running') return { state: 'down', detail: `${status} (${count(state.ExitCode)})`, restarts, started }
 
   const check = word(record(state.Health).Status)
 
-  if (check === 'unhealthy') return { state: 'degraded', detail: 'unhealthy', restarts }
+  if (check === 'unhealthy') return { state: 'degraded', detail: 'unhealthy', restarts, started }
 
-  return { state: 'up', detail: check === '' ? 'running' : check, restarts }
+  return { state: 'up', detail: check === '' ? 'running' : check, restarts, started }
 }
 
 // `docker compose ps --format json` prints a list, or one object per line, by its version
@@ -126,7 +127,8 @@ const composeHealth = (stdout: string): Health => {
   if (stopped !== undefined) return { state: 'degraded', detail: `${running.length}/${rows.length} running`, restarts: 0 }
   if (rows.some(row => row.Health === 'unhealthy')) return { state: 'degraded', detail: 'unhealthy', restarts: 0 }
 
-  return { state: 'up', detail: rows.length === 1 ? 'running' : `${rows.length} running`, restarts: 0 }
+  // A service made again has other containers
+  return { state: 'up', detail: rows.length === 1 ? 'running' : `${rows.length} running`, restarts: 0, started: rows.map(row => word(row.ID)).sort().join(' ') }
 }
 
 const podHealth = (status: Json): Health => {
@@ -161,7 +163,10 @@ const kubernetesHealth = (stdout: string): Health => {
 
   if (wanted === 0) return { state: 'down', detail: 'scaled to 0', restarts: 0 }
 
-  return { state: ready >= wanted ? 'up' : ready === 0 ? 'down' : 'degraded', detail, restarts: 0 }
+  // A rollout is a new revision of a Deployment, a new generation of anything else
+  const started = word(record(record(object.metadata).annotations)['deployment.kubernetes.io/revision']) || String(count(record(object.metadata).generation) || '')
+
+  return { state: ready >= wanted ? 'up' : ready === 0 ? 'down' : 'degraded', detail, restarts: 0, started }
 }
 
 /** How the attachment stands, read off what its status command printed. */

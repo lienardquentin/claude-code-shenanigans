@@ -313,3 +313,16 @@ export const askPrompt = (databases: readonly { label: string; database: Databas
     '',
     `Answer it by querying ${databases.length === 1 ? 'it' : 'them'} with mcp__palantir__database${databases.length === 1 ? ` (target ${databases[0]?.label ?? ''})` : ''}: \`sql\` takes one SELECT, run with writing turned off, and \`table\` shows the last rows of a table, which is how to see its columns. Say the statement you ran along with the answer. If it cannot be answered by reading, say so: nothing is to be changed in the database.`,
   ].join('\n')
+
+/** What is handed to Claude when the person asks why sessions of a database wait: the ones that do, as they stand. */
+export const diagnoseSessionsPrompt = (label: string, database: Database): string => {
+  const waiting = troubled(database)
+
+  return [
+    `Find why ${waiting.length === 1 ? 'this session' : 'these sessions'} of the database ${label}, which palantir watches, ${waiting.length === 1 ? 'is' : 'are'} held up:`,
+    '',
+    ...waiting.map(session => `  pid ${session.pid} (${session.app || session.user}): ${sessionStanding(session)}; ${session.query}`),
+    '',
+    `mcp__palantir__database (target ${label}) reads the sessions afresh, each with the session that holds the lock it waits for, and \`sql\` runs one SELECT. Find in the code of the app that opened them which transaction is left open or which statement holds the lock (mcp__palantir__logs says what the apps wrote), and fix it there. Nothing is to be changed in the database, and no session ended.`,
+  ].join('\n')
+}
