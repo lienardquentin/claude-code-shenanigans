@@ -25,7 +25,16 @@ type Printed = { exitCode: number; stdout: string } | undefined
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 
-type Told = { label?: unknown; address?: unknown; isVisible?: unknown; vue?: unknown; isDev?: unknown; renders?: unknown; dom?: unknown }
+type Told = { label?: unknown; address?: unknown; isVisible?: unknown; vue?: unknown; isDev?: unknown; renders?: unknown; dom?: unknown; actions?: unknown; requests?: unknown; vitals?: unknown; said?: unknown }
+
+const objects = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null) : [])
+
+/** What a line the page's console holds is led with in the timeline, so that it is told from what the server wrote. */
+export const IN_THE_PAGE = 'in the page: '
+
+// What the page's console said, as a line its app would have written: its level, its words, where it was raised
+const consoleLine = ({ level, text: words, at, where }: Record<string, unknown>): string =>
+  JSON.stringify({ level: level === 'error' ? 'error' : 'warn', msg: `${IN_THE_PAGE}${text(words).slice(0, 400)}`, ...(typeof at === 'number' ? { time: at } : {}), ...(text(where) === '' ? {} : { at: text(where).slice(0, 120) }) })
 
 // Why a page that is one of the apps says no render
 const silence = ({ vue, isDev }: Told): string =>
@@ -41,7 +50,9 @@ export type Asked = {
 
 /**
  * What the asking came to. Each page of a watched app hands its renders and its elements over as the JSON lines
- * palantir counts renders and keeps pages by, so that what the browser says is read as what a log says. A page
+ * palantir counts renders and keeps pages by, so that what the browser says is read as what a log says; what the
+ * person did on it, what it asked for and how it loaded likewise, and what its console holds of errors and
+ * warnings as lines of the app's own, which are counted as its errors are. A page
  * the person is looking at is taken last: where two tabs show one app, the page kept is that one.
  */
 export const readAsked = (ran: Printed, attachments: readonly Attachment[], port: number, now: number): Asked => {
@@ -75,7 +86,11 @@ export const readAsked = (ran: Printed, attachments: readonly Attachment[], port
     pages.push({ label, address: text(page.address).slice(0, 200), title: text(dom.title).slice(0, 120), note: silence(page) })
     raws[label] = [
       ...(raws[label] ?? []),
-      ...(Array.isArray(page.renders) ? (page.renders as object[]) : []).map(render => JSON.stringify({ ...render, palantir: 'render' })),
+      ...objects(page.said).map(consoleLine),
+      ...objects(page.renders).map(render => JSON.stringify({ ...render, palantir: 'render' })),
+      ...objects(page.actions).map(action => JSON.stringify({ ...action, palantir: 'action' })),
+      ...objects(page.requests).map(request => JSON.stringify({ ...request, palantir: 'request' })),
+      ...(typeof page.vitals === 'object' && page.vitals !== null ? [JSON.stringify({ ...page.vitals, palantir: 'vitals' })] : []),
       JSON.stringify({ ...dom, palantir: 'dom' }),
     ]
   }

@@ -95,10 +95,30 @@ export const settle = (held: Record<string, Watch>, reads: readonly Read[], now:
   return { watches, said }
 }
 
-/** The watches once an edit is counted against the labelled ones: an error first seen from now on is new since it. */
-export const marked = (held: Record<string, Watch>, labels: readonly string[], path: string): Record<string, Watch> => ({
+/**
+ * The watches once an edit is counted against the labelled ones: an error or a chain first seen from now on is new
+ * since it, and what the renders, the requests and the page's figures came to is kept, to measure from.
+ */
+export const marked = (held: Record<string, Watch>, labels: readonly string[], path: string, now = 0): Record<string, Watch> => ({
   ...held,
-  ...Object.fromEntries(labels.map(label => [label, { ...(held[label] ?? EMPTY_WATCH), edits: (held[label] ?? EMPTY_WATCH).edits + 1, editedPath: path }])),
+  ...Object.fromEntries(
+    labels.map(label => {
+      const watch = held[label] ?? EMPTY_WATCH
+
+      return [
+        label,
+        {
+          ...watch,
+          edits: watch.edits + 1,
+          editedPath: path,
+          editedAt: now,
+          renders: (watch.renders ?? []).map(render => ({ ...render, countAtEdit: render.count })),
+          requests: (watch.requests ?? []).map(request => ({ ...request, countAtEdit: request.count, totalMsAtEdit: request.totalMs })),
+          ...(watch.vitals === undefined ? {} : { vitalsAtEdit: watch.vitals }),
+        },
+      ]
+    }),
+  ),
 })
 
 /** The watches of the attachments there still are. */

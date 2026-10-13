@@ -2,9 +2,12 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { composeAttachments, parseList, routed } from '../hooks/attach'
+import { fixPrompt, planned, verdictOf } from '../hooks/e2e'
 import { absorb, EMPTY_WATCH, fresh, read, redact, signatureOf } from '../hooks/lines'
 import { localUsage, readEnvFile, readWindowsProbe } from '../hooks/local'
+import { rendersSinceText } from '../hooks/report'
 import { readHealth } from '../hooks/runtime'
+import { marked } from '../hooks/watch'
 
 type On = Parameters<TestBody>[1]
 type Engine = Parameters<TestBody>[0]
@@ -37,6 +40,8 @@ type World = {
   processes: string
   /** What the script that asks the browser's tabs prints; node is not found when it is empty. */
   browser: string
+  /** The folder the session says it is in: it follows the shell. */
+  cwd: string
 }
 
 const exited = (exitCode: number, stdout = '', stderr = '') =>
@@ -56,24 +61,20 @@ const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '
 /** Stands for the machine beneath the mod: its files, and what `docker` and `kubectl` answer. */
 const machine = (on: On, given: Partial<World> = {}) => {
   // A copy: a test that has an app write more leaves the next test's world as given
-  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
+  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', cwd: CWD, ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
   const runs: string[] = []
   const toasts: string[] = []
 
   mock.clock(on, { now: NOW })
-  on('session.cwd', () => ({ value: CWD }) as never)
+  on('session.cwd', () => ({ value: world.cwd }) as never)
   on('ui.toast', (_, e) => {
     toasts.push(String((e as { text?: unknown }).text ?? JSON.stringify(e)))
 
     return { value: undefined } as never
   })
   on('fs.exists', (_, e) => ({ value: plain(e.path) in world.files }) as never)
-  on('fs.read', (_, e) => {
-    // The engine reads no file over four mebibytes
-    if ((world.files[plain(e.path)] ?? '').length > 4_194_304) throw new Error(`$.fs.read: ${e.path} refused: the file is over the 4194304-byte limit`)
-
-    return { value: world.files[plain(e.path)] } as never
-  })
+  // The engine itself refuses a file over four mebibytes, whatever stands beneath it
+  on('fs.read', (_, e) => ({ value: world.files[plain(e.path)] }) as never)
   on('fs.stat', (_, e) => ({ value: { kind: plain(e.path) in world.files ? 'file' : 'other', size: 0, mtimeMs: NOW - 2000, isLink: false } }) as never)
   on('process.run', (_, e) => {
     const argv = e.argv
@@ -539,14 +540,14 @@ describe('palantir', () => {
     const pane = await mount($)
 
     await pane.press({ key: 'view-renders' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\]\* {2}\[DOM\]\n\s*No render has been reported\./)
+    expect(await ask($, 'pane')).toMatch(/\[Tree\]\* {2}\[DOM\] {2}\[Actions\] {2}\[Network\]\n\s*No render has been reported\./)
 
     await pane.press({ key: 'renders-dom' })
 
     // The last page said: an element that only holds the next is on its row, a component's outermost element named
     const shown = await ask($, 'pane')
 
-    expect(shown).toMatch(/\[Tree\] {2}\[DOM\]\*\n.*\n\s*Anor at \/, 8 elements, as it stood at \S+\n\s*body › div#__nuxt › main\.grid\n\s*├─ section\.card {2}<BeaconChain>\n\s*│  ├─ h2 {2}"The beacons"\n\s*│  └─ button\.lit {2}aria-label="Light Amon Dîn" aria-pressed="true" type="button" {2}"Amon Dîn"\n\s*└─ form {2}<MusterForm>\n\s*└─ input {2}name="apiToken" type="password"\n\s*12 more elements than a report holds are left out\./)
+    expect(shown).toMatch(/\[Tree\] {2}\[DOM\]\* {2}\[Actions\] {2}\[Network\]\n.*\n\s*Anor at \/, 8 elements, as it stood at \S+\n\s*body › div#__nuxt › main\.grid\n\s*├─ section\.card {2}<BeaconChain>\n\s*│  ├─ h2 {2}"The beacons"\n\s*│  └─ button\.lit {2}aria-label="Light Amon Dîn" aria-pressed="true" type="button" {2}"Amon Dîn"\n\s*└─ form {2}<MusterForm>\n\s*└─ input {2}name="apiToken" type="password"\n\s*12 more elements than a report holds are left out\./)
     expect(shown).not.toMatch(/Loading/)
 
     // The page changes: the next read shows it as it stands then
@@ -567,7 +568,7 @@ describe('palantir', () => {
 
     await pane.press({ key: 'view-renders' })
     await pane.press({ key: 'renders-dom' })
-    expect(await ask($, 'pane')).toMatch(/\[Tree\] {2}\[DOM\]\*\n\s*No page has been reported\. The page is read from the browser itself/)
+    expect(await ask($, 'pane')).toMatch(/\[Tree\] {2}\[DOM\]\* {2}\[Actions\] {2}\[Network\]\n\s*No page has been reported\. The page is read from the browser itself/)
   })
   test('says how a frontend reports its renders where none has', async ($, on) => {
     machine(on, SHOP)
@@ -656,6 +657,445 @@ describe('palantir', () => {
     expect(text).toMatch(/\[api\] connect ECONNREFUSED/)
     expect(text).toMatch(/\[Refresh\]/)
   })
+
+  test('says which renders came with nothing changed, and where each component is written', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
+    const render = (count: number, held: string) => JSON.stringify({ palantir: 'render', component: 'Cart', file: `${CWD}/web/components/Cart.vue`, chain: ['useFetch data (ref) changed', 'Cart'], values: [held, null], count })
+    const log = `${CWD}/logs/web.log`
+    const { world } = machine(on, { files: { [log]: `${render(3, '[7]')}\n` } })
+
+    // The first report has nothing to be held against
+    expect(await ask($, 'renders')).toMatch(/^web: 3 renders in 1 chain\.\n {2}x3 last \S+ useFetch data \(ref\) changed: \[7\] -> Cart\n {2}written in:\n {4}Cart web\/components\/Cart\.vue$/)
+
+    // Fetched again and the same: every render of that report could have been spared
+    world.files[log] += `${render(4, '[7]')}\n`
+    expect(await ask($, 'renders')).toMatch(/^web: 7 renders in 1 chain, 4 of them with nothing changed: .*\.\n {2}x7 \(4 with nothing changed\) last/)
+
+    world.files[log] += `${render(2, '[8]')}\n`
+    expect(await ask($, 'renders')).toMatch(/x9 \(4 with nothing changed\) last/)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-renders' })
+    expect(await ask($, 'pane')).toMatch(/Cart {2}×9 4 unchanged/)
+  })
+
+  test('says what an edit did to the renders: the chains it brought, the ones it ended, the ones that go on', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
+    const render = (chain: string[], count: number) => JSON.stringify({ palantir: 'render', component: 'Cart', chain, count })
+    const log = `${CWD}/logs/web.log`
+    const { world } = machine(on, { files: { [log]: `${render(['items (ref) set', 'Cart'], 5)}\n${render(['total (computed)', 'Cart'], 2)}\n` } })
+
+    letEditsThrough(on)
+    expect(await ask($, 'renders_since_edit')).toMatch(/^web: no edit has been routed to it in this session\.$/)
+
+    await edit($, `${CWD}/web/Cart.vue`)
+    world.files[log] += `${render(['items (ref) set', 'Cart'], 1)}\n${render(['coupon (ref) set', 'Cart'], 3)}\n`
+
+    const text = await ask($, 'renders_since_edit')
+
+    expect(text).toMatch(/^web: 4 renders since the edit to web\/Cart\.vue, 0s ago; 7 before it\. Too soon after the edit for a rate/)
+    expect(text).toMatch(/\n {2}new {3}x3 coupon \(ref\) set -> Cart\n {2}gone {2}x0 \(x2 before\) total \(computed\) -> Cart\n {2}still x1 items \(ref\) set -> Cart$/)
+  })
+
+  test('says how often a chain renders since an edit against before it', () => {
+    const minute = 60_000
+    const chain = (step: string, count: number) => ({ component: 'Cart', chain: [step, 'Cart'], count, lastAt: NOW, firstAt: NOW - 10 * minute, edit: 0, countAtEdit: 0 })
+    const before = { ...EMPTY_WATCH, renders: [chain('items (ref) set', 100), chain('total (computed)', 20)] }
+    // The edit came five minutes ago; since then one chain rendered a tenth as often, the other as often as before
+    const { web } = marked({ web: before }, ['web'], 'web/Cart.vue', NOW - 5 * minute)
+    const held = { web: { ...EMPTY_WATCH, ...web, renders: (web?.renders ?? []).map(render => ({ ...render, count: render.count + (render.chain[0] === 'items (ref) set' ? 10 : 20) })) } }
+    const text = rendersSinceText([{ label: 'web', runtime: 'local', ref: 'logs/web.log', roots: [], port: 0 }], held, {}, NOW)
+
+    expect(text).toMatch(/^web: 30 renders since the edit to web\/Cart\.vue, 5m ago; 120 before it\.\n {2}less {2}x10, 2\.0\/min \(was 20\/min\) items \(ref\) set -> Cart\n {2}same {2}x20, 4\.0\/min \(was 4\.0\/min\) total \(computed\) -> Cart$/)
+  })
+
+  test("follows what was done on a page to what rendered, what was asked and what every app wrote, and reads the page's console, requests and elements", { options: { attachments: 'web=local:logs/web.log@web#3000; api=local:logs/api.log@api' } }, async ($, on) => {
+    const page = {
+      label: 'web',
+      address: 'http://localhost:3000/',
+      isVisible: true,
+      vue: '3.5.43',
+      isDev: true,
+      renders: [],
+      // Done three seconds ago: what followed it is over
+      actions: [{ at: NOW - 3000, kind: 'click', what: 'button "Light Halifirien"', component: 'BeaconChain', renders: { MusterForm: 1, BeaconChain: 8 }, requests: ['200 /api/realm/beacons 41ms'] }],
+      requests: [
+        { url: '/api/realm/beacons', status: 200, ms: 41, at: NOW - 2900 },
+        { url: '/api/realm/beacons', status: 500, ms: 300, at: NOW - 2000 },
+        { url: '/api/muster?rider', status: 0, ms: 12, at: NOW - 1000 },
+      ],
+      vitals: { loadedAt: NOW - 60_000, ttfb: 40, lcp: 310, load: 420, cls: 0.021, inp: 80, longTasks: 3, longMs: 240 },
+      said: [
+        { level: 'error', text: 'Uncaught TypeError: lamp is undefined', at: NOW - 2800, where: '/components/BeaconChain.vue:12' },
+        { level: 'warn', text: '[Vue warn]: Hydration node mismatch', at: NOW - 20_000, where: '' },
+      ],
+      dom: {
+        url: '/',
+        title: 'Anor',
+        elements: [[0, 'body', '', '', ''], [1, 'main', '', '', 'App'], [2, 'button.lamp', 'aria-pressed="true"', '', 'BeaconChain'], [1, 'footer', '', 'The stone', '']],
+        left: 0,
+        issues: [['a button with no name', 'button.lamp', 'BeaconChain']],
+        files: { BeaconChain: `${CWD}/web/components/BeaconChain.vue` },
+      },
+    }
+    const { world } = machine(on, {
+      files: { [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n', [`${CWD}/logs/api.log`]: '2026-10-13T10:00:27.500Z {"level":"error","msg":"beacon store unreachable"}\n' },
+      browser: JSON.stringify({ tabs: 1, pages: [page] }),
+    })
+
+    const done = await ask($, 'interactions')
+
+    // A page hands over what it counted once: the next asking finds it emptied
+    world.browser = JSON.stringify({ tabs: 1, pages: [{ ...page, actions: [], requests: [], said: [] }] })
+
+    expect(done).toMatch(/^web: the last 1 of 1 thing done on its page\.\n {2}\S+ click button "Light Halifirien" in BeaconChain\n {4}rendered: BeaconChain ×8, MusterForm ×1\n {4}asked: 200 \/api\/realm\/beacons 41ms\n {4}logged:\n/)
+    // What the page's console held and what the backend wrote, in the order they came
+    expect(done).toMatch(/\[web\] ERROR in the page: Uncaught TypeError: lamp is undefined at=\/components\/BeaconChain\.vue:12\n {6}\S+ \[api\] ERROR beacon store unreachable$/)
+    expect(await ask($, 'interactions', { target: 'api' })).toMatch(/^Nothing done on a page has been seen yet\./)
+
+    // The console's errors are the app's errors, its warnings lines of its timeline
+    expect(await ask($, 'status')).toMatch(/^web \(.*; 1 errors in 1 kinds/)
+    expect(await ask($, 'logs', { target: 'web', level: 'warn' })).toMatch(/WARN {2}in the page: \[Vue warn\]: Hydration node mismatch\n.*ERROR in the page: Uncaught TypeError/)
+
+    expect(await ask($, 'network')).toMatch(
+      /^web: 3 requests to 2 addresses\.\n {2}the page: loaded at \S+, first byte 40ms, largest paint 310ms, loaded in 420ms, layout shift 0\.021, slowest answer to a click or a key 80ms, 3 tasks over 50ms \(240ms in all\)\n {2}x2 avg 171ms max 300ms, 1 failed, last 500 at \S+ \/api\/realm\/beacons\n {2}x1 avg 12ms max 12ms, 1 failed, last no answer at \S+ \/api\/muster\?rider$/,
+    )
+    expect(await ask($, 'network', { grep: 'muster' })).toMatch(/^web: 1 request to 1 address like muster\.\n.*\n {2}x1 avg 12ms/)
+
+    expect(await ask($, 'dom')).toMatch(
+      /^web: "Anor" at \/, as it stood at \S+: 4 elements\.\n {2}1 thing a reader who does not see the page cannot use:\n {4}a button with no name: button\.lamp in BeaconChain\n {2}written in:\n {4}BeaconChain web\/components\/BeaconChain\.vue\n {2}body\n {4}main <App>\n {6}button\.lamp <BeaconChain> aria-pressed="true"\n {4}footer "The stone"$/,
+    )
+
+    const found = await ask($, 'dom', { grep: 'LAMP' })
+
+    expect(found).toMatch(/1 of 4 elements like lamp\./)
+    expect(found).toMatch(/\n {2}body\n {4}main <App>\n {6}button\.lamp/)
+    expect(found).not.toMatch(/footer/)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-renders' })
+    await pane.press({ key: 'renders-actions' })
+    expect(await ask($, 'pane')).toMatch(/click {2}<BeaconChain> {2}button "Light Halifirien"\n.*rendered {2}BeaconChain ×8, MusterForm ×1\n.*asked {2}200 \/api\/realm\/beacons 41ms\n.*logged {2}.*in the page: Uncaught TypeError/)
+
+    await pane.press({ key: 'renders-network' })
+    expect(await ask($, 'pane')).toMatch(/The page loaded at \S+, first byte 40ms/)
+    expect(await pane.find({ text: /^\/api\/realm\/beacons$/ })).toBeDefined()
+
+    await pane.press({ key: 'renders-dom' })
+    expect(await pane.find({ text: /a button with no name: button\.lamp in BeaconChain/ })).toBeDefined()
+  })
+  test('goes on watching the project when the shell moves to another folder', { options: { attachments: '' } }, async ($, on) => {
+    const { world } = machine(on, { files: { [`${CWD}/.claude/palantir`]: 'web=local:logs/web.log@web\n', [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n' } })
+
+    expect(await ask($, 'status')).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\): up/)
+
+    // Claude ran `cd web`: the session's folder is the shell's
+    world.cwd = `${CWD}/web`
+    expect(await ask($, 'status')).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\): up/)
+    expect(await ask($, 'logs')).toMatch(/vite ready/)
+  })
+
+  test('says the lines of what an action asked for, by their request id, and counts what other requests wrote', { options: { attachments: 'web=local:logs/web.log@web#3000; api=local:logs/api.log@api' } }, async ($, on) => {
+    const said = (ms: number, level: string, msg: string, rid: string) => `2026-10-13T10:00:27.${ms}Z ${JSON.stringify({ level, msg, rid })}`
+    const page = {
+      label: 'web',
+      address: 'http://localhost:3000/',
+      isVisible: true,
+      vue: '3.5.43',
+      isDev: true,
+      renders: [],
+      actions: [{ at: NOW - 3000, kind: 'click', what: 'button "Light Eilenach"', component: 'BeaconChain', renders: {}, requests: ['200 /api/realm/beacons/eilenach/light 16ms'] }],
+      dom: { url: '/', title: 'Anor', elements: [[0, 'body', '', '', '']], left: 0 },
+    }
+
+    machine(on, {
+      files: {
+        [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n',
+        // The server knows the path without the prefix the page asks it under, and a rider asks for something else meanwhile
+        [`${CWD}/logs/api.log`]: `${[said(100, 'info', 'POST /beacons/eilenach/light -> 200 in 1ms', 'aa11'), said(150, 'info', 'lamp lit', 'aa11'), said(200, 'error', 'muster refused', 'zz99')].join('\n')}\n`,
+      },
+      browser: JSON.stringify({ tabs: 1, pages: [page] }),
+    })
+
+    const done = await ask($, 'interactions')
+
+    expect(done).toMatch(/logged:\n {6}\S+ \[api\] INFO {2}POST \/beacons\/eilenach\/light -> 200 in 1ms rid=aa11\n {6}\S+ \[api\] INFO {2}lamp lit rid=aa11\n {6}and 1 line of other requests in that time$/)
+    expect(done).not.toMatch(/muster refused/)
+  })
+
+  test('says when a page is no longer read from the browser, and leaves out the chains of a load that is gone', { options: { attachments: 'web=local:logs/web.log@web#3000' } }, async ($, on) => {
+    const page = (loadedAt: number, renders: unknown[]) => ({
+      label: 'web',
+      address: 'http://localhost:3000/',
+      isVisible: true,
+      vue: '3.5.43',
+      isDev: true,
+      renders,
+      vitals: { loadedAt, ttfb: 40, lcp: 310, load: 420, cls: 0, inp: 0, longTasks: 0, longMs: 0 },
+      dom: { url: '/', title: 'Anor', elements: [[0, 'body', '', '', '']], left: 0 },
+    })
+    const chain = (state: string) => ({ component: 'BeaconChain', chain: [`${state} (ref) set`, 'BeaconChain'], values: ['7 (was 6)', null], whole: [null, null], count: 2 })
+    const { world } = machine(on, { files: { [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n' }, browser: JSON.stringify({ tabs: 1, pages: [page(NOW - 60_000, [chain('beacons')])] }) })
+
+    expect(await ask($, 'renders')).toMatch(/^web: 2 renders in 1 chain\.\n {2}x2 last \S+ beacons \(ref\) set/)
+    expect(await ask($, 'status')).toMatch(/; its page is read from the browser, at http:\/\/localhost:3000\/$/)
+
+    // The page is loaded again, and renders for another reason
+    world.browser = JSON.stringify({ tabs: 1, pages: [page(NOW + 1000, [])] })
+    expect(await ask($, 'renders')).toMatch(/^web: no render since the page was loaded\.\n {2}1 chain last seen before the page was loaded, at \S+, is left out\.$/)
+
+    // Chrome is closed: what is said is what was last read, and that is said
+    world.browser = JSON.stringify({ error: 'no-browser' })
+
+    const network = await ask($, 'network')
+
+    expect(network).toMatch(/^web: 0 requests to 0 addresses\.\n {2}its page is not read from the browser now: what is said of it is what was last read\. No Chrome answers on 127\.0\.0\.1:9222\./)
+    expect(await ask($, 'status')).toMatch(/\n {2}its page is not read from the browser now/)
+    expect(await ask($, 'dom')).toMatch(/1 element\.\n {2}its page is not read from the browser now/)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-renders' })
+    await pane.press({ key: 'renders-dom' })
+    expect(await pane.find({ text: /^No Chrome answers on 127\.0\.0\.1:9222\./ })).toBeDefined()
+  })
+})
+
+describe('the end-to-end checklist', () => {
+  const WEB = { options: { attachments: 'web=local:logs/web.log@web', browserPort: 0 } }
+  const PLAN = {
+    scenarios: [
+      { name: 'Add a book to the cart', steps: ['Open /books', 'Click "Add to cart" on the first book'], expect: 'The cart badge says 1' },
+      { name: 'Check out', steps: ['Open /cart', 'Click "Pay"'], expect: 'A page titled "Thank you"' },
+      { name: 'Nothing to do', steps: [] },
+    ],
+  }
+
+  // The engine beneath: every spawn starts a subagent, and a turn's end is answered
+  const agents = (on: On) => {
+    const spawned: { subagentType?: string; prompt: string; description?: string }[] = []
+
+    // A plugin's spawn reaches the bottom as the Agent tool's call, and is answered as that tool answers
+    on('agent.spawn', (_, e) => {
+      const { subagent_type: subagentType, prompt, description } = e as unknown as { subagent_type?: string; prompt: string; description?: string }
+
+      spawned.push({ subagentType, prompt, description })
+
+      return { result: { status: 'async_launched', agentId: `agent-${spawned.length}` }, model: 'haiku' } as never
+    })
+    on('turn.complete', () => ({ text: '' }) as never)
+
+    return spawned
+  }
+
+  const answered = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 4200, isAborted: false, turnId: `turn-${agentId}`, agentId, reason: 'answer' } as never)
+
+  test('is written by the model, the scenarios that do not read left out, and nothing is run by it', WEB, async ($, on) => {
+    machine(on, { files: { [`${CWD}/logs/web.log`]: '' } })
+
+    const spawned = agents(on)
+    const text = await ask($, 'e2e_plan', PLAN)
+
+    expect(text).toMatch(/Left out: scenario 3 has no step\./)
+    expect(text).toMatch(/1\. \[to run\] Add a book to the cart \(web\)/)
+    expect(text).toMatch(/ {3}2\. Click "Add to cart" on the first book/)
+    expect(text).toMatch(/passes when: A page titled "Thank you"/)
+    expect(spawned.length).toBe(0)
+  })
+
+  test('runs each scenario by a subagent of its own, one after another, and keeps what each answered', WEB, async ($, on) => {
+    const { toasts } = machine(on, { files: { [`${CWD}/logs/web.log`]: '' } })
+    const spawned = agents(on)
+
+    await ask($, 'e2e_plan', PLAN)
+
+    expect(await ask($, 'e2e_run')).toMatch(/2 scenarios are under way/)
+    // They share one page: the second waits for the first
+    expect(spawned.length).toBe(1)
+    expect(spawned[0]?.subagentType).toBe('palantir:e2e')
+    expect(spawned[0]?.prompt).toMatch(/Scenario: Add a book to the cart[\s\S]*1\. Open \/books[\s\S]*It passes when: The cart badge says 1/)
+    expect(await ask($, 'e2e')).toMatch(/1\. \[running\][\s\S]*2\. \[queued\]/)
+
+    // Another subagent's answer is none of the checklist's
+    await answered($, 'someone-else', 'VERDICT: pass')
+    expect(spawned.length).toBe(1)
+
+    await answered($, 'agent-1', 'The badge still said 0 after the click.\n**VERDICT: fail: the cart badge says 0, not 1**')
+    expect(spawned.length).toBe(2)
+    expect(toasts.filter(toast => toast.includes('e2e')).length).toBe(0)
+
+    await answered($, 'agent-2', 'Paid.\nVERDICT: pass')
+
+    const text = await ask($, 'e2e')
+
+    expect(text).toMatch(/^1 passed · 1 failed\./)
+    expect(text).toMatch(/1\. \[failed\] Add a book to the cart \(web\) in 4s/)
+    expect(text).toMatch(/failed: the cart badge says 0, not 1/)
+    expect(text).toMatch(/\| The badge still said 0 after the click\./)
+    expect(text).toMatch(/2\. \[passed\] Check out/)
+    expect(toasts).toContain('palantir e2e: 1 passed · 1 failed')
+  })
+
+  test('shows the checklist in the pane, where one scenario or all are run, planned and stopped', WEB, async ($, on) => {
+    machine(on, { files: { [`${CWD}/logs/web.log`]: '' } })
+
+    const spawned = agents(on)
+    const prompts: string[] = []
+
+    on('prompt.submit', (_, e) => {
+      prompts.push(e.text)
+
+      return { text: e.text } as never
+    })
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'view-tests' })
+    expect(await ask($, 'pane')).toMatch(/No scenario yet/)
+
+    await pane.press({ key: 'e2e-plan' })
+    expect(prompts[0]).toMatch(/mcp__palantir__e2e_plan/)
+
+    await ask($, 'e2e_plan', PLAN)
+    await pane.press({ key: 'refresh' })
+    expect(await ask($, 'pane')).toMatch(/0 passed · 0 failed · 2 to run[\s\S]*○  2 {2}Check out {2}to run/)
+
+    // A row opens on its steps
+    await pane.press({ key: 'e2e-row-2-0' })
+    expect(await ask($, 'pane')).toMatch(/2\. Click "Pay"\n\s+Passes when: A page titled "Thank you"/)
+
+    await pane.press({ key: 'e2e-run' })
+    expect(spawned.length).toBe(1)
+    expect(spawned[0]?.prompt).toMatch(/Scenario: Add a book to the cart/)
+    expect(await ask($, 'pane')).toMatch(/\[Stop\]\*[\s\S]*▶  1 {2}Add a book to the cart {2}running/)
+
+    await answered($, 'agent-1', 'VERDICT: fail: the badge says 0')
+    await answered($, 'agent-2', 'VERDICT: pass')
+    await pane.press({ key: 'refresh' })
+    expect(await ask($, 'pane')).toMatch(/\[Run the 1 not passed\]\*[\s\S]*✗  1 {2}Add a book to the cart {2}failed · 4s\]?\n\s*└─ the badge says 0\n[\s\S]*✓  2 {2}Check out {2}passed · 4s/)
+
+    // What failed is handed to Claude, with what its subagent saw: one scenario, or all that failed
+    expect(await ask($, 'pane')).toMatch(/└─ the badge says 0\n\s+\[Fix with Claude\]/)
+    await pane.press({ key: 'e2e-fix-1' })
+    expect(prompts[1]).toMatch(/^Fix what makes this end-to-end scenario[\s\S]*mcp__palantir__e2e_run, ids 1,[\s\S]*1\. \[failed\] Add a book to the cart[\s\S]*failed: the badge says 0[\s\S]*\| VERDICT: fail: the badge says 0/)
+    expect(prompts[1]).not.toMatch(/Check out/)
+
+    // Only what did not pass is run again
+    await pane.press({ key: 'e2e-rerun' })
+    expect(spawned.length).toBe(3)
+    expect(spawned[2]?.prompt).toMatch(/Scenario: Add a book to the cart/)
+    await pane.press({ key: 'e2e-stop' })
+
+    const text = await ask($, 'e2e')
+
+    expect(text).toMatch(/1\. \[blocked\][\s\S]*stopped before its subagent answered[\s\S]*2\. \[passed\]/)
+
+    // The subagent that was stopped answers at last: its scenario is no longer its own
+    await answered($, 'agent-3', 'VERDICT: pass')
+    expect(await ask($, 'e2e')).toMatch(/1\. \[blocked\]/)
+  })
+
+  test('says a scenario blocked when its subagent does not start or gives no verdict', WEB, async ($, on) => {
+    machine(on, { files: { [`${CWD}/logs/web.log`]: '' } })
+    on('agent.spawn', () => ({ deny: 'no agent of that type' }) as never)
+
+    await ask($, 'e2e_plan', PLAN)
+
+    expect(await ask($, 'e2e_run')).toMatch(/1\. \[blocked\][\s\S]*its subagent did not start: no agent of that type/)
+    expect(verdictOf('I clicked around.', 'answer')).toEqual({ state: 'blocked', note: 'its subagent gave no verdict: I clicked around.' })
+    expect(verdictOf('', 'aborted')).toEqual({ state: 'blocked', note: 'its subagent was interrupted' })
+    expect(verdictOf('VERDICT: fail: first\nlater\nVERDICT: PASS', 'answer')).toEqual({ state: 'passed', note: '' })
+    // Said first, and after other words on its line
+    expect(verdictOf('Scenario 7, "Gaze": VERDICT: pass\n\nStep 1: opened the page.', 'answer')).toEqual({ state: 'passed', note: '' })
+  })
+
+  test('starts no subagent where no Chrome answers, and stops a run when asked', { options: { attachments: 'web=local:logs/web.log@web' } }, async ($, on) => {
+    const { world } = machine(on, { files: { [`${CWD}/logs/web.log`]: '' }, browser: JSON.stringify({ error: 'no-browser' }) })
+    const spawned = agents(on)
+
+    await ask($, 'e2e_plan', PLAN)
+
+    expect(await ask($, 'e2e_run')).toMatch(/2 blocked[\s\S]*blocked: No Chrome answers on 127\.0\.0\.1:9222/)
+    expect(spawned.length).toBe(0)
+
+    world.browser = JSON.stringify({ tabs: 1, pages: [{ label: 'web', address: 'http://127.0.0.1:3000/', isVisible: true, dom: { title: 'Shop' } }] })
+
+    expect(await ask($, 'e2e_run')).toMatch(/2 scenarios are under way/)
+    expect(spawned[0]?.prompt).toMatch(/The app is open in a tab of the browser at http:\/\/127\.0\.0\.1:3000\//)
+
+    const text = await ask($, 'e2e_stop')
+
+    expect(text).toMatch(/1\. \[blocked\][\s\S]*stopped before its subagent answered[\s\S]*2\. \[to run\]/)
+    expect(spawned.length).toBe(1)
+  })
+
+  test('finds the project from a folder inside it, and says where the app answers when no tab is known to show it', { options: { attachments: '', browserPort: 0 } }, async ($, on) => {
+    // The mod was loaded while the shell stood deep in the project
+    machine(on, { cwd: `${CWD}/web/src`, files: { [`${CWD}/.claude/palantir`]: 'web=local:logs/web.log@web#3000\n', [`${CWD}/logs/web.log`]: '' } })
+
+    const spawned = agents(on)
+
+    expect(await ask($, 'status')).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\)/)
+
+    await ask($, 'e2e_plan', PLAN)
+    await ask($, 'e2e_run')
+    expect(spawned[0]?.prompt).toMatch(/The app answers at http:\/\/localhost:3000\/: use the tab that shows it, or open that address in a new one\./)
+  })
+
+  test('names the unit test suites, runs them from the pane by how each command exits, and hands what failed to Claude', WEB, async ($, on) => {
+    const { runs, toasts } = machine(on, { files: { [`${CWD}/logs/web.log`]: '' } })
+    const prompts: string[] = []
+
+    on('prompt.submit', (_, e) => {
+      prompts.push(e.text)
+
+      return { text: e.text } as never
+    })
+    // The machine beneath answers `ps` and knows no `pytest`: one suite passes, one fails, one cannot start
+    const text = await ask($, 'unit_plan', {
+      suites: [
+        { name: 'web components', command: ['ps', '-A'], cwd: 'web', target: 'web' },
+        { name: 'api', command: ['kubectl', 'top'] },
+        { name: 'as a line', command: 'npm test' },
+      ],
+    })
+
+    expect(text).toMatch(/Left out: suite 3 has no command written as a list of arguments\./)
+    expect(text).toMatch(/1\. \[to run\] web components \(web\)\n {3}\$ ps -A {2}\(in web\)/)
+    expect(runs.filter(line => line === 'ps -A').length).toBe(0)
+
+    const pane = await mount($)
+
+    // The plan showed the suites: the Tests view, on its unit tests
+    expect(await ask($, 'pane')).toMatch(/\[Tests\]\*[\s\S]*\[E2E\] {2}\[Unit tests 0\/2\]\*[\s\S]*○  1 {2}web components {2}to run · web/)
+
+    await pane.press({ key: 'unit-run' })
+
+    const shown = await ask($, 'pane')
+
+    expect(shown).toMatch(/\[Unit tests 1\/2\]\*[\s\S]*● 1 passed · 1 failed[\s\S]*✓  1 {2}web components {2}passed/)
+    expect(shown).toMatch(/✗  2 {2}api {2}failed[^\n]*\n\s*└─ exit 1: error: Metrics API not available\n\s+\[Fix with Claude\]/)
+    expect(toasts).toContain('palantir unit tests: 1 passed · 1 failed')
+    expect(await ask($, 'unit')).toMatch(/2\. \[failed\] api[\s\S]*\$ kubectl top[\s\S]*\| error: Metrics API not available/)
+
+    await pane.press({ key: 'unit-fix-2' })
+    expect(prompts[0]).toMatch(/^Fix what makes this unit test suite[\s\S]*\$ kubectl top[\s\S]*Metrics API not available/)
+
+    // The other view is one press away
+    await pane.press({ key: 'tests-e2e' })
+    expect(await ask($, 'pane')).toMatch(/\[E2E\]\*[\s\S]*No scenario yet/)
+  })
+
+  test('adds scenarios after the ones held, which keep what came of them', () => {
+    const first = planned([], PLAN, ['web']).scenarios.map(scenario => ({ ...scenario, state: 'passed' as const }))
+    const { scenarios } = planned(first, { add: true, scenarios: [{ name: 'Log out', steps: 'Click "Log out"; Open /account', target: 'nowhere' }] }, ['web'])
+
+    expect(scenarios.map(({ id, state, target }) => `${id} ${state} ${target}`)).toEqual(['1 passed web', '2 passed web', '3 todo web'])
+    expect(scenarios[2]?.steps).toEqual(['Click "Log out"', 'Open /account'])
+
+    // All that failed are handed over as one ask
+    expect(fixPrompt(scenarios.slice(0, 2).map(scenario => ({ ...scenario, state: 'failed' as const })))).toMatch(/^Fix what makes these 2 end-to-end scenarios[\s\S]*ids 1, 2,[\s\S]*1\. \[failed\][\s\S]*2\. \[failed\] Check out/)
+  })
 })
 
 describe('reading a line', () => {
@@ -678,6 +1118,22 @@ describe('reading a line', () => {
     expect(watch.signatures.map(signature => [signature.key, signature.count])).toEqual([['TypeError: x is not a function', 1], ['request <n> failed after <n>ms', 2]])
     expect(fresh(watch)).toHaveLength(0)
     expect(fresh(absorb({ ...watch, edits: 1 }, ['ERROR cache miss storm'], 2000)).map(signature => signature.sample)).toEqual(['cache miss storm'])
+  })
+
+  test('reads a line that leads with its level as a line of its own, however far it is set in', () => {
+    // Nuxt, through consola, sets the level in by a space, and Node lists what required a missing module
+    const watch = absorb(
+      EMPTY_WATCH,
+      ['● Starting Nuxt... (2.56s)', ' ERROR  Cannot find native binding. Please try npm i again.', '    at node_modules/rolldown/dist/shared/binding.mjs:603:34', "  [cause]: Cannot find module '@rolldown/binding-wasm32-wasi'", 'Require stack:', '- /app/node_modules/rolldown/dist/shared/binding.mjs', ' WARN  Slow dependency'],
+      1000,
+    )
+
+    expect(watch.lines.map(({ level, message, more }) => [level, message, more])).toEqual([
+      ['info', '● Starting Nuxt... (2.56s)', 0],
+      ['error', 'Cannot find native binding. Please try npm i again.', 4],
+      ['warn', 'Slow dependency', 0],
+    ])
+    expect(watch.signatures).toHaveLength(1)
   })
 
   test('says a Python traceback with the line it hangs under, as one error whatever the request', () => {

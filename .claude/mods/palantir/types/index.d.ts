@@ -61,7 +61,73 @@ export type Render = {
   /** How many renders of what the chain's last component is made of (a library's own parts) came with those. */
   inside?: number
   lastAt: number
+  /** When it was first counted; a chain held from before this was kept has none. */
+  firstAt?: number
+  /** How many of them came in a report whose values were those of the report before: rendered, with nothing it holds changed. */
+  same?: number
+  /** What its values were in the last report, as one text, which the next is held against. */
+  valuesKey?: string
+  /** How many edits had been routed to the app when the chain first showed: equal to `Watch.edits`, it is new. */
+  edit?: number
+  /** Its count when the last edit was routed to the app: what it has rendered since is counted from there. */
+  countAtEdit?: number
+  /** The source file of the component the renders belong to, as the page names it; empty where it does not. */
+  file?: string
 }
+
+/** Something the person did on a page, and what followed within a second and a half. */
+export type Action = {
+  at: number
+  /** `click`, `submit`, `change`, `navigate`. */
+  kind: string
+  /** What it was done to, never what a field holds: `button "Light Halifirien"`, `/muster`. */
+  what: string
+  /** The component of the app's own it was done in; empty where none is known. */
+  component: string
+  /** How many times each component rendered after it, the busiest first: `BeaconChain ×8`. */
+  renders: string[]
+  /** What the page asked for after it: `200 /api/realm/beacons 41ms`. */
+  requests: string[]
+}
+
+/** What a page asked of one address, added up. */
+export type Request = {
+  /** The path, with the names of what it was asked with and none of their values: `/api/realm/beacons?lit`. */
+  url: string
+  count: number
+  /** How many got no answer, or one of 400 and over. */
+  failed: number
+  totalMs: number
+  maxMs: number
+  /** The last answer's status; 0 when there was none, -1 when the browser does not tell it (another site's). */
+  lastStatus: number
+  lastAt: number
+  /** Its count and its time when the last edit was routed to the app. */
+  countAtEdit?: number
+  totalMsAtEdit?: number
+}
+
+/** How a page loaded and how it answers the hand, as the browser measures it. Milliseconds; 0 where not measured. */
+export type Vitals = {
+  /** When the page was loaded, milliseconds since the epoch: figures of another load are another page's. */
+  loadedAt: number
+  /** Until the server's first byte. */
+  ttfb: number
+  /** Until the largest thing on the page was painted. */
+  lcp: number
+  /** Until the page had loaded. */
+  load: number
+  /** How much the page's layout moved by itself: a score, not a time. */
+  cls: number
+  /** The slowest answer to a click or a key. */
+  inp: number
+  /** How many tasks held the page for over 50 ms, and for how long in all. */
+  longTasks: number
+  longMs: number
+}
+
+/** Something on a page that a reader who does not see it cannot use: what is wrong, the element, its component. */
+export type DomIssue = { kind: string; tag: string; component: string }
 
 /** One element of a page: how deep it is nested, what it is, what it is to a reader, and the text it holds itself. */
 export type DomElement = {
@@ -76,7 +142,17 @@ export type DomElement = {
 }
 
 /** A page as its frontend last reported it: its elements from the top down, each after the one that holds it. */
-export type Dom = { at: number; url: string; title: string; elements: DomElement[]; left: number }
+export type Dom = {
+  at: number
+  url: string
+  title: string
+  elements: DomElement[]
+  left: number
+  /** What a reader who does not see the page cannot use; a page held from before these were read has none. */
+  issues?: DomIssue[]
+  /** The source file of each component of the app's own on the page, by its name. */
+  files?: Record<string, string>
+}
 
 export type Level = 'info' | 'warn' | 'error'
 
@@ -136,6 +212,16 @@ export type Watch = {
   renders: Render[]
   /** The page its frontend last reported in its log; none until it has. */
   dom?: Dom
+  /** When the last edit was routed to it; none before the first. */
+  editedAt?: number
+  /** What the person last did on its page, oldest first. */
+  actions?: Action[]
+  /** What its page asked for, each address once. */
+  requests?: Request[]
+  /** How its page last loaded and answers. */
+  vitals?: Vitals
+  /** The same as it stood when the last edit was routed to it. */
+  vitalsAtEdit?: Vitals
 }
 
 /** A tab of the browser that shows a watched app. */
@@ -157,11 +243,66 @@ export type Browser = {
   pages: BrowserPage[]
 }
 
-/** What the Renders view shows: the tree of what made each component render, or the page's own elements. */
-export type RendersAs = 'tree' | 'dom'
+/**
+ * What the Renders view shows: the tree of what made each component render, the page's own elements, what the
+ * person did on the page and what followed, or what the page asked for and how it loaded.
+ */
+export type RendersAs = 'tree' | 'dom' | 'actions' | 'network'
+
+/** How a scenario of the end-to-end checklist stands: `blocked` is one that could not be tried at all. */
+export type ScenarioState = 'todo' | 'queued' | 'running' | 'passed' | 'failed' | 'blocked'
+
+/** One thing a person does on a frontend, checked on its page by a subagent of its own. */
+export type Scenario = {
+  /** Its number in the checklist, which the tools and the pane name it by. */
+  id: string
+  name: string
+  /** The label of the attachment whose page it is done on; empty when nothing is watched. */
+  target: string
+  /** What is done, in order, as a person would do it. */
+  steps: string[]
+  /** What must be seen at the end for it to pass; empty when doing the steps is all. */
+  expect: string
+  state: ScenarioState
+  /** Why it failed or could not be tried, in a line; empty otherwise. */
+  note: string
+  /** The end of what its subagent answered; empty until it has. */
+  report: string
+  /** The subagent that runs it; empty while none does. */
+  agentId: string
+  /** When its subagent was started, milliseconds since the epoch; 0 before. */
+  at: number
+  /** How long its subagent took; 0 until it has answered. */
+  ms: number
+}
+
+/** One unit test suite of the project: a command, read by how it exits. */
+export type Suite = {
+  /** Its number in the list, which the tools and the pane name it by. */
+  id: string
+  name: string
+  /** The label of the attachment it tests; empty when it is of none. */
+  target: string
+  /** The command, as an argument vector: no shell reads it. */
+  argv: string[]
+  /** The folder it runs in, from the project's or absolute; empty for the project's own. */
+  cwd: string
+  state: ScenarioState
+  /** Why it failed or did not run, in a line; empty otherwise. */
+  note: string
+  /** The end of what it printed; empty until it has run. */
+  output: string
+  /** When it was started, milliseconds since the epoch; 0 before. */
+  at: number
+  /** How long it ran; 0 until it has ended. */
+  ms: number
+}
+
+/** What the Tests view shows: the end-to-end checklist, or the unit test suites. */
+export type TestsAs = 'e2e' | 'unit'
 
 /** What the pane shows under the table. */
-export type Shown = 'logs' | 'env' | 'renders'
+export type Shown = 'logs' | 'env' | 'renders' | 'tests'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -185,6 +326,13 @@ declare module 'claude-code' {
       rendersAs: RendersAs
       /** The tabs the renders and the pages were last read from. */
       browser: Browser
+      /** The folder the session started in, which the project's file is read from; empty until it is first asked. */
+      home: string
+      /** The end-to-end checklist, in the order it was planned. */
+      scenarios: Scenario[]
+      /** The unit test suites, in the order they were named. */
+      suites: Suite[]
+      testsAs: TestsAs
     }
   }
 }

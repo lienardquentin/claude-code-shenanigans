@@ -1,7 +1,7 @@
 {
   "name": "palantir",
   "version": "0.1.0",
-  "description": "Watches the running app: logs, status, new errors, resource use, environment and why a frontend's components render, across local, Docker and Kubernetes",
+  "description": "Watches the running app: logs, status, new errors, resource use, environment and why a frontend's components render, what is done on its page and what the page asks for, across local, Docker and Kubernetes; and runs a checklist of end-to-end scenarios on the page, each by a Haiku subagent, and the project's unit test suites from the pane",
   "types": "./types/index.d.ts",
   "userConfig": {
     "attachments": {

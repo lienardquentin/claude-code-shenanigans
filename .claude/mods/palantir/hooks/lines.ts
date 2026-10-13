@@ -1,4 +1,4 @@
-import type { Dom, Level, Line, Render, Signature, Watch } from '../types'
+import type { Action, Dom, DomIssue, Level, Line, Render, Request, Signature, Vitals, Watch } from '../types'
 
 // What turns the text an app wrote into lines palantir can sort: its time, its level, its message with the
 // secrets taken out. Nothing here reaches outside: text in, values out.
@@ -10,6 +10,9 @@ const MAX_RENDERS = 80
 const MAX_STEPS = 12
 const MAX_WHOLE = 2000
 const MAX_ELEMENTS = 300
+const MAX_ISSUES = 30
+const MAX_ACTIONS = 30
+const MAX_REQUESTS = 60
 
 export const EMPTY_WATCH: Watch = {
   cursor: { since: '', seen: [], offset: 0 },
@@ -150,7 +153,7 @@ export const read = (text: string): Read => {
  * A render as a frontend reports it in its log: a JSON line that says `"palantir":"render"`, the component, and the
  * chain that led to it, the cause first. Such a line is no line of the timeline: it is counted, chain by chain.
  */
-export const renderOf = (text: string): { component: string; chain: string[]; values: string[]; whole: string[]; count: number; inside: number; at?: number } | undefined => {
+export const renderOf = (text: string): { component: string; chain: string[]; values: string[]; whole: string[]; count: number; inside: number; file: string; at?: number } | undefined => {
   const trimmed = text.trim()
 
   if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
@@ -183,6 +186,7 @@ export const renderOf = (text: string): { component: string; chain: string[]; va
       // A chain may be said for what rendered inside its component alone: it then counts no render of the component
       count: typeof fields.count === 'number' && fields.count >= 1 ? Math.round(fields.count) : inside > 0 && fields.count === 0 ? 0 : 1,
       inside,
+      file: typeof fields.file === 'string' ? fields.file.replace(/\\/g, '/').slice(0, 300) : '',
       at: timeOf(fields.time ?? fields.ts),
     }
   } catch {
@@ -215,6 +219,15 @@ export const domOf = (text: string): Omit<Dom, 'at'> & { at?: number } | undefin
         .filter((element): element is unknown[] => Array.isArray(element) && typeof element[0] === 'number')
         .map(([depth, tag, attributes, own, component]) => ({ depth: Math.max(0, Math.round(depth as number)), tag: said(tag, 80), attributes: said(attributes, 200), text: said(own, 80), component: said(component, 60) })),
       left: typeof fields.left === 'number' && fields.left > 0 ? Math.round(fields.left) : 0,
+      issues: (Array.isArray(fields.issues) ? fields.issues : [])
+        .slice(0, MAX_ISSUES)
+        .filter((issue): issue is unknown[] => Array.isArray(issue))
+        .map(([kind, tag, component]): DomIssue => ({ kind: said(kind, 60), tag: said(tag, 80), component: said(component, 60) })),
+      files: Object.fromEntries(
+        Object.entries(typeof fields.files === 'object' && fields.files !== null ? fields.files : {})
+          .slice(0, 100)
+          .flatMap(([name, file]) => (typeof file === 'string' ? [[name.slice(0, 60), file.replace(/\\/g, '/').slice(0, 300)] as const] : [])),
+      ),
       at: timeOf(fields.time ?? fields.ts),
     }
   } catch {
@@ -222,9 +235,96 @@ export const domOf = (text: string): Omit<Dom, 'at'> & { at?: number } | undefin
   }
 }
 
-// A stack trace's frames, and the causes chained under it: lines that belong to the line above
+type Told =
+  | { kind: 'action'; action: Action }
+  | { kind: 'request'; url: string; status: number; ms: number; at?: number }
+  | { kind: 'vitals'; vitals: Vitals }
+
+const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0)
+
+/**
+ * What else a page says of itself, a JSON line each, none of them a line of the timeline: `"palantir":"action"`,
+ * something the person did and what followed; `"palantir":"request"`, something the page asked for and how long the
+ * answer took; `"palantir":"vitals"`, how the page loaded and answers the hand.
+ */
+export const toldOf = (text: string, now: number): Told | undefined => {
+  const trimmed = text.trim()
+
+  if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
+
+  try {
+    const fields = JSON.parse(trimmed) as Record<string, unknown>
+    const said = (value: unknown, most: number): string => (typeof value === 'string' ? redact(value).slice(0, most) : '')
+    const list = (value: unknown, most: number): string[] => (Array.isArray(value) ? value.slice(0, most).map(item => said(item, 160)).filter(item => item !== '') : [])
+
+    if (fields.palantir === 'action' && typeof fields.kind === 'string') {
+      // How many times each component rendered, as `Name ×n`, the busiest first
+      const rendered = Object.entries(typeof fields.renders === 'object' && fields.renders !== null ? fields.renders : {})
+        .flatMap(([name, times]) => (count(times) > 0 ? [[redact(name).slice(0, 60), count(times)] as const] : []))
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([name, times]) => `${name} ×${times}`)
+
+      return {
+        kind: 'action',
+        action: { at: timeOf(fields.at ?? fields.time) ?? now, kind: said(fields.kind, 20), what: said(fields.what, 120), component: said(fields.component, 60), renders: rendered, requests: list(fields.requests, 12) },
+      }
+    }
+
+    if (fields.palantir === 'request' && typeof fields.url === 'string') {
+      return { kind: 'request', url: said(fields.url, 200), status: fields.status === -1 ? -1 : count(fields.status), ms: count(fields.ms), at: timeOf(fields.at ?? fields.time) }
+    }
+
+    if (fields.palantir === 'vitals') {
+      return {
+        kind: 'vitals',
+        vitals: {
+          loadedAt: count(fields.loadedAt),
+          ttfb: count(fields.ttfb),
+          lcp: count(fields.lcp),
+          load: count(fields.load),
+          cls: typeof fields.cls === 'number' && fields.cls > 0 ? Math.round(fields.cls * 1000) / 1000 : 0,
+          inp: count(fields.inp),
+          longTasks: count(fields.longTasks),
+          longMs: count(fields.longMs),
+        },
+      }
+    }
+
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+const WAS = /^(.*) \(was (.*)\)$/
+
+/**
+ * Whether a report's renders came with nothing changed: every value that says what it was before says the same on
+ * both sides, and where none does, the values are those of the report before. A chain that says no value says
+ * nothing either way.
+ */
+export const isUnchanged = (values: readonly string[], before: string | undefined): boolean => {
+  const told = values.filter(value => value !== '')
+  const changes = told.flatMap(value => {
+    const [, to, from] = WAS.exec(value) ?? []
+
+    return to === undefined ? [] : [to === from]
+  })
+
+  if (told.length === 0) return false
+
+  return changes.length > 0 ? changes.every(Boolean) : told.join('\n') === before
+}
+
+// A line that leads with its level, however far it is set in: Nuxt and consola write ` ERROR  Cannot find …`
+const LEADS_WITH_LEVEL = /^\s*\[?(ERROR|WARN(ING)?|FATAL|CRITICAL)\]?:?\s+\S/
+
+// A stack trace's frames, and the causes chained under it: lines that belong to the line above. Node says what
+// required a module that is not found as a list under `Require stack:`
 const isContinuation = (text: string): boolean =>
-  /^\s+\S/.test(text) || /^(Caused by:|\.\.\. \d+ more|During handling of the above exception|The above exception was the direct cause)/.test(text)
+  !LEADS_WITH_LEVEL.test(text) &&
+  (/^\s+\S/.test(text) || /^(Caused by:|\.\.\. \d+ more|During handling of the above exception|The above exception was the direct cause|Require stack:|- \S+$)/.test(text))
 
 const PYTHON_TRACE = /^Traceback \(most recent call last\)/
 
@@ -251,6 +351,9 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
   // A watch held from before palantir counted renders has none
   const renders: Render[] = (watch.renders ?? []).map(render => ({ ...render }))
   let dom = watch.dom
+  let actions = watch.actions ?? []
+  const requests: Request[] = (watch.requests ?? []).map(request => ({ ...request }))
+  let vitals = watch.vitals
   let isInPythonTrace = false
 
   // Onto the line a trace hangs under: one of this read, or the last of an earlier one
@@ -273,10 +376,18 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
       const known = renders.find(({ component, chain }) => component === render.component && chain.join('\n') === render.chain.join('\n'))
       const at = render.at ?? now
 
-      if (known === undefined) renders.push({ component: render.component, chain: render.chain, values: render.values, whole: render.whole, count: render.count, inside: render.inside, lastAt: at })
+      const same = isUnchanged(render.values, known?.valuesKey) ? render.count : 0
+      const valuesKey = render.values.filter(value => value !== '').join('\n')
+
+      if (known === undefined) {
+        renders.push({ component: render.component, chain: render.chain, values: render.values, whole: render.whole, count: render.count, inside: render.inside, lastAt: at, firstAt: at, same, valuesKey, edit: watch.edits, countAtEdit: 0, file: render.file })
+      }
       // The values kept are the last said: a line that says none for a step leaves the one held, short and whole
       else {
         Object.assign(known, {
+          same: (known.same ?? 0) + same,
+          valuesKey: valuesKey === '' ? known.valuesKey : valuesKey,
+          file: render.file === '' ? known.file : render.file,
           count: known.count + render.count,
           inside: (known.inside ?? 0) + render.inside,
           lastAt: Math.max(known.lastAt, at),
@@ -293,6 +404,25 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
 
     if (page !== undefined) {
       dom = { ...page, at: page.at ?? now }
+      isInPythonTrace = false
+      continue
+    }
+
+    const told = toldOf(text, now)
+
+    if (told !== undefined) {
+      if (told.kind === 'action') actions = [...actions, told.action]
+      if (told.kind === 'vitals') vitals = told.vitals
+
+      if (told.kind === 'request') {
+        const known = requests.find(({ url }) => url === told.url)
+        const failed = told.status === 0 || told.status >= 400 ? 1 : 0
+        const at = told.at ?? now
+
+        if (known === undefined) requests.push({ url: told.url, count: 1, failed, totalMs: told.ms, maxMs: told.ms, lastStatus: told.status, lastAt: at, countAtEdit: 0, totalMsAtEdit: 0 })
+        else Object.assign(known, { count: known.count + 1, failed: known.failed + failed, totalMs: known.totalMs + told.ms, maxMs: Math.max(known.maxMs, told.ms), lastStatus: told.status, lastAt: Math.max(known.lastAt, at) })
+      }
+
       isInPythonTrace = false
       continue
     }
@@ -350,6 +480,9 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
     ...watch,
     lines: held.slice(-MAX_LINES),
     ...(dom === undefined ? {} : { dom }),
+    actions: [...actions].sort((a, b) => a.at - b.at).slice(-MAX_ACTIONS),
+    requests: requests.length > MAX_REQUESTS ? [...requests].sort((a, b) => b.lastAt - a.lastAt).slice(0, MAX_REQUESTS) : requests,
+    ...(vitals === undefined ? {} : { vitals }),
     renders: renders.length > MAX_RENDERS ? [...renders].sort((a, b) => b.lastAt - a.lastAt).slice(0, MAX_RENDERS) : renders,
     // Past the limit the ones not seen for longest go
     signatures: signatures.length > MAX_SIGNATURES ? [...signatures].sort((a, b) => b.lastAt - a.lastAt).slice(0, MAX_SIGNATURES) : signatures,

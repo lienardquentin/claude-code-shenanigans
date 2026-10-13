@@ -1,4 +1,5 @@
-// Asks the tabs of a Chrome that listens on a debug port what `page.js` says of each, and prints the answers as
+// Asks the tabs of a Chrome that listens on a debug port what `page.js` says of each, and what the console of each
+// holds of errors and warnings, and prints the answers as
 // one JSON line: {"tabs": 3, "pages": [...]}, or {"error": "..."} when the browser could not be asked. palantir
 // runs it with Node, which its own environment is not: the DevTools protocol is spoken over a WebSocket.
 //
@@ -32,10 +33,65 @@ if (typeof WebSocket === 'undefined') {
 // The file is one function, under its comments
 const expression = `(\n${readFileSync(new URL('./page.js', import.meta.url), 'utf8')}\n)(${JSON.stringify(JSON.parse(watched))})`
 
-// What `page.js` answers in one tab; undefined when the tab does not answer, or is none of the watched apps
+const MAX_SAID = 50
+const MAX_WORDS = 400
+
+// What was handed to the console, as the words it shows
+const wordsOf = args =>
+  (Array.isArray(args) ? args : [])
+    .map(arg => (arg?.type === 'string' ? arg.value : (arg?.description ?? (arg?.value === undefined ? (arg?.type ?? '') : JSON.stringify(arg.value)))))
+    .join(' ')
+
+// Where it was raised: the first frame that is the app's own, as its path and its line
+const whereOf = (frames, url, line) => {
+  const own = (Array.isArray(frames) ? frames : []).find(frame => typeof frame?.url === 'string' && frame.url !== '' && !frame.url.includes('/node_modules/'))
+  const [address, at] = own === undefined ? [url, line] : [own.url, own.lineNumber]
+
+  if (typeof address !== 'string' || address === '') return ''
+
+  try {
+    return `${new URL(address).pathname}${typeof at === 'number' ? `:${at + 1}` : ''}`
+  } catch {
+    return ''
+  }
+}
+
+// An error or a warning the tab's console holds, from what the browser says of it; undefined for anything else.
+// What the browser remarks of its own accord (a slow handler, something deprecated) is not the app going wrong
+const saidOf = ({ method, params }) => {
+  if (method === 'Runtime.consoleAPICalled' && ['error', 'assert', 'warning'].includes(params?.type)) {
+    return { level: params.type === 'warning' ? 'warn' : 'error', text: wordsOf(params.args), at: params.timestamp, where: whereOf(params.stackTrace?.callFrames) }
+  }
+
+  if (method === 'Runtime.exceptionThrown') {
+    const details = params?.exceptionDetails ?? {}
+
+    return {
+      level: 'error',
+      text: `Uncaught ${String(details.exception?.description ?? details.text ?? 'error').split('\n')[0]}`.replace(/^Uncaught Uncaught/, 'Uncaught'),
+      at: params?.timestamp,
+      where: whereOf(details.stackTrace?.callFrames, details.url, details.lineNumber),
+    }
+  }
+
+  if (method === 'Log.entryAdded' && ['error', 'warning'].includes(params?.entry?.level) && ['network', 'javascript', 'security', 'other'].includes(params.entry.source)) {
+    const { level, text, url, timestamp, lineNumber } = params.entry
+
+    return { level: level === 'warning' ? 'warn' : 'error', text: `${text}${typeof url === 'string' && url !== '' && !String(text).includes(url) ? ` (${url})` : ''}`, at: timestamp, where: whereOf(undefined, url, lineNumber) }
+  }
+
+  return undefined
+}
+
+// What `page.js` answers in one tab, with the errors and the warnings its console holds past what was read the last
+// time; undefined when the tab does not answer, or is none of the watched apps. The browser hands over what the
+// console already holds when it is asked to say what comes, which is how what was said before the asking is read
 const askTab = ({ webSocketDebuggerUrl }) =>
   new Promise(resolve => {
     const socket = new WebSocket(webSocketDebuggerUrl)
+    const said = []
+    let page
+    let enabled = 0
 
     const done = answer => {
       clearTimeout(timer)
@@ -43,22 +99,54 @@ const askTab = ({ webSocketDebuggerUrl }) =>
       resolve(answer)
     }
 
-    const timer = setTimeout(() => done(undefined), TAB_TIMEOUT_MS)
+    // A tab that answered for its page and not for its console is still that page
+    const timer = setTimeout(() => done(page), TAB_TIMEOUT_MS)
+    const send = (id, method, params = {}) => socket.send(JSON.stringify({ id, method, params }))
 
-    socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }))
-    socket.onerror = () => done(undefined)
+    const finish = () => {
+      const fresh = said
+        .filter(line => typeof line.at === 'number' && line.at > (page.heard ?? 0))
+        .sort((a, b) => a.at - b.at)
+        .slice(-MAX_SAID)
+        .map(line => ({ ...line, at: Math.round(line.at), text: String(line.text).replace(/\s+/g, ' ').trim().slice(0, MAX_WORDS) }))
+
+      page = { ...page, said: fresh }
+
+      if (fresh.length === 0) return done(page)
+
+      // Left in the page: one that is loaded again is read from its start
+      send(4, 'Runtime.evaluate', { expression: `window.__palantir_heard__ = ${Math.max(...said.map(line => (typeof line.at === 'number' ? line.at : 0)))}` })
+    }
+
+    socket.onopen = () => send(1, 'Runtime.evaluate', { expression, returnByValue: true })
+    socket.onerror = () => done(page)
 
     socket.onmessage = ({ data }) => {
       try {
         const reply = JSON.parse(String(data))
 
-        if (reply.id !== 1) return
+        if (reply.id === 1) {
+          const answered = reply.result?.result?.value
 
-        const said = reply.result?.result?.value
+          page = typeof answered === 'string' ? (JSON.parse(answered) ?? undefined) : undefined
 
-        done(typeof said === 'string' ? (JSON.parse(said) ?? undefined) : undefined)
+          if (page === undefined) return done(undefined)
+
+          send(2, 'Runtime.enable')
+          send(3, 'Log.enable')
+        } else if (reply.id === 2 || reply.id === 3) {
+          enabled += 1
+
+          if (enabled === 2) finish()
+        } else if (reply.id === 4) {
+          done(page)
+        } else if (page !== undefined && typeof reply.method === 'string') {
+          const line = saidOf(reply)
+
+          if (line !== undefined) said.push(line)
+        }
       } catch {
-        done(undefined)
+        done(page)
       }
     }
   })
