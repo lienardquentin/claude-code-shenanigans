@@ -150,6 +150,43 @@ A chain last seen before the page was loaded is of a page that is gone: it is le
 in a line under them (`renders_since_edit` still measures across a reload). When the page was read from the
 browser and no tab shows it now, each tool says so under the app's name: what follows is what was last read.
 
+## Apps, brokers and databases
+
+What is watched is one of three kinds, told by the image it runs, off what its status command already prints:
+nothing is set for it. A broker is a Redpanda or a Kafka image, a database a PostgreSQL one (`postgres`,
+`postgresql`, `postgis`, `timescaledb`, `pgvector`), an app anything else. A log file names no image and is an app.
+
+Where they are not all apps, the pane draws each kind in a table of its own, under its name (Apps, Brokers,
+Databases), the last two with what they run; a broker's row says how many topics it holds and how far behind its
+groups are in all. The summary counts each kind, the filter row lists them in that order, and
+`mcp__palantir__status` answers under the same three names. A database is told apart and watched as an app is (its
+log, its state, what it consumes, its environment); nothing is asked of it yet.
+
+## A broker
+
+A broker has what it holds read too, through its own command line, run inside it (`docker exec`, `docker compose
+exec`, `kubectl exec`): the one thing palantir runs inside what it watches, and only commands that read.
+
+| What | Tool | In the pane's Broker view (`b`) |
+| --- | --- | --- |
+| The topics, with how many records each holds | `mcp__palantir__broker` | a row per topic |
+| The last messages of a topic: key, headers, value, secrets taken out | `mcp__palantir__broker` with `topic`, and `grep` to search them | a topic's row, pressed, opens on its last ten of each partition; pressed again, closes. Read again with the broker while the view is on it |
+| The consumer groups: state, members, lag, and partition by partition where records wait | `mcp__palantir__broker` | a row per group |
+| A broker with a group behind | `mcp__palantir__status` | the Lag of its row |
+
+- **Only Redpanda is read**, through `rpk` (`rpk topic describe`, `rpk group describe`, `rpk topic consume`). A
+  Kafka image (`apache/kafka`, `cp-kafka`) is known for a broker and said not read; its log is read as any other.
+- **Lag** is how many records wait to be read. A group with records waiting that has marked none as read for
+  thirty seconds is said to have taken nothing for that long: stuck on a record, or gone. One that still takes
+  some is only slow. It is told from one read to the next, and the broker is asked every fifteen seconds.
+- **A group whose last member left** is told in a toast, once. The broker itself says so only once the member's
+  session has run out, 45 seconds by default.
+- **What an edit did.** A broker is nobody's source, so an edit routed to any watched app keeps each group's lag
+  as it stood, and the lag is then said against it: what one app sends is what another reads.
+- **The last records** are read as no group, so nothing is marked as read and no group is moved. `rpk` is told to
+  wait for as many records as the topic's partitions hold of the last ones, so that it ends by itself.
+- palantir writes no record and moves no group: a poison record is produced, and a group moved past it, by hand.
+
 ## From a log instead
 
 A frontend that is not in that Chrome, or of another framework, may write the same to its log, which palantir

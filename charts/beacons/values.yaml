@@ -4,16 +4,24 @@ images:
   rohan: beacons-rohan:latest
   anor: beacons-anor:latest
   riders: beacons-riders:latest
+  # The broker, pulled as it is: one node that speaks Kafka's protocol
+  redpanda: redpandadata/redpanda:v26.2.4
+  # Gondor's archives, pulled as it is too
+  postgres: postgres:18-alpine
 
 # Not pulled again when the node already holds them
 pullPolicy: IfNotPresent
 
-# What compose.yaml reads from the shell. The first two are kept in a Secret.
+# What compose.yaml reads from the shell. The first three are kept in a Secret.
 redArrow: red-arrow-0f3a9c44d1e2b7a6
 stewardSealSecret: white-tree-7c1e55a09b
+# What Gondor shows the database, a stand-in like the two above
+postgresPassword: white-rod-5d81c2f07a3e
 # A Mapbox public token (pk.…); without one the map stays rolled up
 mapboxToken: ""
 ridersPace: "0.8"
+# Seconds a watcher of Rohan looks at each fire: above the riders' pace, the watchers fall behind
+watchPace: "0"
 
 # The three that listen are reached from outside as they are under compose: k3s's own load balancer hands each the
 # port the cluster was made with. ClusterIP keeps one inside the cluster.

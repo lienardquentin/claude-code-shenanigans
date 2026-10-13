@@ -21,9 +21,14 @@ spec:
           env:
             - name: ROHAN_URL
               value: http://rohan:8102
+            - name: KAFKA_BROKERS
+              value: redpanda:9092
             - name: RED_ARROW
               valueFrom:
                 secretKeyRef: { name: beacons, key: RED_ARROW }
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: beacons, key: DATABASE_URL }
           ports:
             - name: http
               containerPort: 8101

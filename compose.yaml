@@ -1,4 +1,5 @@
-# The four of the beacons, each in a container of its own:
+# The four of the beacons, each in a container of its own, the broker Gondor's tidings go through, and the database
+# Gondor keeps what burns in:
 #
 #     docker compose up --build
 #
@@ -8,14 +9,45 @@
 name: beacons
 
 services:
+  # One node that speaks Kafka's protocol, reached by the realms alone: no port of it is published. Its own `rpk`
+  # is what palantir asks for the topics and the consumer groups.
+  redpanda:
+    image: redpandadata/redpanda:v26.2.4
+    command: [redpanda, start, --mode, dev-container, --smp, "1", --overprovisioned, --kafka-addr, "PLAINTEXT://0.0.0.0:9092", --advertise-kafka-addr, "PLAINTEXT://redpanda:9092"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Gondor's archives, reached by Gondor alone: no port of it is published, and it keeps nothing when its container
+  # goes. Its own `psql` is what palantir asks for the sessions and the tables.
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: gondor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-white-rod-5d81c2f07a3e}
+      POSTGRES_DB: beacons
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gondor -d beacons"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   gondor:
     build: { context: ./beacons, target: gondor }
     environment:
       ROHAN_URL: http://rohan:8102
       RED_ARROW: ${RED_ARROW:-red-arrow-0f3a9c44d1e2b7a6}
+      KAFKA_BROKERS: redpanda:9092
+      DATABASE_URL: postgresql://gondor:${POSTGRES_PASSWORD:-white-rod-5d81c2f07a3e}@postgres:5432/beacons
     ports: ["127.0.0.1:8101:8101"]
     depends_on:
       rohan: { condition: service_healthy }
+      redpanda: { condition: service_healthy }
+      postgres: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8101/health', timeout=2)"]
       interval: 5s
@@ -27,7 +59,12 @@ services:
     build: { context: ./beacons, target: rohan }
     environment:
       RED_ARROW: ${RED_ARROW:-red-arrow-0f3a9c44d1e2b7a6}
+      KAFKA_BROKERS: redpanda:9092
+      # Seconds a watcher looks at each fire: above the riders' pace, the watchers fall behind
+      WATCH_PACE: ${WATCH_PACE:-0}
     ports: ["127.0.0.1:8102:8102"]
+    depends_on:
+      redpanda: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8102/health', timeout=2)"]
       interval: 5s

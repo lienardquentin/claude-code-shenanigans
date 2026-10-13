@@ -5,10 +5,13 @@ import logging
 import os
 import random
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
+
+from . import watchers
 
 RED_ARROW = os.environ.get("RED_ARROW", "red-arrow-0f3a9c44d1e2b7a6")
 # What the Mark can put in the saddle
@@ -44,7 +47,16 @@ def say(level: int, msg: str, **fields: object) -> None:
     log.log(level, msg, extra={"fields": fields})
 
 
-app = FastAPI(title="The Riders of Rohan")
+@asynccontextmanager
+async def realm_stands(app: FastAPI):
+    halt = watchers.post(say)
+
+    yield
+
+    halt.set()
+
+
+app = FastAPI(title="The Riders of Rohan", lifespan=realm_stands)
 
 
 class Muster(BaseModel):

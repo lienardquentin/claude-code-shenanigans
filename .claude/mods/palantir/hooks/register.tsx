@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Attachment, Browser, Cursor, EnvVar, Facts, Health, RendersAs, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
+import type { Attachment, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
 import { composeAttachments, merged, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import { brokerKind, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
+import { answerLimit, answerRowsText, askPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
 import { askArgv, DEBUG_PORT, describeBrowser, EMPTY_BROWSER, readAsked } from './browser'
 import type { Asked as Told } from './browser'
 import { addressOf, AGENT, AGENT_TYPE, e2eText, fixPrompt, HOW_TO_PLAN, isUnderWay, PLAN_PROMPT, planned, queued, scenarioPrompt, scenarioTree, settled, stopped, tally, verdictOf } from './e2e'
@@ -16,12 +18,12 @@ import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import { tree } from './kit/tree'
-import { endedSuite, fixUnitPrompt, HOW_TO_PLAN_UNIT, PLAN_UNIT_PROMPT, plannedSuites, queuedSuites, SUITE_TIMEOUT_MS, suiteTree, unitText } from './unit'
+import { endedSuite, fixUnitPrompt, HOW_TO_PLAN_UNIT, PLAN_UNIT_PROMPT, plannedSuites, queuedSuites, SUITE_TIMEOUT_MS, suitesOf, suiteTree, unitText } from './unit'
 import { clockTime, EMPTY_WATCH, fresh } from './lines'
 import { ENV_FILES, isWindows, LISTENERS_ARGV, LOCAL_ENV_NOTE, localUsage, PROCESSES_ARGV, readEnvFile, readUnixProbe, readWindowsProbe, WINDOWS_PROBE_ARGV } from './local'
 import type { Probe } from './local'
 import { actionsText, actionTree, domText, HOW_TO_REPORT_ACTIONS, HOW_TO_REPORT_NETWORK, networkText, rendersSinceText, slowestFirst, answerText, vitalsText } from './report'
-import { cpuText, domTree, EMPTY_FACTS, EMPTY_USAGE, envText, errorsText, HOW_TO_ATTACH, HOW_TO_READ_DOM, HOW_TO_READ_RENDERS, HOW_TO_REPORT_DOM, HOW_TO_REPORT_RENDERS, logsText, memoryText, renderTree, rendersNow, rendersText, statusText, timeline, usageText } from './report'
+import { byKind, cpuText, domTree, EMPTY_FACTS, EMPTY_USAGE, envText, errorsText, HOW_TO_ATTACH, HOW_TO_READ_DOM, HOW_TO_READ_RENDERS, HOW_TO_REPORT_DOM, HOW_TO_REPORT_RENDERS, logsText, memoryText, renderTree, rendersNow, rendersText, statusText, timeline, usageText } from './report'
 import type { LogsAsk } from './report'
 import {
   COMPOSE_CONFIG_ARGV,
@@ -29,7 +31,9 @@ import {
   composeEnv,
   containersOf,
   ENV_NOTE,
+  execArgv,
   fileHealth,
+  imagesOf,
   logsArgv,
   readEnv,
   readHealth,
@@ -68,6 +72,14 @@ const home = atom({ plugin: 'palantir', key: 'home' } as const, '')
 const scenarios = atom({ plugin: 'palantir', key: 'scenarios' } as const, [] as Scenario[])
 const suites = atom({ plugin: 'palantir', key: 'suites' } as const, [] as Suite[])
 const testsAs = atom({ plugin: 'palantir', key: 'testsAs' } as const, 'e2e' as TestsAs)
+const EMPTY_PEEK: Peek = { label: '', topic: '', at: 0, note: '', records: [] }
+const peek = atom({ plugin: 'palantir', key: 'peek' } as const, EMPTY_PEEK)
+// How many of a topic's last records the pane reads from each partition
+const PANE_PEEK = 10
+const EMPTY_ROWS: Rows = { label: '', table: '', at: 0, note: '', rows: [] }
+const rowsShown = atom({ plugin: 'palantir', key: 'rows' } as const, EMPTY_ROWS)
+// How many of a table's last rows the pane reads
+const PANE_ROWS = 10
 
 /**
  * The project the shell stands in: the nearest folder, from the session's own up, that holds the project's file;
@@ -112,7 +124,7 @@ const TOOLS = [
   {
     name: 'status',
     description:
-      'How the running apps this session watches stand right now (a frontend, a backend, a broker; local, Docker, Compose or Kubernetes): up or down and why, restarts, error counts, and how many errors are new since the last edit to their source. Reads them afresh. Call it to know whether what runs is healthy.',
+      'How what this session watches stands right now, the apps, the brokers and the databases apart (a frontend, a backend, a Redpanda, a PostgreSQL; local, Docker, Compose or Kubernetes): up or down and why, restarts, error counts, and how many errors are new since the last edit to their source. Reads them afresh. Call it to know whether what runs is healthy.',
   },
   {
     name: 'logs',
@@ -144,6 +156,35 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { target: { type: 'string', description: 'The label of one watched app; left out, all of them.' } },
+    },
+  },
+  {
+    name: 'broker',
+    description:
+      "What a watched broker holds, as its own command line says it: its topics with how many records each holds, and its consumer groups with their state, their members and how far behind each is (its lag), partition by partition where records wait; a group that has taken nothing for a while is said so, and after an edit to any watched app each group's lag is said against what it was before. A Redpanda container, service or workload is told by its image. Reads it afresh. Call it when what one app sends another through the broker does not arrive or arrives late, to see whether a consumer keeps up, is stuck on a record or is gone, and before and after a change to what produces or consumes. With `topic`, the last records of that topic, its messages, are read too (key, headers, value, secrets taken out), as no group, so nothing is marked as read: call it to see what a producer really sent.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'The label of one watched broker; left out, all of them.' },
+        topic: { type: 'string', description: 'A topic whose last records to read as well.' },
+        limit: { type: 'number', description: 'How many of the last records of each partition of that topic; 5 when left out, 20 at most.' },
+        grep: { type: 'string', description: 'Only the records of that topic whose key, headers or value hold this text, whatever its case: a request id, say.' },
+      },
+    },
+  },
+  {
+    name: 'database',
+    description:
+      "What a watched database holds, as its own command line says it: how many sessions its clients hold of those it lets in, by what they do and by the app that opened them; the sessions that wait for a lock (and which session holds it), sit idle in an open transaction or run a long statement, each with its statement, secrets taken out; and its tables with about how many rows each holds, its size, how much was written to it and how it is read. A PostgreSQL container, service or workload is told by its image and asked through its own psql, with writing turned off. Reads it afresh. Call it when an app's queries hang, fail or are slow, to see whether a lock is held, a connection is left open in a transaction or the sessions run out, to see whether what an app should have written is there, and before and after a change to what reads or writes. With `table`, the last rows of that table are read too (each as JSON, secrets taken out): call it to see what an app really wrote, and what columns a table has. With `sql`, one SELECT of your own is run and its rows are given: call it to answer a question about what the database holds; nothing but a read is run.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'The label of one watched database; left out, all of them.' },
+        table: { type: 'string', description: 'A table whose last rows to read as well, by its name as this tool says it.' },
+        limit: { type: 'number', description: 'How many of the last rows of that table; 5 when left out, 20 at most.' },
+        grep: { type: 'string', description: 'Only the rows of that table that hold this text, whatever its case: a request id, say.' },
+        sql: { type: 'string', description: 'One SELECT (or WITH, TABLE, VALUES) to run as well, with no `;` in it, writing turned off and five seconds to answer; 20 rows of its answer are read unless `limit` says otherwise, 50 at most.' },
+      },
     },
   },
   {
@@ -252,7 +293,7 @@ const TOOLS = [
   {
     name: 'unit_plan',
     description:
-      "Names the unit test suites of the project, which the person then runs from the Tests view of the palantir pane: one suite per command. Call it when asked to plan, find or set up the unit tests there, after reading how the project runs them (package.json scripts, pyproject, Makefile, CI). A command is a list of arguments, as no shell reads it: [\"npm\", \"test\", \"--silent\"], never one line, and no pipe or &&. It takes the place of the suites held. Nothing is run by it, and palantir has no tool that runs a suite: the person does, from the pane.",
+      "Names the unit test suites of the project, which the person then runs from the Tests view of the palantir pane: one suite per command. Call it when asked to plan, find or set up the unit tests there, after reading how the project runs them (package.json scripts, pyproject, Makefile, CI). Give each the watched app it tests as its target: the pane shows the suites of the app that is picked. Have a command print a line per test (pytest -v, vitest --reporter=verbose, go test -v): the pane lists the tests it reads there under the suite. A command is a list of arguments, as no shell reads it: [\"npm\", \"test\", \"--silent\"], never one line, and no pipe or &&. It takes the place of the suites held. Nothing is run by it, and palantir has no tool that runs a suite: the person does, from the pane.",
     inputSchema: {
       type: 'object',
       required: ['suites'],
@@ -276,10 +317,10 @@ const TOOLS = [
   {
     name: 'unit',
     description:
-      "The unit test suites named in the palantir pane as they stand: each with its command, whether it passed or failed when the person last ran it, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.",
+      "The unit test suites named in the palantir pane as they stand: each with its command, whether it passed or failed when the person last ran it, how many of its tests passed and which failed, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.",
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'The number of one suite, to read what it printed even if it passed; left out, all of them.' } },
+      properties: { id: { type: 'string', description: 'The number of one suite, to read every test it ran and what it printed even if it passed; left out, all of them.' } },
     },
   },
   {
@@ -529,10 +570,116 @@ const envsOf = async ($: EngineInterface, seen: readonly Seen[], isAsked: boolea
 }
 
 /**
- * What a read asks for besides the lines and the state: what the apps consume, the environments that take a read
- * of their own, and what the browser says of the frontends, asked on the debug port named (0 or none: not asked).
+ * What each broker among the attachments holds, by label, and what there is to tell the person of it: its topics
+ * and its consumer groups, asked of the broker's own command line, run inside it. One that did not answer keeps
+ * what it last said, with why.
  */
-type Want = { usage: boolean; env: boolean; browser?: number }
+const brokersOf = async ($: EngineInterface, seen: readonly Seen[], known: Record<string, Facts>, now: number): Promise<{ brokers: Record<string, Broker>; said: string[] }> => {
+  const said: string[] = []
+
+  const found = await Promise.all(
+    seen.map(async ({ attachment, printed }): Promise<(readonly [string, Broker])[]> => {
+      const { label, runtime } = attachment
+      const was = known[label]?.broker
+      const kind = brokerKind(imagesOf(runtime, printed))
+
+      // One that does not answer how it stands is still the broker it was
+      if (kind === undefined) return was === undefined || printed !== '' ? [] : [[label, unreadBroker(was.kind, 'It could not be asked: what follows is what it last said.', now, was)]]
+      if (kind === 'kafka') return [[label, kafkaBroker(now)]]
+
+      const [topics, groups] = await Promise.all([ask($, execArgv(attachment, TOPICS_ARGV) ?? []), ask($, execArgv(attachment, GROUPS_ARGV) ?? [])])
+
+      if (topics?.exitCode !== 0 || groups?.exitCode !== 0) {
+        const why = topics?.exitCode !== 0 ? refusal(topics, 'rpk topic describe') : refusal(groups, 'rpk group describe')
+
+        return [[label, unreadBroker(kind, `It could not be asked (${why})${was === undefined ? '.' : ': what follows is what it last said.'}`, now, was)]]
+      }
+
+      const settled = settleBroker(was, { topics: readTopics(topics.stdout), groups: readGroups(groups.stdout) }, label, now)
+
+      said.push(...settled.said)
+
+      return [[label, settled.broker]]
+    }),
+  )
+
+  return { brokers: Object.fromEntries(found.flat()), said }
+}
+
+/**
+ * Reads the last records of a topic for the pane's Broker view, which is then open on it. Read as no group: nothing
+ * is marked as read. What cannot be read is said in their place.
+ */
+const peekInto = async ($: EngineInterface, label: string, topic: string): Promise<void> => {
+  const attachment = (await read($, attachments)).find(held => held.label === label)
+  const held = (await read($, facts))[label]?.broker?.topics.find(({ name }) => name === topic)
+  const at = await $.clock.now()
+  const shown = (note: string, records: Peek['records'] = []) => update($, peek, () => ({ label, topic, at, note, records }))
+
+  if (attachment === undefined || held === undefined) return void (await shown(`${label} has no topic ${topic} now.`))
+
+  const argv = peekArgv(held, PANE_PEEK)
+
+  if (argv === undefined) return void (await shown('It holds no message.'))
+
+  const ran = await ask($, execArgv(attachment, argv) ?? [])
+
+  await (ran?.exitCode === 0 ? shown('', readRecords(ran.stdout)) : shown(`Its messages could not be read: ${refusal(ran, 'rpk topic consume')}.`))
+}
+
+/**
+ * What each database among the attachments holds, by label, and what there is to tell the person of it: its
+ * sessions and its tables, asked of the database's own command line, run inside it. One that did not answer keeps
+ * what it last said, with why.
+ */
+const databasesOf = async ($: EngineInterface, seen: readonly Seen[], known: Record<string, Facts>, now: number): Promise<{ databases: Record<string, Database>; said: string[] }> => {
+  const said: string[] = []
+
+  const found = await Promise.all(
+    seen.map(async ({ attachment, printed }): Promise<(readonly [string, Database])[]> => {
+      const { label, runtime } = attachment
+      const was = known[label]?.database
+
+      // One that does not answer how it stands is still the database it was
+      if (!isPostgres(imagesOf(runtime, printed))) return was === undefined || printed !== '' ? [] : [[label, unreadDatabase('It could not be asked: what follows is what it last said.', now, was)]]
+
+      const ran = await ask($, execArgv(attachment, psqlArgv(HOLDS_SQL)) ?? [])
+      const read = ran?.exitCode === 0 ? readHolds(ran.stdout) : undefined
+
+      if (read === undefined) return [[label, unreadDatabase(`It could not be asked (${refusal(ran, 'psql')})${was === undefined ? '.' : ': what follows is what it last said.'}`, now, was)]]
+
+      const settled = settleDatabase(was, read, label, now)
+
+      said.push(...settled.said)
+
+      return [[label, settled.database]]
+    }),
+  )
+
+  return { databases: Object.fromEntries(found.flat()), said }
+}
+
+/** Reads the last rows of a table for the pane's Database view, which is then open on it. What cannot be read is said in their place. */
+const rowsInto = async ($: EngineInterface, label: string, table: string): Promise<void> => {
+  const attachment = (await read($, attachments)).find(held => held.label === label)
+  const database = (await read($, facts))[label]?.database
+  const at = await $.clock.now()
+  const shown = (note: string, rows: string[] = []) => update($, rowsShown, () => ({ label, table, at, note, rows }))
+  const sql = database === undefined ? undefined : rowsSql(database, table, PANE_ROWS)
+
+  if (attachment === undefined || sql === undefined) return void (await shown(`${label} has no table ${table} now.`))
+
+  const ran = await ask($, execArgv(attachment, psqlArgv(sql)) ?? [])
+
+  await (ran?.exitCode === 0 ? shown('', readRows(ran.stdout)) : shown(`Its rows could not be read: ${refusal(ran, 'psql')}.`))
+}
+
+/**
+ * What a read asks for besides the lines and the state: what the apps consume, the environments that take a read
+ * of their own, what the brokers and the databases hold (asked for together), and what the browser says of the frontends, asked on the debug port named
+ * (0 or none: not asked).
+ */
+type Want = { usage: boolean; env: boolean; broker?: boolean; browser?: number }
 
 const LINES_ONLY: Want = { usage: false, env: false }
 
@@ -587,16 +734,40 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
     }
 
     const known = await read($, facts)
-    const [usages, envs] = await Promise.all([want.usage ? usagesOf($, reads, known, now) : ({} as Record<string, Usage>), envsOf($, reads, want.env)])
+    const [usages, envs, asked, queried] = await Promise.all([
+      want.usage ? usagesOf($, reads, known, now) : ({} as Record<string, Usage>),
+      envsOf($, reads, want.env),
+      want.broker === true ? brokersOf($, reads, known, now) : { brokers: {} as Record<string, Broker>, said: [] },
+      want.broker === true ? databasesOf($, reads, known, now) : { databases: {} as Record<string, Database>, said: [] },
+    ])
 
     if (want.usage) usageReadAt = now
 
     await update($, facts, held => ({
       ...held,
       ...Object.fromEntries(
-        targets.map(({ label }) => [label, { ...(held[label] ?? EMPTY_FACTS), ...envs[label], ...(usages[label] === undefined ? {} : { usage: usages[label] }) }] as const),
+        targets.map(({ label }) => {
+          // The lag kept at an edit counted while the commands ran stays
+          const broker = asked.brokers[label] === undefined ? undefined : { ...asked.brokers[label], lagAtEdit: held[label]?.broker?.lagAtEdit, editedPath: held[label]?.broker?.editedPath, editedAt: held[label]?.broker?.editedAt }
+
+          // What it is, told by its image each time its status is read; one that did not answer is what it was
+          const told = reads.find(read => read.label === label)
+          const kind = told === undefined ? undefined : kindOf(imagesOf(told.attachment.runtime, told.printed))
+
+          return [label, { ...(held[label] ?? EMPTY_FACTS), ...kind, ...envs[label], ...(usages[label] === undefined ? {} : { usage: usages[label] }), ...(broker === undefined ? {} : { broker }), ...(queried.databases[label] === undefined ? {} : { database: queried.databases[label] }) }] as const
+        }),
       ),
     }))
+
+    // The topic the pane is open on is read again with its broker
+    const open = await read($, peek)
+
+    if (want.broker === true && open.topic !== '' && (await read($, shownView)) === 'broker') await peekInto($, open.label, open.topic).catch(() => undefined)
+
+    // And the table, with its database
+    const table = await read($, rowsShown)
+
+    if (want.broker === true && table.table !== '' && (await read($, shownView)) === 'database') await rowsInto($, table.label, table.table).catch(() => undefined)
 
     // Settled on the watches as they stand now: an edit counted while the commands ran keeps its count
     let said: string[] = []
@@ -611,15 +782,17 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
 
     await update($, checkedAt, () => now)
 
-    for (const text of said) $.ui.toast(text)
+    for (const text of [...said, ...asked.said, ...queried.said]) $.ui.toast(text)
   })
 
-// Counts an edit against the attachments
+// Counts an edit against the attachments. A broker is nobody's source: an edit to any app is one it may tell of,
+// since what one app sends is what another reads, so every broker keeps how its groups stood.
 const mark = ($: EngineInterface, labels: readonly string[], path: string): Promise<void> =>
   inTurn(async () => {
     const now = await $.clock.now()
 
     await update($, watches, held => marked(held, labels, path, now))
+    await update($, facts, held => Object.fromEntries(Object.entries(held).map(([label, known]) => [label, known.broker === undefined ? known : { ...known, broker: markedBroker(known.broker, path, now) }])))
   })
 
 /** What the options say: the attachments named there, how often to read, and the browser's debug port (0: never asked). */
@@ -631,7 +804,7 @@ const tick = ($: EngineInterface, { seconds, port }: Asked, count: number) => {
   ticking = $.clock.every(Math.max(1, seconds) * 1000, () => {
     void $.clock
       .now()
-      .then(now => pull($, undefined, { usage: now - usageReadAt >= USAGE_EVERY_MS, env: false, browser: isBrowserReached || now - browserAskedAt >= BROWSER_AGAIN_MS ? port : 0 }))
+      .then(now => pull($, undefined, { usage: now - usageReadAt >= USAGE_EVERY_MS, env: false, broker: now - usageReadAt >= USAGE_EVERY_MS, browser: isBrowserReached || now - browserAskedAt >= BROWSER_AGAIN_MS ? port : 0 }))
       .catch(() => undefined)
   })
 }
@@ -655,7 +828,7 @@ const refresh = async ($: EngineInterface, asked: Asked) => {
   const list = await discover($, asked.attachments)
 
   tick($, asked, list.length)
-  await pull($, undefined, { usage: true, env: true, browser: asked.port }).catch(() => undefined)
+  await pull($, undefined, { usage: true, env: true, broker: true, browser: asked.port }).catch(() => undefined)
 
   return list
 }
@@ -762,7 +935,7 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'palantir', description: 'Open the pane that watches the running app: its logs, its state, its new errors, what it consumes, its environment, why its components render, what is done on its page and what the page asks for, and the end-to-end scenarios run on it, and the unit tests of the project' })
+    await $.command.register({ name: 'palantir', description: 'Open the pane that watches the running app: its logs, its state, its new errors, what it consumes, its environment, what a broker or a database among them holds, why its components render, what is done on its page and what the page asks for, and the end-to-end scenarios run on it, and the unit tests of the project' })
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
@@ -780,9 +953,83 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__palantir__pane' }, $ => view.answer(() => $.ui.panes()))
 
   on('tool.call', { tool: 'mcp__palantir__status' }, async $ => {
-    const { list, held, known, seen } = await current($, asked, { usage: true, env: false, browser: asked.port })
+    const { list, held, known, seen } = await current($, asked, { usage: true, env: false, broker: true, browser: asked.port })
 
-    return { result: statusText(list, held, known, asked.port === 0 ? undefined : seen) }
+    return { result: statusText(list, held, known, asked.port === 0 ? undefined : seen, await $.clock.now()) }
+  })
+
+  on('tool.call', { tool: 'mcp__palantir__broker' }, async ($, e) => {
+    const { list, known } = await current($, asked, { usage: false, env: false, broker: true })
+    const { target, topic, limit, grep } = e as unknown as { target?: unknown; topic?: unknown; limit?: unknown; grep?: unknown }
+    const text = brokerText(list, known, { target }, await $.clock.now())
+    const named = typeof topic === 'string' ? topic.trim() : ''
+
+    if (named === '') return { result: text }
+
+    // The topic's last records, of each broker asked about that has it
+    const holders = list.filter(({ label }) => (typeof target !== 'string' || target.trim() === '' || label === target.trim()) && known[label]?.broker?.kind === 'redpanda')
+
+    const peeks = await Promise.all(
+      holders.map(async attachment => {
+        const held = known[attachment.label]?.broker?.topics.find(({ name }) => name === named)
+
+        if (held === undefined) return `${attachment.label} has no topic ${named}.`
+
+        const argv = peekArgv(held, peekEach(limit))
+
+        if (argv === undefined) return `${named} on ${attachment.label} holds no record.`
+
+        const ran = await ask($, execArgv(attachment, argv) ?? [])
+
+        return ran?.exitCode === 0 ? peekText(attachment.label, named, matching(readRecords(ran.stdout), grep), typeof grep === 'string' ? grep.trim() : '') : `The records of ${named} on ${attachment.label} could not be read: ${refusal(ran, 'rpk topic consume')}.`
+      }),
+    )
+
+    return { result: [text, ...peeks].join('\n\n') }
+  })
+
+  on('tool.call', { tool: 'mcp__palantir__database' }, async ($, e) => {
+    const { list, known } = await current($, asked, { usage: false, env: false, broker: true })
+    const { target, table, limit, grep, sql: written } = e as unknown as { target?: unknown; table?: unknown; limit?: unknown; grep?: unknown; sql?: unknown }
+    const text = databaseText(list, known, { target })
+    const named = typeof table === 'string' ? table.trim() : ''
+    // Each database asked about
+    const holders = list.filter(({ label }) => (typeof target !== 'string' || target.trim() === '' || label === target.trim()) && known[label]?.database !== undefined)
+
+    // A statement of the model's own: its answer alone, without what the database holds besides
+    if (typeof written === 'string' && written.trim() !== '') {
+      const most = answerLimit(limit)
+      const query = querySql(written, most)
+
+      if ('refused' in query) return { result: query.refused }
+      if (holders.length === 0) return { result: text }
+
+      const answers = await Promise.all(
+        holders.map(async attachment => {
+          const ran = await ask($, execArgv(attachment, psqlArgv(query.sql, true)) ?? [])
+
+          return ran?.exitCode === 0 ? answerRowsText(attachment.label, most, readRows(ran.stdout, false)) : `${attachment.label} did not answer it: ${ran === undefined ? 'psql did not answer' : ran.stderr.trim().slice(0, 600) || `psql exited with ${ran.exitCode}`}`
+        }),
+      )
+
+      return { result: answers.join('\n\n') }
+    }
+
+    if (named === '') return { result: text }
+
+    const reads = await Promise.all(
+      holders.map(async attachment => {
+        const sql = rowsSql(known[attachment.label]?.database ?? { tables: [] }, named, rowsLimit(limit))
+
+        if (sql === undefined) return `${attachment.label} has no table ${named}.`
+
+        const ran = await ask($, execArgv(attachment, psqlArgv(sql)) ?? [])
+
+        return ran?.exitCode === 0 ? rowsText(attachment.label, named, matchingRows(readRows(ran.stdout), grep), typeof grep === 'string' ? grep.trim() : '') : `The rows of ${named} on ${attachment.label} could not be read: ${refusal(ran, 'psql')}.`
+      }),
+    )
+
+    return { result: [text, ...reads].join('\n\n') }
   })
 
   on('tool.call', { tool: 'mcp__palantir__resources' }, async ($, e) => {
@@ -970,7 +1217,10 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button } = elements
+    // The mobile app draws no field: the question is asked of Claude in the prompt there
+    const Input = 'Input' in elements ? elements.Input : undefined
     const width = e.props.bodyColumns ?? 80
     const list = await read($, attachments)
     const held = await read($, watches)
@@ -978,18 +1228,23 @@ export const register: Register = (on, options) => {
     const errorsOnly = await read($, isErrorsOnly)
     const at = await read($, checkedAt)
     const known = await read($, facts)
+    const drawnAt = await $.clock.now()
     const showing = await read($, shownView)
     const open = await read($, opened)
     const drawAs = await read($, rendersAs)
     const seen = await read($, browser)
-    const checklist = await read($, scenarios)
-    const named = await read($, suites)
+    const scenariosHeld = await read($, scenarios)
+    const suitesHeld = await read($, suites)
     const testing = await read($, testsAs)
+    const peeked = await read($, peek)
+    const rowed = await read($, rowsShown)
 
     const watchOf = (label: string) => held[label] ?? EMPTY_WATCH
     const factsOf = (label: string) => known[label] ?? EMPTY_FACTS
     const down = list.filter(({ label }) => watchOf(label).health.state === 'down').length
     const news = list.reduce((sum, { label }) => sum + fresh(watchOf(label)).length, 0)
+    // The apps, the brokers and the databases, each drawn apart
+    const sections = byKind(list, known)
 
     const summary =
       list.length === 0
@@ -997,11 +1252,11 @@ export const register: Register = (on, options) => {
         : at === 0
           ? badge({ label: `${list.length} attached, not read yet`, tone: 'neutral' })
           : badge({
-              label: `${list.length} watched · ${down} down · ${news} new error${news === 1 ? '' : 's'}`,
+              label: `${sections.length === 1 && sections[0]?.kind === 'app' ? `${list.length} watched` : sections.map(({ one, many, members }) => `${members.length} ${members.length === 1 ? one : many}`).join(' · ')} · ${down} down · ${news} new error${news === 1 ? '' : 's'}`,
               tone: down > 0 || news > 0 ? 'danger' : 'success',
             })
 
-    const rows = list.map(({ label, runtime }): TableCell[] => {
+    const rowOf = ({ label, runtime }: Attachment): TableCell[] => {
       const watch = watchOf(label)
       const total = watch.signatures.reduce((sum, signature) => sum + signature.count, 0)
       const newCount = fresh(watch).length
@@ -1017,7 +1272,49 @@ export const register: Register = (on, options) => {
         memoryText(factsOf(label).usage),
         newCount > 0 ? { text: `${total} · ${newCount} new`, tone: 'danger' } : total > 0 ? { text: String(total), tone: 'warning' } : '0',
       ]
-    })
+    }
+
+    // What a broker holds, said on its row: how many topics, and how far behind its groups are in all
+    const heldBy = (label: string): TableCell[] => {
+      const broker = factsOf(label).broker
+      const lag = (broker?.groups ?? []).reduce((sum, group) => sum + group.lag, 0)
+
+      return broker === undefined || broker.kind === 'kafka' ? ['', ''] : [String(broker.topics.length), lag === 0 ? '0' : { text: String(lag), tone: (broker.groups ?? []).some(group => stuckFor(group, drawnAt) > 0) ? 'danger' : 'warning' }]
+    }
+
+    // What a database holds, said on its row: its sessions of those it lets in, and how many tables
+    const queriedBy = (label: string): TableCell[] => {
+      const database = factsOf(label).database
+
+      if (database === undefined || database.name === '') return ['', '']
+
+      const isHeld = database.sessions.some(session => isBlocked(session) || isIdling(session))
+
+      return [isHeld ? { text: `${database.sessions.length}/${database.max}`, tone: 'danger' } : `${database.sessions.length}/${database.max}`, String(database.tables.length)]
+    }
+
+    const TITLE_OF = { app: 'App', broker: 'Broker', database: 'Database' } as const
+
+    const tableOf = ({ kind, members }: (typeof sections)[number]) =>
+      table({
+        columns: [
+          { header: TITLE_OF[kind], width: 12 },
+          { header: 'Runs on', width: 10 },
+          ...(kind === 'app' ? [] : [{ header: 'Engine', width: 11 }]),
+          { header: 'State' },
+          { header: 'CPU', width: 6 },
+          { header: 'Memory', width: 16 },
+          ...(kind === 'broker' ? [{ header: 'Topics', width: 6 }, { header: 'Lag', width: 6 }] : []),
+          ...(kind === 'database' ? [{ header: 'Sessions', width: 8 }, { header: 'Tables', width: 6 }] : []),
+          { header: 'Errors', width: 11 },
+        ],
+        rows: members.map((attachment): TableCell[] => {
+          const [name = '', runs = '', ...rest] = rowOf(attachment)
+          const errors = rest.pop() ?? ''
+
+          return [name, runs, ...(kind === 'app' ? [] : [factsOf(attachment.label).engine ?? '']), ...rest, ...(kind === 'broker' ? heldBy(attachment.label) : []), ...(kind === 'database' ? queriedBy(attachment.label) : []), errors]
+        }),
+      })
 
     const lines = timeline(list, held).filter(({ label, line }) => (picked === '' || label === picked) && (!errorsOnly || line.level === 'error'))
     // As many lines as the pane has rows for, under the table
@@ -1038,6 +1335,8 @@ export const register: Register = (on, options) => {
           await update($, shownView, () => name)
           // A compose service's and a local app's environment take a read of their own, made when it is looked at
           if (name === 'env') await pull($, undefined, { usage: false, env: true }).catch(() => undefined)
+          if (name === 'database') await pull($, undefined, { usage: false, env: false, broker: true }).catch(() => undefined)
+          if (name === 'broker') await pull($, undefined, { usage: false, env: false, broker: true }).catch(() => undefined)
           // The browser is asked at once, whenever it last failed to answer
           if (name === 'renders' || name === 'tests') await pull($, undefined, { usage: false, env: false, browser: asked.port }).catch(() => undefined)
         }}
@@ -1073,6 +1372,154 @@ export const register: Register = (on, options) => {
         }),
         ...(variables.length > room ? [tonedText({ text: `and ${variables.length - room} more: show one app, or ask mcp__palantir__env`, tone: 'neutral' })] : []),
         ...notes.map(note => tonedText({ text: note, tone: 'neutral', wrap: true })),
+      ]
+    }
+
+    // What each broker holds: its topics, and its consumer groups with how far behind each is
+    const brokerBody = () => {
+      const brokers = picks.flatMap(({ label }) => (factsOf(label).broker === undefined ? [] : [{ label, broker: factsOf(label).broker as Broker }]))
+      const isByApp = brokers.length > 1
+      const app = isByApp ? [{ header: 'Broker', width: 12 }] : []
+
+      if (brokers.length === 0) return [tonedText({ text: picked === '' ? NO_BROKER : `${picked} is not a broker: show all, or the broker itself.`, tone: 'neutral', wrap: true })]
+
+      return [
+        ...brokers.flatMap(({ label, broker: { kind, note, at } }) => [
+          tonedText({ text: `${label}: ${KIND_NAME[kind]}, asked at ${clockTime(at)}`, bold: true }),
+          ...(note === '' ? [] : [tonedText({ text: note, tone: 'warning', wrap: true })]),
+        ]),
+        table({
+          columns: [...app, { header: 'Topic' }, { header: 'Partitions', width: 11 }, { header: 'Held', width: 9 }, { header: 'Written', width: 9 }],
+          rows: brokers.flatMap(({ label, broker }) =>
+            broker.topics.map(({ name, sizes, end }): TableCell[] => {
+              const isOpen = peeked.label === label && peeked.topic === name
+
+              return [
+                ...(isByApp ? [label] : []),
+                // Pressed, a topic opens on its last messages under the tables; pressed again, it closes
+                <Button key={`topic-${label}-${name}`} plain onPress={() => (isOpen ? update($, peek, () => EMPTY_PEEK) : peekInto($, label, name))}>
+                  {tonedText({ text: `${isOpen ? '▾' : '▸'} ${name}`, tone: isOpen ? 'accent' : 'neutral', bold: isOpen })}
+                </Button>,
+                String(sizes.length),
+                String(sizes.reduce((sum, size) => sum + size, 0)),
+                String(end),
+              ]
+            }),
+          ),
+          empty: 'No topic.',
+        }),
+        ...(peeked.topic === '' || !brokers.some(({ label }) => label === peeked.label)
+          ? [tonedText({ text: 'A topic opens on its last messages.', tone: 'neutral' })]
+          : [
+              tonedText({
+                text: `${peeked.topic}${isByApp ? ` on ${peeked.label}` : ''}: its last ${peeked.records.length} message${peeked.records.length === 1 ? '' : 's'}, oldest first, read at ${clockTime(peeked.at)} as no group, secrets taken out`,
+                bold: true,
+                wrap: true,
+              }),
+              ...(peeked.note === ''
+                ? [
+                    table({
+                      columns: [{ header: 'Written', width: 8 }, { header: 'At', width: 8 }, { header: 'Key', width: 14 }, { header: 'Headers', width: 16 }, { header: 'Value', wrap: true }],
+                      rows: peeked.records.slice(-room).map(({ at: written, partition, offset, key, headers, value }): TableCell[] => [clockTime(written), `${partition}@${offset}`, key, headers, value]),
+                      empty: 'No message.',
+                    }),
+                  ]
+                : [tonedText({ text: peeked.note, tone: 'warning', wrap: true })]),
+            ]),
+        table({
+          columns: [...app, { header: 'Group' }, { header: 'Reads', width: 18 }, { header: 'State', width: 20 }, { header: 'Members', width: 8 }, { header: 'Lag', width: 7 }, { header: 'Standing', width: 34 }],
+          rows: brokers.flatMap(({ label, broker }) =>
+            broker.groups.map((group): TableCell[] => {
+              const isStuck = stuckFor(group, drawnAt) > 0 || (group.members === 0 && group.lag > 0)
+
+              return [
+                ...(isByApp ? [label] : []),
+                group.name,
+                topicsOf(group).join(', '),
+                group.state === 'Stable' ? group.state : { text: group.state, tone: 'warning' },
+                group.members === 0 ? { text: '0', tone: 'warning' } : String(group.members),
+                group.lag === 0 ? '0' : { text: String(group.lag), tone: isStuck ? 'danger' : 'warning' },
+                { text: standing(group, broker, drawnAt), tone: isStuck ? 'danger' : 'neutral' },
+              ]
+            }),
+          ),
+          empty: 'No consumer group.',
+        }),
+        tonedText({ text: 'Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic.', tone: 'neutral', wrap: true }),
+      ]
+    }
+
+    // What each database holds: its sessions, those that wait first, and its tables
+    const databaseBody = () => {
+      const databases = picks.flatMap(({ label }) => (factsOf(label).database === undefined ? [] : [{ label, database: factsOf(label).database as Database }]))
+      const isByApp = databases.length > 1
+      const app = isByApp ? [{ header: 'Database', width: 12 }] : []
+
+      if (databases.length === 0) return [tonedText({ text: picked === '' ? NO_DATABASE : `${picked} is not a database: show all, or the database itself.`, tone: 'neutral', wrap: true })]
+
+      return [
+        // What is typed here is handed to Claude as a prompt, which answers it by reading the database
+        ...(Input === undefined
+          ? []
+          : [
+              <Input
+                key="database-ask"
+                label="Ask Claude"
+                placeholder="a question about what the database holds"
+                submitLabel="ask"
+                onSubmit={(question: string) => {
+                  if (question.trim() !== '') void $.prompt.submit({ text: askPrompt(databases, question) })
+                }}
+              />,
+            ]),
+        ...databases.flatMap(({ label, database }) => [
+          tonedText({ text: `${label}: PostgreSQL${database.name === '' ? '' : ` ${database.version}, database ${database.name}, ${sizeText(database.bytes)}`}, asked at ${clockTime(database.at)}`, bold: true }),
+          ...(database.note === '' ? [] : [tonedText({ text: database.note, tone: 'warning', wrap: true })]),
+          ...(database.name === '' ? [] : [tonedText({ text: `${database.sessions.length} of the ${database.max} sessions it lets in${database.sessions.length === 0 ? '' : `: ${byState(database)}; by app: ${byApp(database)}`}`, tone: 'neutral', wrap: true })]),
+        ]),
+        table({
+          columns: [...app, { header: 'Pid', width: 8 }, { header: 'App', width: 12 }, { header: 'Standing', width: 44 }, { header: 'Statement', wrap: true }],
+          rows: databases.flatMap(({ label, database }) =>
+            troubled(database).map((session): TableCell[] => [
+              ...(isByApp ? [label] : []),
+              String(session.pid),
+              session.app || session.user,
+              { text: sessionStanding(session), tone: isBlocked(session) || isIdling(session) ? 'danger' : 'warning' },
+              session.query,
+            ]),
+          ),
+          empty: 'No session waits for a lock, sits idle in an open transaction or runs a long statement.',
+        }),
+        table({
+          columns: [...app, { header: 'Table' }, { header: 'Rows', width: 9 }, { header: 'Size', width: 9 }, { header: 'Dead', width: 7 }, { header: 'Written', width: 9 }, { header: 'Scans', width: 8 }, { header: 'By index', width: 9 }],
+          rows: databases.flatMap(({ label, database }) =>
+            database.tables.map(({ name, rows, dead, bytes, scans, lookups, written }): TableCell[] => {
+              const isOpen = rowed.label === label && rowed.table === name
+
+              return [
+                ...(isByApp ? [label] : []),
+                // Pressed, a table opens on its last rows under the tables; pressed again, it closes
+                <Button key={`table-${label}-${name}`} plain onPress={() => (isOpen ? update($, rowsShown, () => EMPTY_ROWS) : rowsInto($, label, name))}>
+                  {tonedText({ text: `${isOpen ? '▾' : '▸'} ${name}`, tone: isOpen ? 'accent' : 'neutral', bold: isOpen })}
+                </Button>,
+                String(rows),
+                sizeText(bytes),
+                String(dead),
+                String(written),
+                String(scans),
+                String(lookups),
+              ]
+            }),
+          ),
+          empty: 'No table.',
+        }),
+        ...(rowed.table === '' || !databases.some(({ label }) => label === rowed.label)
+          ? [tonedText({ text: 'A table opens on its last rows.', tone: 'neutral' })]
+          : [
+              tonedText({ text: `${rowed.table}${isByApp ? ` on ${rowed.label}` : ''}: its last ${rowed.rows.length} row${rowed.rows.length === 1 ? '' : 's'}, oldest first, read at ${clockTime(rowed.at)}, secrets taken out`, bold: true, wrap: true }),
+              ...(rowed.note === '' ? (rowed.rows.length === 0 ? [tonedText({ text: 'It holds no row.', tone: 'neutral' })] : rowed.rows.slice(-room).map(row => tonedText({ text: row, tone: 'neutral', wrap: true }))) : [tonedText({ text: rowed.note, tone: 'warning', wrap: true })]),
+            ]),
+        tonedText({ text: 'Rows is what the database last counted, near the truth. Dead is the rows whose room is not taken back yet. Scans is how often a table was read whole. A question typed after Ask Claude is handed to Claude, which answers it by reading the database through mcp__palantir__database.', tone: 'neutral', wrap: true }),
       ]
     }
 
@@ -1169,6 +1616,9 @@ export const register: Register = (on, options) => {
 
     // The end-to-end checklist: each scenario on a row with how it stands, why under it, and its steps when opened
     const e2eBody = () => {
+      const planned = scenariosHeld.length
+      // Of the app that is picked, as the logs are
+      const checklist = suitesOf(scenariosHeld, picked)
       const { label, tone } = tally(checklist)
       const isRunning = isUnderWay(checklist)
       const undone = checklist.filter(({ state }) => state === 'failed' || state === 'blocked').map(({ id }) => id)
@@ -1180,12 +1630,12 @@ export const register: Register = (on, options) => {
       return [
         <Box key="e2e-actions" flexDirection="row" gap={2}>
           <Button key="e2e-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_PROMPT })}>
-            {actionLabel({ text: checklist.length === 0 ? 'Plan' : 'Plan again', primary: checklist.length === 0 })}
+            {actionLabel({ text: planned === 0 ? 'Plan' : 'Plan again', primary: planned === 0 })}
           </Button>
           {...(checklist.length === 0 || isRunning
             ? []
             : [
-                <Button key="e2e-run" hotkey="g" onPress={() => runScenarios($, [], asked.port)}>
+                <Button key="e2e-run" hotkey="g" onPress={() => runScenarios($, picked === '' ? [] : checklist.map(({ id }) => id), asked.port)}>
                   {actionLabel({ text: 'Run all', primary: undone.length === 0 })}
                 </Button>,
               ])}
@@ -1212,7 +1662,7 @@ export const register: Register = (on, options) => {
             : [])}
         </Box>,
         ...(checklist.length === 0
-          ? [tonedText({ text: HOW_TO_PLAN, tone: 'neutral', wrap: true })]
+          ? [tonedText({ text: planned === 0 ? HOW_TO_PLAN : `No scenario is done on ${picked}: the checklist has ${planned} for the other apps.`, tone: 'neutral', wrap: true })]
           : [
               badge({ label, tone }),
               // A scenario a tree of its own, so that one that failed has its button under it
@@ -1239,8 +1689,11 @@ export const register: Register = (on, options) => {
       ]
     }
 
-    // The unit test suites: each a command on a row with how it last exited, run one by one or all at once
+    // The unit test suites: each a command on a row with how it last exited and the tests it ran under it, run one
+    // by one or all at once
     const unitBody = () => {
+      // Of the app that is picked, as the logs are
+      const named = suitesOf(suitesHeld, picked)
       const { label, tone } = tally(named)
       const isRunning = isUnderWay(named)
       const undone = named.filter(({ state }) => state === 'failed' || state === 'blocked').map(({ id }) => id)
@@ -1250,13 +1703,13 @@ export const register: Register = (on, options) => {
       return [
         <Box key="unit-actions" flexDirection="row" gap={2}>
           <Button key="unit-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_UNIT_PROMPT })}>
-            {actionLabel({ text: named.length === 0 ? 'Plan' : 'Plan again', primary: named.length === 0 })}
+            {actionLabel({ text: suitesHeld.length === 0 ? 'Plan' : 'Plan again', primary: suitesHeld.length === 0 })}
           </Button>
           {...(named.length === 0
             ? []
             : [
-                <Button key="unit-run" hotkey="g" onPress={() => runSuites($, [])}>
-                  {actionLabel({ text: 'Run all', primary: undone.length === 0 && !isRunning })}
+                <Button key="unit-run" hotkey="g" onPress={() => runSuites($, picked === '' ? [] : named.map(({ id }) => id))}>
+                  {actionLabel({ text: picked === '' ? 'Run all' : `Run all of ${picked}`, primary: undone.length === 0 && !isRunning })}
                 </Button>,
               ])}
           {...(undone.length === 0 || isRunning
@@ -1275,7 +1728,7 @@ export const register: Register = (on, options) => {
               ])}
         </Box>,
         ...(named.length === 0
-          ? [tonedText({ text: HOW_TO_PLAN_UNIT, tone: 'neutral', wrap: true })]
+          ? [tonedText({ text: suitesHeld.length === 0 ? HOW_TO_PLAN_UNIT : `No suite tests ${picked}: the list has ${suitesHeld.length} for the other apps.`, tone: 'neutral', wrap: true })]
           : [
               badge({ label, tone }),
               ...suiteTree(named, open).flatMap((node, index) => {
@@ -1294,7 +1747,7 @@ export const register: Register = (on, options) => {
                     : []),
                 ]
               }),
-              tonedText({ text: 'A row opens on its command and on the end of what it printed.', tone: 'neutral', wrap: true }),
+              tonedText({ text: 'Under a suite, the tests it ran, read off what it printed. A row opens on its command and on the end of that.', tone: 'neutral', wrap: true }),
             ]),
       ]
     }
@@ -1309,8 +1762,8 @@ export const register: Register = (on, options) => {
 
       return [
         <Box key="tests-as" flexDirection="row" gap={2}>
-          {as('e2e', 'E2E', '1', checklist)}
-          {as('unit', 'Unit tests', '2', named)}
+          {as('e2e', 'E2E', '1', suitesOf(scenariosHeld, picked))}
+          {as('unit', 'Unit tests', '2', suitesOf(suitesHeld, picked))}
         </Box>,
         ...(testing === 'unit' ? unitBody() : e2eBody()),
       ]
@@ -1380,32 +1833,27 @@ export const register: Register = (on, options) => {
             {tab('env', 'Env', 'v')}
             {tab('renders', 'Renders', 'c')}
             {tab('tests', 'Tests', 'x')}
+            {...(list.some(({ label }) => factsOf(label).broker !== undefined) ? [tab('broker', 'Broker', 'b')] : [])}
+            {...(list.some(({ label }) => factsOf(label).database !== undefined) ? [tab('database', 'Database', 'q')] : [])}
           </Box>,
           ...(list.length === 0
             ? showing === 'tests'
               ? [divider(), ...testsBody()]
               : [tonedText({ text: HOW_TO_ATTACH, tone: 'neutral', wrap: true })]
             : [
-                table({
-                  columns: [
-                    { header: 'App', width: 12 },
-                    { header: 'Runs on', width: 10 },
-                    { header: 'State' },
-                    { header: 'CPU', width: 6 },
-                    { header: 'Memory', width: 16 },
-                    { header: 'Errors', width: 11 },
-                  ],
-                  rows,
-                }),
+                // One table where all are apps; else the apps, the brokers and the databases each under their name
+                ...(sections.length === 1 && sections[0]?.kind === 'app'
+                  ? sections.map(tableOf)
+                  : sections.flatMap(section => [tonedText({ text: `${section.many[0]?.toUpperCase()}${section.many.slice(1)}`, bold: true }), tableOf(section)])),
                 ...(list.length > 1
                   ? [
                       <Box key="filter" flexDirection="row" gap={2}>
-                        {[filter('', 'all'), ...list.map(({ label }) => filter(label, label))]}
+                        {[filter('', 'all'), ...sections.flatMap(({ members }) => members).map(({ label }) => filter(label, label))]}
                       </Box>,
                     ]
                   : []),
                 divider(),
-                ...(showing === 'env' ? envBody() : showing === 'renders' ? rendersBody() : showing === 'tests' ? testsBody() : logsBody()),
+                ...(showing === 'env' ? envBody() : showing === 'renders' ? rendersBody() : showing === 'tests' ? testsBody() : showing === 'broker' ? brokerBody() : showing === 'database' ? databaseBody() : logsBody()),
               ]),
         ],
       }),

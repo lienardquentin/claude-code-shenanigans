@@ -2,7 +2,8 @@ import type { Attachment, EnvVar, Health, RuntimeId } from '../types'
 import { redactVar } from './lines'
 
 // Every runtime's command lines and its reading of what they print live here: no `docker` and no `kubectl` is
-// written outside this module. palantir only reads: nothing here restarts, execs into or changes what it watches.
+// written outside this module. palantir only reads: nothing here restarts or changes what it watches, and the one
+// thing run inside it is a broker's own command line, asked what the broker holds.
 
 export const RUNTIME_NAME: Record<RuntimeId, string> = {
   local: 'local',
@@ -357,4 +358,33 @@ export const readTop = (stdout: string, status: string): Measure | undefined => 
       .filter(cells => cells.length >= 3)
       .map(([, cpu = '', memory = '']) => ({ cpu: coresPercent(cpu), memory: bytesOf(memory), limit, processes: 1 })),
   )
+}
+
+/**
+ * The images an attachment runs, read off what its status command printed: a container's, each container's of a
+ * compose service, each container's of a workload's pods. What a thing is (a broker, say) is told by them.
+ */
+export const imagesOf = (runtime: RuntimeId, stdout: string): string[] => {
+  if (runtime === 'docker') return [word(record(record(list(parsed(stdout))[0]).Config).Image)].filter(image => image !== '')
+  if (runtime === 'compose') return composeRows(stdout).map(row => word(row.Image)).filter(image => image !== '')
+  if (runtime === 'kubernetes') return list(podSpec(record(parsed(stdout))).containers).map(container => word(record(container).image)).filter(image => image !== '')
+
+  return []
+}
+
+/**
+ * The command that runs `argv` inside the attachment and prints what it printed: only ever a command that reads.
+ * `undefined` for what has no inside to run it in: a log file.
+ */
+export const execArgv = ({ runtime, ref }: Attachment, argv: readonly string[]): readonly string[] | undefined => {
+  if (runtime === 'docker') return ['docker', 'exec', ref, ...argv]
+  if (runtime === 'compose') return ['docker', 'compose', 'exec', '-T', ref, ...argv]
+
+  if (runtime === 'kubernetes') {
+    const workload = workloadOf(ref)
+
+    return workload === undefined ? undefined : ['kubectl', ...workload.context, 'exec', '-n', workload.namespace, workload.target, '--', ...argv]
+  }
+
+  return undefined
 }

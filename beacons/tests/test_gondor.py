@@ -2,7 +2,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gondor import realm
+from gondor import archive, realm
 from gondor.app import app as gondor
 from rohan.app import app as rohan
 
@@ -70,6 +70,44 @@ def test_quench_puts_them_all_out_and_counts(client):
 
     assert client.post("/beacons/quench").json() == {"quenched": 2}
     assert not any(b["lit"] for b in client.get("/beacons").json())
+
+
+def test_with_no_database_what_burns_is_kept_in_memory(client):
+    assert archive.archivists is None
+
+    client.post("/beacons/nardol/light")
+
+    assert realm.lit == {"nardol"}
+
+
+def test_the_archives_shut_is_a_503_the_realm_survives(client, monkeypatch):
+    async def shut() -> set[str]:
+        raise archive.Shut("the archives are shut, and none can say what burns")
+
+    monkeypatch.setattr(archive, "burning", shut)
+
+    answer = client.get("/beacons")
+
+    assert answer.status_code == 503
+    assert answer.json() == {"detail": "the archives are shut, and none can say what burns"}
+    assert client.get("/health").status_code == 200
+
+
+def test_a_lighting_is_written_before_the_next_beacon_is_named(client, monkeypatch):
+    kept = []
+
+    async def keep(beacon: str) -> None:
+        kept.append(beacon)
+
+    monkeypatch.setattr(archive, "keep", keep)
+
+    # Halifirien has no next beacon and fails; its fire was written all the same
+    with TestClient(gondor, raise_server_exceptions=False) as failing:
+        failing.post("/beacons/halifirien/light")
+
+    client.post("/beacons/amon-din/light")
+
+    assert kept == ["halifirien", "amon-din"]
 
 
 def test_palantiri_are_listed_sorted(client):

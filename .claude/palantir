@@ -5,12 +5,20 @@ gondor=k8s:k3d-beacons/beacons/deployment/gondor@beacons/gondor
 rohan=k8s:k3d-beacons/beacons/deployment/rohan@beacons/rohan
 riders=k8s:k3d-beacons/beacons/deployment/riders@beacons/riders
 anor=k8s:k3d-beacons/beacons/deployment/anor@beacons/anor
+# The broker Gondor's tidings go through. palantir tells it for one by its image, and asks its own rpk for the topics
+# and the consumer groups; the one file an edit counts against it for is the one it is deployed from.
+redpanda=k8s:k3d-beacons/beacons/deployment/redpanda@charts/beacons/templates/redpanda.yaml
+# The database Gondor keeps what burns in. palantir tells it for one by its image too, and asks its own psql for the
+# sessions and the tables.
+postgres=k8s:k3d-beacons/beacons/deployment/postgres@charts/beacons/templates/postgres.yaml
 
 # Or, as the services of compose.yaml at the root (docker compose up --build -d):
 # gondor=compose:gondor@beacons/gondor
 # rohan=compose:rohan@beacons/rohan
 # riders=compose:riders@beacons/riders
 # anor=compose:anor@beacons/anor
+# redpanda=compose:redpanda@compose.yaml
+# postgres=compose:postgres@compose.yaml
 
 # Or, with the realms started by hand (uv run --project beacons python beacons/muster.py), these watch their logs,
 # label=runtime:ref@root#port, the port the one it listens on, which is how what it consumes is measured.

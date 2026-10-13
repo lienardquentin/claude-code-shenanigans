@@ -1,6 +1,6 @@
 # The Beacons of Gondor
 
-Two small FastAPI services, a Nuxt frontend and the riders between them: something that runs, logs and breaks, for the `palantir`
+Two small FastAPI services, a Nuxt frontend, the riders between them, a broker and a database: something that runs, logs and breaks, for the `palantir`
 mod to watch. Nothing here is meant to be useful; every part of it is there to show one thing the mod does.
 
 | Part | What it is | Port | Its log |
@@ -9,6 +9,8 @@ mod to watch. Nothing here is meant to be useful; every part of it is there to s
 | `rohan` | Answers the Red Arrow and musters what spears it has | 8102 | logfmt |
 | `anor` | The Steward's stone: a Nuxt page, drawn with Nuxt UI, that lights beacons, gazes and sends the Red Arrow through its own server, over a map of Middle-earth | 8100 | JSON lines as pino writes them, among Nuxt's own |
 | `riders` | Ride to Gondor's door about once a second, one in four by way of Anor, so there is always something being logged | none | plain lines |
+| `postgres` | Gondor's archives, a PostgreSQL: which beacons burn (`burning`) and every lighting there was (`lightings`), each under the id of the request that lit it. In containers and in the cluster only | 5432, inside only | its own |
+| `redpanda` | The broker, one node that speaks Kafka's protocol: Gondor writes a record to `beacons.lit` for each beacon lit, and Rohan's watchers read them as the group `rohan-watchers`. In containers and in the cluster only | 9092, inside only | its own |
 
 ## Run it
 
@@ -34,8 +36,12 @@ docker compose up --build
 From the repo's root, where [`compose.yaml`](../compose.yaml) is. One image each for Gondor, Rohan, Anor (a production
 Nuxt build) and the riders; they find each other by service name and start in that order, on health checks. The ports
 are the same as above, published on the loopback only, so this and `muster.py` do not run together. Everything is said
-on stdout: `docker compose logs -f`. `RED_ARROW`, `NUXT_STEWARD_SEAL_SECRET`, `NUXT_PUBLIC_MAPBOX_TOKEN` and
-`RIDERS_PACE` are read from the shell or a `.env` beside `compose.yaml`.
+on stdout: `docker compose logs -f`. `RED_ARROW`, `NUXT_STEWARD_SEAL_SECRET`, `NUXT_PUBLIC_MAPBOX_TOKEN`, `POSTGRES_PASSWORD`,
+`RIDERS_PACE` and `WATCH_PACE` are read from the shell or a `.env` beside `compose.yaml`. The broker is a fifth
+container, `redpanda`, which the realms reach by name; `muster.py` starts none, and the realms it starts send and
+read no tidings unless `KAFKA_BROKERS` names one. The database is a sixth, `postgres`, which Gondor alone reaches
+and which keeps nothing when its container goes; `muster.py` starts none either, and the Gondor it starts keeps what
+burns in its own memory unless `DATABASE_URL` names one.
 
 ### In a cluster
 
@@ -47,14 +53,15 @@ devspace deploy
 From the repo's root, where [`devspace.yaml`](../devspace.yaml) is, with [k3d](https://k3d.io), `kubectl`, `helm` and
 [devspace](https://www.devspace.sh). The first line makes a one-node k3d cluster; the second builds the four images,
 pushes them to a registry it keeps in the cluster, and installs the chart in [`charts/beacons`](../charts/beacons): a
-Deployment each, a Service for all but the riders, the two secrets in a Secret. The ports are the same as above,
+Deployment each, a Service for all but the riders, the secrets in a Secret, and the broker and the database as a
+Deployment each of their own, pulled as they are. The ports are the same as above,
 published on the loopback only by the cluster's load balancer, with no port-forward to keep running; so
 `ANOR_PORT=8110 GONDOR_PORT=8111 ROHAN_PORT=8112 devspace run cluster-up` makes the cluster with others when the
 containers above are up. `kubectl logs -f deploy/gondor` is what a realm says, `devspace purge` takes
 the release away, and `devspace run cluster-down` the cluster.
 
-[`.claude/palantir`](../.claude/palantir) names these four services; its lines for the logs of `muster.py` are kept
-there as comments, for running the realms by hand.
+[`.claude/palantir`](../.claude/palantir) names these four services, the broker and the database; its lines for the logs of
+`muster.py` are kept there as comments, for running the realms by hand.
 
 ## Gondor's endpoints
 
@@ -99,6 +106,8 @@ Anor holds itself ([`anor/app/utils/geography.ts`](anor/app/utils/geography.ts))
 - **Théoden hesitates** on one errand in five: a slow answer and a warning.
 - **The page cannot read a refusal.** Ask for 9,000 spears in Anor: Rohan refuses, and the form reads the refusal
   as if Rohan rode. A `TypeError` in the browser, which the page reports and Anor logs with its stack.
+- **Halifirien burns all the same.** Its fire is written to the archives before Gondor looks for the next beacon,
+  so the lighting that failed is in `lightings` and the beacon shows lit.
 - **Both realms log the Red Arrow**, a bearer token, in clear. It is a stand-in, logged so that a watcher of the
   logs has something to hide.
 
@@ -133,3 +142,33 @@ Anor holds itself ([`anor/app/utils/geography.ts`](anor/app/utils/geography.ts))
    seconds, and every lamp renders each time, lit or not. The view is a tree under each component, with the value
    each state and prop held (`t`), or the page's own elements as they stand (`d`).
 10. **A realm that falls silent.** Stop the launcher: within two minutes the pane says each log is quiet.
+11. **What goes through the broker.** In containers or in the cluster, the pane draws the broker in a table of
+    its own, apart from the four apps. `b` opens its view, where `beacons.lit` pressed opens on its last messages;
+    or ask Claude "do Rohan's watchers keep up" (`mcp__palantir__broker`): the topic, the group, and how many
+    records wait. "What did Gondor last send" reads the last records of `beacons.lit`, each under the id of the
+    request that lit the beacon, which is in Gondor's log and in Rohan's too. Then break it, with `kubectl -n beacons` in the cluster, or `docker
+    compose` with `stop`, `start` and `exec` in containers:
+
+    | Do this | What palantir says |
+    | --- | --- |
+    | `scale deploy/rohan --replicas=0` | The lag grows and nothing is taken; ten seconds on, the group is `Empty`, nobody reads, and a toast says so |
+    | `echo not-json \| kubectl -n beacons exec -i deploy/redpanda -- rpk topic produce beacons.lit` | Rohan logs the same error every five seconds, and the lag is stuck behind that record. To move the group past it: scale Rohan to 0, wait until the group is `Empty`, `rpk group seek rohan-watchers --to end` in the broker, and scale Rohan back |
+    | `watchPace: "3"` in the chart's values, or `WATCH_PACE=3` for compose | Rohan takes a record every three seconds: the lag climbs, but something is taken, so it is slow and not stuck |
+    | `scale deploy/rohan --replicas=3` | The group is rebalancing, then `Stable` with 3 members |
+    | `scale deploy/redpanda --replicas=0` | The broker is down, could not be asked, and Gondor logs each tidings lost on the road |
+    | Rename `beacon` in what `gondor/tidings.py` sends | Rohan cannot read the tidings: the lag is said against what it was before the edit, on the broker, though the errors are Rohan's and the edit Gondor's |
+12. **What the database holds.** In containers or in the cluster, the pane draws the database in a table of its
+    own too, with its sessions of those it lets in. `q` opens its view, where `lightings` pressed opens on its last
+    rows; or ask Claude "was the lighting of Nardol written" (`mcp__palantir__database`): the sessions by what they
+    do and by the app that opened them, the tables, and with `table` the last rows, each under the id of the
+    request that lit the beacon, which is in Gondor's log and on the broker too. palantir asks the database's own
+    `psql`, with writing turned off. The view has a field, Ask Claude: a question typed there ("which beacon was
+    lit most often?") is handed to Claude, which answers it with a SELECT of its own through the same tool. Then break it, with `kubectl -n beacons` in the cluster, or `docker compose`
+    with `stop`, `start` and `exec` in containers:
+
+    | Do this | What palantir says |
+    | --- | --- |
+    | `kubectl -n beacons exec -it deploy/postgres -- psql -U gondor beacons`, then `BEGIN; LOCK TABLE burning;` and leave it open | Gondor's sessions wait for a lock held by that one, each with its statement, and a toast says so; half a minute on, the session that holds it is said idle in an open transaction. Gondor answers 503 once no session of its four is free. `ROLLBACK;` lets them through |
+    | `scale deploy/postgres --replicas=0` | The database is down, could not be asked, and Gondor logs that the archives are shut at every request, the page's own every three seconds among them |
+    | `scale deploy/postgres --replicas=1` after that | Gondor finds it again by itself. The tables are gone with the pod: the first request fails on `UndefinedTable`, Gondor puts up its shelves again, and no beacon burns |
+    | `scale deploy/gondor --replicas=3` | Twelve sessions by the app `gondor`, and the three agree on what burns, which they did not while each kept it in memory |

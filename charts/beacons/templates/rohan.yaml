@@ -22,6 +22,10 @@ spec:
             - name: RED_ARROW
               valueFrom:
                 secretKeyRef: { name: beacons, key: RED_ARROW }
+            - name: KAFKA_BROKERS
+              value: redpanda:9092
+            - name: WATCH_PACE
+              value: {{ .Values.watchPace | quote }}
           ports:
             - name: http
               containerPort: 8102

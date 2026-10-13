@@ -18,8 +18,11 @@ class JsonLines(logging.Formatter):
             "msg": record.getMessage(),
         }
 
-        if request_id.get():
-            line["rid"] = request_id.get()
+        # A line written outside a request (a record's fate, told on the herald's thread) names its own
+        rid = getattr(record, "rid", "") or request_id.get()
+
+        if rid:
+            line["rid"] = rid
 
         text = json.dumps(line, ensure_ascii=False)
 

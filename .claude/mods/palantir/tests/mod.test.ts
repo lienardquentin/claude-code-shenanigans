@@ -2,11 +2,14 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { composeAttachments, parseList, routed } from '../hooks/attach'
+import { brokerKind, kindOf, matching, peekArgv, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor } from '../hooks/broker'
+import { askPrompt, byApp, byState, isPostgres, querySql, psqlArgv, readHolds, readRows, rowsSql, settleDatabase, sizeText } from '../hooks/database'
 import { fixPrompt, planned, verdictOf } from '../hooks/e2e'
 import { absorb, EMPTY_WATCH, fresh, read, redact, signatureOf } from '../hooks/lines'
 import { localUsage, readEnvFile, readWindowsProbe } from '../hooks/local'
 import { rendersSinceText } from '../hooks/report'
 import { readHealth } from '../hooks/runtime'
+import { casesOf, endedSuite, plannedSuites, suitesOf, suiteTree, unitText } from '../hooks/unit'
 import { marked } from '../hooks/watch'
 
 type On = Parameters<TestBody>[1]
@@ -40,6 +43,10 @@ type World = {
   processes: string
   /** What the script that asks the browser's tabs prints; node is not found when it is empty. */
   browser: string
+  /** What a broker's `rpk` prints inside it, by the two words after `rpk`: `topic describe`, `group describe`, `topic consume`. */
+  rpk: Record<string, string>
+  /** What a database's `psql` prints inside it: `holds` for what it holds, `rows` for the rows of a table. */
+  psql: Record<string, string>
   /** The folder the session says it is in: it follows the shell. */
   cwd: string
 }
@@ -61,7 +68,7 @@ const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '
 /** Stands for the machine beneath the mod: its files, and what `docker` and `kubectl` answer. */
 const machine = (on: On, given: Partial<World> = {}) => {
   // A copy: a test that has an app write more leaves the next test's world as given
-  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', cwd: CWD, ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
+  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', rpk: {}, psql: {}, cwd: CWD, ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
   const runs: string[] = []
   const toasts: string[] = []
 
@@ -82,6 +89,18 @@ const machine = (on: On, given: Partial<World> = {}) => {
     const name = argv[argv.length - 1] ?? ''
 
     runs.push(line)
+
+    if (argv.includes('rpk')) {
+      const asked = argv.slice(argv.indexOf('rpk') + 1, argv.indexOf('rpk') + 3).join(' ')
+
+      return asked in world.rpk ? exited(0, world.rpk[asked]) : exited(1, '', 'unable to dial: connection refused')
+    }
+
+    if (argv.some(arg => arg.startsWith('exec psql '))) {
+      const asked = name.startsWith('SELECT row_to_json') ? 'rows' : 'holds'
+
+      return asked in world.psql ? exited(0, world.psql[asked]) : exited(2, '', 'psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed')
+    }
 
     if (line.startsWith('docker compose config')) {
       const services = Object.fromEntries(
@@ -1086,6 +1105,52 @@ describe('the end-to-end checklist', () => {
     expect(await ask($, 'pane')).toMatch(/\[E2E\]\*[\s\S]*No scenario yet/)
   })
 
+  test('reads the tests of a suite off what its command printed, a line a test', () => {
+    const pytest = ['collecting ... collected 3 items', '', 'tests/test_rohan.py::test_health PASSED                                  [ 33%]', 'tests/test_rohan.py::test_one_spear_too_many_is_refused FAILED [ 66%]', 'tests/test_rohan.py::TestKing::test_doubt SKIPPED (no king) [100%]', 'FAILED tests/test_rohan.py::test_one_spear_too_many_is_refused - assert 200 == 409'].join('\n')
+
+    expect(casesOf(pytest)).toEqual([
+      { name: 'test_rohan.py > test_health', state: 'passed', ms: 0 },
+      { name: 'test_rohan.py > test_one_spear_too_many_is_refused', state: 'failed', ms: 0 },
+      { name: 'test_rohan.py > TestKing > test_doubt', state: 'skipped', ms: 0 },
+    ])
+
+    const vitest = [' RUN  v3.2.7 /app', '', ' \u001B[32m✓\u001B[39m tests/names.test.ts > named > writes a stone too 9ms', ' × tests/names.test.ts > reasonOf > falls back 12ms', '   → expected 1 to be 2', ' ↓ tests/realm.test.ts > useRide > is shared', ' ✓ tests/herald.test.ts (6 tests) 22ms', ' Test Files  1 failed (3)'].join('\n')
+
+    expect(casesOf(vitest)).toEqual([
+      { name: 'names.test.ts > named > writes a stone too', state: 'passed', ms: 9 },
+      { name: 'names.test.ts > reasonOf > falls back', state: 'failed', ms: 12 },
+      { name: 'realm.test.ts > useRide > is shared', state: 'skipped', ms: 0 },
+    ])
+
+    expect(casesOf('--- PASS: TestMuster (0.02s)\n--- FAIL: TestArrow (1.50s)\nnot ok 3 - rides\nok 4 - waits # SKIP no horse').map(({ name, state, ms }) => `${name} ${state} ${ms}`)).toEqual(['TestMuster passed 20', 'TestArrow failed 1500', 'rides failed 0', 'waits skipped 0'])
+    expect(casesOf('2 passed in 0.31s')).toEqual([])
+  })
+
+  test('lists the tests under their suite, and shows the suites of the app that is picked', () => {
+    const { suites: planned } = plannedSuites(
+      {
+        suites: [
+          { name: 'api', command: ['pytest', '-v'], target: 'api' },
+          { name: 'web', command: ['npm', 'test'], target: 'web' },
+        ],
+      },
+      ['api', 'web'],
+    )
+    const [api, web] = planned
+    const ran = [endedSuite(api!, { exitCode: 1, stdout: 't/test_a.py::test_one PASSED [ 50%]\nt/test_a.py::test_two FAILED [100%]', stderr: '' }, 1200), web!]
+
+    expect(suitesOf(ran, 'web').map(({ name }) => name)).toEqual(['web'])
+    expect(suitesOf(ran, '').length).toBe(2)
+
+    const [row] = suiteTree(suitesOf(ran, 'api'), [])
+
+    expect(row?.meta).toBe('failed · 1/2 tests, 1 failed · 1s · api')
+    expect(row?.children?.map(({ label }) => label)).toEqual(['exit 1: t/test_a.py::test_two FAILED [100%]', '✓ test_a.py > test_one', '✗ test_a.py > test_two'])
+    // Claude is told which failed; every test of a suite when it asks for that one
+    expect(unitText(ran)).toMatch(/1\/2 tests, 1 failed\n {3}✗ test_a\.py > test_two\n/)
+    expect(unitText(ran, { id: '1' })).toMatch(/✓ test_a\.py > test_one\n {3}✗ test_a\.py > test_two/)
+  })
+
   test('adds scenarios after the ones held, which keep what came of them', () => {
     const first = planned([], PLAN, ['web']).scenarios.map(scenario => ({ ...scenario, state: 'passed' as const }))
     const { scenarios } = planned(first, { add: true, scenarios: [{ name: 'Log out', steps: 'Click "Log out"; Open /account', target: 'nowhere' }] }, ['web'])
@@ -1235,5 +1300,414 @@ describe('health', () => {
       readHealth('kubernetes', JSON.stringify({ kind: 'Pod', status: { phase: 'Running', containerStatuses: [{ restartCount: 7, ready: false, state: { waiting: { reason: 'CrashLoopBackOff' } } }] } })),
     ).toEqual({ state: 'down', detail: 'CrashLoopBackOff', restarts: 7 })
     expect(readHealth('kubernetes', JSON.stringify({ kind: 'Deployment', spec: { replicas: 2 }, status: { readyReplicas: 2 } }))).toMatchObject({ state: 'up', detail: '2/2 ready' })
+  })
+})
+
+// What rpk prints of one topic of one partition, and of the one group that reads it
+const described = (end: number) => JSON.stringify([
+  { summary: { name: '__consumer_offsets', internal: true }, partitions: [{ partition: 0, log_start_offset: 0, high_watermark: 40 }] },
+  { summary: { name: 'orders', internal: false }, configs: [], partitions: [{ partition: 0, log_start_offset: 2, high_watermark: end }] },
+])
+
+const grouped = (offset: number, end: number, members = 1) =>
+  JSON.stringify([{ group_name: 'billing', state: members > 0 ? 'Stable' : 'Empty', members, total_lag: end - offset, partitions: [{ partition: 0, current_offset: offset, log_start_offset: 2, log_end_offset: end, lag: end - offset, topic: 'orders' }] }])
+
+const BROKERED: Partial<World> = {
+  files: { [`${CWD}/compose.yaml`]: 'services: {}' },
+  services: { api: `${CWD}/api`, redpanda: '' },
+  status: { redpanda: JSON.stringify({ Service: 'redpanda', Name: 'app-redpanda-1', Image: 'redpandadata/redpanda:v26.2.4', State: 'running', Health: 'healthy', ExitCode: 0 }) },
+  rpk: { 'topic describe': described(12), 'group describe': grouped(12, 12) },
+}
+
+describe('a broker', () => {
+  test('is told by its image and asked what it holds: its topics, its groups and how far behind each is', async ($, on) => {
+    const { world, runs, toasts } = machine(on, BROKERED)
+
+    letEditsThrough(on)
+
+    const text = await ask($, 'broker')
+
+    expect(runs).toContain('docker compose exec -T redpanda rpk group describe -r .* --format json')
+    // Nothing is run inside what is no broker
+    expect(runs.some(run => run.includes('exec -T api'))).toBe(false)
+    expect(text).toMatch(/redpanda \(Redpanda\)/)
+    expect(text).toMatch(/orders: 1 partition, 10 records held, 12 written in all/)
+    expect(text).not.toMatch(/__consumer_offsets/)
+    expect(text).toMatch(/billing: Stable, 1 member, reads orders, lag 0$/m)
+    expect(await ask($, 'broker', { target: 'api' })).toMatch(/api is not a broker palantir reads/)
+
+    // An edit to the app that produces, then the group falls behind: said against how it stood, on the broker
+    await edit($, `${CWD}/api/src/orders.ts`)
+
+    world.rpk['topic describe'] = described(20)
+    world.rpk['group describe'] = grouped(12, 20)
+
+    const after = await ask($, 'broker')
+
+    expect(after).toMatch(/billing: Stable, 1 member, reads orders, lag 8 \(lag was 0 before the edit to api\/src\/orders\.ts\)/)
+    expect(after).toMatch(/orders\/0: read up to 12 of 20, 8 records waiting/)
+    expect(await ask($, 'status')).toMatch(/a Redpanda broker: 1 topic, 1 consumer group; behind: billing by 8; mcp__palantir__broker says more/)
+
+    // The consumer goes: told once
+    world.rpk['group describe'] = grouped(12, 20, 0)
+
+    expect(await ask($, 'broker')).toMatch(/billing: Empty, 0 members, reads orders, lag 8 \(nobody reads, lag was 0/)
+    await ask($, 'broker')
+    expect(toasts.filter(toast => toast === 'palantir: redpanda: the group billing has no member left, 8 records wait')).toHaveLength(1)
+  })
+
+  test('has the last records of a topic read as no group, the secrets out of them', async ($, on) => {
+    const { world, runs } = machine(on, BROKERED)
+    const sent = (offset: number, value: string) => JSON.stringify({ topic: 'orders', key: `o${offset}`, value, headers: [{ key: 'rid', value: `r${offset}` }], timestamp: NOW - 1000 * (12 - offset), partition: 0, offset }, null, 2)
+
+    world.rpk['topic consume'] = [sent(10, '{"total":40}'), sent(11, '{"total":7,"token":"Bearer abcdef123456"}')].join('\n')
+
+    const text = await ask($, 'broker', { topic: 'orders', limit: 2 })
+
+    // Asked for as many as there are, so that it ends by itself
+    expect(runs).toContain('docker compose exec -T redpanda rpk topic consume orders -o -2 -n 2')
+    expect(text).toMatch(/orders\/0@10 key=o10 \[rid=r10\] \{"total":40\}/)
+    expect(text).toMatch(/orders\/0@11 key=o11 \[rid=r11\]/)
+    expect(text).not.toMatch(/abcdef123456/)
+    expect(await ask($, 'broker', { topic: 'nope' })).toMatch(/redpanda has no topic nope/)
+
+    // Searched by what a record holds: a request id in its headers
+    const found = await ask($, 'broker', { topic: 'orders', grep: 'R11' })
+
+    expect(found).toMatch(/The last 1 record of orders on redpanda that hold R11/)
+    expect(found).not.toMatch(/key=o10/)
+  })
+
+  test('is shown in the pane, in a view of its own, where there is one', async ($, on) => {
+    const { world } = machine(on, BROKERED)
+
+    world.rpk['group describe'] = grouped(5, 12, 0)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'view-broker' })
+
+    expect(await pane.find({ text: /redpanda: Redpanda, asked at/ })).toBeDefined()
+    expect(await pane.find({ text: /billing/ })).toBeDefined()
+    expect(await pane.find({ text: /nobody reads/ })).toBeDefined()
+  })
+
+  test('opens a topic on its last messages in the pane, and closes it', async ($, on) => {
+    const { world, runs } = machine(on, BROKERED)
+
+    world.rpk['topic consume'] = JSON.stringify({ topic: 'orders', key: 'o11', value: '{"total":7,"password":"hunter2"}', headers: [{ key: 'rid', value: 'r11' }], timestamp: NOW - 1000, partition: 0, offset: 11 }, null, 2)
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'view-broker' })
+
+    expect(await pane.find({ text: /A topic opens on its last messages/ })).toBeDefined()
+
+    await pane.press({ key: 'topic-redpanda-orders' })
+
+    expect(runs).toContain('docker compose exec -T redpanda rpk topic consume orders -o -10 -n 10')
+    expect(await pane.find({ text: /orders: its last 1 message, oldest first/ })).toBeDefined()
+    expect(await pane.find({ text: /0@11/ })).toBeDefined()
+    expect(await pane.find({ text: /rid=r11/ })).toBeDefined()
+    expect(await pane.find({ text: /hunter2/ })).toBeUndefined()
+
+    // Read again with its broker, while the view is on it
+    const before = runs.filter(run => run.includes('topic consume')).length
+
+    await pane.press({ key: 'refresh' })
+
+    expect(runs.filter(run => run.includes('topic consume')).length).toBe(before + 1)
+
+    await pane.press({ key: 'topic-redpanda-orders' })
+
+    expect(await pane.find({ text: /its last 1 message/ })).toBeUndefined()
+  })
+
+  test('is shown apart from the apps and the databases, each kind under its name', async ($, on) => {
+    machine(on, {
+      ...BROKERED,
+      services: { api: `${CWD}/api`, redpanda: '', db: '' },
+      status: { ...BROKERED.status, db: JSON.stringify({ Service: 'db', Name: 'app-db-1', Image: 'postgres:17-alpine', State: 'running', Health: 'healthy', ExitCode: 0 }) },
+    })
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+
+    expect(await pane.find({ text: /1 app · 1 broker · 1 database · 0 down/ })).toBeDefined()
+    expect(await pane.find({ text: /^Apps$/ })).toBeDefined()
+    expect(await pane.find({ text: /^Brokers$/ })).toBeDefined()
+    expect(await pane.find({ text: /^Databases$/ })).toBeDefined()
+    expect(await pane.find({ text: /^PostgreSQL$/ })).toBeDefined()
+
+    const text = await ask($, 'status')
+
+    expect(text).toMatch(/^Apps:\napi \(Compose api\)/)
+    expect(text).toMatch(/\n\nBrokers:\nredpanda \(Compose redpanda\).*it runs Redpanda\n  a Redpanda broker: 1 topic/)
+    expect(text).toMatch(/\n\nDatabases:\ndb \(Compose db\).*it runs PostgreSQL/)
+  })
+
+  test('keeps what it last said, with why, when it does not answer', async ($, on) => {
+    const { world } = machine(on, BROKERED)
+
+    await ask($, 'broker')
+
+    world.rpk = {}
+
+    const text = await ask($, 'broker')
+
+    expect(text).toMatch(/It could not be asked \(unable to dial: connection refused\): what follows is what it last said\./)
+    expect(text).toMatch(/billing: Stable/)
+  })
+
+  test('is read off what its command line prints', () => {
+    expect(brokerKind(['docker.redpanda.com/redpandadata/redpanda:v26.2.4'])).toBe('redpanda')
+    expect(brokerKind(['redpandadata/console:latest'])).toBeUndefined()
+    expect(brokerKind(['apache/kafka:4.1.0'])).toBe('kafka')
+    expect(brokerKind(['beacons-gondor:latest'])).toBeUndefined()
+    expect(kindOf(['beacons-gondor:latest'])).toEqual({ kind: 'app', engine: '' })
+    expect(kindOf(['docker.io/library/postgres:17'])).toEqual({ kind: 'database', engine: 'PostgreSQL' })
+    expect(kindOf(['redpandadata/redpanda:v26.2.4'])).toEqual({ kind: 'broker', engine: 'Redpanda' })
+    // Nothing known of what it runs: it stays what it was
+    expect(kindOf([])).toBeUndefined()
+    expect(matching([{ partition: 0, offset: 1, at: 1, key: 'k', headers: 'rid=AB12', value: 'v' }], 'ab1')).toHaveLength(1)
+
+    expect(readTopics(described(12))).toEqual([{ name: 'orders', sizes: [10], end: 12 }])
+    expect(readGroups(grouped(-1, 3))[0]).toMatchObject({ name: 'billing', taken: 0, lag: 4, partitions: [{ topic: 'orders', partition: 0, offset: -1, end: 3, lag: 4 }] })
+    expect(readTopics('not json')).toEqual([])
+
+    // As many records as the partitions hold of the last ones, and no command for a topic that holds none
+    expect(peekArgv({ name: 'orders', sizes: [9, 0, 2], end: 11 }, 5)).toEqual(['rpk', 'topic', 'consume', 'orders', '-o', '-5', '-n', '7'])
+    expect(peekArgv({ name: 'orders', sizes: [0], end: 4 }, 5)).toBeUndefined()
+    expect(readRecords('{\n  "partition": 1,\n  "offset": 4,\n  "timestamp": 2,\n  "value": "b"\n}\n{\n  "partition": 0,\n  "offset": 9,\n  "timestamp": 1,\n  "value": "a"\n}\n').map(({ value }) => value)).toEqual(['a', 'b'])
+  })
+
+  test('says a group stuck when it has records waiting and has taken none for a while', () => {
+    const read = { topics: readTopics(described(20)), groups: readGroups(grouped(12, 20)) }
+    const first = settleBroker(undefined, read, 'redpanda', NOW).broker
+    // Nothing more marked as read half a minute later: the time it last took one is kept
+    const second = settleBroker(first, read, 'redpanda', NOW + 40_000).broker
+    const [group] = second.groups
+
+    expect(group?.movedAt).toBe(NOW)
+    expect(group === undefined ? 0 : stuckFor(group, NOW + 40_000)).toBe(40)
+    expect(group === undefined ? '' : standing(group, second, NOW + 40_000)).toBe('nothing taken for 40s')
+
+    // It takes one: it is slow, not stuck
+    const third = settleBroker(second, { ...read, groups: readGroups(grouped(13, 20)) }, 'redpanda', NOW + 45_000).broker
+
+    expect(third.groups[0] === undefined ? -1 : stuckFor(third.groups[0], NOW + 45_000)).toBe(0)
+  })
+})
+
+type SessionGiven = { pid: number; app?: string; state?: string; wait?: string; blockers?: number[]; seconds?: number; query?: string }
+
+// What psql prints of one database of two tables, and of the sessions given
+const holding = (sessions: SessionGiven[] = [{ pid: 40, app: 'api' }], max = 100) =>
+  JSON.stringify({
+    name: 'shop',
+    version: '18.0',
+    bytes: 8_388_608,
+    max,
+    sessions: sessions.map(({ pid, app = 'api', state = 'idle', wait = 'Client', blockers = [], seconds = 1, query = 'SELECT 1' }) => ({ pid, user: 'shop', app, state, wait, blockers, seconds, query })),
+    tables: [
+      { schema: 'audit', name: 'events', rows: 3, dead: 0, bytes: 16_384, scans: 1, lookups: 0, written: 3 },
+      { schema: 'public', name: 'orders', rows: 120, dead: 4, bytes: 65_536, scans: 9, lookups: 240, written: 131 },
+    ],
+  })
+
+const STORED: Partial<World> = {
+  files: { [`${CWD}/compose.yaml`]: 'services: {}' },
+  services: { api: `${CWD}/api`, db: '' },
+  status: { db: JSON.stringify({ Service: 'db', Name: 'app-db-1', Image: 'postgres:18-alpine', State: 'running', Health: 'healthy', ExitCode: 0 }) },
+  psql: { holds: holding() },
+}
+
+describe('a database', () => {
+  test('is told by its image and asked what it holds: its sessions and its tables', async ($, on) => {
+    const { world, runs, toasts } = machine(on, STORED)
+
+    const text = await ask($, 'database')
+
+    // Asked inside it, with writing turned off, and nothing run inside what is no database
+    expect(runs.some(run => run.startsWith('docker compose exec -T db sh -c exec psql ') && run.includes(' SET default_transaction_read_only = on SELECT json_build_object('))).toBe(true)
+    expect(runs.some(run => run.includes('exec -T api'))).toBe(false)
+    expect(text).toMatch(/^db \(PostgreSQL 18\.0\), database shop, 8\.0 MB, asked at/)
+    expect(text).toMatch(/Sessions: 1 of the 100 it lets in \(1 idle\); by app: api 1/)
+    expect(text).toMatch(/orders: about 120 rows, 64 kB, 4 dead, 131 rows written, read 9 times whole and 240 times by an index/)
+    expect(text).toMatch(/audit\.events: about 3 rows/)
+    expect(text).not.toMatch(/Waiting, idle/)
+    expect(await ask($, 'database', { target: 'api' })).toMatch(/api is not a database palantir reads/)
+    expect(await ask($, 'status')).toMatch(/a PostgreSQL database: shop, 2 tables, 1 of 100 sessions taken; none waiting; mcp__palantir__database says more/)
+
+    // One session holds a transaction open, and another waits for what it locked: each told once
+    world.psql.holds = holding([
+      { pid: 40, app: 'psql', state: 'idle in transaction', seconds: 45, query: 'LOCK TABLE orders' },
+      { pid: 41, state: 'active', wait: 'Lock', blockers: [40], seconds: 12, query: "UPDATE orders SET token = 'x' WHERE password = 'hunter2'" },
+    ])
+
+    const after = await ask($, 'database')
+
+    expect(after).toMatch(/pid 40 \(psql\): idle in transaction for 45s: LOCK TABLE orders/)
+    expect(after).toMatch(/pid 41 \(api\): active for 12s, waits for a lock held by pid 40: UPDATE orders/)
+    expect(after).not.toMatch(/hunter2/)
+    expect(await ask($, 'status')).toMatch(/1 waiting for a lock; 1 idle in an open transaction/)
+    await ask($, 'database')
+    expect(toasts.filter(toast => toast === 'palantir: db: pid 41 (api) waits for a lock held by pid 40')).toHaveLength(1)
+    expect(toasts.filter(toast => toast === 'palantir: db: pid 40 (psql) has held a transaction open and idle for 45s')).toHaveLength(1)
+  })
+
+  test('has the last rows of a table read, the secrets out of them, and only of a table it has', async ($, on) => {
+    const { world, runs } = machine(on, STORED)
+
+    // As psql prints them, the last first
+    world.psql.rows = ['{"id":12,"rid":"r12","total":7,"token":"Bearer abcdef123456"}', '{"id":11,"rid":"r11","total":40}'].join('\n')
+
+    const text = await ask($, 'database', { table: 'orders', limit: 2 })
+
+    expect(runs.some(run => run.endsWith('SELECT row_to_json(t) FROM (SELECT * FROM "public"."orders" ORDER BY ctid DESC LIMIT 2) t'))).toBe(true)
+    expect(text).toMatch(/The last 2 rows of orders on db, as they lie in the table, oldest first, secrets taken out:\n  \{"id":11.*\n  \{"id":12/)
+    expect(text).not.toMatch(/abcdef123456/)
+
+    // A name the database did not give is put in no statement
+    const before = runs.length
+
+    expect(await ask($, 'database', { table: 'orders"; DROP TABLE orders; --' })).toMatch(/db has no table orders"; DROP TABLE orders; --\./)
+    expect(runs.slice(before).some(run => run.includes('DROP'))).toBe(false)
+
+    const found = await ask($, 'database', { table: 'orders', grep: 'R11' })
+
+    expect(found).toMatch(/The last 1 row of orders on db that hold R11/)
+    expect(found).not.toMatch(/"id":12/)
+  })
+
+  test('is shown in the pane, in a view of its own, where a table opens on its last rows', async ($, on) => {
+    const { world, runs } = machine(on, STORED)
+
+    world.psql.holds = holding([{ pid: 41, state: 'active', wait: 'Lock', blockers: [40], seconds: 12, query: 'UPDATE orders SET total = 1' }])
+    world.psql.rows = '{"id":12,"rid":"r12","password":"hunter2"}'
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+
+    expect(await pane.find({ text: /1 app · 1 database · 0 down/ })).toBeDefined()
+    expect(await pane.find({ text: /^1\/100$/ })).toBeDefined()
+
+    await pane.press({ key: 'view-database' })
+
+    expect(await pane.find({ text: /db: PostgreSQL 18\.0, database shop, 8\.0 MB, asked at/ })).toBeDefined()
+    expect(await pane.find({ text: /waits for a lock held by pid 40/ })).toBeDefined()
+    expect(await pane.find({ text: /A table opens on its last rows/ })).toBeDefined()
+
+    await pane.press({ key: 'table-db-orders' })
+
+    expect(await pane.find({ text: /orders: its last 1 row, oldest first/ })).toBeDefined()
+    expect(await pane.find({ text: /"rid":"r12"/ })).toBeDefined()
+    expect(await pane.find({ text: /hunter2/ })).toBeUndefined()
+
+    // Read again with its database, while the view is on it
+    const before = runs.filter(run => run.includes('row_to_json')).length
+
+    await pane.press({ key: 'refresh' })
+
+    expect(runs.filter(run => run.includes('row_to_json')).length).toBe(before + 1)
+
+    await pane.press({ key: 'table-db-orders' })
+
+    expect(await pane.find({ text: /its last 1 row/ })).toBeUndefined()
+  })
+
+  test('runs one statement that reads for the model, and refuses anything else', async ($, on) => {
+    const { world, runs } = machine(on, STORED)
+
+    world.psql.rows = ['{"beacon":"nardol","times":4}', '{"beacon":"erelas","times":2,"token":"Bearer abcdef123456"}'].join('\n')
+
+    const text = await ask($, 'database', { sql: 'SELECT beacon, count(*) AS times FROM lightings GROUP BY 1 ORDER BY 2 DESC;' })
+
+    // Set inside a read of its rows, bounded, and in the order it gave them
+    expect(runs.some(run => run.endsWith("SET default_transaction_read_only = on; SET statement_timeout = '5s' SELECT row_to_json(t) FROM (SELECT beacon, count(*) AS times FROM lightings GROUP BY 1 ORDER BY 2 DESC\n) t LIMIT 20"))).toBe(true)
+    expect(text).toMatch(/^db answered 2 rows, each as JSON, secrets taken out:\n  \{"beacon":"nardol","times":4\}\n  \{"beacon":"erelas"/)
+    expect(text).not.toMatch(/abcdef123456/)
+
+    const before = runs.length
+
+    expect(await ask($, 'database', { sql: 'SELECT 1; DELETE FROM orders' })).toMatch(/Only one statement is run/)
+    expect(await ask($, 'database', { sql: 'DELETE FROM orders' })).toMatch(/Only a statement that reads is run/)
+    expect(runs.slice(before).some(run => run.includes('DELETE'))).toBe(false)
+
+    // What the database says of a statement it cannot run is handed back whole
+    world.psql = { holds: holding() }
+    expect(await ask($, 'database', { sql: 'SELECT nope FROM orders' })).toMatch(/db did not answer it: psql: error/)
+  })
+
+  test('hands a question typed in the pane to Claude, with the tables and how to answer it', async ($, on) => {
+    machine(on, STORED)
+
+    const prompts: string[] = []
+
+    on('prompt.submit', (_, e) => {
+      prompts.push(e.text)
+
+      return { text: e.text } as never
+    })
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'view-database' })
+    await pane.input({ key: 'database-ask', text: '  ' })
+    await pane.input({ key: 'database-ask', text: 'which order is the largest?' })
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toMatch(/^About the database palantir watches \(db: PostgreSQL, database shop, tables audit\.events, orders\):\n\nwhich order is the largest\?\n\nAnswer it by querying it with mcp__palantir__database \(target db\)/)
+  })
+
+  test('keeps what it last said, with why, when it does not answer', async ($, on) => {
+    const { world } = machine(on, STORED)
+
+    await ask($, 'database')
+
+    world.psql = {}
+
+    const text = await ask($, 'database')
+
+    expect(text).toMatch(/It could not be asked \(psql: error: connection to server on socket.*\): what follows is what it last said\./)
+    expect(text).toMatch(/orders: about 120 rows/)
+  })
+
+  test('is read off what its command line prints', () => {
+    expect(isPostgres(['docker.io/library/postgres:18-alpine'])).toBe(true)
+    expect(isPostgres(['pgvector/pgvector:pg17'])).toBe(true)
+    expect(isPostgres(['prometheuscommunity/postgres-exporter:latest', 'redis:8'])).toBe(false)
+
+    // The statement is an argument of its own: the shell reads none of it
+    expect(psqlArgv('SELECT 1').slice(-2)).toEqual(['SET default_transaction_read_only = on', 'SELECT 1'])
+    expect(readHolds('psql: error')).toBeUndefined()
+    expect(readHolds(holding())?.tables.map(({ name }) => name)).toEqual(['audit.events', 'orders'])
+    expect(rowsSql({ tables: readHolds(holding())?.tables ?? [] }, 'audit.events', 3)).toBe('SELECT row_to_json(t) FROM (SELECT * FROM "audit"."events" ORDER BY ctid DESC LIMIT 3) t')
+    expect(rowsSql({ tables: [] }, 'orders', 3)).toBeUndefined()
+    expect(readRows('{"id":2}\n{"id":1}\n')).toEqual(['{"id":1}', '{"id":2}'])
+    expect(sizeText(16_384)).toBe('16 kB')
+    expect(querySql('  TABLE orders -- all of it', 5)).toEqual({ sql: 'SELECT row_to_json(t) FROM (TABLE orders -- all of it\n) t LIMIT 5' })
+    expect(askPrompt([], 'x')).toMatch(/^About the databases palantir watches/)
+
+    const sessions = readHolds(holding([{ pid: 1 }, { pid: 2, app: '' }, { pid: 3, state: 'active' }]))?.sessions ?? []
+
+    expect(byState({ sessions })).toBe('2 idle, 1 active')
+    expect(byApp({ sessions })).toBe('api 2, unnamed 1')
+  })
+
+  test('says once that the sessions it lets in are nearly all taken', () => {
+    const full = readHolds(holding([{ pid: 1 }, { pid: 2 }, { pid: 3 }], 3))
+
+    if (full === undefined) throw new Error('not read')
+
+    const first = settleDatabase(undefined, full, 'db', NOW)
+
+    expect(first.said).toEqual(['palantir: db: 3 of the 3 sessions it lets in are taken'])
+    expect(settleDatabase(first.database, full, 'db', NOW + 5000).said).toEqual([])
   })
 })

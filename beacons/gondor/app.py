@@ -9,7 +9,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from . import realm
+from . import archive, realm, tidings
 from .chronicle import request_id, scribe
 
 ROHAN_URL = os.environ.get("ROHAN_URL", "http://127.0.0.1:8102")
@@ -25,8 +25,13 @@ async def realm_stands(app: FastAPI):
     async with httpx.AsyncClient(base_url=ROHAN_URL, timeout=5, trust_env=False) as road:
         app.state.rohan = road
         log.info("the White City wakes; the road to Rohan is %s", ROHAN_URL)
+        tidings.wake()
+        await archive.wake()
 
         yield
+
+        await archive.sleep()
+        tidings.sleep()
 
     log.info("the White City sleeps")
 
@@ -55,6 +60,11 @@ async def chronicle(request: Request, call_next):
     return response
 
 
+@app.exception_handler(archive.Shut)
+async def archives_shut(request: Request, failure: archive.Shut):
+    return JSONResponse({"detail": str(failure)}, status_code=503)
+
+
 @app.get("/health")
 async def health():
     return {"realm": "gondor", "stands": True}
@@ -62,7 +72,9 @@ async def health():
 
 @app.get("/beacons")
 async def beacons():
-    return [{"beacon": name, "lit": name in realm.lit} for name in realm.BEACONS]
+    burning = await archive.burning()
+
+    return [{"beacon": name, "lit": name in burning} for name in realm.BEACONS]
 
 
 @app.post("/beacons/{name}/light")
@@ -70,12 +82,19 @@ async def light(name: str):
     if name not in realm.BEACONS:
         raise HTTPException(404, f"no beacon is named {name}")
 
-    return realm.light(name)
+    # The fire is written down before anyone asks who is told of it
+    await archive.keep(name)
+
+    lit = realm.light(name)
+
+    tidings.send(name, str(lit["watch_next"]))
+
+    return lit
 
 
 @app.post("/beacons/quench")
 async def quench():
-    count = len(realm.lit)
+    count = await archive.quench()
 
     realm.lit.clear()
     log.info("the beacons are quenched, %s of them", count)

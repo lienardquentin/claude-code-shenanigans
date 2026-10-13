@@ -1,6 +1,8 @@
 import type { Action, Attachment, Browser, BrowserPage, Dom, DomElement, Facts, Level, Line, Render, Request, Usage, Vitals, Watch } from '../types'
 import { shown } from './attach'
 import { describeBrowser, IN_THE_PAGE } from './browser'
+import { brokerLine, KINDS } from './broker'
+import { databaseLine } from './database'
 import { json } from './kit/json'
 import type { TreeNode } from './kit/tree'
 import { clockTime, describeLine, EMPTY_WATCH, fresh } from './lines'
@@ -63,18 +65,36 @@ export const describeAttachment = ({ label, runtime, ref }: Attachment, watch: W
 
 type Known = Record<string, Facts>
 
-export const statusText = (attachments: readonly Attachment[], held: Held, known: Known = {}, browser?: Browser): string =>
-  attachments.length === 0
-    ? HOW_TO_ATTACH
-    : attachments
-        .map(attachment => {
-          const watch = held[attachment.label] ?? EMPTY_WATCH
-          // The last of its tabs is the one in view
-          const page = browser?.pages.filter(({ label }) => label === attachment.label).pop()
+export const statusText = (attachments: readonly Attachment[], held: Held, known: Known = {}, browser?: Browser, now = 0): string => {
+  if (attachments.length === 0) return HOW_TO_ATTACH
 
-          return [describeAttachment(attachment, watch, known[attachment.label]?.usage, page), ...unreadNow(watch, browser, attachment.label)].join('\n')
-        })
-        .join('\n')
+  const said = (attachment: Attachment): string => {
+    const watch = held[attachment.label] ?? EMPTY_WATCH
+    // The last of its tabs is the one in view
+    const page = browser?.pages.filter(({ label }) => label === attachment.label).pop()
+    const engine = known[attachment.label]?.engine ?? ''
+
+    return [
+      `${describeAttachment(attachment, watch, known[attachment.label]?.usage, page)}${engine === '' ? '' : `; it runs ${engine}`}`,
+      brokerLine(known[attachment.label]?.broker, now),
+      databaseLine(known[attachment.label]?.database),
+      ...unreadNow(watch, browser, attachment.label),
+    ]
+      .filter(line => line !== '')
+      .join('\n')
+  }
+
+  const sections = byKind(attachments, known)
+
+  // The apps, the brokers and the databases apart, each under its name, where they are not all apps
+  return sections.length === 1 && sections[0]?.kind === 'app'
+    ? attachments.map(said).join('\n')
+    : sections.map(({ many, members }) => [`${many[0]?.toUpperCase()}${many.slice(1)}:`, ...members.map(said)].join('\n')).join('\n\n')
+}
+
+/** The attachments parted by what they are, in the order the kinds are shown; a kind that has none is left out. */
+export const byKind = (attachments: readonly Attachment[], known: Known) =>
+  KINDS.map(named => ({ ...named, members: attachments.filter(({ label }) => (known[label]?.kind ?? 'app') === named.kind) })).filter(({ members }) => members.length > 0)
 
 /**
  * Said under an app whose page was read from the browser and is not now: what is shown of the page is what was last

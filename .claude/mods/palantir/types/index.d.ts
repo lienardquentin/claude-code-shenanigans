@@ -40,12 +40,170 @@ export type Usage = {
   note: string
 }
 
+/** A topic of a broker, its partitions as one. */
+export type Topic = {
+  name: string
+  /** The records each partition holds now, by its number: what was written to it less what it no longer keeps. */
+  sizes: number[]
+  /** How many records were ever written to it: its partitions' end offsets, added up. */
+  end: number
+}
+
+/** Where a consumer group stands on one partition it reads. */
+export type GroupPartition = {
+  topic: string
+  partition: number
+  /** The offset the group has marked as read; -1 when it has marked none. */
+  offset: number
+  /** The partition's end offset: where the next record written will stand. */
+  end: number
+  /** How many records wait to be read. */
+  lag: number
+}
+
+/** A consumer group of a broker: who reads its topics, and how far behind. */
+export type Group = {
+  name: string
+  /** As the broker says it: `Stable`, `Empty`, `PreparingRebalance`, `CompletingRebalance`, `Dead`. */
+  state: string
+  members: number
+  /** How many records wait to be read, over all its partitions. */
+  lag: number
+  partitions: GroupPartition[]
+  /** The offsets it has marked as read, added up: it moves when the group takes a record. */
+  taken: number
+  /** When `taken` last moved, or when the group was first read. */
+  movedAt: number
+}
+
+/** What a broker holds, as its own command line says it: an attachment that is one has it among its facts. */
+export type Broker = {
+  /** What it is, told by its image. A `kafka` is known for one and not read: only Redpanda's `rpk` is asked. */
+  kind: 'redpanda' | 'kafka'
+  /** When it was last asked, milliseconds since the epoch. */
+  at: number
+  /** Why there is nothing to say, or what could not be read; empty otherwise. */
+  note: string
+  topics: Topic[]
+  groups: Group[]
+  /** Each group's lag when the last edit was routed to any watched app, by the group's name. */
+  lagAtEdit?: Record<string, number>
+  /** The file of that edit, and when it was. */
+  editedPath?: string
+  editedAt?: number
+}
+
+/** One record of a topic as it is shown: the secrets out of its key, its headers and its value. */
+export type BrokerRecord = {
+  partition: number
+  offset: number
+  /** When it was written, milliseconds since the epoch. */
+  at: number
+  key: string
+  /** Its headers as `name=value`, parted by spaces. */
+  headers: string
+  value: string
+}
+
+/** The topic the pane's Broker view is open on, and its last records as they were last read. */
+export type Peek = {
+  /** The broker's label and the topic's name; both empty while no topic is open. */
+  label: string
+  topic: string
+  /** When the records were read, milliseconds since the epoch. */
+  at: number
+  /** Why there is no record to show; empty when there are some. */
+  note: string
+  records: BrokerRecord[]
+}
+
+/** One client's session on a database, as the database says it. */
+export type DbSession = {
+  pid: number
+  user: string
+  /** The name the client gave itself, where it gave one: `gondor`, `psql`. */
+  app: string
+  /** As the database says it: `active`, `idle`, `idle in transaction`, `idle in transaction (aborted)`. */
+  state: string
+  /** What kind of thing it waits for, where it waits: `Lock`, `Client`, `IO`. */
+  wait: string
+  /** The sessions that hold a lock it waits for, by pid; none for one that waits for no lock. */
+  blockers: number[]
+  /** How long it has been in its state, in seconds. */
+  seconds: number
+  /** Its last statement, the secrets taken out, cut to a line. */
+  query: string
+}
+
+/** A table of a database, with what the database counted of it. */
+export type DbTable = {
+  /** Its name, led by its schema where that is not `public`. */
+  name: string
+  /** How many rows it holds, as the database last counted: near the truth, not it. */
+  rows: number
+  /** The rows deleted or rewritten whose room is not taken back yet. */
+  dead: number
+  /** What it takes on disk, its indexes with it. */
+  bytes: number
+  /** How often it was read whole, and how often through an index. */
+  scans: number
+  lookups: number
+  /** The rows ever inserted, updated and deleted, added up. */
+  written: number
+}
+
+/** What a database holds, as its own command line says it: an attachment that is one has it among its facts. */
+export type Database = {
+  /** What it is, told by its image. Only PostgreSQL's `psql` is asked. */
+  engine: 'postgresql'
+  /** When it was last asked, milliseconds since the epoch. */
+  at: number
+  /** Why there is nothing to say, or what could not be read; empty otherwise. */
+  note: string
+  /** The one database read, which the image was started with; empty until it has answered once. */
+  name: string
+  version: string
+  bytes: number
+  /** How many sessions it lets in at once. */
+  max: number
+  /** Its clients' sessions on that database, palantir's own left out. */
+  sessions: DbSession[]
+  tables: DbTable[]
+}
+
+/** The table the pane's Database view is open on, and its last rows as they were last read. */
+export type Rows = {
+  /** The database's label and the table's name; both empty while no table is open. */
+  label: string
+  table: string
+  /** When the rows were read, milliseconds since the epoch. */
+  at: number
+  /** Why there is no row to show; empty when there are some. */
+  note: string
+  /** Each row as one JSON object, the secrets taken out, oldest first. */
+  rows: string[]
+}
+
+/**
+ * What an attachment is, told by the image it runs: a broker, a database, or an app, which is anything else and
+ * what a log file is taken for.
+ */
+export type Kind = 'app' | 'broker' | 'database'
+
 /** What palantir knows of an attachment besides what it wrote. */
 export type Facts = {
+  /** What it is; none until its status has been read, and it is shown among the apps till then. */
+  kind?: Kind
+  /** What it runs, for a broker or a database: `Redpanda`, `Kafka`, `PostgreSQL`. */
+  engine?: string
   env: EnvVar[]
   /** What the list is read from, or why it is empty. */
   envNote: string
   usage: Usage
+  /** What it holds, when it is a broker; none for anything else. */
+  broker?: Broker
+  /** What it holds, when it is a database palantir reads; none for anything else. */
+  database?: Database
 }
 
 /** One way a component came to render again: what changed, through what, down to the component. */
@@ -276,6 +434,15 @@ export type Scenario = {
   ms: number
 }
 
+/** One test of a suite, as the suite's command printed it. */
+export type Case = {
+  /** Its name as it was printed, the file it is in first. */
+  name: string
+  state: 'passed' | 'failed' | 'skipped'
+  /** How long it took, when the command said; 0 otherwise. */
+  ms: number
+}
+
 /** One unit test suite of the project: a command, read by how it exits. */
 export type Suite = {
   /** Its number in the list, which the tools and the pane name it by. */
@@ -292,6 +459,8 @@ export type Suite = {
   note: string
   /** The end of what it printed; empty until it has run. */
   output: string
+  /** The tests it ran, read off what it printed, a line a test; none until it has run, or when it names none. */
+  tests?: Case[]
   /** When it was started, milliseconds since the epoch; 0 before. */
   at: number
   /** How long it ran; 0 until it has ended. */
@@ -302,7 +471,7 @@ export type Suite = {
 export type TestsAs = 'e2e' | 'unit'
 
 /** What the pane shows under the table. */
-export type Shown = 'logs' | 'env' | 'renders' | 'tests'
+export type Shown = 'logs' | 'env' | 'renders' | 'tests' | 'broker' | 'database'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -333,6 +502,10 @@ declare module 'claude-code' {
       /** The unit test suites, in the order they were named. */
       suites: Suite[]
       testsAs: TestsAs
+      /** The topic the Broker view is open on, with its last records. */
+      peek: Peek
+      /** The table the Database view is open on, with its last rows. */
+      rows: Rows
     }
   }
 }
