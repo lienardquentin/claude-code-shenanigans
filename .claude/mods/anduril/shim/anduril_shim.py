@@ -8,7 +8,7 @@ that was a pipe or a file is a pipe. When the reader of a pipe leaves (`tool | h
 so it meets the broken pipe it would have met.
 
 Once the tool has exited, one JSON file is written under <dir>/runs: what was run, how it ended, how long it took,
-what it consumed, and the head of what it wrote to each stream. This exits as the tool did.
+what it consumed, and what it wrote to each stream: all of it, or its start and its end. This exits as the tool did.
 
     anduril_shim.py --dir DIR --label NAME --binary PATH -- ARGS...
 """
@@ -25,8 +25,10 @@ import sys
 import termios
 import time
 
-# What is kept of each stream: its first bytes. The rest is counted and dropped.
+# What is kept of each stream: all of it up to this many bytes, and past that its start and its end, half each.
+# A tool that fails says why at the end. What lies between is counted and dropped.
 KEPT_BYTES = 256 * 1024
+HALF = KEPT_BYTES // 2
 # How many records are kept: the oldest go once there are more.
 KEPT_RUNS = 500
 # The variables that change how a tool draws, written to the record when they are set.
@@ -98,9 +100,12 @@ def relay(sources):
                 del sources[fd]
                 continue
             stream["bytes"] += len(chunk)
-            room = KEPT_BYTES - len(stream["kept"])
-            if room > 0:
-                stream["kept"] += chunk[:room]
+            room = HALF - len(stream["head"])
+            stream["head"] += chunk[:room]
+            stream["tail"] += chunk[room:]
+            # Cut back now and then, not at every chunk
+            if len(stream["tail"]) > 4 * HALF:
+                del stream["tail"][:-HALF]
             try:
                 written = 0
                 while written < len(chunk):
@@ -109,6 +114,18 @@ def relay(sources):
                 # Whoever read us has left: the tool is told the same way, by its own pipe closing
                 os.close(fd)
                 del sources[fd]
+
+
+def kept(stream):
+    """What the record holds of a stream, as text: the whole, or its start and its end around what was dropped."""
+    head, tail = bytes(stream["head"]), bytes(stream["tail"][-HALF:])
+    dropped = stream["bytes"] - len(head) - len(tail)
+    if dropped <= 0:
+        return (head + tail).decode("utf-8", "replace")
+    # The end starts where the cut fell: not in the middle of a character
+    while tail and tail[0] & 0xC0 == 0x80:
+        tail = tail[1:]
+    return "%s\n… %d bytes not kept …\n%s" % (head.decode("utf-8", "replace"), dropped, tail.decode("utf-8", "replace"))
 
 
 def prune(runs):
@@ -144,8 +161,8 @@ def main():
         signal.signal(number, lambda received, _frame: os.kill(child.pid, received))
 
     streams = {
-        "stdout": {"to": 1, "kept": b"", "bytes": 0},
-        "stderr": {"to": 2, "kept": b"", "bytes": 0},
+        "stdout": {"to": 1, "head": bytearray(), "tail": bytearray(), "bytes": 0},
+        "stderr": {"to": 2, "head": bytearray(), "tail": bytearray(), "bytes": 0},
     }
     relay({out_ours: streams["stdout"], err_ours: streams["stderr"]})
 
@@ -192,8 +209,8 @@ def main():
         "env": {name: os.environ[name] for name in DRAWING_ENV if name in os.environ},
         "binary": binary,
         "builtAt": built_at,
-        "stdout": streams["stdout"]["kept"].decode("utf-8", "replace"),
-        "stderr": streams["stderr"]["kept"].decode("utf-8", "replace"),
+        "stdout": kept(streams["stdout"]),
+        "stderr": kept(streams["stderr"]),
         "stdoutBytes": streams["stdout"]["bytes"],
         "stderrBytes": streams["stderr"]["bytes"],
     }

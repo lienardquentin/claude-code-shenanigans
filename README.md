@@ -247,7 +247,8 @@ lives in [`.claude/mods/anduril`](.claude/mods/anduril), and [`narsil`](narsil) 
 - The tool runs as it would without the shim: a stream that was a terminal is still one for it, of the same size, so
   its colours and its width are its own, and `tool | head` breaks its pipe as it would have.
 - A record is what was run and where, by whom, the exit code or the signal, the tool's own duration, its processor
-  time and peak memory, whether each stream was a terminal, and the first 256 kB of stdout and of stderr, kept apart.
+  time and peak memory, whether each stream was a terminal, and what it wrote to stdout and to stderr, kept apart:
+  all of it up to 256 kB, and past that its start and its end.
   The last 500 are kept, as files under `.anduril/runs`; the folder ignores itself for git.
 - `/anduril` opens the pane: the runs newest first, `f` for the failed ones alone, a run pressed for what it wrote.
   It remarks on a run that sent colour down a pipe, failed without a word on stderr, or met a broken pipe.

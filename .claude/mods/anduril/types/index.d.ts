@@ -41,7 +41,10 @@ export type AndurilRun = {
   binary: string
   /** When the binary that ran was last written, milliseconds since the epoch: which build this was. */
   builtAt: number
-  /** The head of what it wrote to each stream; `stdoutBytes` and `stderrBytes` are the whole of it. */
+  /**
+   * What it wrote to each stream: all of it, or past 256 kB its start and its end with a line between saying what
+   * was dropped. `stdoutBytes` and `stderrBytes` count the whole.
+   */
   stdout: string
   stderr: string
   stdoutBytes: number
