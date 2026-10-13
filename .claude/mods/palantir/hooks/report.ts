@@ -81,15 +81,19 @@ const MAX_KINDS_SAID = 3
 export const statusText = (attachments: readonly Attachment[], held: Held, known: Known = {}, browser?: Browser, now = 0): string => {
   if (attachments.length === 0) return HOW_TO_ATTACH
 
+  const causes = causesOf(attachments, held, timeline(attachments, held))
+
   const said = (attachment: Attachment): string => {
     const watch = held[attachment.label] ?? EMPTY_WATCH
     // The last of its tabs is the one in view
     const page = browser?.pages.filter(({ label }) => label === attachment.label).pop()
     const engine = known[attachment.label]?.engine ?? ''
 
-    // Its kinds of error by name, the new ones first and then the last written: a count alone asks for another call
+    // Its kinds of error by name, the new ones first, then the causes, then the last written: a count alone asks for another call
     const news = fresh(watch)
-    const kinds = [...watch.signatures].sort((a, b) => Number(news.includes(b)) - Number(news.includes(a)) || b.lastAt - a.lastAt)
+    // What only follows another error in its request is said after what it follows: that one is the one to fix
+    const follows = (signature: Signature): number => Number(causes[kindId({ label: attachment.label, signature })] !== undefined)
+    const kinds = [...watch.signatures].sort((a, b) => Number(news.includes(b)) - Number(news.includes(a)) || follows(a) - follows(b) || b.lastAt - a.lastAt)
 
     return [
       `${describeAttachment(attachment, watch, known[attachment.label]?.usage, page)}${engine === '' ? '' : `; it runs ${engine}`}`,

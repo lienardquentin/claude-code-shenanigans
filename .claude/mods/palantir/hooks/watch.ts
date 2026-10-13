@@ -1,5 +1,5 @@
 import type { Attachment, Cursor, Health, RuntimeId, Watch } from '../types'
-import { absorb, EMPTY_WATCH, fresh, split } from './lines'
+import { absorb, EMPTY_WATCH, fresh, orphans, split } from './lines'
 
 // What a read of an attachment comes to: the lines past the cursor, and the watches once they have taken them in.
 // Values in, values out: the module that holds the engine runs the commands and keeps the state.
@@ -47,8 +47,12 @@ export const takeFile = (text: string, cursor: Cursor, isEndOnly = false): Taken
   const lines = to > from ? text.slice(from, to).split('\n').filter(line => line.trim() !== '') : []
   const ending = to === 0 ? '' : text.slice(text.lastIndexOf('\n', to - 2) + 1, to - 1)
 
+  // Cut to its last lines, it may start in the middle of a trace: what is left of that one is not taken
+  const newest = lines.slice(-TAIL)
+  const tail = isEndOnly || lines.length > TAIL ? newest.slice(orphans(newest)) : newest
+
   return {
-    raws: isAfresh ? lines.slice(-TAIL) : lines,
+    raws: isAfresh ? tail : lines,
     cursor: { ...cursor, offset: isEndOnly ? UNKNOWN : Math.max(from, to), seen: ending.trim() === '' ? cursor.seen : [ending] },
     error: '',
   }
@@ -71,10 +75,13 @@ export const takePrinted = (runtime: RuntimeId, printed: { stdout: string; stder
 
     return !(stamp === cursor.since && cursor.seen.includes(raw)) && !(stamp !== '' && cursor.since !== '' && stamp < cursor.since)
   })
+  // A first read is of the last lines alone, and may start in the middle of a trace: what is left of that one is
+  // not taken. One that holds fewer lines than were asked for starts where the log does.
+  const taken = cursor.since === '' && all.length >= TAIL ? raws.slice(orphans(raws.map(raw => split(raw).text))) : raws
   const since = [...all].reverse().map(raw => split(raw).stamp).find(stamp => stamp !== '') ?? cursor.since
   const seen = [...(since === cursor.since ? cursor.seen : []), ...raws.filter(raw => split(raw).stamp === since)]
 
-  return { raws, cursor: { ...cursor, since, seen }, error: '' }
+  return { raws: taken, cursor: { ...cursor, since, seen }, error: '' }
 }
 
 export type Read = Taken & { label: string; health: Health }

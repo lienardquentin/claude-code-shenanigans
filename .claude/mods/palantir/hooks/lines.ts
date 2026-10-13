@@ -338,6 +338,25 @@ const isContinuation = (text: string): boolean =>
 
 const PYTHON_TRACE = /^Traceback \(most recent call last\)/
 
+/**
+ * How many of the first lines belong to something written before them: the frames of a trace whose first line is
+ * not there, and, of a Python traceback, the exception it ends on. A read that starts at the last lines of a log
+ * may start in the middle of one, and what is left of it would be taken for an error of its own kind.
+ */
+export const orphans = (texts: readonly string[]): number => {
+  let index = 0
+  let isPython = false
+
+  for (; index < texts.length; index += 1) {
+    const text = texts[index] ?? ''
+
+    if (PYTHON_TRACE.test(text) || /^\s+File "/.test(text)) isPython = true
+    else if (!isContinuation(text)) break
+  }
+
+  return isPython && index < texts.length ? index + 1 : index
+}
+
 /** What makes two errors the same error: the message with its ids, addresses and numbers taken out. */
 export const signatureOf = (message: string): string =>
   message

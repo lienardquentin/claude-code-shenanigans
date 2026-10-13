@@ -12,7 +12,7 @@ import { previousArgvs, readHealth } from '../hooks/runtime'
 import { casesOf, endedSuite, plannedSuites, suitesOf, suiteTree, unitText } from '../hooks/unit'
 import { isClimbing, quieted, recorded, spark, traceOf, traceSummary } from '../hooks/trace'
 import { causesOf } from '../hooks/errors'
-import { timeline } from '../hooks/report'
+import { statusText, timeline } from '../hooks/report'
 import { marked, settle, takePrinted } from '../hooks/watch'
 
 type On = Parameters<TestBody>[1]
@@ -2155,5 +2155,28 @@ describe('a companion', () => {
     await $.tool.call({ tool: 'Bash', command: 'git commit -am wip' } as never)
 
     expect(await ask($, 'errors_since_edit', { target: 'api' })).toMatch(/api: 1 new error since the edit to api\/src\/auth\.ts\./)
+  })
+
+  test('takes nothing of a trace a first read starts in the middle of', () => {
+    const filler = Array.from({ length: 200 }, (_, index) => `${at(10)} GET /beacons -> 200 in ${index}ms`)
+    const cut = [`${at(9)}   File "gondor/realm.py", line 32, in light`, `${at(9)}     return RELAY[name]`, `${at(9)} KeyError: 'halifirien'`]
+    const { raws } = takePrinted('kubernetes', { stdout: [...cut, ...filler].join('\n'), stderr: '' }, EMPTY_WATCH.cursor)
+
+    expect(raws).toHaveLength(200)
+    expect(absorb(EMPTY_WATCH, raws, NOW).signatures).toHaveLength(0)
+
+    // A log shorter than what was asked for starts where it starts: its first lines are whole
+    const whole = takePrinted('kubernetes', { stdout: ['Traceback (most recent call last):', '  File "gondor/app.py", line 9', 'SyntaxError: invalid syntax'].map(text => `${at(9)} ${text}`).join('\n'), stderr: '' }, EMPTY_WATCH.cursor)
+
+    expect(absorb(EMPTY_WATCH, whole.raws, NOW).signatures.map(({ sample }) => sample)).toEqual(['Traceback (most recent call last): SyntaxError: invalid syntax'])
+  })
+
+  test('names in the status the error the others follow before them', () => {
+    const api = { label: 'api', runtime: 'compose' as const, ref: 'api', roots: [], port: 0 }
+    const failed = (rid: string) => [`{"level":"error","msg":"GET /stone failed: StoneIsWatched","rid":"${rid}"}`, `{"level":"error","msg":"GET /stone -> 500 in 3ms","rid":"${rid}"}`]
+    const text = statusText([api], { api: absorb(EMPTY_WATCH, [...failed('aaaa1111'), ...failed('bbbb2222')], 1000) })
+
+    expect(text.indexOf('GET /stone failed')).toBeGreaterThan(0)
+    expect(text.indexOf('GET /stone failed')).toBeLessThan(text.indexOf('GET /stone -> 500'))
   })
 })
