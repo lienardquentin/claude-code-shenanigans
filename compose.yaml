@@ -1,0 +1,64 @@
+# The four of the beacons, each in a container of its own:
+#
+#     docker compose up --build
+#
+# At the repo's root, where palantir looks for a compose project. The page is at http://127.0.0.1:8100. The ports are
+# published on this machine's loopback only, and are the ones beacons/muster.py uses, so the two do not run together.
+# Everything is said on stdout: docker compose logs -f
+name: beacons
+
+services:
+  gondor:
+    build: { context: ./beacons, target: gondor }
+    environment:
+      ROHAN_URL: http://rohan:8102
+      RED_ARROW: ${RED_ARROW:-red-arrow-0f3a9c44d1e2b7a6}
+    ports: ["127.0.0.1:8101:8101"]
+    depends_on:
+      rohan: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8101/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rohan:
+    build: { context: ./beacons, target: rohan }
+    environment:
+      RED_ARROW: ${RED_ARROW:-red-arrow-0f3a9c44d1e2b7a6}
+    ports: ["127.0.0.1:8102:8102"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8102/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  anor:
+    build: ./beacons/anor
+    environment:
+      NUXT_GONDOR_URL: http://gondor:8101
+      NUXT_STEWARD_SEAL_SECRET: ${NUXT_STEWARD_SEAL_SECRET:-white-tree-7c1e55a09b}
+      # A Mapbox public token (pk.…); without one the map stays rolled up
+      NUXT_PUBLIC_MAPBOX_TOKEN: ${NUXT_PUBLIC_MAPBOX_TOKEN:-}
+    ports: ["127.0.0.1:8100:8100"]
+    depends_on:
+      gondor: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8100/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  riders:
+    build: { context: ./beacons, target: riders }
+    environment:
+      GONDOR_URL: http://gondor:8101
+      ANOR_URL: http://anor:8100
+      RIDERS_PACE: ${RIDERS_PACE:-0.8}
+    depends_on:
+      gondor: { condition: service_healthy }
+      anor: { condition: service_healthy }
+    restart: unless-stopped
