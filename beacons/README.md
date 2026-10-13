@@ -145,7 +145,8 @@ Anor holds itself ([`anor/app/utils/geography.ts`](anor/app/utils/geography.ts))
 11. **What goes through the broker.** In containers or in the cluster, the pane draws the broker in a table of
     its own, apart from the four apps. `b` opens its view, where `beacons.lit` pressed opens on its last messages;
     or ask Claude "do Rohan's watchers keep up" (`mcp__palantir__broker`): the topic, the group, and how many
-    records wait. "What did Gondor last send" reads the last records of `beacons.lit`, each under the id of the
+    records wait. The view has a field, Ask Claude: a question typed there is handed to Claude, which answers it through
+    the same tool. "What did Gondor last send" reads the last records of `beacons.lit`, each under the id of the
     request that lit the beacon, which is in Gondor's log and in Rohan's too. Then break it, with `kubectl -n beacons` in the cluster, or `docker
     compose` with `stop`, `start` and `exec` in containers:
 

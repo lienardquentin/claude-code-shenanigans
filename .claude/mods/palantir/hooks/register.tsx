@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Attachment, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
 import { composeAttachments, merged, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
-import { brokerKind, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
+import { askBrokerPrompt, brokerKind, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
 import { answerLimit, answerRowsText, askPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
 import { askArgv, DEBUG_PORT, describeBrowser, EMPTY_BROWSER, readAsked } from './browser'
 import type { Asked as Told } from './browser'
@@ -1384,6 +1384,20 @@ export const register: Register = (on, options) => {
       if (brokers.length === 0) return [tonedText({ text: picked === '' ? NO_BROKER : `${picked} is not a broker: show all, or the broker itself.`, tone: 'neutral', wrap: true })]
 
       return [
+        // What is typed here is handed to Claude as a prompt, which answers it by reading the broker
+        ...(Input === undefined
+          ? []
+          : [
+              <Input
+                key="broker-ask"
+                label="Ask Claude"
+                placeholder="a question about what the broker holds"
+                submitLabel="ask"
+                onSubmit={(question: string) => {
+                  if (question.trim() !== '') void $.prompt.submit({ text: askBrokerPrompt(brokers, question) })
+                }}
+              />,
+            ]),
         ...brokers.flatMap(({ label, broker: { kind, note, at } }) => [
           tonedText({ text: `${label}: ${KIND_NAME[kind]}, asked at ${clockTime(at)}`, bold: true }),
           ...(note === '' ? [] : [tonedText({ text: note, tone: 'warning', wrap: true })]),
@@ -1445,7 +1459,7 @@ export const register: Register = (on, options) => {
           ),
           empty: 'No consumer group.',
         }),
-        tonedText({ text: 'Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic.', tone: 'neutral', wrap: true }),
+        tonedText({ text: 'Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic. A question typed after Ask Claude is handed to Claude, which answers it by reading the broker through that tool.', tone: 'neutral', wrap: true }),
       ]
     }
 

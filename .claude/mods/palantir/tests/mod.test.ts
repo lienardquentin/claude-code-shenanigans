@@ -1393,6 +1393,28 @@ describe('a broker', () => {
     expect(await pane.find({ text: /nobody reads/ })).toBeDefined()
   })
 
+  test('hands a question typed in the pane to Claude, with the topics, the groups and how to answer it', async ($, on) => {
+    machine(on, BROKERED)
+
+    const prompts: string[] = []
+
+    on('prompt.submit', (_, e) => {
+      prompts.push(e.text)
+
+      return { text: e.text } as never
+    })
+
+    const pane = await mount($)
+
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'view-broker' })
+    await pane.input({ key: 'broker-ask', text: ' ' })
+    await pane.input({ key: 'broker-ask', text: 'what was the last order sent?' })
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toMatch(/^About the broker palantir watches \(redpanda: Redpanda, topics orders, consumer groups billing\):\n\nwhat was the last order sent\?\n\nAnswer it by asking it with mcp__palantir__broker \(target redpanda\)/)
+  })
+
   test('opens a topic on its last messages in the pane, and closes it', async ($, on) => {
     const { world, runs } = machine(on, BROKERED)
 

@@ -265,3 +265,21 @@ export const peekText = (label: string, topic: string, peeked: readonly Peeked[]
     `The last ${records(peeked.length)} of ${topic} on ${label}${grep === '' ? '' : ` that hold ${grep}`}, oldest first, read as no group (nothing is marked as read), secrets taken out:`,
     ...peeked.map(({ partition, offset, at, key, headers, value }) => `  ${clockTime(at)} ${topic}/${partition}@${offset}${key === '' ? '' : ` key=${key}`}${headers === '' ? '' : ` [${headers}]`} ${value}`),
   ].join('\n')
+
+/**
+ * What is handed to Claude when the person asks something of the brokers in the pane: their question, the brokers
+ * it is asked of with their topics and their groups, and how to answer it.
+ */
+export const askBrokerPrompt = (brokers: readonly { label: string; broker: Broker }[], question: string): string =>
+  [
+    `About ${brokers.length === 1 ? 'the broker' : 'the brokers'} palantir watches (${brokers
+      .map(
+        ({ label, broker }) =>
+          `${label}: ${KIND_NAME[broker.kind]}, ${broker.topics.length === 0 ? 'no topic' : `topics ${broker.topics.map(({ name }) => name).join(', ')}`}, ${broker.groups.length === 0 ? 'no consumer group' : `consumer groups ${broker.groups.map(({ name }) => name).join(', ')}`}`,
+      )
+      .join('; ')}):`,
+    '',
+    question.trim(),
+    '',
+    `Answer it by asking ${brokers.length === 1 ? 'it' : 'them'} with mcp__palantir__broker${brokers.length === 1 ? ` (target ${brokers[0]?.label ?? ''})` : ''}: alone it says the topics, the consumer groups and how far behind each is; with \`topic\` it reads the last records of that topic too, up to 20 from each partition with \`limit\`, and \`grep\` keeps those that hold a text. Say what you read along with the answer. If it cannot be answered by reading, say so: no record is to be written and no group moved.`,
+  ].join('\n')
