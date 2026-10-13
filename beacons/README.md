@@ -7,7 +7,7 @@ mod to watch. Nothing here is meant to be useful; every part of it is there to s
 | --- | --- | --- | --- |
 | `gondor` | Lights the beacons, gazes into the seeing-stones, sends the Red Arrow to Rohan | 8101 | JSON lines, with plain tracebacks |
 | `rohan` | Answers the Red Arrow and musters what spears it has | 8102 | logfmt |
-| `anor` | The Steward's stone: a Nuxt page, drawn with Nuxt UI, that lights beacons, gazes and sends the Red Arrow through its own server | 8100 | JSON lines as pino writes them, among Nuxt's own |
+| `anor` | The Steward's stone: a Nuxt page, drawn with Nuxt UI, that lights beacons, gazes and sends the Red Arrow through its own server, over a map of Middle-earth | 8100 | JSON lines as pino writes them, among Nuxt's own |
 | `riders` | Ride to Gondor's door about once a second, one in four by way of Anor, so there is always something being logged | none | plain lines |
 
 ## Run it
@@ -41,8 +41,21 @@ Rohan also has `GET /riders`, its éoreds and their spears.
 
 Anor reaches every one of Gondor's endpoints under `/api/realm/…`, each request under an id it hands to Gondor,
 which hands it to Rohan. `POST /api/complaints` is where the page reports its own errors, so that what goes wrong
-in a browser is in a log. Anor fetches nothing from outside: no web fonts, no telemetry, and its icons come from
+in a browser is in a log. Anor fetches nothing it draws with: no web fonts, no telemetry, and its icons come from
 the set installed beside it.
+
+## The map
+
+The page has a map of Middle-earth, drawn with [Mapbox GL JS](https://docs.mapbox.com/mapbox-gl-js/). It needs a
+Mapbox public token, `NUXT_PUBLIC_MAPBOX_TOKEN` in `anor/.env`; without one the card says so and the rest of the
+page works as before. The token is the one thing Anor sends outside: Mapbox checks it and counts each load of a
+map. No tile is fetched, since Mapbox has none of Middle-earth: the land, the rivers and the ranges are a sketch
+Anor holds itself ([`anor/app/utils/geography.ts`](anor/app/utils/geography.ts)), in miles from Minas Tirith.
+
+- A beacon-hill on the map lights like its lamp in the chain, and the fire's road is drawn between two that burn.
+- A ringed stone is looked into from the map, and the map goes to the stone that is gazed into, wherever it was
+  chosen.
+- When Rohan answers the Red Arrow, its spears ride the Great West Road from Edoras to Minas Tirith.
 
 ## What is wrong with it, on purpose
 

@@ -6,6 +6,7 @@ const SPEARS = [500, 2000, 6000, 9000].map(value => ({ label: `${value.toLocaleS
 const spears = ref(2000)
 const word = ref('')
 const isAsking = ref(false)
+const ride = useRide()
 
 const send = async () => {
   isAsking.value = true
@@ -15,6 +16,7 @@ const send = async () => {
     const answer = await $fetch<Answer>(`/api/realm/muster?spears=${spears.value}`, { method: 'POST', ignoreResponseError: true })
 
     word.value = `${answer.rohan.riding.toLocaleString('en')} spears ride. They come in ${answer.rohan.days} days.`
+    ride.value = { ...answer.rohan }
   } finally {
     isAsking.value = false
   }

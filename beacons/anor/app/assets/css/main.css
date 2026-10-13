@@ -30,6 +30,14 @@
     0 0 2rem 0.6rem color-mix(in srgb, var(--ui-primary) 40%, transparent);
 }
 
+/* The map's scale, in the theme's colors rather than Mapbox's white */
+.mapboxgl-ctrl.mapboxgl-ctrl-scale {
+  background: color-mix(in srgb, var(--ui-bg) 70%, transparent);
+  border-color: var(--ui-text-muted);
+  color: var(--ui-text-muted);
+  font-family: inherit;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fire {
     transition: none;

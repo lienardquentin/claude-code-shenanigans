@@ -1,26 +1,6 @@
 <script setup lang="ts">
 const { data: stones } = await useFetch<string[]>('/api/realm/palantiri', { default: () => [] })
-const gazed = ref('')
-const vision = ref('')
-const isDark = ref(false)
-const isGazing = ref(false)
-
-const gaze = async (stone: string) => {
-  gazed.value = stone
-  isGazing.value = true
-
-  try {
-    const seen = await $fetch<{ vision: string }>(`/api/realm/palantiri/${stone}/gaze`)
-
-    vision.value = seen.vision
-    isDark.value = false
-  } catch (failure) {
-    vision.value = reasonOf(failure)
-    isDark.value = true
-  } finally {
-    isGazing.value = false
-  }
-}
+const { gazed, vision, isDark, isGazing, gaze } = useStones()
 </script>
 
 <template>

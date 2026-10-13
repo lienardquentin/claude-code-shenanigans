@@ -1,34 +1,7 @@
 <script setup lang="ts">
-type Beacon = { beacon: string; lit: boolean }
-type Lit = { beacon: string; watch_next: string | null }
-
-const { data: beacons, error, refresh } = await useFetch<Beacon[]>('/api/realm/beacons', { default: () => [] })
-const toast = useToast()
+const { beacons, error, refresh, light, quench } = useBeacons()
 
 const litCount = computed(() => beacons.value.filter(({ lit }) => lit).length)
-
-const light = async (name: string) => {
-  try {
-    const lit = await $fetch<Lit>(`/api/realm/beacons/${name}/light`, { method: 'POST' })
-
-    toast.add({
-      title: `${named(name)} burns`,
-      description: lit.watch_next ? `${named(lit.watch_next)} watches for it.` : 'Rohan has seen it.',
-      icon: 'i-lucide-flame',
-      color: 'primary',
-    })
-  } catch (failure) {
-    toast.add({ title: `${named(name)} would not catch`, description: reasonOf(failure), icon: 'i-lucide-cloud-rain', color: 'error' })
-  }
-
-  await refresh()
-}
-
-const quench = async () => {
-  await $fetch('/api/realm/beacons/quench', { method: 'POST' }).catch(() => undefined)
-  toast.add({ title: 'The beacons are dark', icon: 'i-lucide-moon', color: 'neutral' })
-  await refresh()
-}
 
 // The riders light beacons too: the chain is looked at again every few seconds
 let watch: ReturnType<typeof setInterval> | undefined
