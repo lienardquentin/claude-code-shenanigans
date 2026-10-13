@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AndurilRun, AndurilTarget } from '../types'
+import type { AndurilDiff, AndurilRun, AndurilTarget } from '../types'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
 import { table } from './kit/table'
@@ -13,21 +13,31 @@ import {
   binDir,
   clock,
   commandLine,
+  corpusOf,
+  diffProblems,
+  diffSummary,
+  diffText,
   drawable,
   duration,
   ending,
   excerpt,
+  exitChange,
+  fileNotes,
   launcher,
   names,
+  parseDiff,
+  parseProject,
   parseRun,
-  parseTargets,
   prelude,
   remarks,
   runText,
   runsText,
+  sideName,
   size,
   tidy,
   trimmed,
+  withKept,
+  writtenOutside,
 } from './record'
 
 type $ = EngineInterface
@@ -39,6 +49,8 @@ const KEPT_RUNS = 200
 const KEPT_CHARS = 8_000
 // How many lines of a stream the pane draws of the run it shows in full: half from its start, half from its end
 const DRAWN_LINES = 40
+// A comparison builds what it compares: as long as a host command may run
+const DIFF_TIMEOUT_MS = 600_000
 
 const targets = atom({ plugin: 'anduril', key: 'targets' } as const, [] as AndurilTarget[])
 const runs = atom({ plugin: 'anduril', key: 'runs' } as const, [] as AndurilRun[])
@@ -46,6 +58,10 @@ const selected = atom({ plugin: 'anduril', key: 'selected' } as const, '')
 const isFailedOnly = atom({ plugin: 'anduril', key: 'isFailedOnly' } as const, false)
 const note = atom({ plugin: 'anduril', key: 'note' } as const, '')
 const home = atom({ plugin: 'anduril', key: 'home' } as const, '')
+const corpus = atom({ plugin: 'anduril', key: 'corpus' } as const, [] as string[])
+const diff = atom({ plugin: 'anduril', key: 'diff' } as const, null as AndurilDiff | null)
+const diffing = atom({ plugin: 'anduril', key: 'diffing' } as const, '')
+const against = atom({ plugin: 'anduril', key: 'against' } as const, 'HEAD')
 
 /**
  * The folder the session started in: where the project's file is looked for and the records are kept. The session's
@@ -94,6 +110,20 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'diff',
+    description:
+      "What changed in the behaviour of the command-line tool being written between two builds. Plays the runs the project keeps (the `$` lines of .claude/anduril) on each build, in a copy of the tool's source folder, and says which ended otherwise or wrote something else, with a diff of each stream. Left to itself it compares the working tree, built afresh, with HEAD: what the uncommitted edits changed. Call it after changing the tool's source and before saying the change is done; a run that changed and was not meant to is a regression. `from` and `to` name any commits (a tag, a branch); a commit is built once, which can take minutes the first time. To have a run kept, add a `$ ` line with it to .claude/anduril.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'The tool, by the name it is run by; the first watched tool when left out.' },
+        from: { type: 'string', description: 'The build compared against: a commit by any name git resolves (HEAD, a tag, a branch), or `work` for the working tree. HEAD when left out.' },
+        to: { type: 'string', description: 'The build whose changes are said: a commit, or `work` for the working tree. `work` when left out.' },
+        mergeBase: { type: 'boolean', description: 'True to compare `to` with the commit where it left `from`, in place of where `from` now stands: what a branch alone changed since it left main.' },
+      },
+    },
+  },
 ] as const
 
 // The tools watched, as the system prompt's section reads them: a module's own copy, set again at each load
@@ -107,6 +137,7 @@ const sectionText = (list: readonly AndurilTarget[]): string => {
     `In a shell command, run ${list.length === 1 ? 'it' : 'each'} by its name (\`${list[0]?.label ?? 'tool'} --help\`), which is on the PATH there, and not by the path of its binary or through the build tool: a run made any other way is not recorded.`,
     `The name runs the binary as it was last built (${list.map(({ label, binary }) => `${label}: ${binary}`).join('; ')}), so build before running.`,
     'mcp__anduril__runs lists the recorded runs, the person\'s own among them, and mcp__anduril__run says one in full.',
+    'After changing its source, mcp__anduril__diff plays the runs the project keeps on the working tree and on HEAD and says what changed in what the tool does.',
   ].join(' ')
 }
 
@@ -116,11 +147,13 @@ const sectionText = (list: readonly AndurilTarget[]): string => {
  */
 const setUp = async ($: $): Promise<AndurilTarget[]> => {
   const cwd = await homeOf($)
-  const list = parseTargets(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
+  const project = parseProject(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
+  const list = project.targets
   const problems: string[] = []
 
   watched = list
   await update($, targets, () => list)
+  await update($, corpus, () => project.corpus)
 
   if (list.length === 0) {
     await update($, note, () => '')
@@ -188,6 +221,44 @@ const pull = ($: $): Promise<void> => {
 
   return pulling
 }
+
+/**
+ * Plays the kept runs of a tool on two builds and keeps what differs. Answers the comparison, or a sentence saying
+ * why none was made.
+ */
+const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean }): Promise<AndurilDiff | string> => {
+  // The project's file is read again: a run kept a moment ago is played
+  const list = await setUp($)
+  const target = asked.target === undefined ? list[0] : list.find(({ label }) => label === asked.target)
+
+  if (list.length === 0) return HOW_TO_WATCH
+  if (target === undefined) return `anduril watches no tool named ${asked.target ?? ''}. It watches ${list.map(({ label }) => label).join(', ')}.`
+
+  const kept = corpusOf(await read($, corpus), target.label)
+
+  if (kept.length === 0) return `No run of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}, as it is typed after a dollar sign: $ ${target.label} --help`
+
+  const job = { home: await homeOf($), label: target.label, binary: target.binary, root: target.roots[0] ?? '', build: target.build, masks: target.masks, corpus: kept, from: asked.from, to: asked.to, mergeBase: asked.mergeBase }
+
+  await update($, diffing, () => target.label)
+
+  try {
+    const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/shim/anduril_replay.py`], { stdin: JSON.stringify(job), timeoutMs: DIFF_TIMEOUT_MS })
+    const made = parseDiff(ran.stdout, await $.clock.now())
+
+    if (made === undefined) return `The comparison could not be made: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the replay script exited with ${ran.exitCode} and said nothing`}`
+
+    await update($, diff, () => made)
+
+    return made
+  } catch (error) {
+    return `The comparison was not finished: ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    await update($, diffing, () => '')
+  }
+}
+
+const refOf = (value: unknown, otherwise: string): string => (typeof value === 'string' && value.trim() !== '' ? value.trim() : otherwise)
 
 const integer = (value: unknown, otherwise: number, most: number): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(most, Math.floor(value)) : otherwise
@@ -265,6 +336,13 @@ export const register: Register = (on, options) => {
     return { result: runText(whole, integer(asked.max, 4000, 60_000)) }
   })
 
+  on('tool.call', { tool: 'mcp__anduril__diff' }, async ($, e) => {
+    const asked = e as unknown as { target?: unknown; from?: unknown; to?: unknown; mergeBase?: unknown }
+    const made = await compare($, { target: typeof asked.target === 'string' ? asked.target : undefined, from: refOf(asked.from, 'HEAD'), to: refOf(asked.to, 'work'), mergeBase: asked.mergeBase === true })
+
+    return { result: typeof made === 'string' ? made : diffText(made) }
+  })
+
   on('command.run', { command: 'anduril' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
@@ -281,8 +359,15 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Code, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Code, Text } = elements
+    // The mobile app draws no field: there the working tree is compared with HEAD, or Claude is asked
+    const Input = 'Input' in elements ? elements.Input : undefined
     const list = await read($, targets)
+    const kept = await read($, corpus)
+    const made = await read($, diff)
+    const playing = await read($, diffing)
+    const base = await read($, against)
     const all = await read($, runs)
     const openId = await read($, selected)
     const failedOnly = await read($, isFailedOnly)
@@ -345,6 +430,42 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // A comparison: what stood in its way, or each run that changed with how, then the ones that did not by name
+    const comparison = (held: AndurilDiff) => {
+      const stopped = diffProblems(held)
+      const changed = held.cases.filter(one => one.isChanged)
+      const same = held.cases.filter(one => !one.isChanged)
+
+      return (
+        <Box flexDirection="column" gap={1}>
+          {badge({ label: `${diffSummary(held)} · ${clock(held.at)}`, tone: stopped.length > 0 ? 'danger' : changed.length > 0 ? 'warning' : 'success' })}
+          {stopped.map(problem => (
+            <Text color="error">{drawable(problem)}</Text>
+          ))}
+          {stopped.length === 0 && changed.length > 0 && <Text dimColor>{`- is ${sideName(held.from)}, + is ${sideName(held.to)}`}</Text>}
+          {stopped.length === 0 &&
+            changed.map(one => (
+              <Box flexDirection="column">
+                <Text bold>
+                  {one.line} <Text color="warning">{exitChange(one)}</Text>
+                </Text>
+                {fileNotes(held, one).map(line => (
+                  <Text color="warning">{line}</Text>
+                ))}
+                {[one.stdoutDiff, one.stderrDiff, ...one.files.map(file => file.diff)]
+                  .filter(part => part.startsWith('--- '))
+                  .map(part => (
+                    <Code source={drawable(part)} format="diff" />
+                  ))}
+              </Box>
+            ))}
+          {stopped.length === 0 && writtenOutside(held).length > 0 && <Text color="warning">{`Written outside the folder the runs were played in, so on this machine: ${writtenOutside(held).join(', ')}`}</Text>}
+          {stopped.length === 0 && same.length > 0 && <Text dimColor>{`unchanged: ${same.map(one => one.line).join(' · ')}`}</Text>}
+          {stopped.length === 0 && held.untraced !== '' && <Text dimColor>{`No run was traced (${held.untraced}): writes outside the folder, and files written and removed again, were not seen.`}</Text>}
+        </Box>
+      )
+    }
+
     return view.keep(
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="row" gap={2}>
@@ -362,6 +483,35 @@ export const register: Register = (on, options) => {
           ))}
           {problems !== '' && <Text color="warning">{problems}</Text>}
         </Box>
+        <Box flexDirection="column" gap={1} borderStyle="round" paddingX={1}>
+          <Box flexDirection="row" gap={2}>
+            <Text bold>
+              {kept.length} kept {kept.length === 1 ? 'run' : 'runs'}
+            </Text>
+            <Button
+              key="diff"
+              hotkey="d"
+              variant="primary"
+              onPress={async () => {
+                const answered = await compare($, { from: base, to: 'work', mergeBase: false })
+
+                if (typeof answered === 'string') await update($, note, () => answered)
+              }}
+            >
+              {`Diff against ${base}`}
+            </Button>
+            {made !== null && (
+              <Button key="diff-hide" hotkey="x" onPress={() => update($, diff, () => null)}>
+                Hide
+              </Button>
+            )}
+          </Box>
+          {Input !== undefined && (
+            <Input key="against" label="Against" placeholder="a commit by any name: HEAD, a tag, a branch" value={base} submitLabel="set" onSubmit={(text: string) => update($, against, () => text.trim() || 'HEAD')} />
+          )}
+          {playing !== '' && <Text color="suggestion">{`Building and playing ${playing}…`}</Text>}
+          {made !== null && playing === '' && comparison(made)}
+        </Box>
         {table({
           columns: [{ header: 'AT', width: 8 }, { header: 'BY', width: 6 }, { header: 'EXIT', width: 11 }, { header: 'TOOK', width: 8 }, { header: 'COMMAND' }],
           rows,
@@ -370,7 +520,25 @@ export const register: Register = (on, options) => {
         {open !== undefined && (
           <Box flexDirection="column" gap={1} borderStyle="round" paddingX={1}>
             <Box flexDirection="column">
-              <Text bold>{commandLine(open)}</Text>
+              <Box flexDirection="row" gap={2}>
+                <Text bold>{commandLine(open)}</Text>
+                {kept.includes(commandLine(open)) ? (
+                  <Text dimColor>kept</Text>
+                ) : (
+                  <Button
+                    key="keep"
+                    hotkey="k"
+                    onPress={async () => {
+                      const file = `${await homeOf($)}/${PROJECT_FILE}`
+
+                      await $.fs.write(file, withKept(await $.fs.read(file).catch(() => ''), commandLine(open)))
+                      await setUp($).catch(() => undefined)
+                    }}
+                  >
+                    Keep
+                  </Button>
+                )}
+              </Box>
               <Text dimColor>
                 {`exit ${ending(open)} · ${duration(open.durationMs)} · cpu ${duration(open.userMs + open.sysMs)} · ${size(open.maxRssKb * 1024)} · in ${open.cwd}`}
               </Text>

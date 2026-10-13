@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import type { AndurilRun } from '../types'
-import { commandLine, ending, ends, excerpt, launcher, names, parseRun, parseTargets, prelude, remarks, runText } from '../hooks/record'
+import type { AndurilDiff, AndurilRun } from '../types'
+import { commandLine, corpusOf, diffText, ending, ends, excerpt, launcher, names, parseDiff, parseProject, parseRun, parseTargets, prelude, remarks, runText, withKept } from '../hooks/record'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -41,6 +41,47 @@ const run = (given: Partial<AndurilRun> & { id: string }): AndurilRun => ({
   ...given,
 })
 
+const outcome = (exitCode: number) => ({ exitCode, signal: '', durationMs: 4, stdoutBytes: 10, stderrBytes: 0, error: '' })
+
+// What the replay script answers: one run that changed between HEAD and the working tree, one that did not
+const ANSWER = {
+  label: 'narsil',
+  from: { ref: 'HEAD', sha: '223f93475f9d1f4424d8ba0ddc80581b3ce94f64', error: '' },
+  to: { ref: 'work', sha: '', error: '' },
+  error: '',
+  untraced: '',
+  cases: [
+    {
+      line: 'narsil seal chronicle.jsonl',
+      isChanged: true,
+      from: outcome(0),
+      to: outcome(0),
+      stdoutDiff: '',
+      stderrDiff: '',
+      files: [
+        { path: 'root/chronicle.jsonl.seal', change: 'changed', diff: '--- from/root/chronicle.jsonl.seal\n+++ to/root/chronicle.jsonl.seal\n@@ -1 +1 @@\n-fnv1a64 6be6\n+fnv-1a 6be6' },
+        { path: 'root/extra.bin', change: 'added', diff: '' },
+      ],
+      outside: { from: [], to: ['/tmp/outside.txt'] },
+      transient: { from: ['root/scratch.tmp'], to: ['root/scratch.tmp'] },
+    },
+    {
+      line: 'narsil show 999',
+      isChanged: true,
+      from: outcome(1),
+      to: outcome(2),
+      stdoutDiff: '',
+      stderrDiff: '--- from/stderr\n+++ to/stderr\n@@ -1 +1 @@\n-narsil: no lighting 999 in the chronicle\n+narsil: lighting 999 is not in the chronicle',
+      files: [],
+      outside: { from: [], to: [] },
+      transient: { from: [], to: [] },
+    },
+    { line: 'narsil ls', isChanged: false, from: outcome(0), to: outcome(0), stdoutDiff: '', stderrDiff: '', files: [], outside: { from: [], to: [] }, transient: { from: [], to: [] } },
+  ],
+}
+
+const KEPT = `${WATCHED}narsil.build=cargo build --manifest-path narsil/Cargo.toml\nnarsil.mask=generated at \\S+\n$ narsil show 999\n$ narsil ls\n`
+
 const LISTED = run({ id: '1000-1', argv: ['ls', '--format', 'json'], stdout: '[{"id":1}]\n', by: 'claude' })
 const MISSING = run({ id: '2000-2', argv: ['show', '999'], exitCode: 1, stderr: 'narsil: no lighting 999 in the chronicle\n' })
 const PANICKED = run({
@@ -56,6 +97,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   const ran: string[] = []
   const written: string[] = []
 
+  mock.clock(on, { now: 1_800_000_000_000 })
   on('session.cwd', () => ({ value: CWD }) as never)
   on('fs.exists', (_, e) => ({ value: whole(e.path) in files }) as never)
   on('fs.read', (_, e) => {
@@ -78,16 +120,24 @@ const machine = (on: On, given: Record<string, string> = {}) => {
 
     return { value: entries } as never
   })
+  // What the replay script is handed and what it answers: a test sets the answer
+  const replay = { jobs: [] as Record<string, unknown>[], answer: '' }
   on('process.run', (_, e) => {
-    ran.push(e.argv.join(' '))
+    const argv = e.argv
+    const given = e as unknown as { stdin?: string; init?: { stdin?: string } }
+    const isReplay = argv.some(arg => arg.endsWith('anduril_replay.py'))
 
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+    if (isReplay) replay.jobs.push(JSON.parse(given.stdin ?? given.init?.stdin ?? '{}') as Record<string, unknown>)
+    else ran.push(argv.join(' '))
+
+    return { value: { exitCode: 0, stdout: isReplay ? replay.answer : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
 
   return {
     files,
     ran,
     written,
+    replay,
     record: (one: AndurilRun) => {
       files[`${CWD}/.anduril/runs/${one.id}.json`] = JSON.stringify(one)
     },
@@ -112,8 +162,8 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 describe('what is watched', () => {
   test('reads the tools a project names, a line each, with the binary and the source of each', () => {
     expect(parseTargets(`${WATCHED}\nnot a line\nquill = /opt/quill/bin/quill\n`, CWD)).toEqual([
-      { label: 'narsil', binary: BINARY, roots: [`${CWD}/narsil`] },
-      { label: 'quill', binary: '/opt/quill/bin/quill', roots: [] },
+      { label: 'narsil', binary: BINARY, roots: [`${CWD}/narsil`], build: '', masks: [] },
+      { label: 'quill', binary: '/opt/quill/bin/quill', roots: [], build: '', masks: [] },
     ])
   })
 
@@ -133,6 +183,53 @@ describe('what is watched', () => {
 
     expect(text.startsWith('#!/bin/sh\n')).toBe(true)
     expect(text).toContain(`exec python3 '/mods/it'\\''s here/shim/anduril_shim.py' --dir '/proj/.anduril' --label 'narsil' --binary '${BINARY}' -- "$@"`)
+  })
+})
+
+describe('the runs a project keeps', () => {
+  test('reads how a tool is built, what to leave out of its streams, and the runs to play, each once', () => {
+    const project = parseProject(`${KEPT}$ narsil ls\nquill.build=make\n$ quill --version\n`, CWD)
+
+    expect(project.targets).toEqual([{ label: 'narsil', binary: BINARY, roots: [`${CWD}/narsil`], build: 'cargo build --manifest-path narsil/Cargo.toml', masks: ['generated at \\S+'] }])
+    expect(project.corpus).toEqual(['narsil show 999', 'narsil ls', 'quill --version'])
+    expect(corpusOf(project.corpus, 'narsil')).toEqual(['narsil show 999', 'narsil ls'])
+  })
+
+  test('keeps one more run at the end of the file, and a run already kept once', () => {
+    expect(withKept('narsil=bin', 'narsil ls')).toBe('narsil=bin\n$ narsil ls\n')
+    expect(withKept('narsil=bin\n$ narsil ls\n', 'narsil ls')).toBe('narsil=bin\n$ narsil ls\n')
+    expect(withKept('', 'narsil ls')).toBe('$ narsil ls\n')
+  })
+
+  test('says a comparison by the runs that changed, how each did, and the ones that did not', () => {
+    const said = diffText(parseDiff(JSON.stringify(ANSWER), 0) as AndurilDiff)
+
+    expect(said).toMatch(/^narsil, the working tree against HEAD \(223f934\): 2 of 3 kept runs changed\./)
+    expect(said).toContain('changed: narsil show 999\n  exit 1 → 2\n  --- from/stderr')
+    expect(said).toContain('  +narsil: lighting 999 is not in the chronicle')
+    expect(said).toContain('unchanged: narsil ls')
+  })
+
+  test('says what a run did to files that the builds do not agree on: left, written outside, or written and removed', () => {
+    const made = parseDiff(JSON.stringify(ANSWER), 0) as AndurilDiff
+    const said = diffText(made)
+
+    expect(said).toContain('changed: narsil seal chronicle.jsonl\n  file root/chronicle.jsonl.seal: not the same\n  file root/extra.bin: the working tree alone left it\n  written outside the folder: HEAD (223f934) nothing; the working tree /tmp/outside.txt')
+    expect(said).toContain('  +fnv-1a 6be6')
+    // What both builds wrote and removed alike is no difference
+    expect(said).not.toContain('written and removed again')
+    expect(said).toContain('Written outside the folder the runs were played in, so on this machine: /tmp/outside.txt.')
+    expect(said).not.toContain('No run was traced')
+    expect(diffText({ ...made, untraced: 'strace is not installed' })).toContain('No run was traced (strace is not installed)')
+  })
+
+  test('says why a build was not played in place of what changed', () => {
+    const broken = { ...ANSWER, cases: [], to: { ref: 'work', sha: '', error: 'it does not build (cargo build, exit 101):\nerror[E0425]: cannot find value' } }
+    const said = diffText(parseDiff(JSON.stringify(broken), 0) as AndurilDiff)
+
+    expect(said).toMatch(/^narsil, the working tree against HEAD \(223f934\): not compared\./)
+    expect(said).toContain('the working tree was not played: it does not build')
+    expect(parseDiff('Traceback (most recent call last):', 0)).toBeUndefined()
   })
 })
 
@@ -305,4 +402,69 @@ describe('anduril', () => {
     expect(sections[1]?.text).toContain('run it by its name (`narsil --help`)')
     expect(sections[1]?.text).toContain(`narsil: ${BINARY}`)
   })
+
+  test('plays the kept runs on the working tree and on HEAD when Claude asks what changed, or on the commits it names', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/anduril`]: KEPT, [BINARY]: 'ELF' })
+    world.replay.answer = JSON.stringify(ANSWER)
+
+    const said = await call($, 'mcp__anduril__diff')
+
+    expect(said).toMatch(/2 of 3 kept runs changed/)
+    expect(said).toContain('exit 1 → 2')
+    expect(world.replay.jobs[0]).toEqual({
+      home: CWD,
+      label: 'narsil',
+      binary: BINARY,
+      root: `${CWD}/narsil`,
+      build: 'cargo build --manifest-path narsil/Cargo.toml',
+      masks: ['generated at \\S+'],
+      corpus: ['narsil show 999', 'narsil ls'],
+      from: 'HEAD',
+      to: 'work',
+      mergeBase: false,
+    })
+
+    await call($, 'mcp__anduril__diff', { from: 'main', to: 'narsil/v0.2.0', mergeBase: true })
+    expect(world.replay.jobs[1]).toMatchObject({ from: 'main', to: 'narsil/v0.2.0', mergeBase: true })
+
+    expect(await call($, 'mcp__anduril__diff', { target: 'quill' })).toMatch(/watches no tool named quill/)
+  })
+
+  test('says how to keep a run where none is kept, and plays nothing', async ($, on) => {
+    const world = watching(on)
+
+    expect(await call($, 'mcp__anduril__diff')).toMatch(/No run of narsil is kept to play.*\$ narsil --help/)
+    expect(world.replay.jobs).toHaveLength(0)
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`keeps a run from the pane and shows what a comparison found, on ${surface}`, async ($, on) => {
+      const world = watching(on, [MISSING])
+      world.replay.answer = JSON.stringify({ ...ANSWER, cases: ANSWER.cases.slice(0, 2) })
+      const pane = await mountPane($, surface)
+      await pane.press({ key: 'refresh' })
+
+      expect(await pane.find({ text: /0 kept runs/ })).toBeDefined()
+
+      await pane.press({ key: 'run-2000-2' })
+      await pane.press({ key: 'keep' })
+
+      expect(world.files[`${CWD}/.claude/anduril`]).toBe(`${WATCHED}$ narsil show 999\n`)
+      expect(await pane.find({ text: /1 kept run/ })).toBeDefined()
+
+      await pane.press({ key: 'diff' })
+
+      expect(world.replay.jobs[0]).toMatchObject({ corpus: ['narsil show 999'], from: 'HEAD', to: 'work' })
+      const drawn = await call($, 'mcp__anduril__pane')
+      expect(drawn).toMatch(/narsil, the working tree against HEAD \(223f934\): 2 of 2 kept runs changed/)
+      expect(drawn).toMatch(/narsil show 999 exit 1 → 2/)
+      expect(drawn).toContain('+narsil: lighting 999 is not in the chronicle')
+      expect(drawn).toContain('file root/extra.bin: the working tree alone left it')
+      expect(drawn).toContain('+fnv-1a 6be6')
+      expect(drawn).toContain('Written outside the folder the runs were played in, so on this machine: /tmp/outside.txt')
+
+      await pane.press({ key: 'diff-hide' })
+      expect(await call($, 'mcp__anduril__pane')).not.toContain('kept runs changed')
+    })
+  }
 })

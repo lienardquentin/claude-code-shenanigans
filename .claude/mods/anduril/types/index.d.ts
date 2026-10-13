@@ -6,6 +6,70 @@ export type AndurilTarget = {
   binary: string
   /** The source folders whose edits are edits of it, absolute; none when the file names none. */
   roots: string[]
+  /** The command that builds it, run from the project's folder or from a checkout of it; empty when none is named. */
+  build: string
+  /** Regular expressions, as Python reads them: what each matches in a stream is left out of a comparison. */
+  masks: string[]
+}
+
+/** One of the two builds a comparison plays the kept runs on. */
+export type AndurilSide = {
+  /** `work` for the working tree, else the commit as it was named (`HEAD`, a tag, a branch). */
+  ref: string
+  /** The commit it names, whole; empty for the working tree. */
+  sha: string
+  /** Why it could not be played (no such commit, a build that fails); empty when it was. */
+  error: string
+}
+
+/** How one kept run ended on one build. */
+export type AndurilOutcome = {
+  exitCode: number
+  signal: string
+  durationMs: number
+  stdoutBytes: number
+  stderrBytes: number
+  /** Why it was not run to its end (no run of the tool, ended for taking too long); empty when it was. */
+  error: string
+}
+
+/** One kept run played on both builds. */
+export type AndurilCase = {
+  /** The run as the project's file keeps it. */
+  line: string
+  isChanged: boolean
+  from: AndurilOutcome
+  to: AndurilOutcome
+  /** What differs in each stream as a unified diff, the masks applied; empty where nothing does. */
+  stdoutDiff: string
+  stderrDiff: string
+  /**
+   * The files this run changed that are not the same on both builds once it was played, by their path in the place
+   * the runs are played in (`root/…` the copy of the source folder, `home/…`, `tmp/…`). `added` is a file the second
+   * build alone left. `diff` is a text file's lines, the masks applied, or a sentence for one that is no text.
+   */
+  files: { path: string; change: 'added' | 'removed' | 'changed'; diff: string }[]
+  /** The files each build wrote outside the place it was played in, whole paths: they are on the machine. */
+  outside: { from: string[]; to: string[] }
+  /** The files each build wrote and removed again before the run ended. */
+  transient: { from: string[]; to: string[] }
+}
+
+/** The kept runs of a tool played on two builds, and what differs. */
+export type AndurilDiff = {
+  label: string
+  /** When it was made, milliseconds since the epoch. */
+  at: number
+  from: AndurilSide
+  to: AndurilSide
+  /** Why nothing was played (no run kept, a mask that does not read); empty otherwise. */
+  error: string
+  /**
+   * Why no run was traced (no strace on the machine); empty when each was. Untraced, what a run writes outside the
+   * place it is played in, or writes and removes again, is not seen.
+   */
+  untraced: string
+  cases: AndurilCase[]
 }
 
 /** One run of a watched tool, as the shim wrote it once the tool had exited. */
@@ -65,6 +129,14 @@ declare module 'claude-code' {
       note: string
       /** The folder the session started in, absolute: where the project's file and the records are. */
       home: string
+      /** The runs the project keeps to play again, each as it is typed, in the order of its file. */
+      corpus: string[]
+      /** The last comparison made, or none yet. */
+      diff: AndurilDiff | null
+      /** The tool a comparison is being made for now; empty when none is. */
+      diffing: string
+      /** The commit the pane compares the working tree with. */
+      against: string
     }
   }
 }

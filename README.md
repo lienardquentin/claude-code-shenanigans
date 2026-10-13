@@ -254,8 +254,25 @@ lives in [`.claude/mods/anduril`](.claude/mods/anduril), and [`narsil`](narsil) 
   It remarks on a run that sent colour down a pipe, failed without a word on stderr, or met a broken pipe.
 - Claude reads the same through `mcp__anduril__runs` (a list it can narrow by tool, failure or text) and
   `mcp__anduril__run` (one run in full), so it sees what you ran and what it printed without being pasted it.
+- **What changed between two builds.** The project's file also keeps runs to play again, a `$ narsil show 999` line
+  each; `k` on an opened run in the pane keeps it. `d` plays them on the working tree, built afresh, and on HEAD, and
+  shows the runs that ended otherwise or wrote something else, each stream as a diff: what the uncommitted edits
+  changed in what the tool does. The field above it takes any other commit to compare with (a tag, a branch).
+  Claude has it as `mcp__anduril__diff`, which also compares two commits, or a branch with where it left another
+  (`mergeBase`), and is told to call it after changing the tool's source.
+- A comparison needs `narsil.build=…`, the command that builds the tool from the repo's root. A commit is checked
+  out in a git worktree of the tool's own, `.anduril/trees/narsil`, built there, and its binary kept by commit under
+  `.anduril/builds`, so each commit is built once. Both builds play the runs in order in a fresh copy of the tool's
+  source folder as the working tree has it, with an empty home and no terminal: they read the same files, and what
+  a run writes there reaches nothing of yours. `narsil.mask=…` lines are regular expressions for what to leave out
+  of a comparison, a time or a process id.
+- Files are compared run by run: a file a run changed that is not the same on both builds is said under that run, a
+  text file as a diff with the masks applied. Where `strace` is installed each run is traced, which adds two things:
+  the files a run wrote outside the folders it was played in (those writes reach your machine, and are said even
+  when both builds made them), and the files it wrote and removed again before it ended. Without `strace` the
+  comparison says that neither was looked for.
 
-It needs `python3` and a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
+It needs `python3`, and `git` for a comparison, on a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
 what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it from
 a clone:
 

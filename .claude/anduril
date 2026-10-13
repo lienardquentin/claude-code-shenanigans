@@ -1,4 +1,23 @@
 # What the anduril mod watches in this project: label=binary@root. The label is the name the tool is run by, the
 # binary the built file a run of it runs, and the root the source folder whose edits are edits of it.
-# Build it first: cargo build --manifest-path narsil/Cargo.toml
 narsil=narsil/target/debug/narsil@narsil
+
+# How it is built, from the repo's root: what a comparison runs on the working tree and on a checkout of a commit.
+narsil.build=cargo build --quiet --manifest-path narsil/Cargo.toml
+
+# What is left out of its streams when two builds are compared: when ls was run, and the thread id a panic names.
+narsil.mask=generated at \S+
+narsil.mask=thread '[^']*' \(\d+\)
+
+# The runs kept to be played on two builds, in order, in a copy of narsil/: each as it is typed.
+$ narsil ls
+$ narsil ls --format json
+$ narsil ls --since 3019-03-12
+$ narsil show 3
+$ narsil show 999
+$ narsil tally --by keeper
+$ narsil tally --by realm --format json
+$ narsil archive prune --before 3019-03-10 --dry-run
+$ narsil seal chronicle.jsonl
+$ narsil forge big.jsonl --count 20000
+$ narsil --chronicle big.jsonl tally
