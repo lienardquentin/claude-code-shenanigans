@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import type { AndurilRun } from '../types'
-import { commandLine, ending, launcher, names, parseRun, parseTargets, prelude, remarks, runText } from '../hooks/record'
+import { commandLine, ending, ends, excerpt, launcher, names, parseRun, parseTargets, prelude, remarks, runText } from '../hooks/record'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -168,6 +168,20 @@ describe('a record', () => {
     expect(said).toContain('exit 0 after 5.2 ms')
     expect(said).toContain(`stdout (9.0 kB):\n${'a'.repeat(20)}\n… 30 more characters kept, 9.0 kB written in all`)
     expect(said).toContain('stderr: nothing')
+  })
+})
+
+describe('a stream too long to show whole', () => {
+  test('is drawn by its first and last lines, with how many are between', () => {
+    const lines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`)
+
+    expect(excerpt(lines, 10)).toEqual(lines)
+    expect(excerpt(lines, 4)).toEqual(['line 1', 'line 2', '… 6 lines not drawn …', 'line 9', 'line 10'])
+  })
+
+  test('is held by its start and its end', () => {
+    expect(ends('abcdefghij', 10)).toBe('abcdefghij')
+    expect(ends('abcdefghij', 4)).toBe('ab\n… 6 characters not held here …\nij')
   })
 })
 

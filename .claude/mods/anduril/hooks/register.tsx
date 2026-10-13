@@ -16,6 +16,7 @@ import {
   drawable,
   duration,
   ending,
+  excerpt,
   launcher,
   names,
   parseRun,
@@ -36,7 +37,7 @@ const TITLE = 'Anduril'
 // How many runs the session holds, and how much of each stream: the files under .anduril/runs hold the rest
 const KEPT_RUNS = 200
 const KEPT_CHARS = 8_000
-// How many lines of a stream the pane draws of the run it shows in full
+// How many lines of a stream the pane draws of the run it shows in full: half from its start, half from its end
 const DRAWN_LINES = 40
 
 const targets = atom({ plugin: 'anduril', key: 'targets' } as const, [] as AndurilTarget[])
@@ -337,9 +338,9 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Text bold>
-            {name} <Text dimColor>{`${size(bytes)}${isTty ? ', to a terminal' : ''}${lines.length > DRAWN_LINES ? `, the first ${DRAWN_LINES} lines` : ''}`}</Text>
+            {name} <Text dimColor>{`${size(bytes)}${isTty ? ', to a terminal' : ''}${lines.length > DRAWN_LINES ? `, the first and last ${DRAWN_LINES / 2} of ${lines.length} lines` : ''}`}</Text>
           </Text>
-          <Code source={lines.slice(0, DRAWN_LINES).join('\n')} />
+          <Code source={excerpt(lines, DRAWN_LINES).join('\n')} />
         </Box>
       )
     }
@@ -374,7 +375,7 @@ export const register: Register = (on, options) => {
                 {`exit ${ending(open)} · ${duration(open.durationMs)} · cpu ${duration(open.userMs + open.sysMs)} · ${size(open.maxRssKb * 1024)} · in ${open.cwd}`}
               </Text>
               <Text dimColor>
-                {`stdout ${open.isStdoutTty ? 'a terminal' : 'piped'}, stderr ${open.isStderrTty ? 'a terminal' : 'piped'}${open.columns > 0 ? `, ${open.columns} columns` : ''}${Object.entries(open.env).map(([name, value]) => ` ${name}=${value}`).join('')}`}
+                {`stdout ${open.isStdoutTty ? 'a terminal' : 'piped'}, stderr ${open.isStderrTty ? 'a terminal' : 'piped'}${open.columns > 0 ? `, ${open.columns} columns` : ''}${Object.keys(open.env).length > 0 ? ` · ${Object.entries(open.env).map(([name, value]) => `${name}=${value}`).join(' ')}` : ''}`}
               </Text>
               {remarks(open).map(remark => (
                 <Text color="warning">{remark}</Text>

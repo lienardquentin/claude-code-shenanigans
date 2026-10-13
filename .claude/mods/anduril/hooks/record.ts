@@ -114,8 +114,30 @@ export const parseRun = (source: string): AndurilRun | undefined => {
   }
 }
 
-/** The run with each stream cut to its first characters: what the session holds of it. */
-export const trimmed = (run: AndurilRun, chars: number): AndurilRun => ({ ...run, stdout: run.stdout.slice(0, chars), stderr: run.stderr.slice(0, chars) })
+/** A text held to so many characters: its start and its end, half each, with a line between saying what is left out. */
+export const ends = (text: string, chars: number): string => {
+  if (text.length <= chars) return text
+
+  const half = Math.floor(chars / 2)
+
+  return `${text.slice(0, half)}\n… ${text.length - 2 * half} characters not held here …\n${text.slice(text.length - half)}`
+}
+
+/** The run with each stream held to its start and its end: what the session holds of it. */
+export const trimmed = (run: AndurilRun, chars: number): AndurilRun => ({ ...run, stdout: ends(run.stdout, chars), stderr: ends(run.stderr, chars) })
+
+/**
+ * The lines of a stream as the pane draws them: all of them, or the first and the last with a line between saying
+ * how many are not drawn. A tool that fails says why at the end.
+ */
+export const excerpt = (lines: readonly string[], most: number): string[] => {
+  if (lines.length <= most) return [...lines]
+
+  const first = Math.ceil(most / 2)
+  const last = most - first
+
+  return [...lines.slice(0, first), `… ${lines.length - most} lines not drawn …`, ...lines.slice(lines.length - last)]
+}
 
 /** The run as it was typed. */
 export const commandLine = (run: Pick<AndurilRun, 'label' | 'argv'>): string => [run.label, ...run.argv.map(shQuote)].join(' ')
