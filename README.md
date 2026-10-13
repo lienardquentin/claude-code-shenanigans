@@ -5,7 +5,7 @@ Personal Claude Code mods and experiments.
 ## Mods
 
 Claude sees nothing of a pane by itself, so every mod that opens one also serves it as a tool, `mcp__<mod>__pane`
-(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__http-log__pane`, `mcp__renovate-desk__pane`). It answers
+(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__http-log__pane`, `mcp__renovate-desk__pane`, `mcp__anduril__pane`). It answers
 whether the pane is open, then its latest drawing as text: the tree you see, so your selection, page and filter are
 in it. Ask Claude about "the pane" and it can read it.
 
@@ -231,3 +231,41 @@ claude plugin install renovate-desk@renovate-desk-mods
 ```
 
 Then open the pane with `/renovate`.
+
+### `anduril`
+
+Keeps a record of every run of the command-line tool being written, whoever ran it, and shows them in a pane. It
+lives in [`.claude/mods/anduril`](.claude/mods/anduril), and [`narsil`](narsil) is the tool it is shown on.
+
+- A project names what is watched in [`.claude/anduril`](.claude/anduril), a line each:
+  `narsil=narsil/target/debug/narsil@narsil` is the name the tool is run by, the built binary a run of it runs, and
+  the folder of its source.
+- For each tool the mod writes a launcher of that name in `.anduril/bin`, which hands the run to
+  [`shim/anduril_shim.py`](.claude/mods/anduril/shim/anduril_shim.py). A command of Claude's that names the tool
+  finds the launcher first on its PATH, and Claude is told to run the tool by its name. For the runs you make in a
+  terminal of your own, put the folder first on its PATH: `export PATH="$PWD/.anduril/bin:$PATH"`.
+- The tool runs as it would without the shim: a stream that was a terminal is still one for it, of the same size, so
+  its colours and its width are its own, and `tool | head` breaks its pipe as it would have.
+- A record is what was run and where, by whom, the exit code or the signal, the tool's own duration, its processor
+  time and peak memory, whether each stream was a terminal, and the first 256 kB of stdout and of stderr, kept apart.
+  The last 500 are kept, as files under `.anduril/runs`; the folder ignores itself for git.
+- `/anduril` opens the pane: the runs newest first, `f` for the failed ones alone, a run pressed for what it wrote.
+  It remarks on a run that sent colour down a pipe, failed without a word on stderr, or met a broken pipe.
+- Claude reads the same through `mcp__anduril__runs` (a list it can narrow by tool, failure or text) and
+  `mcp__anduril__run` (one run in full), so it sees what you ran and what it printed without being pasted it.
+
+It needs `python3` and a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
+what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it from
+a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods/anduril
+claude plugin install anduril@anduril-mods
+```
+
+Then build `narsil` (`cargo build --manifest-path narsil/Cargo.toml`), open the pane with `/anduril`, and run
+`narsil ls`. Tests:
+
+```
+claude plugin test .claude/mods/anduril
+```

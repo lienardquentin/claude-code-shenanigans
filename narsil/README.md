@@ -2,7 +2,7 @@
 
 A small command-line tool in Rust that reads and keeps a chronicle of beacon lightings: something that is run, prints
 and breaks, for the `anduril` mod to watch. Nothing here is meant to be useful; every part of it is there to show one
-thing the mod does. The mod is not written yet, and this is what it will be written against.
+thing the mod does. So far the mod records each run; the rest is still to be written, against this.
 
 The chronicle is a file of lightings, one JSON object to a line. [`chronicle.jsonl`](chronicle.jsonl) holds forty of
 them, and one line a scribe wrote in haste that is no JSON at all.
