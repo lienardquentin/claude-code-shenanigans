@@ -6,14 +6,19 @@ export type Bucket = 'safe' | 'waiting' | 'look'
 export type MergeMethod = 'squash' | 'merge' | 'rebase'
 
 export type Pr = {
-  /** `owner/repo#number` */
+  /** `owner/repo#number` on GitHub, `group/project!number` on GitLab */
   id: string
+  /** The forge it is on, which is the command line a merge goes through. */
+  forge: 'github' | 'gitlab'
+  /** `owner/repo`, or the project's full path. */
+  repo: string
+  number: number
   title: string
   url: string
   kind: Kind
   bucket: Bucket
   reason: string
-  /** Whether GitHub would take a merge now; a `look` row that has it gets its own button. */
+  /** Whether the forge would take a merge now; a `look` row that has it gets its own button. */
   canMerge: boolean
   method: MergeMethod
   /** The head commit that was judged, the only one a merge goes through for. */
@@ -28,10 +33,12 @@ declare module 'claude-code' {
   interface PluginState {
     'renovate-desk': {
       prs: Pr[]
-      /** How many GitHub found, which is more than `prs` past a hundred. */
+      /** How many the forge found, which is more than `prs` past a hundred. */
       total: number
+      /** The repo's origin as the last refresh read it, which says the forge; empty outside a repo and before one. */
+      remote: string
       phase: Phase
-      /** When GitHub was last asked, as HH:MM; empty before the first refresh. */
+      /** When the forge was last asked, as HH:MM; empty before the first refresh. */
       checkedAt: string
       /** Why the last refresh failed; empty when it did not. */
       error: string

@@ -14,7 +14,7 @@ In an auto run (your first instructions say when it is one) the person is asked 
 
    Each ticket is built in a fresh git worktree of the repo, which holds only what git tracks. If the verification commands need anything else there (installed dependencies, generated files), find the commands that put it there, such as `npm ci`: they are the spec's setup commands, and the run executes them in each worktree before its ticket is built. A repo whose commands run green in a bare checkout needs none.
 
-4. **Write `spec.md`** from the template below. When the run started from an idea, the spec is also the one GitHub issue the run opens when the person approves: the title in its heading is the issue's title, and everything under the heading is the issue's body, so write both for someone reading them on GitHub. A run that started from an issue already has one, and its spec stays local. Done when every section is filled and every decision of the grilling appears in it.
+4. **Write `spec.md`** from the template below. When the run started from an idea, the spec is also the one issue the run opens on the repo's forge (GitHub or GitLab) when the person approves: the title in its heading is the issue's title, and everything under the heading is the issue's body, so write both for someone reading them there. A run that started from an issue already has one, and its spec stays local. Done when every section is filled and every decision of the grilling appears in it.
 
 5. Read `tickets.md`, beside this file, and follow it.
 

@@ -1,14 +1,26 @@
 {
   "name": "renovate-desk",
-  "version": "0.1.0",
-  "description": "Renovate pull requests across your repos, sorted by what is safe to merge, merged in one keypress",
+  "version": "0.2.0",
+  "description": "Renovate pull requests (GitHub) or merge requests (GitLab) across your repos, sorted by what is safe to merge, merged in one keypress",
   "types": "./types/index.d.ts",
   "userConfig": {
+    "forge": {
+      "type": "string",
+      "title": "Forge",
+      "description": "github or gitlab. Left empty, the origin of the repo the session is in says which: GitLab when its host has gitlab in it, GitHub otherwise. Name it for a GitLab of your own under another host, or to look at one forge from a repo on the other.",
+      "default": ""
+    },
     "query": {
       "type": "string",
-      "title": "Which pull requests",
+      "title": "Which pull requests (GitHub)",
       "description": "GitHub search qualifiers naming the Renovate pull requests to look after, added to: is:pr is:open archived:false. For example author:app/renovate org:acme, or author:app/renovate user:@me org:acme.",
       "default": "author:app/renovate user:@me"
+    },
+    "gitlabAuthor": {
+      "type": "string",
+      "title": "Renovate's username (GitLab)",
+      "description": "The GitLab username Renovate opens its merge requests as. Every open merge request of that user you can see is looked after.",
+      "default": "renovate-bot"
     }
   }
 }

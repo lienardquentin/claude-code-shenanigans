@@ -1,6 +1,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { Settings } from './budget'
+import { requestOf } from './forge'
 import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import type { Tone as CellTone } from './kit/badge'
@@ -129,7 +130,7 @@ const runCard = (
         ? [
             <Button key={`resume-${feature}`} onPress={() => onResume(feature)}>
               {actionLabel({
-                text: record?.phase === 'attended' ? 'Approve and build' : canFollow ? 'Follow up the pull request' : 'Resume',
+                text: record?.phase === 'attended' ? 'Approve and build' : canFollow ? `Follow up the ${requestOf(record)}` : 'Resume',
                 primary: true,
               })}
             </Button>,

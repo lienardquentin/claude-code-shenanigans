@@ -6,15 +6,24 @@ import { actionLabel } from './kit/action-label'
 import { badge } from './kit/badge'
 import { card } from './kit/card'
 import { divider } from './kit/divider'
+import { forgeOf, REMOTE_ARGV } from './kit/forge'
+import type { Forge } from './kit/forge'
 import { logLines } from './kit/log-lines'
 import { paneView } from './kit/pane-text'
 import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import { mergeArgv, parse, searchArgv, shortTitle } from './renovate'
+import type { Where } from './renovate'
 
 const PANE = 'renovate-desk'
 const TITLE = 'Renovate'
 const DEFAULT_QUERY = 'author:app/renovate user:@me'
+const DEFAULT_AUTHOR = 'renovate-bot'
+
+/** Where to look and on which forge: what the options say, the forge else read off the repo the session is in. */
+type Desk = Where & { forge: unknown }
+
+const remote = atom({ plugin: 'renovate-desk', key: 'remote' } as const, '')
 
 const prs = atom({ plugin: 'renovate-desk', key: 'prs' } as const, [] as Pr[])
 const total = atom({ plugin: 'renovate-desk', key: 'total' } as const, 0)
@@ -32,18 +41,28 @@ const firstLine = (text: string) => (text.trim().split('\n')[0] ?? '').slice(0, 
 
 const clockTime = async ($: EngineInterface) => new Date(await $.clock.now()).toTimeString().slice(0, 5)
 
-// GitHub is asked once, and only when the person asks: on the command and on Refresh, never on a timer
-const refresh = async ($: EngineInterface, query: string) => {
+// The forge as it was last made out: GitHub until a refresh has read the repo's remote, unless the option names one
+const forgeNow = async ($: EngineInterface, desk: Desk): Promise<Forge> => forgeOf({ asked: desk.forge, remote: await read($, remote) })
+
+// The forge is asked once, and only when the person asks: on the command and on Refresh, never on a timer
+const refresh = async ($: EngineInterface, desk: Desk) => {
   if ((await read($, phase)) !== 'idle') return
 
   await update($, phase, () => 'loading')
 
+  // Outside a repo, or in one with no origin, nothing says GitLab: it is GitHub
+  const origin = await $.process.run(REMOTE_ARGV, { timeoutMs: 10_000 }).catch(() => undefined)
+
+  await update($, remote, () => (origin?.exitCode === 0 ? origin.stdout.trim() : ''))
+
+  const forge = await forgeNow($, desk)
+
   try {
-    const { exitCode, stdout, stderr } = await $.process.run(searchArgv(query), { timeoutMs: 30_000 })
+    const { exitCode, stdout, stderr } = await $.process.run(searchArgv(forge, desk), { timeoutMs: 30_000 })
 
-    if (exitCode !== 0) throw new Error(firstLine(stderr) || `gh exited with ${exitCode}`)
+    if (exitCode !== 0) throw new Error(firstLine(stderr) || `${forge.cli} exited with ${exitCode}`)
 
-    const found = parse(stdout)
+    const found = parse(stdout, forge)
 
     await update($, prs, () => found.prs)
     await update($, total, () => found.total)
@@ -82,7 +101,7 @@ const merge = async ($: EngineInterface, pick: (pr: Pr) => boolean) => {
       await update($, total, n => Math.max(0, n - 1))
       await update($, log, entries => [...entries, { at, level: 'info', message: `merged ${pr.id} ${shortTitle(pr.title)}` }])
     } else {
-      const why = firstLine(ran.stderr) || 'gh refused the merge'
+      const why = firstLine(ran.stderr) || `${pr.forge === 'gitlab' ? 'glab' : 'gh'} refused the merge`
 
       // Left for the person, and not tried again by the one button
       await update($, prs, list =>
@@ -97,7 +116,8 @@ const merge = async ($: EngineInterface, pick: (pr: Pr) => boolean) => {
 }
 
 export const register: Register = (on, options) => {
-  const query = typeof options?.query === 'string' && options.query.trim() !== '' ? options.query.trim() : DEFAULT_QUERY
+  const said = (value: unknown, otherwise: string) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : otherwise)
+  const desk: Desk = { query: said(options?.query, DEFAULT_QUERY), author: said(options?.gitlabAuthor, DEFAULT_AUTHOR), forge: options?.forge }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'renovate', description: 'Open the Renovate pull requests and merge the safe ones' })
@@ -112,12 +132,12 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'renovate' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
-    await refresh($, query)
+    await refresh($, desk)
 
     const list = await read($, prs)
     const failure = await read($, error)
 
-    if (failure !== '') return { text: `Renovate: could not ask GitHub: ${failure}` }
+    if (failure !== '') return { text: `Renovate: could not ask ${(await forgeNow($, desk)).name}: ${failure}` }
 
     const count = (bucket: Pr['bucket']) => list.filter(pr => pr.bucket === bucket).length
 
@@ -133,6 +153,7 @@ export const register: Register = (on, options) => {
     const at = await read($, checkedAt)
     const failure = await read($, error)
     const entries = await read($, log)
+    const forge = await forgeNow($, desk)
 
     const safe = list.filter(pr => pr.bucket === 'safe')
     const waiting = list.filter(pr => pr.bucket === 'waiting')
@@ -142,7 +163,7 @@ export const register: Register = (on, options) => {
 
     const status =
       now === 'loading'
-        ? badge({ label: 'asking GitHub', tone: 'info' })
+        ? badge({ label: `asking ${forge.name}`, tone: 'info' })
         : now === 'merging'
           ? badge({ label: 'merging', tone: 'accent' })
           : failure !== ''
@@ -185,7 +206,7 @@ export const register: Register = (on, options) => {
                 : []),
               ...(isIdle
                 ? [
-                    <Button key="refresh" hotkey="r" onPress={() => refresh($, query)}>
+                    <Button key="refresh" hotkey="r" onPress={() => refresh($, desk)}>
                       {actionLabel({ text: 'Refresh' })}
                     </Button>,
                   ]
@@ -195,13 +216,13 @@ export const register: Register = (on, options) => {
           divider(),
           table({
             columns: [
-              { header: 'Pull request', width: isWide ? 30 : 18 },
+              { header: forge.request.replace(/^./, first => first.toUpperCase()), width: isWide ? 30 : 18 },
               { header: 'Update' },
               { header: 'State', width: isWide ? 30 : 20 },
               { header: '', width: 7 },
             ],
             rows,
-            empty: at === '' ? 'Press Refresh to ask GitHub.' : 'No open Renovate pull request.',
+            empty: at === '' ? `Press Refresh to ask ${forge.name}.` : `No open Renovate ${forge.request}.`,
           }),
           ...(found > list.length ? [badge({ label: `${found - list.length} more not shown`, tone: 'neutral' })] : []),
           ...(entries.length > 0 ? [divider(), logLines({ entries: entries.slice(-8) })] : []),

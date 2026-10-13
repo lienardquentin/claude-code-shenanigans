@@ -2,6 +2,7 @@ import { approve, reattend } from './attended'
 import { BUDGET_WINDOW, holdOf, isOverBudget, roomFor } from './budget'
 import type { Settings } from './budget'
 import { finish, finished, follow } from './finisher'
+import { detect, requestOf } from './forge'
 import { locked, pick, readFolder, readFolders, readRecord, writeRecord, writeStatus } from './folders'
 import { workOf } from './guard'
 import type { Host } from './host'
@@ -361,7 +362,7 @@ export const resume = async (host: Host, settings: Settings, wanted: string): Pr
 
     if (isFinishing && running.has(record?.agentId ?? '')) {
       return refused(
-        record?.stage === 'follow' ? 'its pull request is being followed up now' : `the branch is being ${record?.stage === 'fix' ? 'fixed' : 'reviewed'} now`,
+        record?.stage === 'follow' ? `its ${requestOf(record)} is being followed up now` : `the branch is being ${record?.stage === 'fix' ? 'fixed' : 'reviewed'} now`,
       )
     }
     if (building.length > 0) {
@@ -416,8 +417,18 @@ export const resume = async (host: Host, settings: Settings, wanted: string): Pr
     delete carried.hangs
 
     const startUsage = record?.startUsage ?? (await readUsage(host))
+    // A run with no record was not begun by /ship: its forge is made out here, as a run's is when it begins
+    const forge = record ? undefined : await detect(host, settings.forge)
 
-    return advance(host, settings, { ...carried, feature, branch, phase: 'unattended', attempts: {}, startUsage })
+    return advance(host, settings, {
+      ...carried,
+      ...(forge !== undefined && forge.id !== 'github' ? { forge: forge.id } : {}),
+      feature,
+      branch,
+      phase: 'unattended',
+      attempts: {},
+      startUsage,
+    })
   })
 
   return `${feature}: ${said ?? ''}.`

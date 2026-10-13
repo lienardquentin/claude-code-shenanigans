@@ -1,7 +1,7 @@
 {
   "name": "ship-flow",
-  "version": "0.1.0",
-  "description": "Takes one feature from an idea or an issue to a pull request",
+  "version": "0.2.0",
+  "description": "Takes one feature from an idea or an issue to a pull request (GitHub) or a merge request (GitLab)",
   "types": "./types/index.d.ts",
   "userConfig": {
     "implementerModel": {
@@ -45,6 +45,12 @@
       "title": "Tickets built at once",
       "description": "How many tickets the run builds side by side, each in a git worktree of its own, from 1 to 8. Only tickets whose Touches do not overlap are built together.",
       "default": 3
+    },
+    "forge": {
+      "type": "string",
+      "title": "Forge",
+      "description": "github or gitlab. Left empty, the repo's origin says which: GitLab when its host has gitlab in it, GitHub otherwise. Name it for a GitLab of your own under another host.",
+      "default": ""
     }
   }
 }

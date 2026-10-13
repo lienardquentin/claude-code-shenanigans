@@ -30,8 +30,10 @@ export const answerRepo = (
     branch?: string
     /** How many commits the branch already has that `main` lacks, before the run makes any. */
     ahead?: number
-    /** The repo's issues on GitHub, by number. */
+    /** The repo's issues on its forge, by number. */
     issues?: Readonly<Record<number, { title: string; body: string; labels?: readonly string[] }>>
+    /** The repo's origin, which says its forge; one on GitHub when not given. */
+    origin?: string
     /** Where the session's clock starts, in milliseconds. */
     now?: number
     /** How full each quota window is, in percent, and when the short one resets. */
@@ -74,6 +76,17 @@ export const answerRepo = (
     comments: { author: { login: string }; body: string; createdAt: string }[]
     inline: { user: { login: string }; path: string; line: number; body: string; created_at: string }[]
   } = { issues: [], body: '', title: '', base: '', failsToPush: false, failsToOpen: false, checks: [], reviews: [], comments: [], inline: [] }
+  // GitLab, as `glab` answers: the branch's merge request, the jobs of its last pipeline, and its notes
+  const gitlab: {
+    issues: { title: string; body: string }[]
+    mr?: { iid: number; web_url: string; draft: boolean; head_pipeline?: { id: number } }
+    body: string
+    title: string
+    base: string
+    failsToOpen: boolean
+    jobs: { name: string; status: string; allow_failure?: boolean; web_url?: string }[]
+    notes: { author: { username: string }; body: string; created_at: string; system?: boolean; position?: { new_path: string; new_line: number } }[]
+  } = { issues: [], body: '', title: '', base: '', failsToOpen: false, jobs: [], notes: [] }
   // The files a ticket's commit changed, as `git diff --name-only` lists them
   const committed: { files: string[] } = { files: [] }
   const exits: Record<string, number> = { ...given.exits }
@@ -159,6 +172,47 @@ export const answerRepo = (
 
       return exited(0) as never
     }
+    if (e.argv[0] === 'glab') {
+      const body = e.init?.stdin ?? ''
+      const flag = (name: string) => e.argv[e.argv.indexOf(name) + 1] ?? ''
+
+      if (e.argv[1] === 'api') {
+        return exited(0, JSON.stringify((e.argv[2] ?? '').includes('/pipelines/') ? gitlab.jobs : gitlab.notes)) as never
+      }
+      if (e.argv[1] === 'issue' && e.argv[2] === 'view') {
+        const issue = given.issues?.[Number(e.argv[3])]
+
+        return (
+          issue
+            ? exited(0, JSON.stringify({ id: 9000, iid: Number(e.argv[3]), title: issue.title, description: issue.body, labels: issue.labels ?? [] }))
+            : exited(1, '', 'ERROR: 404 Not Found')
+        ) as never
+      }
+      if (e.argv[1] === 'issue' && e.argv[2] === 'create') {
+        if (gitlab.failsToOpen) return exited(1, '', 'ERROR: 401 Unauthorized') as never
+        gitlab.issues.push({ title: flag('--title'), body })
+
+        return exited(0, `#${30 + gitlab.issues.length} ${flag('--title')}\nhttps://gitlab.com/dev/repo/-/issues/${30 + gitlab.issues.length}\n`) as never
+      }
+      if (e.argv[2] === 'view') return (gitlab.mr ? exited(0, JSON.stringify(gitlab.mr)) : exited(1, '', 'ERROR: no open merge request available for "ship/x"')) as never
+      if (e.argv[2] === 'create') {
+        if (gitlab.failsToOpen) return exited(1, '', 'ERROR: 401 Unauthorized') as never
+        gitlab.mr = { iid: 7, web_url: 'https://gitlab.com/dev/repo/-/merge_requests/7', draft: e.argv.includes('--draft'), head_pipeline: { id: 501 } }
+        gitlab.body = body
+        gitlab.title = flag('--title')
+        gitlab.base = flag('--target-branch')
+
+        return exited(0, `\nCreating merge request for ${flag('--source-branch')} into ${gitlab.base} in dev/repo\n\n!7 ${gitlab.title}\n ${gitlab.mr.web_url}\n`) as never
+      }
+      if (e.argv[2] === 'update' && gitlab.mr) {
+        gitlab.body = body
+        if (e.argv.includes('--draft')) gitlab.mr.draft = true
+        if (e.argv.includes('--ready')) gitlab.mr.draft = false
+      }
+
+      return exited(0) as never
+    }
+    if (e.argv[0] === 'git' && e.argv[1] === 'remote') return exited(0, `${given.origin ?? 'git@github.com:dev/repo.git'}\n`) as never
     if (e.argv[0] !== 'git') {
       const exitCode = exits[e.argv.at(-1) ?? ''] ?? 0
 
@@ -321,6 +375,8 @@ export const answerRepo = (
     },
     /** GitHub as the mod left it: the branch's pull request, its title, base and body; and what a test makes fail. */
     github,
+    /** GitLab as the mod left it, for a repo whose origin is there: the branch's merge request, and what a test has it meet. */
+    gitlab,
     /** The files the commit a ticket's work is made into changed: a test names them. */
     committed,
     /** The turns the mod stopped, by id. */

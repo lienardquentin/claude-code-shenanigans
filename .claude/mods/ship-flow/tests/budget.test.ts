@@ -59,6 +59,7 @@ describe('the settings', () => {
       weeklyPercent: 90,
       contextPercent: 70,
       parallelTickets: 3,
+      forge: '',
     })
   })
 

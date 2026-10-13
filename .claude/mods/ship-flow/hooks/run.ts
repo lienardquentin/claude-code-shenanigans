@@ -50,7 +50,9 @@ export type RunRecord = {
   phase: Phase
   /** What the run started from: an idea the person typed, or an issue that existed. */
   source?: 'idea' | 'issue'
-  /** The GitHub issue the run's pull request closes, when the run has one. */
+  /** The forge the run was begun on, which its issue and its pull request are on; GitHub where a record does not say. */
+  forge?: 'github' | 'gitlab'
+  /** The issue the run's pull request closes, when the run has one. */
   issue?: number
   /** What the feature is called where a person reads it: its issue's title, and its pull request's. */
   title?: string
@@ -169,6 +171,7 @@ export const kept = (record: RunRecord) => ({
   feature: record.feature,
   branch: record.branch,
   attempts: record.attempts,
+  ...(record.forge !== undefined ? { forge: record.forge } : {}),
   ...(record.source !== undefined ? { source: record.source } : {}),
   ...(record.issue !== undefined ? { issue: record.issue } : {}),
   ...(record.title !== undefined ? { title: record.title } : {}),

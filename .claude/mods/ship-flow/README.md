@@ -1,6 +1,6 @@
 # ship-flow
 
-A Claude Code mod that takes one feature from an idea or a GitHub issue to a pull request. You are with it up to one
+A Claude Code mod that takes one feature from an idea or an issue to a pull request, on GitHub or on GitLab (where it is a merge request). You are with it up to one
 checkpoint; from there it builds unattended, in git worktrees, and never in your own working tree.
 
 It automates the flow of the `mattpocock-skills` plugin (grill, spec,
@@ -9,7 +9,8 @@ hooks module instead of by the model.
 
 ## Install
 
-It needs `git`, `gh` signed in to the repo's GitHub, and the `mattpocock-skills` plugin for the grilling.
+It needs `git`, the command line of the repo's forge signed in to it (`gh` for GitHub, `glab` for GitLab), and the
+`mattpocock-skills` plugin for the grilling. See [GitHub or GitLab](#github-or-gitlab).
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/ship-flow
@@ -21,7 +22,7 @@ claude plugin install ship-flow@ship-flow-mods
 | Command | What it does |
 | --- | --- |
 | `/ship <idea>` | Starts a run from an idea, typed as a sentence. |
-| `/ship #<issue>` | Starts a run from a GitHub issue. One labelled `ready-for-agent` skips the grilling. |
+| `/ship #<issue>` | Starts a run from an issue of the repo. One labelled `ready-for-agent` skips the grilling. |
 | `/ship auto <idea>`, `/ship auto #<issue>` | Starts an auto run: you are asked nothing, and it goes to its pull request by itself. |
 | `/ship auto [feature]`, `/ship auto off [feature]` | Switches a run before its checkpoint to an auto run, or hands it back to you. |
 | `/ship resume [feature]` | Approves the checkpoint; takes up a run that was paused, stopped or cut off; on a run whose pull request is open, follows up its failing checks and new comments. |
@@ -68,13 +69,13 @@ pane, switches a run that is still before its checkpoint. From there:
   the tickets ends, once the mod's reading of the tickets has been acted on. It then builds as below.
 
 It does not approve under a turn you interrupted. A checkpoint that cannot be approved (a broken ticket graph, no
-verification command, an issue GitHub refuses) hands the run back to you: it is no auto run any more, and
+verification command, an issue the forge refuses) hands the run back to you: it is no auto run any more, and
 `/ship resume` approves it once that is put right. `/ship auto off`, or **Hand it back to me** in the pane, does the
 same at any moment before the checkpoint. The two findings that end a run at the grilling still end an auto run.
 
 ### Without you: building
 
-Approval opens the run's one GitHub issue from the spec (when the run started from an idea), makes the branch
+Approval opens the run's one issue from the spec (when the run started from an idea), makes the branch
 `ship/<feature>`, commits what the grilling changed, and starts the walk of the ticket graph.
 
 - Each ticket is built by a fresh subagent in its own worktree, `.scratch/<feature>/trees/<NN>`. Tickets whose
@@ -158,6 +159,23 @@ side by side, and the pull request says how far it was from what the ticket chan
 | `weeklyPercent` | 90 | How full the weekly quota window may be for a ticket to start. |
 | `contextPercent` | 70 | The share of a 200,000-token window an implementer may fill before it is stopped. |
 | `parallelTickets` | 3 | How many tickets are built at once, from 1 to 8. |
+| `forge` | empty | `github` or `gitlab`, for a repo whose origin does not say which it is on. |
+
+## GitHub or GitLab
+
+A run is on the forge its repo is on, made out as it begins from `git remote get-url origin`: GitLab when the
+host has `gitlab` in it, GitHub otherwise. A GitLab of your own under another host needs the `forge` setting. The
+forge is kept in the run's record, so a run goes on with the one it began on.
+
+| | GitHub | GitLab |
+| --- | --- | --- |
+| Command line | `gh`, signed in (`gh auth login`) | `glab`, signed in (`glab auth login`), recent enough to take `--description-file` |
+| The issue | `gh issue view`, `gh issue create` | `glab issue view`, `glab issue create` |
+| What the run opens | a pull request: `gh pr create`, `gh pr edit`, `gh pr ready` | a merge request: `glab mr create`, `glab mr update` |
+| What it has met | `gh pr checks`, the reviews, comments and diff comments | the failed jobs of its last pipeline (those allowed to fail left out) and its notes, through `glab api` |
+
+Everything else is the same run, and it says "merge request" wherever it would say "pull request". `Closes #<issue>`
+in the body closes the issue on both.
 
 ## What a run leaves on disk
 
@@ -190,6 +208,7 @@ that every other module is written against.
 | `attended.ts` | Starting a run, the attended phase, the checkpoint and its approval. |
 | `runner.ts` | The walk of the ticket graph: taking tickets, judging and landing their work, resume and stop. |
 | `finisher.ts` | The review, the fix pass, the pull request and its follow-up. |
+| `forge.ts` | The repo's forge: every `gh` and `glab` command of a run, and the reading of what each prints. |
 | `guard.ts` | The permission decision for each tool call of a run's agent. |
 | `tickets.ts` | Ticket files, the graph, what may be built side by side, the schedule. |
 | `radius.ts`, `reading.ts` | The blast radius, and reading the repo for it. |
@@ -208,3 +227,6 @@ The tests run the mod against a stand-in for the engine. In a live run an agent'
 is, not in its worktree, so its verification commands ran against the repo's own working tree. The mod now takes
 each shell command of a run's agent to the agent's worktree itself, as `(cd '<worktree>' && <command>)`, and judges
 the command as the agent wrote it. That has been seen in the tests and not in a live run yet.
+
+Nor has a run on GitLab: the `glab` commands were written from GitLab's documentation of them and are answered in
+the tests by a stand-in, never yet by `glab` itself.

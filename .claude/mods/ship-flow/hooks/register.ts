@@ -24,7 +24,7 @@ const view = paneView({ id: PANE, title: 'ship-flow', command: '/ship pane' })
 const USAGE = [
   'Usage:',
   '  /ship <idea>            start a run from an idea',
-  '  /ship #<issue>          start a run from a GitHub issue',
+  '  /ship #<issue>          start a run from an issue of the repo, on GitHub or GitLab',
   '  /ship auto <idea | #<issue>>  start an auto run: nothing is asked, the recommended option is taken, and it builds by itself',
   '  /ship auto [off] [feature]    switch a run before its checkpoint to auto, or back',
   '  /ship resume [feature]  approve the checkpoint, take a run up again, or follow up its pull request',
@@ -109,7 +109,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'ship',
-      description: 'Takes one feature from an idea or an issue to a pull request',
+      description: 'Takes one feature from an idea or an issue to a pull request, or a merge request on GitLab',
       argumentHint: '<idea> | #<issue> | auto [<idea> | #<issue> | off] | resume [feature] | stop [feature] | clean <feature> | status | pane',
     })
     await $.agent.register({

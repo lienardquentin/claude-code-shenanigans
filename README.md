@@ -11,14 +11,15 @@ in it. Ask Claude about "the pane" and it can read it.
 
 ### `ship-flow`
 
-Takes one feature from an idea or a GitHub issue to a pull request. It lives in
+Takes one feature from an idea or an issue to a pull request, on GitHub through `gh` or on GitLab through `glab`
+(where it is a merge request): the repo's origin says which. It lives in
 [`.claude/mods/ship-flow`](.claude/mods/ship-flow). It automates the flow of the `mattpocock-skills` plugin, with
 the spec and the tickets written as local files under `.scratch/<feature>/`, and the tickets never published.
 
 - `/ship <idea>` or `/ship #<issue>` starts a run: you are grilled about the feature, then a spec and a set of
   tickets are written locally. Nothing is published.
 - You read them, change what you like, and approve with `/ship resume`. That is the one checkpoint. A run from an
-  idea opens its single GitHub issue then, with the spec as its text.
+  idea opens its single issue then, with the spec as its text.
 - From there the run is unattended, on a branch `ship/<feature>`: each ticket is built by a fresh subagent in a git
   worktree of its own (`.scratch/<feature>/trees/<NN>`), the run executes the spec's verification commands there
   itself, commits, and puts the commit on the run's branch. Work that does not pass is kept for the ticket's one
@@ -204,18 +205,25 @@ taps saw into the call list.
 
 ### `renovate-desk`
 
-A pane that looks after your open Renovate pull requests. It lives in
+A pane that looks after your open Renovate pull requests on GitHub, or merge requests on GitLab. It lives in
 [`.claude/mods/renovate-desk`](.claude/mods/renovate-desk).
 
 - Sorts them into safe (minor, patch, digest, pin or lockfile update, checks green, mergeable), waiting (checks
   running, or conflicts Renovate rebases itself) and to look at (major, failing or missing checks, a review needed).
 - `m` merges every safe one, each with its repo's default merge method and pinned to the commit that was judged. A
-  pull request to look at that GitHub would take has a `merge` button of its own.
-- Quiet on GitHub: one search request per refresh, only on `/renovate` or `r`, never on a timer; the only write is
-  the merge. No comment, no approval, no rebase request.
-- Looks at `author:app/renovate user:@me` by default; the `query` option takes other search qualifiers.
+  pull request to look at that the forge would take has a `merge` button of its own.
+- Quiet on the forge: one search request per refresh, only on `/renovate` or `r`, never on a timer; the only write
+  is the merge. No comment, no approval, no rebase request.
+- On GitHub it looks at `author:app/renovate user:@me` by default; the `query` option takes other search qualifiers.
+- On GitLab it looks at every open merge request of the user Renovate runs as, `renovate-bot` by default (the
+  `gitlabAuthor` option). A merge goes through `glab mr merge` with `--sha` and `--auto-merge=false`: the commit that
+  was judged, now or not at all.
+- The forge is the one the session's repo is on (GitLab when its origin's host has `gitlab` in it, GitHub
+  otherwise); the `forge` option, `github` or `gitlab`, settles it by hand.
 
-It needs the `gh` CLI, signed in. Install it from a clone:
+It needs the CLI of the forge, signed in: `gh` for GitHub, `glab` for GitLab. The GitLab side was written from
+GitLab's documentation and is answered in the tests by a stand-in: it has not met `glab` itself yet. Install it from
+a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/renovate-desk

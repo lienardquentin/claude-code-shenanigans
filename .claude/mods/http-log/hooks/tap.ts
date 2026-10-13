@@ -25,7 +25,7 @@ export type TapEvent = {
 // It reads the text, so it is a guess: a command that only names one of these gets the line too, and logs nothing.
 export const NETWORK_HINT = new RegExp(
   [
-    String.raw`\b(?:curl(?:\.exe)?|wget|invoke-(?:restmethod|webrequest)|irm|iwr|python3?|py|node|npm|npx|pnpm|yarn|pip3?|uv|poetry|cargo|dotnet|ruby|gem|bundle|php|composer|java|mvn|gradle|deno|bun|az|aws|gcloud|gh|kubectl|helm|terraform|ssh|scp)\b`,
+    String.raw`\b(?:curl(?:\.exe)?|wget|invoke-(?:restmethod|webrequest)|irm|iwr|python3?|py|node|npm|npx|pnpm|yarn|pip3?|uv|poetry|cargo|dotnet|ruby|gem|bundle|php|composer|java|mvn|gradle|deno|bun|az|aws|gcloud|gh|glab|kubectl|helm|terraform|ssh|scp)\b`,
     // only the subcommands that go out
     String.raw`\bgit\s+(?:clone|fetch|pull|push|ls-remote|submodule|remote|lfs)\b`,
     String.raw`\bdocker\s+(?:pull|push|build|run|compose|login|search)\b`,

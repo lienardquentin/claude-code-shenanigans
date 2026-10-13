@@ -1,4 +1,5 @@
 import { BUDGET_WINDOW } from './budget'
+import { requestOf } from './forge'
 import { blockLines } from './radius'
 import type { Reading } from './radius'
 import type { RunRecord } from './run'
@@ -33,7 +34,7 @@ export const standingOf = (record: RunRecord | undefined): string => {
     return ['building', ...(record.flights?.length ? [record.flights.map(flight => label(flight.ticket)).join(', ')] : [])].join(' ')
   }
   if (record.phase === 'finishing') {
-    return record.stage === 'follow' ? 'following up its pull request' : record.stage === 'fix' ? 'fixing what the review found' : 'reviewing the branch'
+    return record.stage === 'follow' ? `following up its ${requestOf(record)}` : record.stage === 'fix' ? 'fixing what the review found' : 'reviewing the branch'
   }
 
   return `${record.phase}${record.pause !== undefined ? `: ${record.pause}` : ''}`

@@ -16,6 +16,8 @@ export type Settings = {
   contextPercent: number
   /** How many tickets the run builds at once, each in a worktree of its own. */
   parallelTickets: number
+  /** The repo's forge, `github` or `gitlab`, when the person names it; empty for the one its origin is on. */
+  forge: string
 }
 
 /** The most tickets a run may be set to build at once. */
@@ -29,6 +31,7 @@ export const DEFAULTS: Settings = {
   weeklyPercent: 90,
   contextPercent: 70,
   parallelTickets: 3,
+  forge: '',
 }
 
 /**
@@ -76,6 +79,7 @@ export const settingsOf = (options: Readonly<Record<string, unknown>> | undefine
   weeklyPercent: percent(options?.weeklyPercent, DEFAULTS.weeklyPercent),
   contextPercent: percent(options?.contextPercent, DEFAULTS.contextPercent),
   parallelTickets: count(options?.parallelTickets, DEFAULTS.parallelTickets),
+  forge: text(options?.forge, DEFAULTS.forge),
 })
 
 /**

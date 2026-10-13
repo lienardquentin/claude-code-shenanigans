@@ -29,7 +29,7 @@ One feature taken from an idea or an existing issue to a pull request by the wor
 _Avoid_: Job, pipeline, session
 
 **Feature issue**:
-The single GitHub issue a run starts from, or opens from its spec at the checkpoint, closed by the run's pull request.
+The single issue a run starts from, or opens from its spec at the checkpoint, on the repo's forge (GitHub or GitLab), closed by the run's pull request (a merge request on GitLab).
 _Avoid_: Parent issue, epic
 
 **Spec**:

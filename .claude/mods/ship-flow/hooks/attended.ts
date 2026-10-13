@@ -1,5 +1,6 @@
 import type { Settings } from './budget'
 import { readFolder, readFolders, readRecord, writeRecord } from './folders'
+import { detect, forgeFor, openIssue, readIssue } from './forge'
 import { historyOf } from './history'
 import type { Host } from './host'
 import { blockLines } from './radius'
@@ -64,8 +65,11 @@ export const attendedPrompt = (given: {
   history?: string
   /** True for an auto run: the person is asked nothing, and the checkpoint approves itself. */
   isAuto?: boolean
+  /** The repo's forge and what it calls a pull request, as a person reads them; GitHub's when not given. */
+  forge?: { name: string; request: string }
 }): string => {
   const { feature, root, settings, source, issue, note, history, isAuto = false } = given
+  const forge = given.forge ?? { name: 'GitHub', request: 'pull request' }
   const steps = `${root.replaceAll('\\', '/')}/prompts/spec.md`
   const grill = issue?.isAgreed
     ? `1. **Skip the grilling.** Issue #${issue.number} is labelled \`${AGREED}\`: it is already agreed. Read it below and go to step 2.`
@@ -79,11 +83,11 @@ export const attendedPrompt = (given: {
       ? `A ship-flow run has started for the feature \`${feature}\`, as an auto run. You take it from its source to a checkpoint, without the person; from there the run builds it unattended.`
       : `A ship-flow run has started for the feature \`${feature}\`. You take it from its source to a checkpoint, with the person; from there the run builds it unattended.`,
     '',
-    `- Source: ${issue ? `GitHub issue #${issue.number}, "${issue.title}"` : 'an idea the person typed'}, below.`,
+    `- Source: ${issue ? `${forge.name} issue #${issue.number}, "${issue.title}"` : 'an idea the person typed'}, below.`,
     `- Working folder: \`${folderOf(feature)}/\`, ignored by git. The spec goes to \`${specOf(feature)}\`, the tickets to \`${issuesOf(feature)}/\`.`,
     `- Exploring the codebase: through an Explore agent on the \`${settings.exploreModel}\` model.`,
     `- The strong model, for a ticket that needs it: \`${settings.strongModel}\`.`,
-    '- Publish nothing to GitHub: the run opens the issue and the pull request itself.',
+    `- Publish nothing to ${forge.name}: the run opens the issue and the ${forge.request} itself.`,
     ...(history !== undefined ? [`- Sizing the tickets, from the runs this repo has had: ${history}.`] : []),
     ...(isAuto ? ['', '## Auto run', '', 'The person opted to be asked nothing. This stands over the steps below and the files they point to.', ...AUTO_RULES] : []),
     '',
@@ -119,17 +123,17 @@ export const begin = async (host: Host, settings: Settings, asked: string, { isA
   }
 
   const number = /^#?(\d+)$/.exec(asked)?.[1]
+  // Made out once, as the run begins, and kept in its record: the run's issue and its pull request are on it
+  const forge = await detect(host, settings.forge)
   let issue: { number: number; title: string; isAgreed: boolean } | undefined
   let source = asked
 
   if (number !== undefined) {
-    const viewed = await host.run(['gh', 'issue', 'view', number, '--json', 'number,title,body,labels'])
+    const read = await readIssue(host, forge, number)
 
-    if (viewed.exitCode !== 0) return `Issue #${number} could not be read: ${tail(viewed.stderr).trim()}`
+    if ('why' in read) return `Issue #${number} could not be read: ${read.why}`
 
-    const read = JSON.parse(viewed.stdout) as { number: number; title: string; body: string; labels: readonly { name: string }[] }
-
-    issue = { number: read.number, title: read.title, isAgreed: read.labels.some(label => label.name === AGREED) }
+    issue = { number: read.number, title: read.title, isAgreed: read.labels.includes(AGREED) }
     source = `# ${read.title}\n\n${read.body}`
   }
 
@@ -156,6 +160,7 @@ export const begin = async (host: Host, settings: Settings, asked: string, { isA
     phase: 'attended',
     step: 'grilling',
     attempts: {},
+    ...(forge.id !== 'github' ? { forge: forge.id } : {}),
     source: issue ? 'issue' : 'idea',
     ...(issue ? { issue: issue.number, title: issue.title } : {}),
     ...(isAuto ? { isAuto } : {}),
@@ -163,7 +168,7 @@ export const begin = async (host: Host, settings: Settings, asked: string, { isA
   const history = historyOf(folders)
 
   host.prompt(
-    attendedPrompt({ feature, root: host.root, settings, source, isAuto, ...(issue ? { issue } : {}), ...(history !== undefined ? { history } : {}) }),
+    attendedPrompt({ feature, root: host.root, settings, source, isAuto, forge, ...(issue ? { issue } : {}), ...(history !== undefined ? { history } : {}) }),
   )
 
   const begun = issue
@@ -190,6 +195,7 @@ export const reattend = async (host: Host, settings: Settings, record: RunRecord
       settings,
       source,
       isAuto: record.isAuto === true,
+      forge: forgeFor(record),
       ...(history !== undefined ? { history } : {}),
       ...(record.source === 'issue' && record.issue !== undefined
         ? { issue: { number: record.issue, title: record.title ?? `#${record.issue}`, isAgreed: false } }
@@ -225,14 +231,11 @@ export const approve = async (host: Host, record: RunRecord): Promise<RunRecord 
     if (!heading) return { refusal: `${specOf(feature)} has no \`# Spec: <title>\` line, which names the issue this run opens` }
 
     const body = text.replace(/^#\s+.+$/m, '').trim()
-    const created = await host.run(['gh', 'issue', 'create', '--title', heading, '--body-file', '-'], { stdin: `${body}\n` })
-    const opened = /\/issues\/(\d+)/.exec(created.stdout)?.[1]
+    const opened = await openIssue(host, forgeFor(record), heading, `${body}\n`)
 
-    if (created.exitCode !== 0 || opened === undefined) {
-      return { refusal: `the issue could not be opened: ${tail(created.stderr || created.stdout).trim()}` }
-    }
+    if ('why' in opened) return { refusal: `the issue could not be opened: ${opened.why}` }
 
-    issue = Number(opened)
+    issue = opened.number
     title = heading
     // Kept at once: whatever happens next, this run has its issue and opens no second one
     await writeRecord(host, { ...record, issue, title })
