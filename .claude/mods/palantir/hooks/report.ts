@@ -1,13 +1,13 @@
-import type { Action, Attachment, Baseline, Browser, BrowserPage, Dom, DomElement, Facts, Level, Line, Render, Request, Usage, Vitals, Watch } from '../types'
+import type { Action, Attachment, Baseline, Browser, BrowserPage, Dom, DomElement, Facts, Level, Line, Render, Request, Signature, Usage, Vitals, Watch } from '../types'
 import { shown } from './attach'
 import { describeBrowser, IN_THE_PAGE } from './browser'
 import { brokerLine, KINDS } from './broker'
 import { databaseLine } from './database'
 import { json } from './kit/json'
 import type { TreeNode } from './kit/tree'
-import { clockTime, describeLine, EMPTY_WATCH, fresh, requestIds } from './lines'
+import { clockTime, describeLine, describeWhole, EMPTY_WATCH, fresh, requestIds, traceLines } from './lines'
 import { RUNTIME_NAME } from './runtime'
-import { newSince, sinceText } from './errors'
+import { causesOf, kindId, newSince, sinceText } from './errors'
 import { traceOf, traceText } from './trace'
 
 // What the tools answer the model: the watches as text, bounded, the secrets already out of every line.
@@ -75,6 +75,9 @@ export const describeAttachment = ({ label, runtime, ref }: Attachment, watch: W
 
 type Known = Record<string, Facts>
 
+// How many kinds of error the status names under each app
+const MAX_KINDS_SAID = 3
+
 export const statusText = (attachments: readonly Attachment[], held: Held, known: Known = {}, browser?: Browser, now = 0): string => {
   if (attachments.length === 0) return HOW_TO_ATTACH
 
@@ -84,8 +87,14 @@ export const statusText = (attachments: readonly Attachment[], held: Held, known
     const page = browser?.pages.filter(({ label }) => label === attachment.label).pop()
     const engine = known[attachment.label]?.engine ?? ''
 
+    // Its kinds of error by name, the new ones first and then the last written: a count alone asks for another call
+    const news = fresh(watch)
+    const kinds = [...watch.signatures].sort((a, b) => Number(news.includes(b)) - Number(news.includes(a)) || b.lastAt - a.lastAt)
+
     return [
       `${describeAttachment(attachment, watch, known[attachment.label]?.usage, page)}${engine === '' ? '' : `; it runs ${engine}`}`,
+      ...kinds.slice(0, MAX_KINDS_SAID).map(signature => `  ${news.includes(signature) ? 'new ' : ''}x${signature.count}, last at ${clockTime(signature.lastAt)}: ${signature.sample.slice(0, 200)}`),
+      kinds.length > MAX_KINDS_SAID ? `  and ${kinds.length - MAX_KINDS_SAID} more kind${kinds.length - MAX_KINDS_SAID === 1 ? '' : 's'}: mcp__palantir__errors_since_edit with since "all" says each with its trace` : '',
       brokerLine(known[attachment.label]?.broker, now),
       databaseLine(known[attachment.label]?.database),
       ...unreadNow(watch, browser, attachment.label),
@@ -643,13 +652,16 @@ export const domTree = ({ elements }: Dom): TreeNode[] => {
 
 export type Labelled = { label: string; line: Line }
 
+// How many kinds of error one app's answer says in full
+const MAX_KINDS = 20
+
 /** Every attachment's lines as one timeline, oldest first. */
 export const timeline = (attachments: readonly Attachment[], held: Held): Labelled[] =>
   attachments
     .flatMap(({ label }) => (held[label] ?? EMPTY_WATCH).lines.map(line => ({ label, line })))
     .sort((a, b) => a.line.at - b.line.at)
 
-export type LogsAsk = { target?: unknown; level?: unknown; grep?: unknown; limit?: unknown; request?: unknown }
+export type LogsAsk = { target?: unknown; level?: unknown; grep?: unknown; limit?: unknown; request?: unknown; traces?: unknown }
 
 /** The last lines that match what was asked, across the attachments or of one. */
 export const logsText = (attachments: readonly Attachment[], held: Held, ask: LogsAsk): string => {
@@ -680,7 +692,7 @@ export const logsText = (attachments: readonly Attachment[], held: Held, ask: Lo
 
   return [
     ...(matching.length > shown.length ? [`The last ${shown.length} of ${matching.length} matching lines:`] : []),
-    ...shown.map(({ label, line }) => describeLine(label, line)),
+    ...shown.flatMap(({ label, line }) => (ask.traces === true ? describeWhole(label, line) : [describeLine(label, line)])),
   ].join('\n')
 }
 
@@ -693,18 +705,46 @@ export const errorsText = (attachments: readonly Attachment[], held: Held, ask: 
 
   const target = typeof ask.target === 'string' ? ask.target.trim() : ''
   const asked = attachments.filter(({ label }) => target === '' || label === target)
+  const isAll = ask.since === 'all'
   const baseline: Baseline = ask.since === 'mark' || ask.since === 'start' ? ask.since : 'edit'
 
   if (asked.length === 0) return `No attachment is named ${target}. They are: ${attachments.map(({ label }) => label).join(', ')}.`
+
+  const causes = causesOf(attachments, held, timeline(attachments, held))
+
+  // A kind in full: how often, what it says, the error it follows where a request ties it to one, and its trace
+  const said = (label: string, signatures: readonly Signature[], news: readonly Signature[] = []): string[] =>
+    [...signatures]
+      // What the others follow is said first: it is the one to fix
+      .sort((a, b) => Number(causes[kindId({ label, signature: a })] !== undefined) - Number(causes[kindId({ label, signature: b })] !== undefined))
+      .slice(0, MAX_KINDS)
+      .flatMap(signature => {
+        const cause = causes[kindId({ label, signature })]
+
+        return [
+          `  ${clockTime(signature.lastAt)} x${signature.count} ${news.includes(signature) ? 'new: ' : ''}${signature.sample}`,
+          ...(cause === undefined ? traceLines(signature.trace) : [`      follows, in the same request, ${cause.label}'s: ${cause.sample.slice(0, 160)}`]),
+        ]
+      })
+      .concat(signatures.length > MAX_KINDS ? [`  and ${signatures.length - MAX_KINDS} more`] : [])
 
   return asked
     .map(({ label, runtime }) => {
       const watch = held[label] ?? EMPTY_WATCH
       const standing = watch.health.state === 'up' || watch.health.state === 'unknown' ? '' : ` It is ${watch.health.state}${watch.health.detail === '' ? '' : ` (${watch.health.detail})`}.`
+      const kinds = watch.signatures.length
+      const holds = kinds === 0 ? '' : ` It holds ${kinds} kind${kinds === 1 ? '' : 's'} of error from before: since "all" says ${kinds === 1 ? 'it' : 'them'}.`
 
       if (watch.error !== '') return `${label}: could not be read: ${watch.error}`
-      if (baseline === 'edit' && watch.edits === 0) return `${label}: no edit has been routed to it in this session.${standing}`
-      if (baseline !== 'edit' && (baseline === 'mark' ? watch.markedAt : watch.rolledAt) === undefined) return `${label}: ${sinceText(watch, baseline)}.${standing}`
+
+      if (isAll) {
+        if (kinds === 0) return `${label}: no error.${standing}`
+
+        return [`${label}: ${kinds} kind${kinds === 1 ? '' : 's'} of error, the ones the others follow first.${standing}`, ...said(label, [...watch.signatures].sort((a, b) => b.lastAt - a.lastAt), fresh(watch))].join('\n')
+      }
+
+      if (baseline === 'edit' && watch.edits === 0) return `${label}: no edit has been routed to it in this session.${standing}${holds}`
+      if (baseline !== 'edit' && (baseline === 'mark' ? watch.markedAt : watch.rolledAt) === undefined) return `${label}: ${sinceText(watch, baseline)}.${standing}${holds}`
 
       const news = newSince(watch, baseline)
       // What runs in a container runs the edit only once it has taken it in: by reloading its source, or by starting over
@@ -719,10 +759,7 @@ export const errorsText = (attachments: readonly Attachment[], held: Held, ask: 
 
       if (news.length === 0) return `${label}: no new error ${sinceText(watch, baseline)}.${standing}${rolled}`
 
-      return [
-        `${label}: ${news.length} new error${news.length === 1 ? '' : 's'} ${sinceText(watch, baseline)}.${standing}${rolled}`,
-        ...news.map(signature => `  ${clockTime(signature.lastAt)} x${signature.count} ${signature.sample}`),
-      ].join('\n')
+      return [`${label}: ${news.length} new error${news.length === 1 ? '' : 's'} ${sinceText(watch, baseline)}.${standing}${rolled}`, ...said(label, news)].join('\n')
     })
     .join('\n')
 }

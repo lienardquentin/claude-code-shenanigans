@@ -108,3 +108,27 @@ export const shown = (path: string, cwd: string): string => {
 
   return same(file).startsWith(`${same(cwd)}/`) ? file.slice(tidy(cwd).length + 1) : file
 }
+
+/** The files git says differ from what is committed, by path, with when each was last written: -1 for one that is gone. */
+export type Dirty = Record<string, number>
+
+/** The command that lists those files, from the folder it is run in: changed, new and not ignored, or deleted. */
+export const DIRTY_ARGV = ['git', 'ls-files', '--modified', '--others', '--deleted', '--exclude-standard', '-z'] as const
+
+/** The command that names the commit the working tree stands on. */
+export const HEAD_ARGV = ['git', 'rev-parse', 'HEAD'] as const
+
+/** The command that lists the files two commits differ by. */
+export const movedArgv = (from: string, to: string): readonly string[] => ['git', 'diff', '--name-only', '-z', from, to]
+
+/**
+ * The files written between two looks at the working tree, whoever wrote them: a shell command, a checkout, the
+ * person's own editor. `before` is what git listed at the last look and `now` every file looked at this time: the
+ * ones listed then, the ones listed now, and the ones a move to another commit touched. A file known from before
+ * was written if its time changed; one that is new to the list, if it was written since that look or is gone. A
+ * file that only left the list (committed, staged) keeps its time and is no edit.
+ */
+export const editedBetween = (before: Dirty, now: Dirty, lookedAt: number): string[] =>
+  Object.entries(now)
+    .filter(([path, written]) => (before[path] === undefined ? written === -1 || written > lookedAt : written !== before[path]))
+    .map(([path]) => path)

@@ -1,17 +1,19 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { composeAttachments, parseList, routed } from '../hooks/attach'
+import { composeAttachments, editedBetween, parseList, routed } from '../hooks/attach'
 import { brokerKind, kindOf, matching, peekArgv, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor } from '../hooks/broker'
 import { askPrompt, byApp, byState, isPostgres, querySql, psqlArgv, readHolds, readRows, rowsSql, settleDatabase, sizeText } from '../hooks/database'
 import { fixPrompt, planned, verdictOf } from '../hooks/e2e'
 import { absorb, EMPTY_WATCH, fresh, read, redact, signatureOf } from '../hooks/lines'
 import { localUsage, readEnvFile, readWindowsProbe } from '../hooks/local'
 import { rendersSinceText } from '../hooks/report'
-import { readHealth } from '../hooks/runtime'
+import { previousArgvs, readHealth } from '../hooks/runtime'
 import { casesOf, endedSuite, plannedSuites, suitesOf, suiteTree, unitText } from '../hooks/unit'
 import { isClimbing, quieted, recorded, spark, traceOf, traceSummary } from '../hooks/trace'
-import { marked, settle } from '../hooks/watch'
+import { causesOf } from '../hooks/errors'
+import { timeline } from '../hooks/report'
+import { marked, settle, takePrinted } from '../hooks/watch'
 
 type On = Parameters<TestBody>[1]
 type Engine = Parameters<TestBody>[0]
@@ -50,6 +52,13 @@ type World = {
   psql: Record<string, string>
   /** The folder the session says it is in: it follows the shell. */
   cwd: string
+  /** What git lists as differing from what is committed; the project is no repository when there is none. */
+  dirty?: string[]
+  /** The commit the working tree stands on, and the files the last move to another one touched. */
+  head: string
+  moved: string[]
+  /** When each file was last written, by absolute path; two seconds ago where none is said. */
+  mtimes: Record<string, number>
 }
 
 const exited = (exitCode: number, stdout = '', stderr = '') =>
@@ -69,7 +78,7 @@ const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '
 /** Stands for the machine beneath the mod: its files, and what `docker` and `kubectl` answer. */
 const machine = (on: On, given: Partial<World> = {}) => {
   // A copy: a test that has an app write more leaves the next test's world as given
-  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', rpk: {}, psql: {}, cwd: CWD, ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
+  const world: World = { files: {}, services: {}, logs: {}, stderr: {}, status: {}, env: {}, stats: {}, top: '', listening: '', processes: '', browser: '', rpk: {}, psql: {}, cwd: CWD, head: 'c0ffee', moved: [], mtimes: {}, ...(JSON.parse(JSON.stringify(given)) as Partial<World>) }
   const runs: string[] = []
   const toasts: string[] = []
 
@@ -83,7 +92,7 @@ const machine = (on: On, given: Partial<World> = {}) => {
   on('fs.exists', (_, e) => ({ value: plain(e.path) in world.files }) as never)
   // The engine itself refuses a file over four mebibytes, whatever stands beneath it
   on('fs.read', (_, e) => ({ value: world.files[plain(e.path)] }) as never)
-  on('fs.stat', (_, e) => ({ value: { kind: plain(e.path) in world.files ? 'file' : 'other', size: 0, mtimeMs: NOW - 2000, isLink: false } }) as never)
+  on('fs.stat', (_, e) => ({ value: { kind: plain(e.path) in world.files || plain(e.path) in world.mtimes ? 'file' : 'other', size: 0, mtimeMs: world.mtimes[plain(e.path)] ?? NOW - 2000, isLink: false } }) as never)
   on('process.run', (_, e) => {
     const argv = e.argv
     const line = argv.join(' ')
@@ -125,6 +134,21 @@ const machine = (on: On, given: Partial<World> = {}) => {
     if (argv[0] === 'node' && world.browser !== '') return exited(0, world.browser)
     if (argv[0] === 'ps') return exited(0, world.processes)
     if (argv[0] === 'kubectl' && argv.includes('top')) return world.top === '' ? exited(1, '', 'error: Metrics API not available') : exited(0, world.top)
+
+    if (argv[0] === 'git') {
+      if (world.dirty === undefined) return exited(128, '', 'fatal: not a git repository')
+
+      return exited(0, argv[1] === 'ls-files' ? world.dirty.join('\0') : argv[1] === 'rev-parse' ? world.head : world.moved.join('\0'))
+    }
+
+    // A workload's pods, asked by what they are labelled with: their listing, and what they all wrote
+    if (argv[0] === 'kubectl' && argv.includes('-l')) {
+      const selected = `-l ${argv[argv.indexOf('-l') + 1]}`
+
+      return argv.includes('logs') ? exited(0, windowed(world.logs[selected] ?? [], argv)) : exited(0, world.status[selected] ?? '{"items":[]}')
+    }
+
+    if (argv[0] === 'kubectl' && argv.includes('--previous')) return exited(0, windowed(world.logs[`previous ${argv.find(arg => arg.startsWith('pod/'))}`] ?? [], argv))
 
     if (argv[0] === 'kubectl') {
       const workload = argv.find(arg => /^\w+\/[\w-]+$/.test(arg)) ?? ''
@@ -1223,7 +1247,22 @@ describe('reading a line', () => {
     // A crash at import says nothing of an error on its first line: the trace under it does
     const crashed = absorb(EMPTY_WATCH, ['Process SpawnProcess-2:', 'Traceback (most recent call last):', '  File "gondor/app.py", line 9', 'SyntaxError: invalid syntax'], 1000)
 
-    expect(crashed.lines).toEqual([{ at: 1000, level: 'error', message: 'Process SpawnProcess-2: SyntaxError: invalid syntax', more: 3 }])
+    expect(crashed.lines).toEqual([
+      { at: 1000, level: 'error', message: 'Process SpawnProcess-2: SyntaxError: invalid syntax', more: 3, trace: ['Traceback (most recent call last):', '  File "gondor/app.py", line 9', 'SyntaxError: invalid syntax'] },
+    ])
+  })
+
+  test('keeps the trace under an error: its first lines and its last, secrets taken out', () => {
+    const watch = absorb(EMPTY_WATCH, ['TypeError: x is not a function', '    at verify (auth.ts:12:3) token=hunter2hunter2', ...Array.from({ length: 60 }, (_, index) => `    at frame${index} (lib.ts:${index}:1)`)], 1000)
+    const [{ trace = [], more } = { more: 0 }] = watch.lines
+
+    expect(more).toBe(61)
+    expect(trace).toHaveLength(37)
+    expect(trace[0]).toBe('    at verify (auth.ts:12:3) token=***')
+    expect(trace[12]).toBe('… 25 more lines …')
+    expect(trace[36]).toBe('    at frame59 (lib.ts:59:1)')
+    // The kind keeps the trace of the last time it was written
+    expect(watch.signatures[0]?.trace).toEqual(trace)
   })
 
   test('takes the secrets out', () => {
@@ -1982,5 +2021,139 @@ describe('a companion', () => {
     expect(settle(first, [read('1')], 200).watches.api?.rolledAt).toBeUndefined()
     expect(settle(first, [read('2')], 300).watches.api?.rolledAt).toBe(300)
     expect(settle(first, [read('1', 1)], 400).watches.api?.rolledAt).toBe(400)
+  })
+
+  test("takes no line twice where the runtime hands back the cursor's whole second", () => {
+    const stamp = (nanos: string) => `2026-10-13T10:00:05.${nanos}Z`
+    const first = takePrinted('kubernetes', { stdout: [`${stamp('100000000')} one`, `${stamp('200000000')} two`].join('\n'), stderr: '' }, EMPTY_WATCH.cursor)
+
+    expect(first.raws).toHaveLength(2)
+
+    // `kubectl --since-time` counts in whole seconds: asked from the last line, it answers from the second's start
+    const again = takePrinted('kubernetes', { stdout: [`${stamp('100000000')} one`, `${stamp('200000000')} two`, `${stamp('300000000')} three`].join('\n'), stderr: '' }, first.cursor)
+
+    expect(again.raws).toEqual([`${stamp('300000000')} three`])
+  })
+
+  test('says where an error was raised, to Claude and in the logs when asked', async ($, on) => {
+    const { world } = machine(on, SHOP)
+
+    world.logs.api?.push(`${at(6)} TypeError: verify is not a function`, `${at(6)}     at verify (auth.ts:12:3)`, `${at(6)}     at handle (server.ts:40:9)`)
+
+    expect(await ask($, 'errors_since_edit', { since: 'all', target: 'api' })).toMatch(/x1 TypeError: verify is not a function\n\s+at verify \(auth\.ts:12:3\)\n\s+at handle \(server\.ts:40:9\)/)
+    expect(await ask($, 'logs', { level: 'error' })).toMatch(/TypeError: verify is not a function \(\+2 lines\)/)
+    expect(await ask($, 'logs', { level: 'error', traces: true })).toMatch(/TypeError: verify is not a function\n\s+at verify \(auth\.ts:12:3\)/)
+  })
+
+  test('names the kinds of error in the status, and says them all before any edit', async ($, on) => {
+    machine(on, SHOP)
+
+    expect(await ask($, 'status')).toMatch(/^api .*1 error of 1 kind.*\n {2}x1, last at \S+: connect ECONNREFUSED/m)
+    expect(await ask($, 'errors_since_edit', { target: 'api' })).toMatch(/no edit has been routed to it in this session\. It holds 1 kind of error from before: since "all" says it\./)
+    expect(await ask($, 'errors_since_edit', { since: 'all' })).toMatch(/api: 1 kind of error, the ones the others follow first\.\n {2}\S+ x1 connect ECONNREFUSED[^\n]*\nweb: no error\./)
+  })
+
+  test('says which error another only follows, by the request they share', () => {
+    const attachments = [{ label: 'api', runtime: 'compose' as const, ref: 'api', roots: [], port: 0 }, { label: 'web', runtime: 'compose' as const, ref: 'web', roots: [], port: 0 }]
+    const failed = (rid: string) => [`{"level":"error","msg":"GET /stone failed: StoneIsWatched","rid":"${rid}"}`, `{"level":"error","msg":"GET /stone -> 500 in 3ms","rid":"${rid}"}`]
+    const held = {
+      api: absorb(EMPTY_WATCH, [...failed('aaaa1111'), ...failed('bbbb2222'), '{"level":"error","msg":"disk is full"}'], 1000),
+      web: absorb(EMPTY_WATCH, ['{"level":"error","msg":"upstream answered 500","rid":"aaaa1111"}'], 2000),
+    }
+    const causes = causesOf(attachments, held, timeline(attachments, held))
+
+    expect(Object.keys(causes).sort()).toEqual(['api\nGET /stone -> <n> in <n>ms', 'web\nupstream answered <n>'])
+    expect(causes['web\nupstream answered <n>']).toEqual({ label: 'api', sample: 'GET /stone failed: StoneIsWatched' })
+  })
+
+  test(
+    "reads a workload through its pods: why one is not ready, every replica's lines, and what a dead container wrote last",
+    { options: { attachments: 'api=k8s:shop/deployment/api@api' } },
+    async ($, on) => {
+      const pod = (name: string, container: Record<string, unknown>) => ({ metadata: { name }, status: { phase: 'Running', containerStatuses: [{ name: 'api', ...container }] } })
+      const { runs } = machine(on, {
+        status: {
+          'deployment/api': JSON.stringify({ kind: 'Deployment', spec: { replicas: 2, selector: { matchLabels: { app: 'api' } } }, status: { readyReplicas: 1 } }),
+          '-l app=api': JSON.stringify({
+            items: [
+              pod('api-1', { ready: true, restartCount: 0, state: { running: {} } }),
+              pod('api-2', { ready: false, restartCount: 4, state: { waiting: { reason: 'CrashLoopBackOff' } }, lastState: { terminated: { reason: 'Error', finishedAt: '2026-10-13T10:00:07Z' } } }),
+            ],
+          }),
+        },
+        logs: { '-l app=api': [`${at(4)} api-2 starting`, `${at(2)} api-1 listening`], 'previous pod/api-2': [`${at(6)} ERROR api-2 cannot reach the database`] },
+      })
+
+      expect(await ask($, 'status')).toMatch(/^api \(Kubernetes shop\/deployment\/api\): degraded, 1\/2 ready, CrashLoopBackOff; 4 restarts; 1 error of 1 kind/m)
+      expect(runs).toContain('kubectl get pods -n shop -l app=api -o json')
+      expect(runs).toContain('kubectl logs -n shop -l app=api --timestamps --all-containers --max-log-requests=20 --tail=200')
+      expect(runs).toContain('kubectl logs pod/api-2 -n shop -c api --previous --timestamps --tail=50')
+      // The pods' lines as one, in the order they were written
+      expect((await ask($, 'logs')).match(/api-\d \w+/g)).toEqual(['api-1 listening', 'api-2 starting', 'api-2 cannot'])
+    },
+  )
+
+  test('asks a dead container for its last words only when it died since the last read', () => {
+    const api = { label: 'api', runtime: 'kubernetes' as const, ref: 'shop/deployment/api', roots: [], port: 0 }
+    const pods = JSON.stringify({ items: [{ metadata: { name: 'api-2' }, status: { containerStatuses: [{ name: 'api', restartCount: 4, state: { running: {} }, lastState: { terminated: { finishedAt: '2026-10-13T10:00:07Z' } } }] } }] })
+
+    // Running again on a first read: what it wrote before is of another time
+    expect(previousArgvs(api, pods, '')).toEqual([])
+    expect(previousArgvs(api, pods, at(9))).toEqual([])
+    expect(previousArgvs(api, pods, at(5))).toEqual([['kubectl', 'logs', 'pod/api-2', '-n', 'shop', '-c', 'api', '--previous', '--timestamps', `--since-time=${at(5)}`]])
+  })
+
+  test('tells the files written between two looks from the ones only committed', () => {
+    const before = { 'api/a.ts': 100, 'api/b.ts': 100, 'api/c.ts': 100 }
+
+    // a written again, b committed (it left the list, its time unchanged), c reverted, d new, e deleted, f only now seen
+    expect(editedBetween(before, { 'api/a.ts': 300, 'api/b.ts': 100, 'api/c.ts': 250, 'api/d.ts': 260, 'api/e.ts': -1, 'api/f.ts': 150 }, 200).sort()).toEqual(['api/a.ts', 'api/c.ts', 'api/d.ts', 'api/e.ts'])
+  })
+
+  test('counts an edit made by a shell command, and the errors it had already brought', async ($, on) => {
+    const { world } = machine(on, { ...SHOP, dirty: [] })
+
+    on('tool.call', { tool: 'Bash' }, () => {
+      // The command writes a file of the api, which crashes on it before anything is read
+      world.dirty = ['api/src/auth.ts']
+      world.mtimes[`${CWD}/api/src/auth.ts`] = NOW + 1000
+      world.logs.api?.push(`2026-10-13T10:00:32.000000000Z {"level":"error","msg":"SyntaxError: unexpected token"}`)
+
+      return { result: 'done' } as never
+    })
+
+    await ask($, 'status')
+
+    const ran = await $.tool.call({ tool: 'Bash', command: "sed -i s/a/b/ api/src/auth.ts" } as never)
+
+    expect(String(ran.context)).toMatch(/palantir watches the running api, kafka/)
+
+    const text = await ask($, 'errors_since_edit', { target: 'api' })
+
+    expect(text).toMatch(/api: 1 new error since the edit to api\/src\/auth\.ts\./)
+    expect(text).toMatch(/SyntaxError: unexpected token/)
+    expect(text).not.toMatch(/ECONNREFUSED/)
+    expect(await ask($, 'errors_since_edit', { target: 'web' })).toMatch(/web: no edit has been routed to it/)
+  })
+
+  test('counts an edit once, whether the Edit tool or the look at the working tree finds it', async ($, on) => {
+    const { world } = machine(on, { ...SHOP, dirty: [] })
+
+    on('tool.call', { tool: 'Edit' }, (_, e) => {
+      world.dirty = ['api/src/auth.ts']
+      world.mtimes[`${CWD}/api/src/auth.ts`] = NOW + 1000
+
+      return { result: { filePath: e.file_path } } as never
+    })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'done' }) as never)
+
+    await $.tool.call({ tool: 'Bash', command: 'true' } as never)
+    await edit($, `${CWD}/api/src/auth.ts`)
+    world.logs.api?.push(`${at(40)} {"level":"error","msg":"TypeError: verify is not a function"}`)
+    // Read as new since the edit: counted again by the look, the edit would make it an old one
+    await ask($, 'status')
+    await $.tool.call({ tool: 'Bash', command: 'git commit -am wip' } as never)
+
+    expect(await ask($, 'errors_since_edit', { target: 'api' })).toMatch(/api: 1 new error since the edit to api\/src\/auth\.ts\./)
   })
 })

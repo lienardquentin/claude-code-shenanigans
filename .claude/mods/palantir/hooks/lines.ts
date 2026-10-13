@@ -3,7 +3,10 @@ import type { Action, Dom, DomIssue, Level, Line, Render, Request, Signature, Vi
 // What turns the text an app wrote into lines palantir can sort: its time, its level, its message with the
 // secrets taken out. Nothing here reaches outside: text in, values out.
 
-const MAX_LINES = 300
+const MAX_LINES = 1000
+// A trace keeps its first lines and its last: what raised is at one end or the other, by the language
+const TRACE_HEAD = 12
+const TRACE_TAIL = 24
 const MAX_SIGNATURES = 100
 const MAX_MESSAGE = 600
 const MAX_RENDERS = 80
@@ -344,7 +347,20 @@ export const signatureOf = (message: string): string =>
     .slice(0, 120)
 
 // A line taken in by this read, until the read is over: a trace under it may still name what raised it
-type Draft = { at: number; level: Level; message: string; fields: string; cause: string; more: number }
+type Draft = { at: number; level: Level; message: string; fields: string; cause: string; more: number; trace: string[] }
+
+// A trace with one more line under it, the middle of a long one left out and counted
+const grown = (trace: readonly string[], text: string): string[] => {
+  const line = redact(text.trimEnd()).slice(0, 300)
+
+  if (trace.length < TRACE_HEAD + TRACE_TAIL) return [...trace, line]
+
+  const left = /^… (\d+) more lines? …$/.exec(trace[TRACE_HEAD] ?? '')
+  const tail = [...trace.slice(left === null ? TRACE_HEAD : TRACE_HEAD + 1), line]
+  const out = Number(left?.[1] ?? 0) + tail.length - TRACE_TAIL
+
+  return [...trace.slice(0, TRACE_HEAD), `… ${out} more line${out === 1 ? '' : 's'} …`, ...tail.slice(-TRACE_TAIL)]
+}
 
 /**
  * The watch once it has taken in new raw lines: each read, redacted and added, a trace folded under its first line,
@@ -364,12 +380,12 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
   let isInPythonTrace = false
 
   // Onto the line a trace hangs under: one of this read, or the last of an earlier one
-  const fold = (cause = '') => {
+  const fold = (text: string, cause = '') => {
     const draft = drafts[drafts.length - 1]
     const last = held[held.length - 1]
 
-    if (draft !== undefined) Object.assign(draft, { more: draft.more + 1, ...(cause === '' ? {} : { cause, level: 'error' }) })
-    else if (last !== undefined) held[held.length - 1] = { ...last, more: last.more + 1, ...(cause === '' ? {} : { level: 'error' as const }) }
+    if (draft !== undefined) Object.assign(draft, { more: draft.more + 1, trace: grown(draft.trace, text), ...(cause === '' ? {} : { cause, level: 'error' }) })
+    else if (last !== undefined) held[held.length - 1] = { ...last, more: last.more + 1, trace: grown(last.trace ?? [], text), ...(cause === '' ? {} : { level: 'error' as const }) }
   }
 
   for (const raw of raws) {
@@ -438,19 +454,19 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
 
     if (hasHead && PYTHON_TRACE.test(text)) {
       isInPythonTrace = true
-      fold()
+      fold(text)
       continue
     }
 
     if (hasHead && isContinuation(text)) {
-      fold()
+      fold(text)
       continue
     }
 
     // The first line of a traceback that is not a frame is the exception itself
     if (hasHead && isInPythonTrace) {
       isInPythonTrace = false
-      fold(redact(text.trim()))
+      fold(text, redact(text.trim()))
       continue
     }
 
@@ -463,24 +479,25 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
       fields: redact(line.fields),
       cause: '',
       more: 0,
+      trace: [],
     })
     isInPythonTrace = PYTHON_TRACE.test(text)
   }
 
   const signatures = watch.signatures.map(signature => ({ ...signature }))
 
-  for (const { at, level, message, fields, cause, more } of drafts) {
+  for (const { at, level, message, fields, cause, more, trace } of drafts) {
     const said = cause === '' ? message : `${message.replace(/:$/, '')}: ${cause}`
 
-    held.push({ at, level, message: [said, fields].filter(part => part !== '').join(' ').slice(0, MAX_MESSAGE), more })
+    held.push({ at, level, message: [said, fields].filter(part => part !== '').join(' ').slice(0, MAX_MESSAGE), more, ...(trace.length === 0 ? {} : { trace }) })
 
     if (level !== 'error') continue
 
     const key = signatureOf(said)
     const known = signatures.find(signature => signature.key === key)
 
-    if (known === undefined) signatures.push({ key, sample: said.slice(0, MAX_MESSAGE), count: 1, lastAt: at, firstAt: at, edit: watch.edits, isAnnounced: false })
-    else Object.assign(known, { count: known.count + 1, lastAt: Math.max(known.lastAt, at) })
+    if (known === undefined) signatures.push({ key, sample: said.slice(0, MAX_MESSAGE), count: 1, lastAt: at, firstAt: at, edit: watch.edits, isAnnounced: false, ...(trace.length === 0 ? {} : { trace }) })
+    else Object.assign(known, { count: known.count + 1, lastAt: Math.max(known.lastAt, at), ...(trace.length === 0 ? {} : { trace }) })
   }
 
   return {
@@ -516,3 +533,10 @@ export const clockTime = (at: number): string => new Date(at).toTimeString().sli
 
 export const describeLine = (label: string, line: Line): string =>
   `${clockTime(line.at)} [${label}] ${line.level.toUpperCase().padEnd(5)} ${line.message}${line.more > 0 ? ` (+${line.more} lines)` : ''}`
+
+/** A trace as the lines said under what it hangs from, each set in. */
+export const traceLines = (trace: readonly string[] | undefined, indent = '      '): string[] => (trace ?? []).map(line => `${indent}${line}`)
+
+/** A line with the trace folded under it, where it has one: an error with where it was raised. */
+export const describeWhole = (label: string, line: Line): string[] =>
+  line.trace === undefined || line.trace.length === 0 ? [describeLine(label, line)] : [`${clockTime(line.at)} [${label}] ${line.level.toUpperCase().padEnd(5)} ${line.message}`, ...traceLines(line.trace)]

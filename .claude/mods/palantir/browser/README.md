@@ -175,12 +175,18 @@ warning tone.
 - **A request** is told by the id its lines name (`rid=`, `request_id=`, `req_id=`, `trace_id=`,
   `correlation_id=`, as a field of a JSON line too). Followed, its lines are said through every app, each with how
   long after the first it was written, under one line that says the apps it went through and how long each held it.
-  Only the lines kept are searched: three hundred per app.
+  Only the lines kept are searched: a thousand per app.
 - **Health checks are left out** (a `GET` of `/health`, `/healthz`, `/ready`, `/live`, `/ping`, `/metrics`; what
   `kube-probe` asks), and counted under the timeline. A line an app writes several times running, the same but for
   its numbers and ids, is said once with `×n`. `h` shows every line. An error, and a line that names a request, is
   never folded.
 - **The time an app writes at the head of its own line** is taken out of the message: the timeline says it once.
+- **A stack trace** is folded under the line it hangs from and kept with it, secrets taken out: its first twelve
+  lines and its last twenty-four, with how many are left out between. The timeline says how many lines it is;
+  `mcp__palantir__logs` with `traces` says them, a request followed says them too, and so does every error below.
+- **A Kubernetes workload is read through its pods**, the ones its selector matches: every replica's lines as one,
+  why a pod is not ready (`0/1 ready, CrashLoopBackOff`), and how often its containers died. A container that died
+  since the last read is asked for what it wrote before (`kubectl logs --previous`): why it died is said there.
 
 ## The errors, and what Claude is told of them
 
@@ -188,12 +194,21 @@ warning tone.
 | --- | --- | --- |
 | Every kind of error once: how often, first and last written | `mcp__palantir__status` counts them | a row a kind, the new ones first |
 | The ones that are new since the last edit to the app | `mcp__palantir__errors_since_edit` | `new` on the row |
+| Every kind held, whatever it is new since, each with its trace | the same, with `since` `"all"` | a row opens on its trace |
 | Since a mark, or since the app last started over | the same, with `since` | `b` goes from one to the next |
 | A mark set now, on every app | `mcp__palantir__mark` | `m` |
 | One error handed to Claude, with what led to it | | a row opens on it; `d`, Diagnose with Claude |
 
 - **A kind** is the errors that say the same once their numbers and ids are taken out. Opened, it shows the last
   time it was written with every line of its request, or, where it names none, what its app wrote just before.
+- **One failure is several errors** on its way back up: the exception, the 500 it became. Where every request a
+  kind's errors name holds an error of another kind written before, it is said to follow that one, which is the
+  one to fix. Only a request id ties them: a caller that logs none is a kind of its own.
+- **An edit is whatever writes a file under an app's roots**: the Edit and Write tools, and also a shell command,
+  a checkout or the person's own editor. Those are found by asking git what differs from what is committed and
+  reading when each such file was last written, before and after each `Bash` call and at each read of the timer.
+  An error first written after such a file was is new since that edit, though the edit was found after it. A
+  commit writes no file and is no edit. Where the project is no git repository, only the tools' edits count.
 - **Claude is told without asking.** An error that first shows after an edit of the session is handed to it once,
   beside the result of the next tool it calls, or with the person's next prompt where it calls none. Reading
   `mcp__palantir__errors_since_edit` counts as told.

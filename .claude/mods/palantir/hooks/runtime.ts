@@ -37,7 +37,7 @@ export const workloadOf = (ref: string): Workload | undefined => {
  * The command that prints the attachment's log lines, each led by its timestamp: the last `tail` of them on the
  * first read, then only what came since. A file has none: it is read, not asked.
  */
-export const logsArgv = ({ runtime, ref }: Attachment, since: string, tail: number): readonly string[] | undefined => {
+export const logsArgv = ({ runtime, ref }: Attachment, since: string, tail: number, status = ''): readonly string[] | undefined => {
   if (runtime === 'docker') return ['docker', 'logs', '--timestamps', ...(since === '' ? ['--tail', String(tail)] : ['--since', since]), ref]
 
   if (runtime === 'compose') {
@@ -52,11 +52,56 @@ export const logsArgv = ({ runtime, ref }: Attachment, since: string, tail: numb
     if (workload === undefined) return undefined
 
     const window = since === '' ? [`--tail=${tail}`] : [`--since-time=${since}`]
+    const labels = selectorOf(status)
+
+    // Asked by its name, a workload answers with one of its pods: asked by what its pods are labelled with, with
+    // them all. `kubectl` then hands over ten lines a pod unless told how many
+    if (labels !== '') {
+      return ['kubectl', ...workload.context, 'logs', '-n', workload.namespace, '-l', labels, '--timestamps', '--all-containers', `--max-log-requests=${MAX_POD_LOGS}`, ...(since === '' ? window : [...window, '--tail=-1'])]
+    }
 
     return ['kubectl', ...workload.context, 'logs', workload.target, '-n', workload.namespace, '--timestamps', '--all-containers', ...window]
   }
 
   return undefined
+}
+
+// How many containers of a workload are read at once: `kubectl` refuses more than it is told to allow
+const MAX_POD_LOGS = 20
+
+/** The command that lists a workload's pods, read off what its status command printed; none for a pod, or where nothing selects them. */
+export const podsArgv = ({ runtime, ref }: Attachment, status: string): readonly string[] | undefined => {
+  const workload = runtime === 'kubernetes' ? workloadOf(ref) : undefined
+  const labels = selectorOf(status)
+
+  return workload === undefined || labels === '' ? undefined : ['kubectl', ...workload.context, 'get', 'pods', '-n', workload.namespace, '-l', labels, '-o', 'json']
+}
+
+// How many of a dead container's last lines are read where nothing was read of it before
+const LAST_WORDS = 50
+
+/**
+ * The commands that print what a container wrote before it last died, for each container of the pods listed that
+ * died since `since` (or, on a first read, that is not running now): the lines that say why it died are in the
+ * container that is gone, not in the one that took its place.
+ */
+export const previousArgvs = ({ runtime, ref }: Attachment, pods: string, since: string): (readonly string[])[] => {
+  const workload = runtime === 'kubernetes' ? workloadOf(ref) : undefined
+
+  if (workload === undefined) return []
+
+  return podsOf(pods)
+    .flatMap(pod =>
+      list(record(pod.status).containerStatuses)
+        .map(record)
+        .filter(container => {
+          const ended = word(record(record(container.lastState).terminated).finishedAt)
+
+          return count(container.restartCount) > 0 && ended !== '' && (since === '' ? record(container.state).running === undefined : ended >= since.slice(0, 19))
+        })
+        .map(container => ['kubectl', ...workload.context, 'logs', `pod/${word(record(pod.metadata).name)}`, '-n', workload.namespace, '-c', word(container.name), '--previous', '--timestamps', ...(since === '' ? [`--tail=${LAST_WORDS}`] : [`--since-time=${since}`])]),
+    )
+    .slice(0, 4)
 }
 
 /** The command that says how the attachment stands. */
@@ -149,29 +194,52 @@ const podHealth = (status: Json): Health => {
   return { state: 'up', detail: last === undefined ? 'running' : `running, last ${last}`, restarts }
 }
 
-const kubernetesHealth = (stdout: string): Health => {
+// The pods a `kubectl get pods -o json` lists, or the one pod a `kubectl get pod` printed
+const podsOf = (stdout: string): Json[] => {
+  const object = record(parsed(stdout))
+
+  return object.kind === 'Pod' ? [object] : list(object.items).map(record)
+}
+
+// What a workload's pods are labelled with, as `kubectl -l` takes it; empty for a pod, or where nothing says
+const selectorOf = (status: string): string => {
+  const object = record(parsed(status))
+
+  if (object.kind === 'Pod') return ''
+
+  return Object.entries(record(record(record(object.spec).selector).matchLabels))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(',')
+}
+
+const kubernetesHealth = (stdout: string, pods = ''): Health => {
   const object = record(parsed(stdout))
   const status = record(object.status)
 
   if (word(object.kind) === '') return UNKNOWN
   if (object.kind === 'Pod') return podHealth(status)
 
+  // A workload counts its pods; why one is not ready, and how often its containers died, only the pods say
+  const own = podsOf(pods).map(pod => podHealth(record(pod.status)))
+  const restarts = own.reduce((sum, pod) => sum + pod.restarts, 0)
+  const why = [...new Set(own.filter(pod => pod.detail !== 'running').map(pod => pod.detail))].slice(0, 2).join(', ')
+
   // A Deployment and a StatefulSet count replicas, a DaemonSet the nodes it is scheduled on
   const wanted = count(record(object.spec).replicas ?? status.desiredNumberScheduled)
   const ready = count(status.readyReplicas ?? status.numberReady)
-  const detail = `${ready}/${wanted} ready`
+  const detail = `${ready}/${wanted} ready${why === '' ? '' : `, ${why}`}`
 
   if (wanted === 0) return { state: 'down', detail: 'scaled to 0', restarts: 0 }
 
   // A rollout is a new revision of a Deployment, a new generation of anything else
   const started = word(record(record(object.metadata).annotations)['deployment.kubernetes.io/revision']) || String(count(record(object.metadata).generation) || '')
 
-  return { state: ready >= wanted ? 'up' : ready === 0 ? 'down' : 'degraded', detail, restarts: 0, started }
+  return { state: ready >= wanted ? 'up' : ready === 0 ? 'down' : 'degraded', detail, restarts, started }
 }
 
-/** How the attachment stands, read off what its status command printed. */
-export const readHealth = (runtime: RuntimeId, stdout: string): Health =>
-  runtime === 'docker' ? dockerHealth(stdout) : runtime === 'compose' ? composeHealth(stdout) : runtime === 'kubernetes' ? kubernetesHealth(stdout) : UNKNOWN
+/** How the attachment stands, read off what its status command printed, and for a workload what lists its pods. */
+export const readHealth = (runtime: RuntimeId, stdout: string, pods = ''): Health =>
+  runtime === 'docker' ? dockerHealth(stdout) : runtime === 'compose' ? composeHealth(stdout) : runtime === 'kubernetes' ? kubernetesHealth(stdout, pods) : UNKNOWN
 
 /** How a log file stands: nothing says whether the process behind it runs, only when it last wrote. */
 export const fileHealth = (mtimeMs: number | undefined, now: number): Health => {
@@ -333,9 +401,9 @@ export const topArgv = ({ ref }: Attachment, stdout: string): readonly string[] 
 
   if (object.kind === 'Pod') return [...base, workload.target.slice(workload.target.indexOf('/') + 1)]
 
-  const labels = Object.entries(record(record(record(object.spec).selector).matchLabels)).map(([key, value]) => `${key}=${String(value)}`)
+  const labels = selectorOf(stdout)
 
-  return labels.length === 0 ? undefined : [...base, '-l', labels.join(',')]
+  return labels === '' ? undefined : [...base, '-l', labels]
 }
 
 const CORES: Record<string, number> = { n: 1e-9, u: 1e-6, m: 1e-3, '': 1 }

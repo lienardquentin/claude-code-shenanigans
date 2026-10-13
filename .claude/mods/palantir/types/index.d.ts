@@ -322,6 +322,8 @@ export type Line = {
   message: string
   /** The lines folded under it: a stack trace's frames. */
   more: number
+  /** Those lines themselves, secrets taken out: the first and the last of a long trace, with how many are left out between. */
+  trace?: string[]
 }
 
 export type Health = {
@@ -348,6 +350,8 @@ export type Signature = {
   firstAt?: number
   /** Whether Claude has been told it is new, so it is handed over once. */
   isTold?: boolean
+  /** The stack trace under the last error of the kind that had one. */
+  trace?: string[]
 }
 
 /** Where the last read stopped, so the next one takes only what came after. */

@@ -61,10 +61,16 @@ export const takePrinted = (runtime: RuntimeId, printed: { stdout: string; stder
   const text = runtime === 'docker' ? `${printed.stdout}\n${printed.stderr}` : printed.stdout
   const all = text.split('\n').filter(line => line.trim() !== '')
 
-  if (runtime === 'docker') all.sort((a, b) => (split(a).stamp < split(b).stamp ? -1 : split(a).stamp > split(b).stamp ? 1 : 0))
+  // And the pods of a workload each write their own: one timeline, by the same timestamp
+  if (runtime === 'docker' || runtime === 'kubernetes') all.sort((a, b) => (split(a).stamp < split(b).stamp ? -1 : split(a).stamp > split(b).stamp ? 1 : 0))
 
-  // The runtime hands the lines of the cursor's own instant over again
-  const raws = all.filter(raw => !(split(raw).stamp === cursor.since && cursor.seen.includes(raw)))
+  // The runtime hands the lines of the cursor's own instant over again, and Kubernetes, which counts in whole
+  // seconds, the ones written earlier in that second: those were taken by the read before
+  const raws = all.filter(raw => {
+    const { stamp } = split(raw)
+
+    return !(stamp === cursor.since && cursor.seen.includes(raw)) && !(stamp !== '' && cursor.since !== '' && stamp < cursor.since)
+  })
   const since = [...all].reverse().map(raw => split(raw).stamp).find(stamp => stamp !== '') ?? cursor.since
   const seen = [...(since === cursor.since ? cursor.seen : []), ...raws.filter(raw => split(raw).stamp === since)]
 
@@ -84,7 +90,7 @@ export const settle = (held: Record<string, Watch>, reads: readonly Read[], now:
   for (const { label, raws, cursor, error, health } of reads) {
     const was = held[label] ?? EMPTY_WATCH
     // It started over: restarted, or rolled out anew. One read for the first time has nothing to start over from.
-    const isRolled = health.restarts > was.health.restarts || ((was.health.started ?? '') !== '' && (health.started ?? '') !== '' && health.started !== was.health.started)
+    const isRolled = (held[label] !== undefined && health.restarts > was.health.restarts) || ((was.health.started ?? '') !== '' && (health.started ?? '') !== '' && health.started !== was.health.started)
     const watch = absorb({ ...was, cursor, error, health, ...(isRolled ? { rolledAt: now } : {}) }, raws, now)
     const unsaid = fresh(watch).filter(signature => !signature.isAnnounced)
 
@@ -101,7 +107,7 @@ export const settle = (held: Record<string, Watch>, reads: readonly Read[], now:
  * The watches once an edit is counted against the labelled ones: an error or a chain first seen from now on is new
  * since it, and what the renders, the requests and the page's figures came to is kept, to measure from.
  */
-export const marked = (held: Record<string, Watch>, labels: readonly string[], path: string, now = 0): Record<string, Watch> => ({
+export const marked = (held: Record<string, Watch>, labels: readonly string[], path: string, now = 0, from?: number): Record<string, Watch> => ({
   ...held,
   ...Object.fromEntries(
     labels.map(label => {
@@ -111,6 +117,9 @@ export const marked = (held: Record<string, Watch>, labels: readonly string[], p
         label,
         {
           ...watch,
+          // An edit found after it was made (`from` is when the file was written) may already have shown what it
+          // broke: an error first written since then is counted as its doing
+          ...(from === undefined ? {} : { signatures: watch.signatures.map(signature => ((signature.firstAt ?? signature.lastAt) >= from ? { ...signature, edit: watch.edits + 1, isAnnounced: false, isTold: false } : signature)) }),
           edits: watch.edits + 1,
           editedPath: path,
           editedAt: now,

@@ -1,5 +1,5 @@
 import type { Attachment, Baseline, Signature, Watch } from '../types'
-import { clockTime, describeLine, EMPTY_WATCH, fresh, requestIds, signatureOf } from './lines'
+import { clockTime, describeWhole, EMPTY_WATCH, fresh, requestIds, signatureOf, traceLines } from './lines'
 import type { Labelled } from './report'
 
 // The errors of the watched apps kind by kind, what each is new since, and what Claude is handed of them. Values
@@ -73,8 +73,9 @@ export const diagnosePrompt = (kind: Kind, watch: Watch, lines: readonly Labelle
     '',
     `  ${kind.signature.sample}`,
     '',
+    ...(lines.some(({ line }) => (line.trace ?? []).length > 0) || kind.signature.trace === undefined ? [] : [...traceLines(kind.signature.trace, '    '), '']),
     `Written ${kind.signature.count} time${kind.signature.count === 1 ? '' : 's'}, first at ${clockTime(firstOf(kind.signature))}, last at ${clockTime(kind.signature.lastAt)}${kind.isNew && watch.edits > 0 ? `; it first showed after the edit to ${watch.editedPath}` : ''}.`,
-    ...(lines.length === 0 ? [] : ['', 'The last time, with what led to it across the watched apps:', ...lines.map(({ label, line }) => `  ${describeLine(label, line)}`)]),
+    ...(lines.length === 0 ? [] : ['', 'The last time, with what led to it across the watched apps:', ...lines.flatMap(({ label, line }) => describeWhole(label, line).map(text => `  ${text}`))]),
     '',
     `mcp__palantir__logs reads more (\`request\` follows one request id across the apps, \`grep\` searches). Once it is fixed and ${kind.label} has reloaded, mcp__palantir__errors_since_edit says whether it still writes it. If the cause is not in the code (a service that is down, a setting), say so and change nothing.`,
   ].join('\n')
@@ -91,6 +92,8 @@ export const untoldOf = (attachments: readonly Attachment[], held: Record<string
   })
 
 const MAX_TOLD = 5
+// How much of a trace is handed over unasked: its end, where most languages say what raised
+const MAX_TOLD_TRACE = 8
 
 /** What Claude reads of them, unasked: each app's new errors since its edit, a few of each, and where to read more. */
 export const untoldText = (untold: readonly Untold[]): string =>
@@ -98,7 +101,7 @@ export const untoldText = (untold: readonly Untold[]): string =>
     'palantir, which watches the running apps, saw errors that first showed after an edit of this session:',
     ...untold.flatMap(({ label, path, signatures }) => [
       `${label}, since the edit to ${path}: ${signatures.length} new kind${signatures.length === 1 ? '' : 's'} of error`,
-      ...signatures.slice(0, MAX_TOLD).map(({ count, sample, lastAt }) => `  ${clockTime(lastAt)} x${count} ${sample.slice(0, 300)}`),
+      ...signatures.slice(0, MAX_TOLD).flatMap(({ count, sample, lastAt, trace }) => [`  ${clockTime(lastAt)} x${count} ${sample.slice(0, 300)}`, ...traceLines(trace?.slice(-MAX_TOLD_TRACE))]),
       ...(signatures.length > MAX_TOLD ? [`  and ${signatures.length - MAX_TOLD} more`] : []),
     ]),
     'The edit may be what brought them. mcp__palantir__errors_since_edit reads them afresh, and mcp__palantir__logs what was written around them.',
@@ -117,3 +120,39 @@ export const told = (held: Record<string, Watch>): Record<string, Watch> =>
       return [label, news.some(({ isTold }) => isTold !== true) ? { ...watch, signatures: watch.signatures.map(signature => (news.includes(signature) ? { ...signature, isTold: true } : signature)) } : watch]
     }),
   )
+
+/** The error a kind follows: the first error of the requests its own were written in, where that is another kind. */
+export type Cause = { label: string; sample: string }
+
+/**
+ * What each kind of error follows, by its id: one failure is written as several errors on its way back up (the
+ * exception, the 500 it became, the caller that was refused), and the request id they share says which came first.
+ * A kind follows another when, in every request its errors name, an error of that other kind was written before.
+ */
+export const causesOf = (attachments: readonly Attachment[], held: Record<string, Watch>, everything: readonly Labelled[]): Record<string, Cause> => {
+  const errors = everything.filter(({ line }) => line.level === 'error')
+  // The first error of each request, and every error by the requests it names
+  const first = new Map<string, Labelled>()
+
+  for (const entry of errors) for (const id of requestIds(entry.line.message)) if (!first.has(id)) first.set(id, entry)
+
+  const kindOf = ({ label, line }: Labelled): Signature | undefined => (held[label] ?? EMPTY_WATCH).signatures.find(({ key }) => signatureOf(line.message).startsWith(key))
+
+  const causes: Record<string, Cause> = {}
+
+  for (const { label } of attachments) {
+    for (const signature of (held[label] ?? EMPTY_WATCH).signatures) {
+      const own = errors.filter(entry => entry.label === label && requestIds(entry.line.message).length > 0 && signatureOf(entry.line.message).startsWith(signature.key))
+      const roots = own.map(entry => requestIds(entry.line.message).map(id => first.get(id)).find(root => root !== undefined))
+      const [root] = roots
+      const cause = root === undefined ? undefined : kindOf(root)
+
+      if (root === undefined || cause === undefined || (root.label === label && cause.key === signature.key)) continue
+      if (!roots.every(other => other !== undefined && other.label === root.label && kindOf(other)?.key === cause.key)) continue
+
+      causes[kindId({ label, signature })] = { label: root.label, sample: cause.sample }
+    }
+  }
+
+  return causes
+}

@@ -1,5 +1,5 @@
 import type { History, Line, Usage } from '../types'
-import { clockTime, isNoise, requestIds, signatureOf } from './lines'
+import { clockTime, isNoise, requestIds, signatureOf, traceLines } from './lines'
 import type { Labelled } from './report'
 
 // What the timeline is made readable with: one request followed across the apps, the lines nobody reads folded
@@ -42,7 +42,7 @@ export const traceText = (id: string, traced: readonly Labelled[]): string => {
 
   return [
     traceSummary(id, traced),
-    ...traced.slice(-MAX_TRACED).map(({ label, line }) => `  ${offsetText(line.at, from).padEnd(8)} ${clockTime(line.at)} [${label}] ${line.level.toUpperCase().padEnd(5)} ${line.message}${line.more > 0 ? ` (+${line.more} lines)` : ''}`),
+    ...traced.slice(-MAX_TRACED).flatMap(({ label, line }) => [`  ${offsetText(line.at, from).padEnd(8)} ${clockTime(line.at)} [${label}] ${line.level.toUpperCase().padEnd(5)} ${line.message}`, ...traceLines(line.trace, '             ')]),
   ].join('\n')
 }
 

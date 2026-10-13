@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Attachment, Baseline, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, History, Plans, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
-import { composeAttachments, merged, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import { composeAttachments, DIRTY_ARGV, editedBetween, HEAD_ARGV, merged, movedArgv, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import type { Dirty } from './attach'
 import { askBrokerPrompt, brokerKind, diagnoseGroupsPrompt, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
 import { answerLimit, answerRowsText, askPrompt, diagnoseSessionsPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
 import { askArgv, DEBUG_PORT, describeBrowser, EMPTY_BROWSER, readAsked } from './browser'
@@ -18,7 +19,7 @@ import type { TableCell } from './kit/table'
 import { tonedText } from './kit/toned-text'
 import { tree } from './kit/tree'
 import { endedSuite, fixUnitPrompt, HOW_TO_PLAN_UNIT, PLAN_UNIT_PROMPT, plannedSuites, queuedSuites, SUITE_TIMEOUT_MS, suitesOf, suiteTree, unitText } from './unit'
-import { around, BASELINE_NAME, BASELINES, diagnosePrompt, guardPrompt, kindId, kindsOf, sinceText, told, untoldOf, untoldText } from './errors'
+import { around, BASELINE_NAME, BASELINES, causesOf, diagnosePrompt, guardPrompt, kindId, kindsOf, sinceText, told, untoldOf, untoldText } from './errors'
 import { clockTime, EMPTY_WATCH, fresh, requestIds } from './lines'
 import { ENV_FILES, isWindows, LISTENERS_ARGV, LOCAL_ENV_NOTE, localUsage, PROCESSES_ARGV, readEnvFile, readUnixProbe, readWindowsProbe, WINDOWS_PROBE_ARGV } from './local'
 import type { Probe } from './local'
@@ -35,6 +36,8 @@ import {
   fileHealth,
   imagesOf,
   logsArgv,
+  podsArgv,
+  previousArgvs,
   readEnv,
   readHealth,
   readStats,
@@ -56,6 +59,8 @@ const TITLE = 'palantir'
 const READ_TIMEOUT_MS = 8_000
 // What the apps consume is asked of the machine less often than what they wrote: the asking is itself not free
 const USAGE_EVERY_MS = 15_000
+// How many lines of an error's trace the pane draws under it
+const PANE_TRACE = 14
 // A browser that did not answer is asked again by the timer this far apart, and at once by whoever asks
 const BROWSER_AGAIN_MS = 30_000
 
@@ -141,7 +146,7 @@ const TOOLS = [
   {
     name: 'status',
     description:
-      'Whether what this session watches is healthy: each app, broker and database up or down and why, its restarts, its errors and how many are new since the last edit, its CPU and memory. Reads afresh. Call it first when something running misbehaves.',
+      'Whether what this session watches is healthy: each app, broker and database up or down and why, its restarts, its errors (the last kinds by name) and how many are new since the last edit, its CPU and memory. Reads afresh. Call it first when something running misbehaves.',
   },
   {
     name: 'logs',
@@ -155,18 +160,19 @@ const TOOLS = [
         grep: { type: 'string', description: 'Only the lines whose message holds this text, whatever its case.' },
         limit: { type: 'number', description: 'How many of the last matching lines; 50 when left out, 200 at most.' },
         request: { type: 'string', description: 'A request id (the value of rid=, request_id=, trace_id=): only the lines that name it, across every app.' },
+        traces: { type: 'boolean', description: 'True to say the stack trace under each line that has one, instead of how many lines it is. With `level` "error", where each error was raised.' },
       },
     },
   },
   {
     name: 'errors_since_edit',
     description:
-      "The errors a running app started writing after the last edit to its source, each kind once with its count: what the edit broke, apart from what was already wrong. A frontend's include its page's console, led by \"in the page:\". Reads afresh. Call it after editing a watched app, once it has reloaded, and before saying the change works. `since` counts from a mark or from the app's last start instead.",
+      "The errors a running app started writing after the last edit to its source, each kind once with its count and its stack trace: what the edit broke, apart from what was already wrong. An error that only follows another in the same request (the 500 an exception became) says which. A frontend's include its page's console, led by \"in the page:\". Reads afresh. Call it after editing a watched app, once it has reloaded, and before saying the change works. `since` counts from a mark or from the app's last start instead, or says every kind held with \"all\".",
     inputSchema: {
       type: 'object',
       properties: {
         target: TARGET,
-        since: { type: 'string', enum: ['edit', 'mark', 'start'], description: 'What the errors are new since: the last edit (the default), the mark set with mcp__palantir__mark, or the last time the app started over (a restart, a rollout).' },
+        since: { type: 'string', enum: ['edit', 'mark', 'start', 'all'], description: 'What the errors are new since: the last edit (the default), the mark set with mcp__palantir__mark, or the last time the app started over (a restart, a rollout). "all" says every kind of error held, whatever it is new since: what is wrong with what runs, before any edit.' },
       },
     },
   },
@@ -422,7 +428,7 @@ const discover = ($: EngineInterface, asked: unknown): Promise<Attachment[]> =>
 const ensure = async ($: EngineInterface, asked: unknown): Promise<Attachment[]> =>
   (await read($, isDiscovered)) ? read($, attachments) : discover($, asked)
 
-const take = async ($: EngineInterface, attachment: Attachment, cursor: Cursor): Promise<Taken> => {
+const take = async ($: EngineInterface, attachment: Attachment, cursor: Cursor, stand?: Stand): Promise<Taken> => {
   if (attachment.runtime === 'local') {
     const text = await $.fs.read(attachment.ref).catch(async (failure: unknown) => {
       // Too large to be read whole: its end is asked of the machine
@@ -441,38 +447,46 @@ const take = async ($: EngineInterface, attachment: Attachment, cursor: Cursor):
     return takeFile(text, cursor)
   }
 
-  const argv = logsArgv(attachment, cursor.since, TAIL)
+  const argv = logsArgv(attachment, cursor.since, TAIL, stand?.printed)
 
   if (argv === undefined) return { raws: [], cursor, error: `${attachment.ref} names no workload` }
 
-  const ran = await $.process.run(argv, { timeoutMs: READ_TIMEOUT_MS })
+  // What a container that died wrote last is asked of the container that is gone, beside what runs now
+  const [ran, ...last] = await Promise.all([$.process.run(argv, { timeoutMs: READ_TIMEOUT_MS }), ...previousArgvs(attachment, stand?.pods ?? '', cursor.since).map(previous => ask($, previous))])
 
   if (ran.exitCode !== 0) return { raws: [], cursor, error: firstLine(ran.stderr) || `${argv[0]} exited with ${ran.exitCode}` }
 
-  return takePrinted(attachment.runtime, ran, cursor)
+  const died = last.flatMap(previous => (previous?.exitCode === 0 ? [previous.stdout] : []))
+
+  return takePrinted(attachment.runtime, { ...ran, stdout: [...died, ran.stdout].join('\n') }, cursor)
 }
 
 /** How an attachment stands, and what its status command printed: its environment and its containers are read off that too. */
-type Stand = { health: Health; printed: string }
+type Stand = { health: Health; printed: string; pods: string }
 
 const standOf = async ($: EngineInterface, attachment: Attachment, now: number): Promise<Stand> => {
   if (attachment.runtime === 'local') {
-    return { health: fileHealth(await $.fs.stat(attachment.ref).then(stat => (stat.kind === 'file' ? stat.mtimeMs : undefined), () => undefined), now), printed: '' }
+    return { health: fileHealth(await $.fs.stat(attachment.ref).then(stat => (stat.kind === 'file' ? stat.mtimeMs : undefined), () => undefined), now), printed: '', pods: '' }
   }
 
   const argv = statusArgv(attachment)
 
-  if (argv === undefined) return { health: { state: 'unknown', detail: '', restarts: 0 }, printed: '' }
+  if (argv === undefined) return { health: { state: 'unknown', detail: '', restarts: 0 }, printed: '', pods: '' }
 
   const ran = await $.process.run(argv, { timeoutMs: READ_TIMEOUT_MS }).catch(() => undefined)
 
-  if (ran === undefined) return { health: { state: 'unknown', detail: `${argv[0]} did not answer`, restarts: 0 }, printed: '' }
+  if (ran === undefined) return { health: { state: 'unknown', detail: `${argv[0]} did not answer`, restarts: 0 }, printed: '', pods: '' }
 
   if (ran.exitCode !== 0) {
-    return { health: { state: 'down', detail: /no such|not ?found/i.test(ran.stderr) ? 'not found' : firstLine(ran.stderr).slice(0, 40), restarts: 0 }, printed: '' }
+    return { health: { state: 'down', detail: /no such|not ?found/i.test(ran.stderr) ? 'not found' : firstLine(ran.stderr).slice(0, 40), restarts: 0 }, printed: '', pods: '' }
   }
 
-  return { health: readHealth(attachment.runtime, ran.stdout), printed: ran.stdout }
+  // A workload's pods say what it does not: why one is not ready, how often its containers died
+  const listing = podsArgv(attachment, ran.stdout)
+  const listed = listing === undefined ? undefined : await ask($, listing)
+  const pods = listed?.exitCode === 0 ? listed.stdout : attachment.runtime === 'kubernetes' ? ran.stdout : ''
+
+  return { health: readHealth(attachment.runtime, ran.stdout, pods), printed: ran.stdout, pods }
 }
 
 type Seen = { attachment: Attachment; printed: string }
@@ -734,10 +748,9 @@ const pull = ($: EngineInterface, labels?: readonly string[], want: Want = LINES
       Promise.all(
         targets.map(async attachment => {
           const cursor = (before[attachment.label] ?? EMPTY_WATCH).cursor
-          const [lines, stand] = await Promise.all([
-            take($, attachment, cursor).catch((failure: unknown): Taken => ({ raws: [], cursor, error: firstLine(failure instanceof Error ? failure.message : String(failure)) })),
-            standOf($, attachment, now),
-          ])
+          // How it stands first: a workload's lines are asked of the pods its status names
+          const stand = await standOf($, attachment, now)
+          const lines = await take($, attachment, cursor, stand).catch((failure: unknown): Taken => ({ raws: [], cursor, error: firstLine(failure instanceof Error ? failure.message : String(failure)) }))
 
           return { attachment, label: attachment.label, ...lines, ...stand }
         }),
@@ -885,13 +898,82 @@ const recallPlans = async ($: EngineInterface): Promise<void> => {
 
 // Counts an edit against the attachments. A broker is nobody's source: an edit to any app is one it may tell of,
 // since what one app sends is what another reads, so every broker keeps how its groups stood.
-const mark = ($: EngineInterface, labels: readonly string[], path: string): Promise<void> =>
+const mark = ($: EngineInterface, labels: readonly string[], path: string, from?: number): Promise<void> =>
   inTurn(async () => {
     const now = await $.clock.now()
 
-    await update($, watches, held => marked(held, labels, path, now))
+    await update($, watches, held => marked(held, labels, path, now, from))
     await update($, facts, held => Object.fromEntries(Object.entries(held).map(([label, known]) => [label, known.broker === undefined ? known : { ...known, broker: markedBroker(known.broker, path, now) }])))
   })
+
+// What git listed at the last look at the working tree, and the commit it stood on. A reload drops it with the
+// module, and the next look only takes stock.
+let looked: { at: number; head: string; files: Dirty } | undefined
+
+// One look at a time: two would both count what was written since the same one before
+let looking: Promise<unknown> = Promise.resolve()
+
+// How many files one look reads the time of: a tree with more changed than that is looked at in part
+const MAX_LOOKED = 400
+
+const WATCHED_NOTE = (labels: readonly string[]): string =>
+  `palantir watches the running ${labels.join(', ')}, which this file is part of. Once it has reloaded, mcp__palantir__errors_since_edit says whether an edit broke it, and mcp__palantir__logs shows what it writes. For a frontend open in the debug Chrome, mcp__palantir__renders_since_edit says what the edit did to its renders, and mcp__palantir__network to its requests and its load.`
+
+/**
+ * Counts against the attachments the edits nobody announced: a file written by a shell command, a checkout or the
+ * person's own editor, found by asking git what differs and reading when each such file was last written. The
+ * first look only takes stock, and so does one that `isOwn`: made after an edit already counted. Answers with the
+ * labels that were edited for the first time. Where the project is no git repository, nothing is found.
+ */
+const lookForEdits = ($: EngineInterface, isOwn = false): Promise<string[]> => {
+  const work = async (): Promise<string[]> => {
+    const list = await read($, attachments)
+
+    if (list.length === 0) return []
+
+    const cwd = await homeOf($)
+    const inProject = (argv: readonly string[]): Promise<Ran> => $.process.run(argv, { cwd, timeoutMs: READ_TIMEOUT_MS }).catch(() => undefined)
+    const [listed, stands] = await Promise.all([inProject(DIRTY_ARGV), inProject(HEAD_ARGV)])
+
+    if (listed?.exitCode !== 0) return []
+
+    const head = stands?.exitCode === 0 ? stands.stdout.trim() : ''
+    const names = (text: string): string[] => text.split('\0').filter(name => name !== '')
+    // A checkout, a pull: the files the two commits differ by were written though git now lists none of them
+    const moved = looked !== undefined && looked.head !== '' && head !== '' && looked.head !== head ? await inProject(movedArgv(looked.head, head)) : undefined
+    const dirty = names(listed.stdout)
+    const paths = [...new Set([...dirty, ...Object.keys(looked?.files ?? {}), ...(moved?.exitCode === 0 ? names(moved.stdout) : [])])].slice(0, MAX_LOOKED)
+    const written = await Promise.all(paths.map(path => $.fs.stat(under(cwd, path)).then(stat => (stat.kind === 'file' ? stat.mtimeMs : -1), () => -1)))
+    const now: Dirty = Object.fromEntries(paths.map((path, index) => [path, written[index] ?? -1]))
+    const at = await $.clock.now()
+    const before = looked
+
+    looked = { at, head, files: Object.fromEntries(Object.entries(now).filter(([path]) => dirty.includes(path))) }
+
+    if (before === undefined || isOwn) return []
+
+    const firsts: string[] = []
+
+    for (const path of editedBetween(before.files, now, before.at)) {
+      const labels = routed(list, path, cwd).map(({ label }) => label)
+
+      if (labels.length === 0) continue
+
+      const held = await read($, watches)
+
+      firsts.push(...labels.filter(label => (held[label] ?? EMPTY_WATCH).edits === 0 && !firsts.includes(label)))
+      await mark($, labels, path, (now[path] ?? -1) > 0 ? now[path] : at)
+    }
+
+    return firsts
+  }
+
+  const ran = looking.then(work, work)
+
+  looking = ran.catch(() => undefined)
+
+  return ran
+}
 
 /** What the options say: the attachments named there, how often to read, and the browser's debug port (0: never asked). */
 type Asked = { attachments: unknown; seconds: number; port: number }
@@ -903,6 +985,8 @@ const tick = ($: EngineInterface, { seconds, port }: Asked, count: number) => {
     void $.clock
       .now()
       .then(now => pull($, undefined, { usage: now - usageReadAt >= USAGE_EVERY_MS, env: false, broker: now - usageReadAt >= USAGE_EVERY_MS, browser: isBrowserReached || now - browserAskedAt >= BROWSER_AGAIN_MS ? port : 0 }))
+      // What the person wrote in their own editor meanwhile is an edit too
+      .then(() => lookForEdits($))
       .catch(() => undefined)
   })
 }
@@ -1353,17 +1437,26 @@ export const register: Register = (on, options) => {
     if (answer.result === undefined || answer.isError === true) return answer
 
     await mark($, labels, shown(e.file_path, cwd))
+    // The look at the working tree takes this one for counted
+    await lookForEdits($, true).catch(() => undefined)
 
     // Said once per attachment: the model has no other way to know that what it edits is being watched
     if (firsts.length === 0) return answer
 
-    return {
-      ...answer,
-      context: [
-        ...(answer.context ?? []),
-        `palantir watches the running ${firsts.join(', ')}, which this file is part of. Once it has reloaded, mcp__palantir__errors_since_edit says whether an edit broke it, and mcp__palantir__logs shows what it writes. For a frontend open in the debug Chrome, mcp__palantir__renders_since_edit says what the edit did to its renders, and mcp__palantir__network to its requests and its load.`,
-      ],
-    }
+    return { ...answer, context: [...(answer.context ?? []), WATCHED_NOTE(firsts)] }
+  })
+
+  // A command may write files too (sed, a generator, a checkout): the working tree is looked at before it and
+  // after, and what was written between is its edit
+  on('tool.call', { tool: ['Bash', 'NotebookEdit'] }, async ($, e, next) => {
+    if ((await ensure($, asked.attachments)).length === 0) return next(e)
+
+    await lookForEdits($).catch(() => undefined)
+
+    const answer = await next(e)
+    const firsts = await lookForEdits($).catch(() => [] as string[])
+
+    return firsts.length === 0 ? answer : { ...answer, context: [...(answer.context ?? []), WATCHED_NOTE(firsts)] }
   })
 
   on('command.run', { command: 'palantir' }, async $ => {
@@ -1667,6 +1760,7 @@ export const register: Register = (on, options) => {
       const isByApp = picks.length > 1
       const open = kinds.find(kind => kindId(kind) === openedError)
       const led = open === undefined ? [] : around(open, everything)
+      const followed = open === undefined ? undefined : causesOf(picks, held, everything)[kindId(open)]
       const [rid] = led.flatMap(({ line }) => requestIds(line.message))
 
       return [
@@ -1708,6 +1802,13 @@ export const register: Register = (on, options) => {
               tonedText({ text: open.signature.sample, tone: 'danger', wrap: true }),
               tonedText({ text: led.length === 0 ? 'The lines kept no longer hold it.' : rid === undefined ? `The last time, with what ${open.label} wrote just before:` : 'The last time, with every line of its request:', tone: 'neutral' }),
               ...led.map((entry, index) => lineRow({ ...entry, times: 1 }, `led-${index}`, { isNamed: true })),
+              ...(followed === undefined ? [] : [tonedText({ text: `It follows, in the same request, ${followed.label}'s: ${followed.sample}`, tone: 'warning', wrap: true })]),
+              // Where it was raised: the end of its trace, which is where most languages say it
+              ...(open.signature.trace ?? []).slice(-PANE_TRACE).map((frame, index) => (
+                <Text key={`frame-${index}`} color="subtle" wrap="truncate-end">
+                  {`  ${frame}`}
+                </Text>
+              )),
               <Box key="error-actions" flexDirection="row" gap={2}>
                 <Button key="error-diagnose" hotkey="d" onPress={() => $.prompt.submit({ text: diagnosePrompt(open, watchOf(open.label), led) })}>
                   {actionLabel({ text: keyed('d', 'Diagnose with Claude'), primary: true })}
