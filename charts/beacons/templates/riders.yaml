@@ -1,0 +1,28 @@
+{{- $realm := dict "root" . "realm" "riders" -}}
+# No Service: nothing rides to the riders
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: riders
+  labels:
+    {{- include "beacons.labels" $realm | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "beacons.selector" $realm | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "beacons.labels" $realm | nindent 8 }}
+    spec:
+      containers:
+        - name: riders
+          image: {{ .Values.images.riders | quote }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          env:
+            - name: GONDOR_URL
+              value: http://gondor:8101
+            - name: ANOR_URL
+              value: http://anor:8100
+            - name: RIDERS_PACE
+              value: {{ .Values.ridersPace | quote }}

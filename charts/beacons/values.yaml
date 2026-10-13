@@ -1,0 +1,21 @@
+# The images are the ones `docker compose build` makes. devspace puts the tag of what it has just built in their place.
+images:
+  gondor: beacons-gondor:latest
+  rohan: beacons-rohan:latest
+  anor: beacons-anor:latest
+  riders: beacons-riders:latest
+
+# Not pulled again when the node already holds them
+pullPolicy: IfNotPresent
+
+# What compose.yaml reads from the shell. The first two are kept in a Secret.
+redArrow: red-arrow-0f3a9c44d1e2b7a6
+stewardSealSecret: white-tree-7c1e55a09b
+# A Mapbox public token (pk.…); without one the map stays rolled up
+mapboxToken: ""
+ridersPace: "0.8"
+
+# Anor is the one that is reached from outside: k3s's own load balancer hands it the port the cluster was made with
+anor:
+  service:
+    type: LoadBalancer

@@ -1,0 +1,45 @@
+{{- $realm := dict "root" . "realm" "rohan" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rohan
+  labels:
+    {{- include "beacons.labels" $realm | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "beacons.selector" $realm | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "beacons.labels" $realm | nindent 8 }}
+    spec:
+      containers:
+        - name: rohan
+          image: {{ .Values.images.rohan | quote }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          env:
+            - name: RED_ARROW
+              valueFrom:
+                secretKeyRef: { name: beacons, key: RED_ARROW }
+          ports:
+            - name: http
+              containerPort: 8102
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rohan
+  labels:
+    {{- include "beacons.labels" $realm | nindent 4 }}
+spec:
+  selector:
+    {{- include "beacons.selector" $realm | nindent 4 }}
+  ports:
+    - name: http
+      port: 8102
+      targetPort: http

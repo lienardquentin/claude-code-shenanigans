@@ -37,6 +37,21 @@ are the same as above, published on the loopback only, so this and `muster.py` d
 on stdout: `docker compose logs -f`. `RED_ARROW`, `NUXT_STEWARD_SEAL_SECRET`, `NUXT_PUBLIC_MAPBOX_TOKEN` and
 `RIDERS_PACE` are read from the shell or a `.env` beside `compose.yaml`.
 
+### In a cluster
+
+```
+devspace run cluster-up
+devspace deploy
+```
+
+From the repo's root, where [`devspace.yaml`](../devspace.yaml) is, with [k3d](https://k3d.io), `kubectl`, `helm` and
+[devspace](https://www.devspace.sh). The first line makes a one-node k3d cluster; the second builds the four images,
+pushes them to a registry it keeps in the cluster, and installs the chart in [`charts/beacons`](../charts/beacons): a
+Deployment each, a Service for all but the riders, the two secrets in a Secret. Only Anor is reached from outside, at
+<http://127.0.0.1:8100>: the same port again, so `ANOR_PORT=8110 devspace run cluster-up` makes the cluster with
+another when the containers above are up. `kubectl logs -f deploy/gondor` is what a realm says, `devspace purge` takes
+the release away, and `devspace run cluster-down` the cluster.
+
 [`.claude/palantir`](../.claude/palantir) names these four services; its lines for the logs of `muster.py` are kept
 there as comments, for running the realms by hand.
 

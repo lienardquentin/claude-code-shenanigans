@@ -1,0 +1,6 @@
+apiVersion: v2
+name: beacons
+description: The four of the beacons (Gondor, Rohan, Anor and the riders), as compose.yaml runs them
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

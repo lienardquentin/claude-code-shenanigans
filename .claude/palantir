@@ -1,9 +1,16 @@
 # What the palantir mod watches in this project: label=runtime:ref@root, the root being the source folder whose
-# edits count against the app. These are the services of compose.yaml at the root: docker compose up --build -d
-gondor=compose:gondor@beacons/gondor
-rohan=compose:rohan@beacons/rohan
-riders=compose:riders@beacons/riders
-anor=compose:anor@beacons/anor
+# edits count against the app. These are the Deployments of charts/beacons in the k3d cluster, the ref being
+# context/namespace/kind/name: devspace run cluster-up, then devspace deploy
+gondor=k8s:k3d-beacons/beacons/deployment/gondor@beacons/gondor
+rohan=k8s:k3d-beacons/beacons/deployment/rohan@beacons/rohan
+riders=k8s:k3d-beacons/beacons/deployment/riders@beacons/riders
+anor=k8s:k3d-beacons/beacons/deployment/anor@beacons/anor
+
+# Or, as the services of compose.yaml at the root (docker compose up --build -d):
+# gondor=compose:gondor@beacons/gondor
+# rohan=compose:rohan@beacons/rohan
+# riders=compose:riders@beacons/riders
+# anor=compose:anor@beacons/anor
 
 # Or, with the realms started by hand (uv run --project beacons python beacons/muster.py), these watch their logs,
 # label=runtime:ref@root#port, the port the one it listens on, which is how what it consumes is measured.

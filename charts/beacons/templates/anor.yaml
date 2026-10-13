@@ -1,0 +1,50 @@
+{{- $realm := dict "root" . "realm" "anor" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anor
+  labels:
+    {{- include "beacons.labels" $realm | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "beacons.selector" $realm | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "beacons.labels" $realm | nindent 8 }}
+    spec:
+      containers:
+        - name: anor
+          image: {{ .Values.images.anor | quote }}
+          imagePullPolicy: {{ .Values.pullPolicy }}
+          env:
+            - name: NUXT_GONDOR_URL
+              value: http://gondor:8101
+            - name: NUXT_STEWARD_SEAL_SECRET
+              valueFrom:
+                secretKeyRef: { name: beacons, key: NUXT_STEWARD_SEAL_SECRET }
+            - name: NUXT_PUBLIC_MAPBOX_TOKEN
+              value: {{ .Values.mapboxToken | quote }}
+          ports:
+            - name: http
+              containerPort: 8100
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anor
+  labels:
+    {{- include "beacons.labels" $realm | nindent 4 }}
+spec:
+  type: {{ .Values.anor.service.type }}
+  selector:
+    {{- include "beacons.selector" $realm | nindent 4 }}
+  ports:
+    - name: http
+      port: 8100
+      targetPort: http

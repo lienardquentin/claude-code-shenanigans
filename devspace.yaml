@@ -1,0 +1,54 @@
+# The four of the beacons in a k3d cluster, from the chart in charts/beacons:
+#
+#     devspace run cluster-up
+#     devspace deploy
+#
+# The page is at http://127.0.0.1:8100, the port compose.yaml and beacons/muster.py use too, so the three do not run
+# together: ANOR_PORT=8110 devspace run cluster-up makes the cluster with another. `devspace purge` takes the release
+# away, `devspace run cluster-down` the cluster.
+version: v2beta1
+name: beacons
+
+vars:
+  CLUSTER: beacons
+  ANOR_PORT:
+    source: env
+    default: "8100"
+
+commands:
+  cluster-up:
+    description: Makes the k3d cluster, with Anor's port on this machine's loopback
+    command: |-
+      k3d cluster create ${CLUSTER} --port "127.0.0.1:${ANOR_PORT}:8100@loadbalancer" --k3s-arg "--disable=traefik@server:0"
+      kubectl config set-context k3d-${CLUSTER} --namespace beacons
+  cluster-down:
+    description: Deletes the k3d cluster and all that is in it
+    command: k3d cluster delete ${CLUSTER}
+
+# Built by the local docker and pushed to a registry devspace keeps in the cluster's own namespace: none is needed outside
+images:
+  gondor:
+    image: beacons-gondor
+    context: ./beacons
+    dockerfile: ./beacons/Dockerfile
+    target: gondor
+  rohan:
+    image: beacons-rohan
+    context: ./beacons
+    dockerfile: ./beacons/Dockerfile
+    target: rohan
+  riders:
+    image: beacons-riders
+    context: ./beacons
+    dockerfile: ./beacons/Dockerfile
+    target: riders
+  anor:
+    image: beacons-anor
+    context: ./beacons/anor
+    dockerfile: ./beacons/anor/Dockerfile
+
+deployments:
+  beacons:
+    helm:
+      chart:
+        name: ./charts/beacons
