@@ -79,8 +79,9 @@ the set installed beside it.
    the heaviest" (`mcp__palantir__resources`). The riders listen on no port, and the pane says so.
 8. **What a realm is configured with.** `v` in the pane, or ask Claude "which Gondor does Anor call"
    (`mcp__palantir__env`). For a local app the answer is read from the env files of its source, here
-   [`anor/.env`](anor/.env): what a process was started with cannot be read from outside it. The Steward's seal
-   in that file is a stand-in secret, and shows as `***`.
+   `anor/.env`: what a process was started with cannot be read from outside it. That file is not in the repo:
+   copy [`anor/.env.example`](anor/.env.example) to it. The Steward's seal in it is a stand-in secret, and shows
+   as `***`.
 9. **Why a component rendered.** Open the page, then `c` in the pane, or ask Claude "why does the beacon chain
    keep rendering" (`mcp__palantir__renders`). In development the page reports each render with the chain that
    led to it ([`anor/app/utils/renders.ts`](anor/app/utils/renders.ts)), Anor logs it, and palantir counts the
