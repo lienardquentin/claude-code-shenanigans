@@ -4,7 +4,9 @@
 
 A realm is started again when its code changes; Anor, the Nuxt frontend, reloads by itself, and is left out until
 its packages are installed (npm install --prefix beacons/anor). Everything a process writes goes to its file, a
-crash at import included, which is what a watcher of the logs needs to see. Ctrl+C stops them all.
+crash at import included, which is what a watcher of the logs needs to see. A file that has grown past two
+megabytes is cut back to its last one, so that the logs stay small enough to read whole however long this runs.
+Ctrl+C stops them all.
 """
 
 import os
@@ -22,6 +24,9 @@ from watchfiles import watch
 HERE = Path(__file__).resolve().parent
 LOGS = HERE / "logs"
 # Nuxt is told to send nothing of this project anywhere, and to write its log without colors
+# A log past the first is cut back to the second, at the start of a line: what is kept is the latest
+MAX_LOG_BYTES = 2 * 1024 * 1024
+KEPT_LOG_BYTES = 1024 * 1024
 ENV = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONUTF8": "1", "NUXT_TELEMETRY_DISABLED": "1", "NO_COLOR": "1"}
 
 
@@ -32,11 +37,45 @@ class Member:
     cwd: Path = HERE
     # Whether it is started again when its code changes: not what reloads by itself
     restarts: bool = True
-    log: IO[str] = field(init=False)
+    log: IO[bytes] = field(init=False)
     process: subprocess.Popen = field(init=False)
+    # What the process says and what is noted about it come from two threads
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def open(self) -> None:
+        # Started afresh each time: yesterday's errors are not today's
+        self.log = open(LOGS / f"{self.name}.log", "w+b")
 
     def start(self) -> None:
-        self.process = subprocess.Popen(self.argv, cwd=self.cwd, env=ENV, stdout=self.log, stderr=subprocess.STDOUT)
+        # What it says comes through here and not straight to the file, so that the file can be cut back: a process
+        # that held the file itself would go on writing where it was, past the cut
+        self.process = subprocess.Popen(self.argv, cwd=self.cwd, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        threading.Thread(target=self.carry, args=(self.process.stdout,), daemon=True).start()
+
+    def carry(self, said: IO[bytes]) -> None:
+        """Writes each line the process says to its log, until it says no more."""
+        for line in iter(said.readline, b""):
+            self.write(line)
+
+    def write(self, line: bytes) -> None:
+        with self.lock:
+            self.log.write(line)
+
+            if self.log.tell() > MAX_LOG_BYTES:
+                self.trim()
+
+            self.log.flush()
+
+    def trim(self) -> None:
+        """Cuts the log back to its latest lines, in place: the file a watcher follows stays the same file."""
+        self.log.seek(-KEPT_LOG_BYTES, os.SEEK_END)
+
+        kept = self.log.read()
+        kept = kept[kept.find(b"\n") + 1 :]
+
+        self.log.seek(0)
+        self.log.truncate()
+        self.log.write(kept)
 
     def stop(self) -> None:
         if self.process.poll() is not None:
@@ -51,8 +90,7 @@ class Member:
         self.process.wait()
 
     def note(self, text: str) -> None:
-        self.log.write(f"{text}\n")
-        self.log.flush()
+        self.write(f"{text}\n".encode())
 
 
 def serve(realm: str, port: int) -> list[str]:
@@ -88,8 +126,7 @@ def main() -> None:
 
     try:
         for member in company:
-            # Started afresh each time: yesterday's errors are not today's
-            member.log = open(LOGS / f"{member.name}.log", "w", encoding="utf-8")
+            member.open()
             member.start()
 
             if member.restarts:
