@@ -84,6 +84,15 @@ const timeOf = (value: unknown): number | undefined => {
   return Number.isNaN(at) ? undefined : at
 }
 
+// A runtime's timestamp to the microsecond, as milliseconds and their fraction: two apps answer one request within
+// the same millisecond, and which wrote first is what says which error the other follows
+const stampTime = (stamp: string): number | undefined => {
+  const at = timeOf(stamp)
+  const [, fraction = ''] = /\.(\d+)/.exec(stamp) ?? []
+
+  return at === undefined ? undefined : Math.floor(at) + Number(`0.${fraction.slice(3, 6) || '0'}`)
+}
+
 const ERROR_LOOK = /\b(ERROR|FATAL|CRITICAL|PANIC|SEVERE)\b|\[(error|err|fatal)\]|\b(error|Error|fatal|panic):|\b\w+(Exception|Error)\b|^Traceback \(most recent call last\)|Unhandled(Promise)?Rejection/
 const ERROR_LOOK_ANY_CASE = /\[(error|err|fatal)\]|\b(fatal|panic):/i
 const WARN_LOOK = /\bWARN(ING)?\b|\[(warn|warning)\]/i
@@ -492,7 +501,7 @@ export const absorb = (watch: Watch, raws: readonly string[], now: number): Watc
     const line = read(text)
 
     drafts.push({
-      at: (stamp === '' ? undefined : timeOf(stamp)) ?? line.at ?? now,
+      at: (stamp === '' ? undefined : stampTime(stamp)) ?? line.at ?? now,
       level: line.level,
       message: redact(line.message),
       fields: redact(line.fields),

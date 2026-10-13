@@ -134,7 +134,12 @@ export const causesOf = (attachments: readonly Attachment[], held: Record<string
   // The first error of each request, and every error by the requests it names
   const first = new Map<string, Labelled>()
 
-  for (const entry of errors) for (const id of requestIds(entry.line.message)) if (!first.has(id)) first.set(id, entry)
+  // Two written in the same millisecond may be held in either order, where the time kept says no more: the one
+  // with a trace under it is the exception, and what the other reports
+  const leads = (entry: Labelled, held: Labelled | undefined): boolean =>
+    held === undefined || (Math.floor(entry.line.at) === Math.floor(held.line.at) && entry.line.more > 0 && held.line.more === 0)
+
+  for (const entry of errors) for (const id of requestIds(entry.line.message)) if (leads(entry, first.get(id))) first.set(id, entry)
 
   const kindOf = ({ label, line }: Labelled): Signature | undefined => (held[label] ?? EMPTY_WATCH).signatures.find(({ key }) => signatureOf(line.message).startsWith(key))
 

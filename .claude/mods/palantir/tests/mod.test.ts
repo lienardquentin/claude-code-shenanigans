@@ -2179,4 +2179,23 @@ describe('a companion', () => {
     expect(text.indexOf('GET /stone failed')).toBeGreaterThan(0)
     expect(text.indexOf('GET /stone failed')).toBeLessThan(text.indexOf('GET /stone -> 500'))
   })
+
+  test('tells which of two apps wrote first within one millisecond', () => {
+    const attachments = [{ label: 'anor', runtime: 'compose' as const, ref: 'anor', roots: [], port: 0 }, { label: 'gondor', runtime: 'compose' as const, ref: 'gondor', roots: [], port: 0 }]
+    const held = {
+      anor: absorb(EMPTY_WATCH, ['2026-10-13T10:00:09.845987528Z {"level":"error","msg":"POST /light -> 500 in 5ms","rid":"8ec3bcac"}'], NOW),
+      gondor: absorb(EMPTY_WATCH, ['2026-10-13T10:00:09.845282117Z {"level":"error","msg":"POST /light failed: KeyError","rid":"8ec3bcac"}'], NOW),
+    }
+
+    expect(timeline(attachments, held).map(({ label }) => label)).toEqual(['gondor', 'anor'])
+    expect(causesOf(attachments, held, timeline(attachments, held))).toEqual({ 'anor\nPOST /light -> <n> in <n>ms': { label: 'gondor', sample: 'POST /light failed: KeyError' } })
+
+    // Where the times kept tie, the error with a trace under it is the one the other follows
+    const tied = {
+      anor: absorb(EMPTY_WATCH, ['2026-10-13T10:00:09.845Z {"level":"error","msg":"POST /light -> 500 in 5ms","rid":"8ec3bcac"}'], NOW),
+      gondor: absorb(EMPTY_WATCH, ['2026-10-13T10:00:09.845Z {"level":"error","msg":"POST /light failed: KeyError","rid":"8ec3bcac"}', '2026-10-13T10:00:09.845Z   File "gondor/realm.py", line 32, in light'], NOW),
+    }
+
+    expect(Object.keys(causesOf(attachments, tied, timeline(attachments, tied)))).toEqual(['anor\nPOST /light -> <n> in <n>ms'])
+  })
 })
