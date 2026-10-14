@@ -482,6 +482,18 @@ describe('argonath', () => {
     expect(spawned).toHaveLength(4)
   })
 
+  test('owes no judgement to a proof a subagent made: its work may not be done when the session\'s turn ends', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    expect(await call($, 'mcp__argonath__prove', { target: 'gondor', agentId: 'merry-1' })).toContain('pinned: gondor GET /health')
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
+    await world.clock.advance(2_500)
+
+    expect(spawned).toEqual([])
+  })
+
   test('sends no statue on a change a changed run of which is not pinned', async ($, on) => {
     machine(on)
     const { spawned } = statues(on)
@@ -500,8 +512,9 @@ describe('argonath', () => {
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await call($, 'mcp__argonath__prove', { target: 'gondor' })
-    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true })).verdict).toBe('sitting')
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true, about: 'Task 2: answer 409 when the beacon does not burn.' })).verdict).toBe('sitting')
     expect(spawned).toHaveLength(2)
+    expect(String(spawned[0]?.prompt)).toMatch(/<purpose>\nTask 2: answer 409 when the beacon does not burn\.\n<\/purpose>/)
 
     const by = (agentId: string, command: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
     expect(await by('isildur-1', 'git commit -am fixed')).toMatchObject({ deny: expect.stringMatching(/changes nothing/) })
