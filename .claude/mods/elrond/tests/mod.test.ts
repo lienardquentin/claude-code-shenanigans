@@ -24,7 +24,7 @@ const LAID = {
     approach: 'Keep when a beacon was lit, and answer the seconds since.',
     tasks: [
       { id: 1, title: 'Keep when a beacon is lit', why: 'Nothing records it yet.', steps: ['Add lit_at'], files: ['beacons/gondor/app.py'], dependsOn: [], acceptance: 'lit_at is set on light' },
-      { id: 2, title: 'Answer the seconds burned', why: 'What the issue asks.', steps: ['Add burned_for'], files: ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py'], dependsOn: [1], acceptance: 'A test reads burned_for' },
+      { id: 2, title: 'Answer the seconds burned', why: 'What the issue asks.', steps: ['Add burned_for'], files: ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py'], dependsOn: [1], acceptance: 'A test reads burned_for', weight: 'heavy' },
     ],
     questions: [{ question: 'Is an unlit beacon 0 or null?', options: ['null', '0'] }, 'Which log level?'],
     risks: [],
@@ -245,7 +245,7 @@ describe('elrond', () => {
 
     await ends($, 'council-1', PLAN)
 
-    expect(await call($, 'mcp__elrond__plan')).toMatch(/Plan for github:.*#12: Beacons answer how long they have burned \(0\/2 done\)[\s\S]*○ 2\. Answer the seconds burned \[todo\] \(after 1\)/)
+    expect(await call($, 'mcp__elrond__plan')).toMatch(/Plan for github:.*#12: Beacons answer how long they have burned \(0\/2 done\)[\s\S]*○ 2\. Answer the seconds burned \[todo, heavy\] \(after 1\)/)
     expect(world.submitted[0]).toMatch(/^The Council of Elrond has planned github:.*#12\. Present the plan/)
     expect(world.store['plan:github:lienardquentin/claude-code-shenanigans#12']).toBeDefined()
   })
@@ -311,7 +311,7 @@ describe('elrond', () => {
     await call($, 'mcp__elrond__convene', { issue: '#12' })
     await ends($, 'council-1', PLAN)
 
-    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done' })).toMatch(/● 1\. Keep when a beacon is lit \[done\][\s\S]*Ready next: 2\. Answer the seconds burned\./)
+    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done' })).toMatch(/● 1\. Keep when a beacon is lit \[done, standard\][\s\S]*Ready next: 2\. Answer the seconds burned\./)
 
     const again = await call($, 'mcp__elrond__convene', { issue: 'https://github.com/lienardquentin/claude-code-shenanigans/issues/12' })
 

@@ -14,6 +14,12 @@ export type ElrondRef = {
 /** Where a task stands. */
 export type ElrondTaskState = 'todo' | 'doing' | 'done'
 
+/**
+ * How much a task asks of whoever builds it: `light` for docs, config, a rename or a test to adjust; `standard` for
+ * one module's change and its test; `heavy` for one that crosses targets or touches what is risky to change.
+ */
+export type ElrondWeight = 'light' | 'standard' | 'heavy'
+
 /** One step of the quest: something a single change can do and a reviewer can check. */
 export type ElrondTask = {
   id: number
@@ -28,6 +34,8 @@ export type ElrondTask = {
   dependsOn: number[]
   /** How to tell it is done: a test that passes, a behaviour that is seen. */
   acceptance: string
+  /** How much it asks of its builder; `standard` in a plan made before weights were. */
+  weight: ElrondWeight
   state: ElrondTaskState
 }
 
