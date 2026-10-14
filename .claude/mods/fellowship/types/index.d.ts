@@ -1,0 +1,96 @@
+/** Where a task of the plan stands, as Elrond keeps it. */
+export type FellowshipTaskState = 'todo' | 'doing' | 'done'
+
+/** One task of the Elrond plan, as Fellowship reads it through `mcp__elrond__plan`. */
+export type FellowshipTask = {
+  id: number
+  title: string
+  why: string
+  steps: string[]
+  files: string[]
+  dependsOn: number[]
+  acceptance: string
+  state: FellowshipTaskState
+}
+
+/** The Elrond plan, as much of it as the Fellowship works from. */
+export type FellowshipPlan = {
+  /** The issue as Elrond writes it short, `github:owner/repo#12`. */
+  ref: string
+  url: string
+  title: string
+  summary: string
+  approach: string
+  tasks: FellowshipTask[]
+  questions: { text: string; options: string[]; answer: string }[]
+  decided: { text: string; answer: string }[]
+  risks: { text: string; severity: 'high' | 'medium' | 'low'; mitigation: string; tasks: number[]; wantsTask: boolean }[]
+  accepted: string[]
+}
+
+/**
+ * Where the quest stands:
+ * - `ready`: no companion out; the next task waits for the person, or goes at once on an auto quest
+ * - `marching`: a companion builds a task
+ * - `proving`: Argonath proves what the companion built
+ * - `proven`: every changed run is pinned; the change waits for its reviews and its commit
+ * - `stuck`: a companion gave up, or its tries ran out; the person decides
+ * - `arrived`: every task is committed; the pull request waits to be opened
+ * - `sailed`: the pull request is open
+ */
+export type FellowshipPhase = 'ready' | 'marching' | 'proving' | 'proven' | 'stuck' | 'arrived' | 'sailed'
+
+/** One companion out on a task. */
+export type FellowshipMarch = {
+  taskId: number
+  title: string
+  /** The id its spawn answered; empty where the spawn answered none, and the companion is known by its type. */
+  agentId: string
+  /** Which try this is, from 1. */
+  attempt: number
+  at: number
+  /** What the companion answered when its turn ended. */
+  answer: string
+}
+
+/** A task the Fellowship committed. */
+export type FellowshipCommit = { taskId: number; title: string; sha: string }
+
+/** The quest: one Elrond plan taken to a pull request, one committed task at a time. */
+export type FellowshipQuest = {
+  ref: string
+  url: string
+  title: string
+  /** The branch the quest commits on, and the one it set out from, which the pull request targets. */
+  branch: string
+  base: string
+  /** Whether it goes on by itself: each task sent once the one before is committed, and the pull request opened at the end. */
+  isAuto: boolean
+  phase: FellowshipPhase
+  march: FellowshipMarch | null
+  /** Argonath's last proof of the change, whole. */
+  proof: string
+  /** Its verdict in a line. */
+  proofLine: string
+  commits: FellowshipCommit[]
+  /** The pull or merge request, once opened. */
+  pr: string
+  at: number
+}
+
+/** Something a press or a turn asked the clock to do, outside the hook that asked. */
+export type FellowshipWanted = '' | 'set out' | 'next' | 'prove' | 'commit' | 'sail'
+
+declare module 'claude-code' {
+  interface PluginState {
+    fellowship: {
+      quest: FellowshipQuest | null
+      /** The plan as last read from Elrond, for the pane. */
+      plan: FellowshipPlan | null
+      note: string
+      wanted: FellowshipWanted
+      /** What the Fellowship is doing right now, in a line; empty when idle. */
+      working: string
+    }
+  }
+}

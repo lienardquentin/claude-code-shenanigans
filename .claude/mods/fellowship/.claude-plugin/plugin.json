@@ -1,0 +1,6 @@
+{
+  "name": "fellowship",
+  "version": "0.1.0",
+  "description": "The company that carries the plan out: takes the Elrond plan in force, sends a companion subagent to build each task in turn, has Argonath prove each change and commits it alone, then opens the pull request that closes the issue",
+  "types": "./types/index.d.ts"
+}
