@@ -1,0 +1,6 @@
+{
+  "name": "lothlorien",
+  "version": "0.1.0",
+  "description": "Galadriel's Mirror shows what is to come: before a behaviour is built, she writes the tests that prove it and shows them red, and they stay locked until committed; a builder changes one only by saying why",
+  "types": "./types/index.d.ts"
+}
