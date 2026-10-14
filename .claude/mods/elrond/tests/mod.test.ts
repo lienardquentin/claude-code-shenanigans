@@ -23,7 +23,7 @@ const LAID = {
     summary: 'A lit beacon answers how long it has burned.',
     approach: 'Keep when a beacon was lit, and answer the seconds since.',
     tasks: [
-      { id: 1, title: 'Keep when a beacon is lit', why: 'Nothing records it yet.', steps: ['Add lit_at'], files: ['beacons/gondor/app.py'], dependsOn: [], acceptance: 'lit_at is set on light' },
+      { id: 1, title: 'Keep when a beacon is lit', why: 'Nothing records it yet.', steps: ['Add lit_at'], files: ['beacons/gondor/app.py'], dependsOn: [], acceptance: 'lit_at is set on light', weight: 'docs' },
       { id: 2, title: 'Answer the seconds burned', why: 'What the issue asks.', steps: ['Add burned_for'], files: ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py'], dependsOn: [1], acceptance: 'A test reads burned_for', weight: 'heavy' },
     ],
     questions: [{ question: 'Is an unlit beacon 0 or null?', options: ['null', '0'] }, 'Which log level?'],
@@ -311,7 +311,7 @@ describe('elrond', () => {
     await call($, 'mcp__elrond__convene', { issue: '#12' })
     await ends($, 'council-1', PLAN)
 
-    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done' })).toMatch(/● 1\. Keep when a beacon is lit \[done, standard\][\s\S]*Ready next: 2\. Answer the seconds burned\./)
+    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done' })).toMatch(/● 1\. Keep when a beacon is lit \[done, light\][\s\S]*Ready next: 2\. Answer the seconds burned\./)
 
     const again = await call($, 'mcp__elrond__convene', { issue: 'https://github.com/lienardquentin/claude-code-shenanigans/issues/12' })
 

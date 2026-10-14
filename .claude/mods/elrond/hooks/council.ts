@@ -264,14 +264,14 @@ export const COUNCIL_SYSTEM = [
   '      "files": ["path/from/repo/root.ts"],',
   '      "dependsOn": [],',
   '      "acceptance": "How to tell it is done: the test that passes, the behaviour seen.",',
-  '      "weight": "standard"',
+  '      "weight": "light | standard | heavy, one of the three words"',
   '    }',
   '  ],',
   '  "questions": [{ "question": "What the issue leaves open?", "options": ["The answer you would pick", "Another"] }],',
   '  "risks": [{ "risk": "What could go wrong", "severity": "high", "mitigation": "How to make it less likely or less harmful", "tasks": [2] }]',
   '}',
   '```',
-  "Weigh each task by what it asks of whoever builds it, which says who is sent to build it: light, docs, config, a rename or a test to adjust; standard, one module's change and the test that proves it; heavy, a change that crosses targets, reworks a design, or touches code that is risky to change.",
+  "Weigh each task by what it asks of whoever builds it, which says who is sent to build it. The weight is exactly one of three words: `light` for docs, config, a rename or a test to adjust; `standard` for one module's change and the test that proves it; `heavy` for a change that crosses targets, reworks a design, or touches code that is risky to change.",
   'Rate each risk by what it would cost this change: high, it could break behaviour, lose data or block the work; medium, it could cost rework or a failed review; low, a nuisance. Name the tasks it threatens by id, and a mitigation the person could choose.',
   'Once it is written, your final answer is one line and nothing else: "The plan is laid: N tasks, M questions." Elrond reads the file and shows the plan to the person. Anything worth saying goes in the plan: a doubt in questions, a danger in risks. Only if the write is refused, answer the plan as a single fenced json block instead.',
 ].join('\n')
@@ -308,8 +308,16 @@ export const questionsOf = (value: unknown): ElrondQuestion[] => list(value).map
 
 type About = { ref: string; url: string; title: string; at: number }
 
-/** A task's weight as the planner writes it; one it did not name, or misspelled, is standard. */
-const weightOf = (value: unknown): ElrondWeight => (value === 'light' || value === 'heavy' ? value : 'standard')
+// What a planner writes for a weight when it names the kind of work in place of the word
+const LIGHT_WORDS = /^(light|docs?|documentation|readme|config(uration)?|rename|trivial|small|tests?)$/
+const HEAVY_WORDS = /^(heavy|large|big|hard|complex|risky|cross-cutting)$/
+
+/** A task's weight as the planner writes it, its kind of work read as a weight; one it did not name is standard. */
+const weightOf = (value: unknown): ElrondWeight => {
+  const said = typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+  return LIGHT_WORDS.test(said) ? 'light' : HEAVY_WORDS.test(said) ? 'heavy' : 'standard'
+}
 
 /** The plan in what the planner handed over (an object, or its JSON as text), numbered afresh where its ids are missing or repeat; why there is none when there is none. */
 export const planOf = (value: unknown, about: About): ElrondPlan | string => {
