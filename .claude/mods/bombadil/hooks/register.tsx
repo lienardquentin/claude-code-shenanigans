@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BombadilErrand, BombadilPhase, BombadilWanted } from '../types'
-import { BOMBADIL_EFFORT, BOMBADIL_MODEL, BOMBADIL_SYSTEM, HOW_TO, MAX_TRIES, NO_ERRAND, branchOf, commitMessage, errandPrompt, errandText, isForbiddenGit, isModPath, parseJudgement, prBody, proofVerdict, purposeOf } from './errand'
+import { BOMBADIL_EFFORT, BOMBADIL_MODEL, BOMBADIL_SYSTEM, HOW_TO, MAX_TRIES, NO_ERRAND, branchOf, issueOf, requestArgv, commitMessage, errandPrompt, errandText, isForbiddenGit, isModPath, parseJudgement, prBody, proofVerdict, purposeOf } from './errand'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
@@ -14,6 +14,8 @@ const TITLE = 'Bombadil'
 const AGENT = 'tom'
 const AGENT_TYPE = `bombadil:${AGENT}`
 const TICK_MS = 500
+// How long the forge is given to take a push or open a pull request
+const FORGE_TIMEOUT_MS = 120_000
 // How many ticks pass between two looks at Isildur's judgement
 const JUDGE_EVERY = 6
 
@@ -34,11 +36,6 @@ const TOOLS = [
   {
     name: 'status',
     description: "Where Tom Bombadil's errand stands: its phase, the last proof, Isildur's verdict, the commit and the pull request.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'sail',
-    description: "Pushes the errand's branch and opens the pull request that closes its issue, once it is committed. It reaches outside the machine: call it only when the person says go.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const
@@ -217,7 +214,7 @@ const commit = async ($: $, minor: readonly string[]): Promise<void> => {
   await tell($, `${held.ref} is done and committed${sha === '' ? '' : ` as ${sha.slice(0, 7)}`}: say go, and /bombadil sail opens its pull request`)
 }
 
-/** Pushes the branch and opens the pull request, through the Fellowship. Answers what was done, in a sentence. */
+/** Pushes the branch and opens the pull request, at the person's word alone. Answers what was done, in a sentence. */
 const sail = async ($: $): Promise<string> => {
   const held = await read($, errand)
 
@@ -225,13 +222,22 @@ const sail = async ($: $): Promise<string> => {
   if (held.phase === 'sailed') return `The pull request is open: ${held.pr}`
   if (held.phase !== 'home') return `The errand is ${held.phase}: it sails once it is committed.`
 
+  await update($, working, () => `Pushing ${held.branch}…`)
+
+  const cwd = await $.session.cwd()
+  const failed = (error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) })
+  const pushed = await $.process.run(['git', 'push', '-u', 'origin', held.branch], { cwd, timeoutMs: FORGE_TIMEOUT_MS }).catch(failed)
+
+  if (pushed.exitCode !== 0) return `${held.branch} could not be pushed: ${pushed.stderr.trim() || `git exited with ${pushed.exitCode}`}`
+
   await update($, working, () => 'Opening the pull request…')
 
-  const opened = await ask($, 'fellowship', 'pr', { ref: held.ref, branch: held.branch, base: held.base, title: held.title, body: prBody(held) })
+  const argv = requestArgv({ forge: issueOf(held.ref)?.forge ?? 'github', branch: held.branch, base: held.base, title: held.title, body: prBody(held) })
+  const opened = await $.process.run(argv, { cwd, timeoutMs: FORGE_TIMEOUT_MS }).catch(failed)
 
-  if (opened.isError || !/ is open/.test(opened.text)) return `The pull request could not be opened: ${opened.text}`
+  if (opened.exitCode !== 0) return `The pull request could not be opened: ${argv[0] ?? ''} said ${opened.stderr.trim() || `it exited with ${opened.exitCode}`}`
 
-  const url = /https?:\/\/\S+/.exec(opened.text)?.[0] ?? ''
+  const url = [...`${opened.stdout}\n${opened.stderr}`.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? ''
 
   await keep($, was => ({ ...was, phase: 'sailed', pr: url }))
   await tell($, `the pull request for ${held.ref} is open${url === '' ? '' : `: ${url}`}`)
@@ -327,7 +333,7 @@ export const register: Register = on => {
         prompt: BOMBADIL_SYSTEM,
         tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'mcp__argonath__radius', 'mcp__argonath__prove'],
         permissionMode: 'acceptEdits',
-        disallowedTools: ['Agent', 'mcp__argonath__judgement', 'mcp__bombadil__sail', 'mcp__fellowship__pr'],
+        disallowedTools: ['Agent', 'mcp__argonath__judgement'],
         model: BOMBADIL_MODEL,
         effort: BOMBADIL_EFFORT,
       })
@@ -388,8 +394,8 @@ export const register: Register = on => {
     return { result: held === null ? HOW_TO : errandText(held) }
   })
 
-  on('tool.call', { tool: 'mcp__bombadil__sail' }, async $ => ({ result: await alone($, () => sail($)) }))
-
+  // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude, and the person sails
+  // with /bombadil sail or the pane
   on('command.run', { command: 'bombadil' }, async ($, e) => {
     const said = e.args.trim()
 

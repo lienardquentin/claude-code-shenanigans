@@ -162,6 +162,7 @@ const machine = (on: On) => {
     proofs: [PINNED] as string[],
     judgements: [JUDGED.sitting, JUDGED.pass] as string[],
     registered: [] as Record<string, unknown>[],
+    tools: [] as string[],
     convened: 0,
     // What the Mirror answers, in turn; none, and Lothlórien is not there
     mirror: [] as string[],
@@ -269,7 +270,11 @@ const machine = (on: On) => {
 
     return { value: { agent: 'x' } } as never
   })
-  on('tool.register', () => ({ value: undefined }) as never)
+  on('tool.register', (_, e) => {
+    world.tools.push(String((e as unknown as { name: string }).name))
+
+    return { value: undefined } as never
+  })
   on('session.start', () => ({ cwd: CWD }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
@@ -300,6 +305,13 @@ describe('fellowship', () => {
     expect(world.ran).toContain('git switch -c fellowship/12-beacons-answer-how-long-they-have-burned')
     expect(world.marked).toEqual(['1 doing'])
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'fellowship:frodo', description: 'Frodo: task 1, Keep when a beacon is lit' })
+  })
+
+  test('offers Claude no tool that pushes or opens a pull request: the person sails', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    expect(world.tools).toEqual(['pane', 'set_out', 'quest', 'commit'])
   })
 
   test('registers each member on its model and effort, and offers none to Claude', async ($, on) => {
@@ -512,14 +524,6 @@ describe('fellowship', () => {
     await settle(world)
     expect(world.gazed).toHaveLength(2)
     expect(world.spawned).toHaveLength(1)
-  })
-
-  test('opens a pull request for another mod on the forge of the issue it names', async ($, on) => {
-    const world = machine(on)
-
-    expect(await call($, 'mcp__fellowship__pr', { ref: 'github:o/r#35', branch: 'bombadil/35-x', base: 'main', title: 'T', body: 'B' })).toBe('The pull request from bombadil/35-x onto main is open: https://github.com/lienardquentin/claude-code-shenanigans/pull/13')
-    expect(world.ran).toContain('git push -u origin bombadil/35-x')
-    expect(world.ran).toContain('gh pr create --base main --head bombadil/35-x --title T --body B')
   })
 
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {

@@ -48,7 +48,7 @@ describe('an errand', () => {
 
 /** Stands for the machine, Elrond, Argonath, the Fellowship and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { server: string; tool: string; args: Record<string, unknown> }[], dirty: '', branches: ['main'], proofs: [PINNED], judgements: [judged('sitting'), judged('pass', [{ severity: 'minor', where: 'app.py:70', text: 'say why.' }])], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { server: string; tool: string; args: Record<string, unknown> }[], dirty: '', branches: ['main'], proofs: [PINNED], judgements: [judged('sitting'), judged('pass', [{ severity: 'minor', where: 'app.py:70', text: 'say why.' }])], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -70,6 +70,7 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer('c0ffee1234\n')
+    if (e.argv[0] === 'gh') return answer('https://github.com/lienardquentin/claude-code-shenanigans/pull/36\n')
 
     return answer('')
   })
@@ -80,7 +81,6 @@ const machine = (on: On) => {
     if (e.server === 'elrond' && e.tool === 'issue') return text(JSON.stringify(ISSUE))
     if (e.server === 'argonath' && e.tool === 'prove') return text(world.proofs.length > 1 ? (world.proofs.shift() ?? '') : (world.proofs[0] ?? ''))
     if (e.server === 'argonath' && e.tool === 'judgement') return text(world.judgements.length > 1 ? (world.judgements.shift() ?? '') : (world.judgements[0] ?? ''))
-    if (e.server === 'fellowship' && e.tool === 'pr') return text('The pull request from bombadil/35-health-says-the-realm-by-name onto main is open: https://github.com/lienardquentin/claude-code-shenanigans/pull/36')
 
     return { value: { content: [], isError: true } } as never
   })
@@ -93,7 +93,11 @@ const machine = (on: On) => {
   on('agent.list', () => ({ value: [{ id: 'tom-1', description: 'x', type: 'bombadil:tom', status: 'running' }, { id: 'someone', description: 'x', type: 'Explore', status: 'running' }] }) as never)
   on('agent.register', () => ({ value: { agent: 'bombadil:tom' } }) as never)
   on('command.register', () => ({ value: undefined }) as never)
-  on('tool.register', () => ({ value: undefined }) as never)
+  on('tool.register', (_, e) => {
+    world.tools.push(String((e as unknown as { name: string }).name))
+
+    return { value: undefined } as never
+  })
   on('session.start', () => ({ cwd: CWD }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
@@ -123,6 +127,7 @@ describe('bombadil', () => {
     world.dirty = ''
     expect(await call($, 'mcp__bombadil__errand', { issue: '#35' })).toBe('Tom Bombadil sets off on github:lienardquentin/claude-code-shenanigans#35, "Health says the realm by name", on bombadil/35-health-says-the-realm-by-name from main.')
     expect(world.asked[0]).toEqual({ server: 'elrond', tool: 'issue', args: { issue: '#35' } })
+    expect(world.tools).toEqual(['pane', 'errand', 'status'])
     expect(world.ran).toContain('git switch -c bombadil/35-health-says-the-realm-by-name')
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'bombadil:tom' })
     expect(String(world.spawned[0]?.prompt)).toContain('--- quent:\nOnly the health route.')
@@ -145,11 +150,13 @@ describe('bombadil', () => {
     expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/#35: Health says the realm by name[\s\S]*- Isildur, app\.py:70: say why\./)
 
     // Committed, and waiting: nothing is pushed before the go
-    expect(await call($, 'mcp__bombadil__status')).toMatch(/: home[\s\S]*Committed as c0ffee1[\s\S]*waits for the person's go/)
-    expect(world.asked.some(one => one.server === 'fellowship')).toBe(false)
+    expect(await call($, 'mcp__bombadil__status')).toMatch(/: home[\s\S]*Committed as c0ffee1[\s\S]*waits for the person/)
+    expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
-    expect(await call($, 'mcp__bombadil__sail')).toBe('The errand has sailed: the pull request that closes github:lienardquentin/claude-code-shenanigans#35 is open at https://github.com/lienardquentin/claude-code-shenanigans/pull/36.')
-    expect(world.asked.find(one => one.server === 'fellowship')?.args).toMatchObject({ ref: ISSUE.ref, branch: 'bombadil/35-health-says-the-realm-by-name', base: 'main', title: ISSUE.title })
+    // Only the person sails: no tool offers it to Claude
+    expect((await $.command.run({ command: 'bombadil', args: 'sail' } as never)).text).toBe('The errand has sailed: the pull request that closes github:lienardquentin/claude-code-shenanigans#35 is open at https://github.com/lienardquentin/claude-code-shenanigans/pull/36.')
+    expect(world.ran).toContain('git push -u origin bombadil/35-health-says-the-realm-by-name')
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/--base main --head bombadil\/35-health-says-the-realm-by-name --title Health says the realm by name[\s\S]*Closes lienardquentin\/claude-code-shenanigans#35/)
   })
 
   test('tries once more with what blocked him, then stops for the person', async ($, on) => {

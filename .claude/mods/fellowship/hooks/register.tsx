@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, issueOf, purposeOf, requestArgv, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
 import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
@@ -33,8 +33,8 @@ const TOOLS = [
   {
     name: 'set_out',
     description:
-      'Sets the Fellowship out on the Elrond plan in force: on a branch of its own, it sends a member of the Fellowship to build each task in turn in the working tree (a hobbit, the elf, the dwarf or the man of Gondor, Aragorn or Gandalf, by the weight and the target of the task, one rung up each try), has the Argonath prove each change and its statues judge it, and commits it once they pass it; at the end it opens the pull request that closes the issue. It sets out only once every question of the plan is answered and every risk decided. Call it when the person asks to implement a planned issue.',
-    inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself: send each task once the one before is committed, and open the pull request at the end. Only when the person asked for it.' } } },
+      'Sets the Fellowship out on the Elrond plan in force: on a branch of its own, it sends a member of the Fellowship to build each task in turn in the working tree (a hobbit, the elf, the dwarf or the man of Gondor, Aragorn or Gandalf, by the weight and the target of the task, one rung up each try), has the Argonath prove each change and its statues judge it, and commits it once they pass it. Once every task is, the person opens the pull request with /fellowship sail, or it opens by itself on a quest they set out on with auto. It sets out only once every question of the plan is answered and every risk decided. Call it when the person asks to implement a planned issue.',
+    inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself: send each task once the one before is committed, and open the pull request at the end. Only when the person asked for it in those words.' } } },
   },
   {
     name: 'quest',
@@ -44,27 +44,6 @@ const TOOLS = [
   {
     name: 'commit',
     description: "Puts the uncommitted change of a stuck task before the Argonath again: proved, then judged by its statues, and committed once they pass it. Call it when the person has finished a stuck task by hand and asks to commit it.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'pr',
-    description:
-      "Pushes a branch and opens a pull request from it (a merge request on GitLab), on the forge of the issue it names: for a mod that has finished a change on a branch of its own. It reaches outside the machine: call it only when the person asked for that pull request.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ref: { type: 'string', description: 'The issue, as Elrond writes it short: github:owner/repo#12; it says the forge.' },
-        branch: { type: 'string' },
-        base: { type: 'string', description: 'The branch it goes onto.' },
-        title: { type: 'string' },
-        body: { type: 'string' },
-      },
-      required: ['ref', 'branch', 'base', 'title', 'body'],
-    },
-  },
-  {
-    name: 'sail',
-    description: "Pushes the quest's branch and opens the pull request (a merge request on GitLab) that closes the issue, once every task is committed. It reaches outside the machine: call it only when the person asks to.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const
@@ -658,7 +637,7 @@ export const register: Register = on => {
           prompt: memberSystem(name),
           tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'mcp__argonath__radius', 'mcp__argonath__prove', 'mcp__lothlorien__amend'],
           permissionMode: 'acceptEdits',
-          disallowedTools: ['Agent', 'mcp__elrond__task', 'mcp__argonath__judgement', 'mcp__fellowship__commit', 'mcp__fellowship__sail'],
+          disallowedTools: ['Agent', 'mcp__elrond__task', 'mcp__argonath__judgement', 'mcp__fellowship__commit'],
           model: member.model,
           effort: member.effort,
         })
@@ -745,19 +724,8 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__fellowship__commit' }, async $ => ({ result: await resubmit($) }))
 
-  on('tool.call', { tool: 'mcp__fellowship__sail' }, async $ => ({ result: await alone($, () => sail($)) }))
-
-  on('tool.call', { tool: 'mcp__fellowship__pr' }, async ($, e) => {
-    const given = e as unknown as { ref?: unknown; branch?: unknown; base?: unknown; title?: unknown; body?: unknown }
-    const [ref, branch, base, title, body] = [given.ref, given.branch, given.base, given.title, given.body].map(one => (typeof one === 'string' ? one.trim() : ''))
-
-    if (branch === '' || base === '' || title === '') return { result: 'A pull request needs a branch, a base and a title.' }
-
-    const opened = await alone($, () => openRequest($, branch ?? '', requestArgv({ forge: issueOf(ref ?? '')?.forge ?? 'github', branch: branch ?? '', base: base ?? '', title: title ?? '', body: body ?? '' })))
-
-    return { result: typeof opened === 'object' ? `The pull request from ${branch ?? ''} onto ${base ?? ''} is open${opened.url === '' ? '' : `: ${opened.url}`}` : opened }
-  })
-
+  // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
+  // /fellowship sail or the pane, or opted into it up front with --auto
   on('command.run', { command: 'fellowship' }, async ($, e) => {
     const words = e.args.trim().split(/\s+/).filter(word => word !== '')
     const isAuto = words.includes('--auto')

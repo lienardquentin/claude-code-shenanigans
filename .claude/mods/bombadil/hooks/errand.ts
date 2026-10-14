@@ -110,6 +110,12 @@ export const errandPrompt = (errand: Pick<BombadilErrand, 'ref' | 'title' | 'url
       : []),
   ].join('\n')
 
+/** The forge's CLI that opens a pull request (a merge request on GitLab) from a branch onto another. */
+export const requestArgv = ({ forge, branch, base, title, body }: { forge: 'github' | 'gitlab'; branch: string; base: string; title: string; body: string }): string[] =>
+  forge === 'github'
+    ? ['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body]
+    : ['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes']
+
 /** What Isildur judges the change against. */
 export const purposeOf = (errand: Pick<BombadilErrand, 'ref' | 'title' | 'body'>): string =>
   [`The whole of issue ${errand.ref}, "${errand.title}", in one change, as Bombadil's errand. What the issue says:`, errand.body.trim().slice(0, 4_000)].join('\n')
@@ -149,6 +155,6 @@ export const errandText = (errand: BombadilErrand): string =>
     ...(errand.proofLine !== '' ? [`Last proof: ${errand.proofLine}.`] : []),
     ...(errand.verdictLine !== '' ? [`Isildur: ${errand.verdictLine}.`] : []),
     ...(errand.sha !== '' ? [`Committed as ${errand.sha.slice(0, 7)}.`] : []),
-    ...(errand.phase === 'home' ? ['The pull request waits for the person\'s go: /bombadil sail, or mcp__bombadil__sail once they say so.'] : []),
+    ...(errand.phase === 'home' ? ['The pull request waits for the person: they open it with /bombadil sail, or from the Bombadil pane.'] : []),
     ...(errand.pr !== '' ? [`Pull request: ${errand.pr}`] : []),
   ].join('\n')
