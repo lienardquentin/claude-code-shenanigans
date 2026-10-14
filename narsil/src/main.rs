@@ -1,5 +1,6 @@
 mod chronicle;
 mod config;
+mod sync;
 mod table;
 mod time;
 
@@ -83,6 +84,15 @@ enum Command {
         /// Write over DST when it is there
         #[arg(long)]
         force: bool,
+    },
+    /// Append what Gondor lit and the chronicle has not, under fresh ids
+    Sync {
+        /// Where Gondor answers, as http://127.0.0.1:8101
+        #[arg(long, value_name = "URL")]
+        from: String,
+        /// Say what would be appended and write nothing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Print the completions of a shell
     Completions { shell: Shell },
@@ -399,6 +409,7 @@ fn run(cli: Cli) -> Result<(), String> {
             chronicle::write(&dst, &chronicle::forge(count, seed))?;
             println!("forged {count} lightings in {}", dst.display());
         }
+        Command::Sync { from, dry_run } => sync::sync(&path, &from, dry_run)?,
         Command::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "narsil", &mut io::stdout());
         }

@@ -318,3 +318,167 @@ fn a_scribe_whose_stdin_ends_writes_nothing() {
         3
     );
 }
+
+/// A Gondor of the test's own on 127.0.0.1: it answers each of `times` requests with the same canned response,
+/// and gives back the url to sync from.
+fn fake_gondor(status: &str, content_type: &str, body: &str, times: usize) -> String {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    std::thread::spawn(move || {
+        for _ in 0..times {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            // Read the whole request before answering, so the answer is not cut off by a reset.
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => request.extend_from_slice(&buffer[..read]),
+                }
+            }
+            stream.write_all(response.as_bytes()).ok();
+            stream.flush().ok();
+        }
+    });
+    url
+}
+
+/// What Gondor knows, as its /lightings answers: two the keeperless chronicle has (one named, one with no keeper),
+/// and two it has not (one only differing by its keeper from one the chronicle has).
+const GONDOR_LIGHTINGS: &str = concat!(
+    "[",
+    r#"{"id":1,"beacon":"Amon Dîn","realm":"Gondor","lit_at":"3019-03-07T07:55:00Z","keeper":"Mablung","watchers":0,"note":""},"#,
+    r#"{"id":2,"beacon":"Nardol","realm":"Gondor","lit_at":"3019-03-07T08:20:00Z","keeper":null,"watchers":0,"note":""},"#,
+    r#"{"id":3,"beacon":"Calenhad","realm":"Gondor","lit_at":"3019-03-07T08:40:00Z","keeper":"Hirgon","watchers":0,"note":""},"#,
+    r#"{"id":4,"beacon":"Halifirien","realm":"Gondor","lit_at":"3019-03-08T06:00:00Z","keeper":null,"watchers":0,"note":""}"#,
+    "]"
+);
+
+/// The words of the last line narsil printed: where it says how many were, or would be, appended.
+fn last_words(output: &Output) -> Vec<String> {
+    stdout(output)
+        .lines()
+        .last()
+        .unwrap_or("")
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn sync_appends_only_what_the_chronicle_has_not_under_fresh_ids() {
+    let home = keeperless("sync");
+    let before = fs::read_to_string(home.join("chronicle.jsonl")).unwrap();
+    let url = fake_gondor("200 OK", "application/json", GONDOR_LIGHTINGS, 1);
+    let output = run(&home, &["sync", "--from", &url]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(said.contains("Gondor's lighting 3 is written as 6"), "{said}");
+    assert!(said.contains("Gondor's lighting 4 is written as 7"), "{said}");
+    assert!(last_words(&output).contains(&"2".to_string()), "{said}");
+
+    let after = fs::read_to_string(home.join("chronicle.jsonl")).unwrap();
+    assert!(after.starts_with(&before), "{after}");
+    let added: Vec<serde_json::Value> = after[before.len()..]
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(added.len(), 2, "{after}");
+    assert_eq!(added[0]["id"], 6);
+    assert_eq!(added[0]["beacon"], "Calenhad");
+    assert_eq!(added[0]["lit_at"], "3019-03-07T08:40:00Z");
+    assert_eq!(added[0]["keeper"], "Hirgon");
+    assert_eq!(added[1]["id"], 7);
+    assert_eq!(added[1]["beacon"], "Halifirien");
+    assert_eq!(added[1].as_object().unwrap().get("keeper"), Some(&serde_json::Value::Null));
+}
+
+#[test]
+fn a_second_sync_appends_nothing() {
+    let home = keeperless("sync-twice");
+    let url = fake_gondor("200 OK", "application/json", GONDOR_LIGHTINGS, 2);
+    assert!(run(&home, &["sync", "--from", &url]).status.success());
+    let once = fs::read(home.join("chronicle.jsonl")).unwrap();
+    let output = run(&home, &["sync", "--from", &url]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(once, fs::read(home.join("chronicle.jsonl")).unwrap());
+    assert!(!stdout(&output).contains("is written as"), "{}", stdout(&output));
+    assert!(last_words(&output).contains(&"0".to_string()), "{}", stdout(&output));
+}
+
+#[test]
+fn a_dry_sync_says_what_it_would_append_and_writes_nothing() {
+    let home = keeperless("sync-dry");
+    let before = fs::read(home.join("chronicle.jsonl")).unwrap();
+    let url = fake_gondor("200 OK", "application/json", GONDOR_LIGHTINGS, 1);
+    let output = run(&home, &["sync", "--from", &url, "--dry-run"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap());
+    let said = stdout(&output);
+    assert!(said.contains("Calenhad") && said.contains("Halifirien"), "{said}");
+    assert!(last_words(&output).contains(&"2".to_string()), "{said}");
+}
+
+#[test]
+fn a_sync_into_a_missing_chronicle_starts_it() {
+    let home = home("sync-new");
+    let url = fake_gondor("200 OK", "application/json", GONDOR_LIGHTINGS, 1);
+    let output = run(&home, &["sync", "--from", &url]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let chronicle = fs::read_to_string(home.join("chronicle.jsonl")).unwrap();
+    let ids: Vec<u64> = chronicle
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, [1, 2, 3, 4], "{chronicle}");
+}
+
+// sting: narsil sync --from http://127.0.0.1:9 --dry-run
+#[test]
+fn a_gondor_that_does_not_answer_fails_quickly_and_says_so() {
+    let home = keeperless("sync-closed");
+    let before = fs::read(home.join("chronicle.jsonl")).unwrap();
+    // A port bound and let go: nothing listens there.
+    let url = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    };
+    let started = std::time::Instant::now();
+    let output = run(&home, &["sync", "--from", &url]);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    assert!(output.status.code().is_some_and(|code| code != 0), "{}", stdout(&output));
+    assert!(stderr(&output).starts_with("narsil: "), "{}", stderr(&output));
+    assert!(stderr(&output).trim().len() > "narsil:".len(), "{}", stderr(&output));
+    assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap());
+}
+
+#[test]
+fn a_gondor_that_answers_amiss_is_an_error() {
+    for (test, status, content_type, body) in [
+        ("sync-500", "500 Internal Server Error", "application/json", r#"{"detail":"the archives are down"}"#),
+        ("sync-garbage", "200 OK", "text/html", "<html>no lightings here</html>"),
+    ] {
+        let home = keeperless(test);
+        let before = fs::read(home.join("chronicle.jsonl")).unwrap();
+        let url = fake_gondor(status, content_type, body, 1);
+        let output = run(&home, &["sync", "--from", &url]);
+        assert!(output.status.code().is_some_and(|code| code != 0), "{test}: {}", stdout(&output));
+        assert!(stderr(&output).starts_with("narsil: "), "{test}: {}", stderr(&output));
+        assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap(), "{test}");
+    }
+}
+
+#[test]
+fn the_bash_completions_know_sync() {
+    let kept = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("completions/narsil.bash")).unwrap();
+    assert!(kept.contains("narsil__subcmd__sync"), "the kept completions do not know sync");
+    let output = run(&home("completions"), &["completions", "bash"]);
+    assert_eq!(stdout(&output), kept, "the kept completions are not what narsil prints");
+}
