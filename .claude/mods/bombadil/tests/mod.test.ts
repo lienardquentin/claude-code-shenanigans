@@ -127,7 +127,7 @@ describe('bombadil', () => {
     world.dirty = ''
     expect(await call($, 'mcp__bombadil__errand', { issue: '#35' })).toBe('Tom Bombadil sets off on github:lienardquentin/claude-code-shenanigans#35, "Health says the realm by name", on bombadil/35-health-says-the-realm-by-name from main.')
     expect(world.asked[0]).toEqual({ server: 'elrond', tool: 'issue', args: { issue: '#35' } })
-    expect(world.tools).toEqual(['pane', 'errand', 'status'])
+    expect(world.tools).toEqual(['pane', 'errand', 'relics', 'forget', 'status'])
     expect(world.ran).toContain('git switch -c bombadil/35-health-says-the-realm-by-name')
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'bombadil:tom' })
     expect(String(world.spawned[0]?.prompt)).toContain('--- quent:\nOnly the health route.')

@@ -38,6 +38,16 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself from one comment to the next. Only when the person asked for it.' } } },
   },
   {
+    name: 'relics',
+    description: 'The pull request the Black Gate is open on, as JSON: its ref, branch, base, URL and phase. For Mount Doom.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'forget',
+    description: 'Closes the gate once its pull request is merged, which the forge is asked; one not merged is kept. For Mount Doom.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+  },
+  {
     name: 'gate',
     description: 'Where the Black Gate stands: the pull request, each comment with its weight and state, the last proof and verdict.',
     inputSchema: { type: 'object', properties: {} },
@@ -65,6 +75,28 @@ const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: s
 }
 
 const git = ($: $, args: readonly string[]) => run($, ['git', ...args])
+
+/**
+ * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
+ * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
+ */
+const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
+  if (!/^https?:\/\//.test(url)) return false
+
+  const isGithub = /\/\/github\.com\//.test(url)
+  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+
+  if (ran === undefined || ran.exitCode !== 0) return false
+
+  try {
+    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
+    const from = isGithub ? held.headRefName : held.source_branch
+
+    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
+  } catch {
+    return false
+  }
+}
 
 const keep = async ($: $, change: (was: BlackgateGate) => BlackgateGate): Promise<void> => {
   await update($, gate, was => (was === null ? was : change(was)))
@@ -408,6 +440,24 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__blackgate__open' }, async ($, e) => ({ result: await alone($, () => open($, String((e as unknown as { pr?: unknown }).pr ?? ''))) }))
 
   on('tool.call', { tool: 'mcp__blackgate__march' }, async ($, e) => ({ result: await march($, (e as unknown as { auto?: unknown }).auto === true) }))
+
+  on('tool.call', { tool: 'mcp__blackgate__relics' }, async $ => {
+    const held = await read($, gate)
+
+    return { result: JSON.stringify(held === null ? [] : [{ ref: `${held.pr.repo}#${held.pr.number}`, branch: held.pr.branch, base: held.pr.base, pr: held.pr.url, phase: held.phase }]) }
+  })
+
+  on('tool.call', { tool: 'mcp__blackgate__forget' }, async ($, e) => {
+    const given = e as unknown as { pr?: unknown }
+    const held = await read($, gate)
+
+    if (held === null || held.pr.url !== given.pr) return { result: 'No gate is open on that pull request.' }
+    if (!(await isMergedFrom($, held.pr.url, held.pr.branch))) return { result: `${held.pr.url} is not merged: the gate stays open.` }
+
+    await update($, gate, () => null)
+
+    return { result: `The gate on ${held.pr.repo}#${held.pr.number} is closed.` }
+  })
 
   on('tool.call', { tool: 'mcp__blackgate__gate' }, async $ => {
     const held = await read($, gate)

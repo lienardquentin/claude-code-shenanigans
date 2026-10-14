@@ -36,6 +36,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on her.' } } },
   },
   {
+    name: 'forget',
+    description: 'Lets the Mirror go still: forgets what Galadriel showed once her tests are committed. One still locked is kept. For Mount Doom.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'amend',
     description:
       "Unlocks one of Galadriel's test files for a change to her tests, with the reason: a test that asserts something the purpose does not ask, or that cannot pass as written. The reason is kept and shown to whoever judges the change. Never call it to make a test easier to pass.",
@@ -257,6 +262,17 @@ export const register: Register = on => {
     const locked = await isLocked($, held)
 
     return { result: (e as unknown as { json?: unknown }).json === true ? visionJson(held, locked) : held === null ? HOW_TO : visionText(held, locked) }
+  })
+
+  on('tool.call', { tool: 'mcp__lothlorien__forget' }, async $ => {
+    const held = await read($, vision)
+
+    if (held === null) return { result: 'The Mirror is still.' }
+    if (held.state === 'gazing' || (await isLocked($, held))) return { result: 'Galadriel\'s tests are not committed yet: the Mirror keeps them.' }
+
+    await update($, vision, () => null)
+
+    return { result: 'The Mirror is still.' }
   })
 
   on('tool.call', { tool: 'mcp__lothlorien__amend' }, async ($, e) => {

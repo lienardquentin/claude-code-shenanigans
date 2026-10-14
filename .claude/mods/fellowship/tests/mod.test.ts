@@ -163,6 +163,7 @@ const machine = (on: On) => {
     judgements: [JUDGED.sitting, JUDGED.pass] as string[],
     registered: [] as Record<string, unknown>[],
     tools: [] as string[],
+    prState: {} as Record<string, unknown>,
     convened: 0,
     // What the Mirror answers, in turn; none, and Lothlórien is not there
     mirror: [] as string[],
@@ -201,6 +202,7 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer(`c0ffee${world.ran.length}aaaa\n`)
+    if (e.argv[0] === 'gh' && e.argv[1] === 'pr' && e.argv[2] === 'view') return answer(JSON.stringify(world.prState))
     if (e.argv[0] === 'gh') return answer('https://github.com/lienardquentin/claude-code-shenanigans/pull/13\n')
 
     return answer('')
@@ -253,6 +255,7 @@ const machine = (on: On) => {
     return { text: e.text } as never
   })
   on('store.get', (_, e) => ({ value: world.store[(e as unknown as { key: string }).key] }) as never)
+  on('store.keys', () => ({ value: Object.keys(world.store) }) as never)
   on('store.delete', (_, e) => {
     delete world.store[(e as unknown as { key: string }).key]
 
@@ -311,7 +314,7 @@ describe('fellowship', () => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect(world.tools).toEqual(['pane', 'set_out', 'quest', 'commit'])
+    expect(world.tools).toEqual(['pane', 'set_out', 'relics', 'forget', 'quest', 'commit'])
   })
 
   test('registers each member on its model and effort, and offers none to Claude', async ($, on) => {
@@ -524,6 +527,26 @@ describe('fellowship', () => {
     await settle(world)
     expect(world.gazed).toHaveLength(2)
     expect(world.spawned).toHaveLength(1)
+  })
+
+  test('forgets a quest only once the forge says its pull request is merged from its branch', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    expect(JSON.parse(await call($, 'mcp__fellowship__relics'))).toMatchObject([{ ref: 'github:lienardquentin/claude-code-shenanigans#12', branch: 'fellowship/12-beacons-answer-how-long-they-have-burned', base: 'main' }])
+
+    const pr = 'https://github.com/lienardquentin/claude-code-shenanigans/pull/13'
+    world.prState = { state: 'OPEN', headRefName: 'fellowship/12-beacons-answer-how-long-they-have-burned' }
+    expect(await call($, 'mcp__fellowship__forget', { ref: 'github:lienardquentin/claude-code-shenanigans#12', pr })).toMatch(/is not a merged pull request/)
+
+    world.prState = { state: 'MERGED', headRefName: 'some-other-branch' }
+    expect(await call($, 'mcp__fellowship__forget', { ref: 'github:lienardquentin/claude-code-shenanigans#12', pr })).toMatch(/is not a merged pull request/)
+
+    world.prState = { state: 'MERGED', headRefName: 'fellowship/12-beacons-answer-how-long-they-have-burned' }
+    expect(await call($, 'mcp__fellowship__forget', { ref: 'github:lienardquentin/claude-code-shenanigans#12', pr })).toBe('The quest on github:lienardquentin/claude-code-shenanigans#12 is forgotten.')
+    expect(JSON.parse(await call($, 'mcp__fellowship__relics'))).toEqual([])
   })
 
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {

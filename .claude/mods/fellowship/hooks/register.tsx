@@ -37,6 +37,16 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself: send each task once the one before is committed, and open the pull request at the end. Only when the person asked for it in those words.' } } },
   },
   {
+    name: 'relics',
+    description: 'Every quest the Fellowship keeps, as JSON: its issue, branch, base, pull request and phase. For Mount Doom, which watches for their pull requests to be merged.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'forget',
+    description: 'Forgets a quest once its pull request is merged from its branch, which the forge is asked; one not merged is kept. For Mount Doom.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+  },
+  {
     name: 'quest',
     description: "Where the Fellowship's quest stands: its phase, the companion out, Argonath's last proof, and each task with its commit.",
     inputSchema: { type: 'object', properties: {} },
@@ -78,6 +88,60 @@ const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: s
   const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
+}
+
+/**
+ * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
+ * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
+ */
+const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
+  if (!/^https?:\/\//.test(url)) return false
+
+  const isGithub = /\/\/github\.com\//.test(url)
+  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+
+  if (ran === undefined || ran.exitCode !== 0) return false
+
+  try {
+    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
+    const from = isGithub ? held.headRefName : held.source_branch
+
+    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
+  } catch {
+    return false
+  }
+}
+
+/** Every quest kept, here or across sessions: what Mount Doom watches. */
+const relics = async ($: $): Promise<{ ref: string; branch: string; base: string; pr: string; phase: string }[]> => {
+  const kept: FellowshipQuest[] = []
+  const held = await read($, quest)
+
+  if (held !== null) kept.push(held)
+
+  for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('quest:'))) {
+    const one = (await $.store.get(key).catch(() => undefined)) as FellowshipQuest | undefined
+
+    if (one !== undefined && one !== null && !kept.some(was => was.ref === one.ref)) kept.push(one)
+  }
+
+  return kept.map(({ ref, branch, base, pr, phase }) => ({ ref, branch, base, pr, phase }))
+}
+
+/** Forgets a quest whose pull request is merged from its branch, here and across sessions. Nothing else is touched. */
+const forget = async ($: $, ref: string, pr: string): Promise<string> => {
+  const found = (await relics($)).find(one => one.ref === ref)
+
+  if (found === undefined) return `No quest on ${ref} is kept.`
+  if (!(await isMergedFrom($, pr, found.branch))) return `${pr} is not a merged pull request from ${found.branch}: the quest on ${ref} is kept.`
+
+  await $.store.delete(STORE_KEY(ref)).catch(() => undefined)
+  if ((await read($, quest))?.ref === ref) {
+    await update($, quest, () => null)
+    await update($, plan, () => null)
+  }
+
+  return `The quest on ${ref} is forgotten.`
 }
 
 /** Sets the quest, and keeps it across sessions. */
@@ -723,6 +787,14 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__fellowship__commit' }, async $ => ({ result: await resubmit($) }))
+
+  on('tool.call', { tool: 'mcp__fellowship__relics' }, async $ => ({ result: JSON.stringify(await relics($)) }))
+
+  on('tool.call', { tool: 'mcp__fellowship__forget' }, async ($, e) => {
+    const given = e as unknown as { ref?: unknown; pr?: unknown }
+
+    return { result: await forget($, String(given.ref ?? ''), String(given.pr ?? '')) }
+  })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
   // /fellowship sail or the pane, or opted into it up front with --auto

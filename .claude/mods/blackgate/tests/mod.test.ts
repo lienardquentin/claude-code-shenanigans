@@ -181,7 +181,7 @@ describe('blackgate', () => {
     expect(world.ran).toContain('git switch fellowship/34-gondor-quench-a-single-beacon')
     expect(await call($, 'mcp__blackgate__gate')).toMatch(/○ \[light\] aragorn-reviewer on beacons\/gondor\/app\.py:12: Rename quench_one[\s\S]*\? \[question\] aragorn-reviewer on beacons\/tests\/test_gondor\.py:12: Why 409[\s\S]*○ \[standard\] eowyn: Please log the 409 too\./)
     // Nothing that reaches the forge is offered to Claude
-    expect(world.tools).toEqual(['pane', 'open', 'march', 'gate'])
+    expect(world.tools).toEqual(['pane', 'open', 'march', 'relics', 'forget', 'gate'])
   })
 
   test('answers each comment that asks for a change in turn: a member builds, Argonath proves and judges, the gate commits', async ($, on) => {

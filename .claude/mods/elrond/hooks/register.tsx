@@ -67,6 +67,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, gh:owner/repo#12, gl:group/project#12, or #12 for this repository.' } }, required: ['issue'] },
   },
   {
+    name: 'forget',
+    description: 'Forgets the plan of an issue once the pull request that closes it is merged, which the forge is asked: kept across sessions, its file, and the plan in force. For Mount Doom.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+  },
+  {
     name: 'plan',
     description: 'The plan in the Elrond pane, whole: the issue, the approach, each task with its steps, files, dependencies, acceptance and state, the open questions and the risks. Read it before working on a planned issue.',
     inputSchema: { type: 'object', properties: { json: { type: 'boolean', description: 'Answer the plan as JSON, for a mod that works from it; `null` when none is in force.' } } },
@@ -120,6 +125,42 @@ const current = async ($: $): Promise<ElrondPlan | null> => {
   const held = await read($, plan)
 
   return held === null ? null : tidyPlan(held)
+}
+
+/**
+ * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
+ * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
+ */
+const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
+  if (!/^https?:\/\//.test(url)) return false
+
+  const isGithub = /\/\/github\.com\//.test(url)
+  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+
+  if (ran === undefined || ran.exitCode !== 0) return false
+
+  try {
+    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
+    const from = isGithub ? held.headRefName : held.source_branch
+
+    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
+  } catch {
+    return false
+  }
+}
+
+/** Forgets the plan of an issue whose pull request is merged: kept across sessions, its file, and the plan in force. */
+const forget = async ($: $, ref: string, pr: string): Promise<string> => {
+  if ((await kept($, ref)) === undefined && (await current($))?.ref !== ref) return `No plan of ${ref} is kept.`
+  if (!(await isMergedFrom($, pr))) return `${pr} is not a merged pull request: the plan of ${ref} is kept.`
+
+  const cwd = await $.session.cwd()
+
+  await $.store.delete(STORE_KEY(ref)).catch(() => undefined)
+  await $.process.run(['rm', '-f', planPathOf(cwd, ref)], { cwd }).catch(() => undefined)
+  if ((await current($))?.ref === ref) await update($, plan, () => null)
+
+  return `The plan of ${ref} is forgotten, its file with it.`
 }
 
 /** Sets the plan in force, keeps it across sessions, and opens the pane on it. */
@@ -331,6 +372,12 @@ export const register: Register = on => {
     const done = await convene($, typeof given.issue === 'string' ? given.issue : '', 'tool', given.again === true)
 
     return { result: done.plan === undefined ? done.text : `${done.text}\n\n${planText(done.plan)}` }
+  })
+
+  on('tool.call', { tool: 'mcp__elrond__forget' }, async ($, e) => {
+    const given = e as unknown as { ref?: unknown; pr?: unknown }
+
+    return { result: await forget($, String(given.ref ?? ''), String(given.pr ?? '')) }
   })
 
   on('tool.call', { tool: 'mcp__elrond__issue' }, async ($, e) => {

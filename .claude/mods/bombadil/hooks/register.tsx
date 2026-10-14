@@ -34,6 +34,16 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' } }, required: ['issue'] },
   },
   {
+    name: 'relics',
+    description: "The errand Bombadil keeps, as JSON: its issue, branch, base, pull request and phase. For Mount Doom.",
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'forget',
+    description: 'Forgets the errand once its pull request is merged from its branch, which the forge is asked; one not merged is kept. For Mount Doom.',
+    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+  },
+  {
     name: 'status',
     description: "Where Tom Bombadil's errand stands: its phase, the last proof, Isildur's verdict, the commit and the pull request.",
     inputSchema: { type: 'object', properties: {} },
@@ -59,6 +69,28 @@ const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: s
   const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
+}
+
+/**
+ * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
+ * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
+ */
+const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
+  if (!/^https?:\/\//.test(url)) return false
+
+  const isGithub = /\/\/github\.com\//.test(url)
+  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+
+  if (ran === undefined || ran.exitCode !== 0) return false
+
+  try {
+    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
+    const from = isGithub ? held.headRefName : held.source_branch
+
+    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
+  } catch {
+    return false
+  }
 }
 
 const keep = async ($: $, change: (was: BombadilErrand) => BombadilErrand): Promise<void> => {
@@ -387,6 +419,24 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__bombadil__pane' }, $ => view.answer(() => $.ui.panes()))
 
   on('tool.call', { tool: 'mcp__bombadil__errand' }, async ($, e) => ({ result: await alone($, () => begin($, String((e as unknown as { issue?: unknown }).issue ?? ''))) }))
+
+  on('tool.call', { tool: 'mcp__bombadil__relics' }, async $ => {
+    const held = await read($, errand)
+
+    return { result: JSON.stringify(held === null ? [] : [{ ref: held.ref, branch: held.branch, base: held.base, pr: held.pr, phase: held.phase }]) }
+  })
+
+  on('tool.call', { tool: 'mcp__bombadil__forget' }, async ($, e) => {
+    const given = e as unknown as { ref?: unknown; pr?: unknown }
+    const held = await read($, errand)
+
+    if (held === null || held.ref !== given.ref) return { result: `No errand on ${String(given.ref ?? '')} is kept.` }
+    if (!(await isMergedFrom($, String(given.pr ?? ''), held.branch))) return { result: `${String(given.pr ?? '')} is not a merged pull request from ${held.branch}: the errand is kept.` }
+
+    await update($, errand, () => null)
+
+    return { result: `The errand on ${held.ref} is forgotten.` }
+  })
 
   on('tool.call', { tool: 'mcp__bombadil__status' }, async $ => {
     const held = await read($, errand)
