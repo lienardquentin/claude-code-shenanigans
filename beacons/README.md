@@ -9,7 +9,7 @@ mod to watch. Nothing here is meant to be useful; every part of it is there to s
 | `rohan` | Answers the Red Arrow and musters what spears it has | 8102 | logfmt |
 | `anor` | The Steward's stone: a Nuxt page, drawn with Nuxt UI, that lights beacons, gazes and sends the Red Arrow through its own server, over a map of Middle-earth | 8100 | JSON lines as pino writes them, among Nuxt's own |
 | `riders` | Ride to Gondor's door about once a second, one in four by way of Anor, so there is always something being logged | none | plain lines |
-| `postgres` | Gondor's archives, a PostgreSQL: which beacons burn (`burning`) and every lighting there was (`lightings`), each under the id of the request that lit it. In containers and in the cluster only | 5432, inside only | its own |
+| `postgres` | Gondor's archives, a PostgreSQL: which beacons burn and who keeps them (`burning`) and every lighting there was, with its keeper (`lightings`), each under the id of the request that lit it. In containers and in the cluster only | 5432, inside only | its own |
 | `redpanda` | The broker, one node that speaks Kafka's protocol: Gondor writes a record to `beacons.lit` for each beacon lit, and Rohan's watchers read them as the group `rohan-watchers`. In containers and in the cluster only | 9092, inside only | its own |
 
 ## Run it
@@ -67,8 +67,9 @@ the release away, and `devspace run cluster-down` the cluster.
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /beacons` | The seven beacons, Amon Dîn to Halifirien, and which are lit |
-| `POST /beacons/{name}/light` | Lights one, and says which beacon its watchers look to next |
+| `GET /beacons` | The seven beacons, Amon Dîn to Halifirien, which are lit, and for each one that burns who keeps it and since when |
+| `POST /beacons/{name}/light` | Lights one, with an optional keeper, and says which beacon its watchers look to next |
+| `GET /lightings` | Every lighting there was, as narsil's chronicle spells each one |
 | `POST /beacons/quench` | Puts them all out |
 | `GET /palantiri` | The seeing-stones Gondor knows of |
 | `GET /palantiri/{stone}/gaze` | What the stone shows |
@@ -81,6 +82,68 @@ Anor reaches every one of Gondor's endpoints under `/api/realm/…`, each reques
 which hands it to Rohan. `POST /api/complaints` is where the page reports its own errors, so that what goes wrong
 in a browser is in a log. Anor fetches nothing it draws with: no web fonts, no telemetry, and its icons come from
 the set installed beside it.
+
+## Who lit it
+
+A lighting may name its keeper, the one who lit the fire. The name goes with the fire: into the archives, out in
+`GET /beacons` and `GET /lightings`, and on `beacons.lit` to Rohan's watchers.
+
+- **Lighting.** `POST /beacons/amon-din/light` takes an optional body, `{"keeper": "Hirgon"}`. With no body, a `null`
+  keeper or a blank one, the beacon is lit with no keeper. The answer says who it was lit with:
+
+  ```
+  {"beacon": "amon-din", "lit": true, "watch_next": "eilenach", "keeper": "Hirgon"}
+  {"beacon": "eilenach", "lit": true, "watch_next": "nardol", "keeper": null}
+  ```
+
+- **`GET /beacons`** gives each beacon's `keeper` and `since`, the time it was first lit. Both are `null` for a dark
+  beacon. Lighting a beacon that already burns keeps the first keeper and the first `since`, as the archives do with
+  `ON CONFLICT DO NOTHING`; only the lighting itself is written:
+
+  ```
+  {"beacon": "amon-din", "lit": true, "keeper": "Mablung", "since": "2026-10-14T17:54:22.273Z"}
+  {"beacon": "erelas", "lit": false, "keeper": null, "since": null}
+  ```
+
+- **`GET /lightings`** answers every lighting there was, oldest first, each as narsil's chronicle spells one:
+
+  ```
+  {"id": 1, "beacon": "Amon Dîn", "realm": "Gondor", "lit_at": "2026-10-14T17:54:22.273Z", "keeper": "Mablung", "watchers": 0, "note": ""}
+  ```
+
+  The beacon is named as the chronicle names it (`Amon Dîn`, not `amon-din`). Every time is UTC to the millisecond,
+  with `Z`, so two lightings in the same second stay apart. Gondor holds neither watchers nor notes, so `realm` is
+  always `Gondor`, `watchers` is `0` and `note` is `""`. With a database it answers every row of `lightings`. With none
+  it answers the lightings kept in the realm's memory since it woke: that list is never trimmed, so it grows with every
+  lighting, and it is gone when the realm sleeps.
+
+- **The archives.** `burning` and `lightings` each have a nullable `keeper` column, and every lighting writes it. An
+  archive shelved before the column gains it when Gondor next shelves it, with `ALTER TABLE … ADD COLUMN IF NOT EXISTS`,
+  and its old rows keep no keeper. Adding a column takes a lock on the table while it runs, so requests made while a
+  Gondor shelves an older archive may wait on it, or be answered 503 if the archive is under load.
+
+- **The tidings.** Each record on `beacons.lit` carries the `keeper` next to `beacon` and `watch_next`, `null` for a
+  lighting with none. Rohan's watchers log each one as `the watchers see a beacon burning` with `keeper=Hirgon`, or
+  `keeper=None` for a lighting with none, as logfmt writes a missing value. A record sent before the keeper existed
+  has none, and is read as none.
+
+- **The Steward's prompt.** Lighting a beacon from the chain, or a beacon-hill on the map, opens "Who lights Amon Dîn?"
+  with a Keeper field. Light sends the name; an empty field lights it unnamed; Cancel lights nothing. The field starts
+  with the last name a beacon was lit under in this browser, which it keeps in local storage.
+
+### The archive tests
+
+[`beacons/tests/test_archive.py`](tests/test_archive.py) runs against a real Postgres, the one `GONDOR_TEST_DATABASE_URL`
+names. Each test works in a schema of its own, which it drops after. With the variable unset they are skipped, and the
+rest of the suite runs as before:
+
+```
+uv run --project beacons pytest beacons/tests
+GONDOR_TEST_DATABASE_URL=postgresql://gondor:throwaway@127.0.0.1:5432/throwaway uv run --project beacons pytest beacons/tests/test_archive.py
+```
+
+Point it only at a throwaway database. The tests create and drop schemas in whatever database the variable names, and
+a real archive is one of those.
 
 ## The map
 
