@@ -1,21 +1,61 @@
-type Beacon = { beacon: string; lit: boolean }
-type Lit = { beacon: string; watch_next: string | null }
+type Beacon = { beacon: string; lit: boolean; keeper: string | null; since: string | null }
+type Lit = { beacon: string; watch_next: string | null; keeper: string | null }
 type Ride = { riding: number; days: number }
 
 const none = (): Beacon[] => []
+
+const KEPT_AS = 'anor-keeper'
+
+/** The last name a beacon was lit under, kept across visits so that the prompt offers it again. */
+export const useKeeper = () => {
+  const keeper = useState<string | null>('keeper', () => null)
+
+  // The server has no storage: what this browser kept is read the first time it is asked for
+  const recall = (): string => {
+    if (keeper.value === null) keeper.value = (typeof localStorage === 'undefined' ? null : localStorage.getItem(KEPT_AS)) ?? ''
+
+    return keeper.value
+  }
+
+  const remember = (name: string) => {
+    keeper.value = name
+
+    if (typeof localStorage !== 'undefined') localStorage.setItem(KEPT_AS, name)
+  }
+
+  return { recall, remember }
+}
+
+/** Asks who lights a beacon: their name, empty for no one in particular, or undefined when the lighting is called off. */
+export const useKeeperPrompt = () => {
+  const prompt = useOverlay().create(defineAsyncComponent(() => import('../components/KeeperPrompt.vue')))
+  const { recall } = useKeeper()
+
+  return async (beacon: string): Promise<string | undefined> => {
+    const answer: unknown = await prompt.open({ beacon, keeper: recall() })
+
+    return typeof answer === 'string' ? answer : undefined
+  }
+}
 
 /** The beacons and the lighting of them: the chain and the map hold the same ones. */
 export const useBeacons = () => {
   const { data: beacons, error, refresh } = useFetch<Beacon[]>('/api/realm/beacons', { default: none })
   const toast = useToast()
+  const { remember } = useKeeper()
 
-  const light = async (name: string) => {
+  const light = async (name: string, keeper?: string) => {
+    const who = keeper?.trim() || null
+
+    remember(who ?? '')
+
     try {
-      const lit = await $fetch<Lit>(`/api/realm/beacons/${name}/light`, { method: 'POST' })
+      const lit = await $fetch<Lit>(`/api/realm/beacons/${name}/light`, { method: 'POST', body: { keeper: who } })
+      const watched = lit.watch_next ? `${named(lit.watch_next)} watches for it.` : 'Rohan has seen it.'
 
       toast.add({
         title: `${named(name)} burns`,
-        description: lit.watch_next ? `${named(lit.watch_next)} watches for it.` : 'Rohan has seen it.',
+        description: who ? `${who} lit it. ${watched}` : watched,
         icon: 'i-lucide-flame',
         color: 'primary',
       })

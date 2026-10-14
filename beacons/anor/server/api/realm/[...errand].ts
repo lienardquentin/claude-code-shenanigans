@@ -11,10 +11,17 @@ export default defineEventHandler(async event => {
 
   setResponseHeader(event, 'x-request-id', rid)
 
+  // A body goes on with its content-type, and only when there is one: the riders, quench and muster post none
+  const headers: Record<string, string> = { 'x-request-id': rid }
+  const carried = event.method === 'GET' || event.method === 'HEAD' ? undefined : (await readRawBody(event)) || undefined
+  const kind = getRequestHeader(event, 'content-type')
+
+  if (carried !== undefined && kind) headers['content-type'] = kind
+
   let answer: Response
 
   try {
-    answer = await fetch(`${gondorUrl}/${errand}${getRequestURL(event).search}`, { method: event.method, headers: { 'x-request-id': rid } })
+    answer = await fetch(`${gondorUrl}/${errand}${getRequestURL(event).search}`, { method: event.method, headers, body: carried })
   } catch {
     herald('error', `${said}: Gondor does not answer`, { rid })
     setResponseStatus(event, 502)

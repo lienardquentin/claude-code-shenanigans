@@ -7,6 +7,7 @@ const RIDE_MS = 9000
 
 const { mapboxToken } = useRuntimeConfig().public
 const { beacons, light } = useBeacons()
+const askKeeper = useKeeperPrompt()
 const { gazed, gaze } = useStones()
 const ride = useRide()
 
@@ -50,6 +51,13 @@ const rideOut = () => {
   cancelAnimationFrame(riding)
   chart?.fitBounds(VIEWS.beacons, { padding: 24 })
   riding = requestAnimationFrame(step)
+}
+
+// A beacon-hill is lit once someone says who lights it; called off, it stays dark
+const kindle = async (beacon: string) => {
+  const keeper = await askKeeper(beacon)
+
+  if (keeper !== undefined) await light(beacon, keeper)
 }
 
 const show = (view: keyof typeof VIEWS) => chart?.fitBounds(VIEWS[view], { padding: 24 })
@@ -100,7 +108,7 @@ onMounted(async () => {
       .queryRenderedFeatures([[point.x - 6, point.y - 6], [point.x + 6, point.y + 6]], { layers: ['beacons', 'stones'] })
       .at(0)
 
-    if (touched?.layer?.id === 'beacons') void light(String(touched.properties?.name))
+    if (touched?.layer?.id === 'beacons') void kindle(String(touched.properties?.name))
     else if (touched) void gaze(String(touched.properties?.stone))
   })
 

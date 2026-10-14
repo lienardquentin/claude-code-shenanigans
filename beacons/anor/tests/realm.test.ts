@@ -39,7 +39,7 @@ describe('useBeacons', () => {
 
     await useBeacons().light('amon-din')
 
-    expect($fetch).toHaveBeenCalledWith('/api/realm/beacons/amon-din/light', { method: 'POST' })
+    expect($fetch).toHaveBeenCalledWith('/api/realm/beacons/amon-din/light', { method: 'POST', body: { keeper: null } })
     expect(toast.add).toHaveBeenCalledWith(expect.objectContaining({ title: 'Amon Dîn burns', description: 'Eilenach watches for it.' }))
     expect(refresh).toHaveBeenCalledOnce()
   })
@@ -69,6 +69,54 @@ describe('useBeacons', () => {
     expect($fetch).toHaveBeenCalledWith('/api/realm/beacons/quench', { method: 'POST' })
     expect(toast.add).toHaveBeenCalledWith(expect.objectContaining({ title: 'The beacons are dark' }))
     expect(refresh).toHaveBeenCalledOnce()
+  })
+})
+
+describe('useBeacons, and who lights them', () => {
+  const kept = new Map<string, string>()
+  const localStorage = {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, String(value)),
+    removeItem: (key: string) => void kept.delete(key),
+    clear: () => kept.clear(),
+  }
+
+  beforeEach(() => {
+    kept.clear()
+    vi.stubGlobal('localStorage', localStorage)
+  })
+
+  it('carries the keeper to Gondor and names them in the toast', async () => {
+    $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
+
+    await useBeacons().light('amon-din', 'Hirgon')
+
+    expect($fetch).toHaveBeenCalledWith('/api/realm/beacons/amon-din/light', expect.objectContaining({ method: 'POST', body: { keeper: 'Hirgon' } }))
+    expect(JSON.stringify(toast.add.mock.calls[0]![0])).toContain('Hirgon')
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['an empty name', ''],
+    ['a blank name', '   '],
+    ['no name at all', undefined],
+  ])('sends a null keeper for %s', async (_, keeper) => {
+    $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
+
+    await useBeacons().light('amon-din', keeper)
+
+    expect($fetch).toHaveBeenCalledWith('/api/realm/beacons/amon-din/light', expect.objectContaining({ method: 'POST', body: { keeper: null } }))
+  })
+
+  it('remembers the last keeper for the next lighting', async () => {
+    $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
+
+    await useBeacons().light('amon-din', 'Hirgon')
+
+    const inState = [...states.values()].some(({ value }) => value === 'Hirgon')
+    const inStorage = [...kept.values()].some(value => value.includes('Hirgon'))
+
+    expect(inState || inStorage).toBe(true)
   })
 })
 
