@@ -122,7 +122,7 @@ async def light(name: str, kindling: Kindling | None = None):
     keeper = ((kindling.keeper if kindling else None) or "").strip() or None
 
     # The fire is written down before anyone asks who is told of it
-    await archive.keep(name)
+    await archive.keep(name, keeper)
 
     lit = realm.light(name, keeper)
 

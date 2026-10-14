@@ -33,10 +33,12 @@ gondor.live.env=KAFKA_BROKERS=
 # What the requests write is filed under the run's own request id, and taken out after each build; the fires a quench
 # put out are lit again as they were, the riders' among them.
 gondor.live.db=deployment/postgres
-gondor.live.before=SELECT beacon, rid, since::text FROM burning
+# psql answers each row as one line, its columns split on '|', and a NULL as nothing: the keeper is free text and may
+# be NULL, so each fire is read as one hex word of its JSON, which holds no '|' and no newline, and keeps a NULL null.
+gondor.live.before=SELECT encode(convert_to(json_build_object('beacon', beacon, 'rid', rid, 'keeper', keeper, 'since', since)::text, 'UTF8'), 'hex') FROM burning
 gondor.live.cleanup=DELETE FROM lightings WHERE rid LIKE '{rid}%'
 gondor.live.cleanup=DELETE FROM burning WHERE rid LIKE '{rid}%'
-gondor.live.restore=INSERT INTO burning (beacon, rid, since) VALUES {rows} ON CONFLICT (beacon) DO NOTHING
+gondor.live.restore=INSERT INTO burning (beacon, rid, keeper, since) SELECT f->>'beacon', f->>'rid', f->>'keeper', (f->>'since')::timestamptz FROM (SELECT convert_from(decode(fire, 'hex'), 'UTF8')::json AS f FROM (VALUES {rows}) AS v(fire)) AS fires ON CONFLICT (beacon) DO NOTHING
 
 # The requests played, in order, against one app: what one does to it, the next sees. A request may carry a JSON body
 # as one quoted word after its path: $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'

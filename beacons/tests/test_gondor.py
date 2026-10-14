@@ -109,7 +109,7 @@ def test_the_archives_shut_is_a_503_the_realm_survives(client, monkeypatch):
 def test_a_lighting_is_written_before_the_next_beacon_is_named(client, monkeypatch):
     kept = []
 
-    async def keep(beacon: str) -> None:
+    async def keep(beacon: str, keeper: str | None) -> None:
         kept.append(beacon)
 
     monkeypatch.setattr(archive, "keep", keep)
