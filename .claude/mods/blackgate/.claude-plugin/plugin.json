@@ -1,0 +1,6 @@
+{
+  "name": "blackgate",
+  "version": "0.1.0",
+  "description": "The Black Gate: reads the open review comments of a pull or merge request, has the Mouth of Sauron weigh each, and sends the Fellowship's members to answer them in turn, each change proven and judged by the Argonath and committed; pushing them is yours",
+  "types": "./types/index.d.ts"
+}

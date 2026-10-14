@@ -1,0 +1,5 @@
+{
+  "name": "blackgate-mods",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "blackgate", "source": "./" }]
+}
