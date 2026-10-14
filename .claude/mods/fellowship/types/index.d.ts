@@ -38,6 +38,7 @@ export type FellowshipPlan = {
 /**
  * Where the quest stands:
  * - `ready`: no companion out; the next task waits for the person, or goes at once on an auto quest
+ * - `gazing`: Galadriel writes the task's tests first, red, before a member builds it (a light task has none)
  * - `marching`: a companion builds a task
  * - `proving`: Argonath proves what the companion built
  * - `judging`: every changed run is pinned; the statues of the Argonath judge the change, which is committed once they pass it
@@ -45,7 +46,10 @@ export type FellowshipPlan = {
  * - `arrived`: every task is committed; the pull request waits to be opened
  * - `sailed`: the pull request is open
  */
-export type FellowshipPhase = 'ready' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'sailed'
+export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'sailed'
+
+/** What the Mirror showed of a task: Galadriel's red tests, which its member makes pass. */
+export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; red: string }
 
 /** One member out on a task. */
 export type FellowshipMarch = {
@@ -90,6 +94,10 @@ export type FellowshipQuest = {
   proofLine: string
   /** The statues' verdict on the change, in a line; empty before they judge it. */
   verdictLine: string
+  /** What the Mirror showed of the task at hand; null before it gazed, for a light task, or when it showed nothing. */
+  vision?: FellowshipVision | null
+  /** The task the Mirror last gazed on: a task tried again keeps its tests. */
+  gazed?: number
   commits: FellowshipCommit[]
   /** The pull or merge request, once opened. */
   pr: string

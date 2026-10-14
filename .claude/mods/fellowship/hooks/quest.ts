@@ -1,4 +1,4 @@
-import type { FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipWeight } from '../types'
+import type { FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../types'
 
 const OPUS = 'claude-opus-5-5'
 const SONNET = 'claude-sonnet-5-5'
@@ -235,7 +235,7 @@ export const memberSystem = (member: FellowshipMember): string => [
 export type Retry = { attempt: number; by: string; answer: string; proof?: string; findings?: string[] }
 
 /** What a member is sent with: the quest, its task, the risks that threaten it, and on a retry, where the last try stood. */
-export const companionPrompt = (plan: FellowshipPlan, task: FellowshipTask, retry?: Retry): string => {
+export const companionPrompt = (plan: FellowshipPlan, task: FellowshipTask, retry?: Retry, vision?: FellowshipVision | null): string => {
   const risks = plan.risks.length === 0 ? [] : plan.risks.filter(risk => risk.tasks.includes(task.id))
 
   return [
@@ -249,6 +249,14 @@ export const companionPrompt = (plan: FellowshipPlan, task: FellowshipTask, retr
     'Done before you, and committed: ' + (plan.tasks.filter(one => one.state === 'done').map(one => `${one.id}. ${one.title}`).join('; ') || 'nothing yet') + '.',
     '',
     ...taskBlock(task),
+    ...(vision !== undefined && vision !== null && vision.tests.length > 0
+      ? [
+          '',
+          "Galadriel's tests show what is to come: she wrote them from the task before anything was built, and they fail today. Make them pass. They are locked: change one only if it is wrong, after calling mcp__lothlorien__amend with its file and why; the reason goes to the statues.",
+          ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
+          ...(vision.red !== '' ? ['How they failed:', '<red>', vision.red, '</red>'] : []),
+        ]
+      : []),
     ...(retry !== undefined
       ? [
           '',
@@ -263,12 +271,13 @@ export const companionPrompt = (plan: FellowshipPlan, task: FellowshipTask, retr
 }
 
 /** What a task's change is meant to do, for the statues to judge it against: the issue, the task, what is left to later tasks. */
-export const purposeOf = (plan: FellowshipPlan, task: FellowshipTask): string =>
+export const purposeOf = (plan: FellowshipPlan, task: FellowshipTask, amendments: readonly { file: string; why: string; by: string }[] = []): string =>
   [
     `Task ${task.id} of the plan for ${plan.ref}, "${plan.title}": ${task.title}.`,
     ...(task.why !== '' ? [`Why: ${task.why}`] : []),
     ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
     ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
+    ...(amendments.length > 0 ? ["Galadriel wrote this task's tests before it was built; the builder changed some, saying why. Judge whether each reason holds:", ...amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
     ...(plan.tasks.some(one => one.id !== task.id && one.state !== 'done') ? ['Left to later tasks, and so not owed by this change:', ...plan.tasks.filter(one => one.id !== task.id && one.state !== 'done').map(one => `- ${one.id}. ${one.title}`)] : []),
   ].join('\n')
 
@@ -327,6 +336,8 @@ export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null): 
   [
     `The Fellowship's quest on ${quest.ref}, "${quest.title}"${plan === null ? '' : ` (${tally(plan)})`}: ${quest.phase}${quest.isAuto ? ', going on by itself' : ''}, on ${quest.branch} from ${quest.base}.`,
     ...(quest.march !== null ? [`${MEMBERS[quest.march.member].title} is on task ${quest.march.taskId}, "${quest.march.title}" (try ${quest.march.attempt}).`] : []),
+    ...(quest.phase === 'gazing' ? [`Galadriel gazes on task ${quest.gazed ?? ''}: its tests are written first.`] : []),
+    ...(quest.vision !== undefined && quest.vision !== null && quest.vision.tests.length > 0 ? [`The Mirror showed ${quest.vision.tests.length} red ${quest.vision.tests.length === 1 ? 'test' : 'tests'} for task ${quest.vision.taskId}: ${quest.vision.tests.map(test => test.name).join(', ')}.`] : []),
     ...(quest.proofLine !== '' ? [`Last proof: ${quest.proofLine}.`] : []),
     ...(quest.verdictLine !== '' ? [`The statues: ${quest.verdictLine}.`] : []),
     ...(plan === null ? [] : ['', ...plan.tasks.map(task => `${MARK[task.state]} ${task.id}. ${task.title}${task.dependsOn.length > 0 ? ` (after ${task.dependsOn.join(', ')})` : ''}${quest.commits.find(one => one.taskId === task.id) !== undefined ? ` · ${quest.commits.find(one => one.taskId === task.id)?.sha.slice(0, 7) || 'no change'}` : ''} [${task.weight}]`)]),

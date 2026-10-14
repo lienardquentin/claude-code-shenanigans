@@ -163,6 +163,9 @@ const machine = (on: On) => {
     judgements: [JUDGED.sitting, JUDGED.pass] as string[],
     registered: [] as Record<string, unknown>[],
     convened: 0,
+    // What the Mirror answers, in turn; none, and Lothlórien is not there
+    mirror: [] as string[],
+    gazed: [] as string[],
     about: [] as string[],
     branch: 'main',
     branches: ['main'] as string[],
@@ -214,6 +217,15 @@ const machine = (on: On) => {
     }
     if (e.server === 'argonath' && e.tool === 'prove') return text(world.proofs.length > 1 ? (world.proofs.shift() ?? '') : (world.proofs[0] ?? ''))
     if (e.server === 'argonath' && e.tool === 'targets') return text(JSON.stringify(TARGETS))
+    if (e.server === 'lothlorien' && world.mirror.length > 0) {
+      if (e.tool === 'gaze') {
+        world.gazed.push(String(e.args.purpose))
+
+        return text('Galadriel gazes into the Mirror.')
+      }
+
+      return text(world.mirror.length > 1 ? (world.mirror.shift() ?? '') : (world.mirror[0] ?? ''))
+    }
     if (e.server === 'argonath' && e.tool === 'judgement') {
       if (e.args.convene === true) {
         world.convened += 1
@@ -440,6 +452,66 @@ describe('fellowship', () => {
 
     // Nothing is kept: the plan is set out on afresh, from its first task
     expect(await call($, 'mcp__fellowship__set_out')).toMatch(/sets out on github:.*#12/)
+  })
+
+  test('has Galadriel write the tests of a task that is not light first, and sends its member to make them pass', async ($, on) => {
+    const world = machine(on)
+    const shown = JSON.stringify({ state: 'shown', isLocked: true, tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }], red: 'FAILED test_burned_for - KeyError', why: '', amendments: [] })
+    world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
+    world.mirror = [JSON.stringify({ state: 'gazing' }), shown, JSON.stringify({ ...JSON.parse(shown), amendments: [{ file: 'beacons/tests/test_gondor.py', why: 'It asserted seconds as a string.', by: 'fellowship:gimli' }] })]
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    expect(world.gazed[0]).toMatch(/^Task 1 of the plan for github:.*: Answer the seconds burned\.[\s\S]*Done when: A test reads burned_for/)
+    expect(world.spawned).toHaveLength(1)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'fellowship:gimli' })
+    expect(String(world.spawned[0]?.prompt)).toMatch(/Galadriel's tests show what is to come[\s\S]*- beacons\/tests\/test_gondor\.py: test_burned_for\nHow they failed:\n<red>\nFAILED test_burned_for - KeyError\n<\/red>/)
+
+    await ends($, 'gimli-1', 'Made them pass.')
+    await settle(world)
+
+    // The statues are told what was changed of her tests, and why
+    expect(world.about[0]).toContain("the builder changed some, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by fellowship:gimli: It asserted seconds as a string.")
+    expect(world.ran.some(line => line.startsWith('git commit -m #12: Answer the seconds burned'))).toBe(true)
+  })
+
+  test('skips the Mirror for a light task, and builds a task it shows nothing for as it is', async ($, on) => {
+    const world = machine(on)
+    world.mirror = [JSON.stringify({ state: 'empty', why: 'Nothing to see.' })]
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    // Task 1 is light: no gaze
+    expect(world.gazed).toEqual([])
+    await ends($, 'frodo-1', 'Added lit_at.')
+    await settle(world)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    // Task 2 is standard: she gazes, shows nothing to test, and it is built as it is
+    expect(world.gazed).toHaveLength(1)
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'fellowship:gimli' })
+    expect(String(world.spawned[1]?.prompt)).not.toContain("Galadriel's tests")
+  })
+
+  test('stops for the person when the Mirror is clouded, and gazes anew when the task is sent again', async ($, on) => {
+    const world = machine(on)
+    world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
+    world.mirror = [JSON.stringify({ state: 'clouded', why: 'she did not show her tests red' })]
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    expect(world.spawned).toEqual([])
+    expect(await call($, 'mcp__fellowship__quest')).toMatch(/: stuck/)
+
+    world.mirror = [JSON.stringify({ state: 'empty', why: 'x' })]
+    expect((await $.command.run({ command: 'fellowship', args: 'next' } as never)).text).toMatch(/sent on the next task/)
+    await settle(world)
+    expect(world.gazed).toHaveLength(2)
+    expect(world.spawned).toHaveLength(1)
   })
 
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {
