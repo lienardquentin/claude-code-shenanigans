@@ -96,6 +96,40 @@ export type ArgonathRadius = {
   live: string
 }
 
+/** One of the two statues of the Argonath, which judge a settled change. */
+export type ArgonathStatue = 'isildur' | 'anarion'
+
+/** Something a statue found in the change: `blocking` keeps it from being committed, `minor` does not. */
+export type ArgonathFinding = { severity: 'blocking' | 'minor'; where: string; text: string }
+
+/** One statue sitting in judgement: the reviews it carries and what it found. */
+export type ArgonathSeat = {
+  statue: ArgonathStatue
+  title: string
+  /** The reviews it carries, as slash commands. */
+  reviews: string[]
+  /** The id its spawn answered; empty where it answered none, and the statue is known by its type. */
+  agentId: string
+  /** `sitting` while it judges; `pass` with no blocking finding, `fail` with one; `silent` when it gave no findings that read. */
+  state: 'sitting' | 'pass' | 'fail' | 'silent'
+  findings: ArgonathFinding[]
+  /** Why it is silent; empty otherwise. */
+  why: string
+}
+
+/** The statues together: sitting, or what they found. */
+export type ArgonathVerdict = 'sitting' | 'pass' | 'fail' | 'silent'
+
+/** The judgement of one settled change. */
+export type ArgonathJudgement = {
+  /** The change judged: HEAD, the diff against it and the new files, as one fingerprint. */
+  fingerprint: string
+  at: number
+  /** Who convened it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
+  by: 'turn' | 'tool'
+  seats: ArgonathSeat[]
+}
+
 declare module 'claude-code' {
   interface PluginState {
     argonath: {
@@ -118,6 +152,8 @@ declare module 'claude-code' {
       home: string
       /** The fingerprint of the change last handed to the reviews: the same change is not reviewed twice. */
       reviewed: string
+      /** The statues' judgement of the last settled change; null before any. */
+      judgement: ArgonathJudgement | null
     }
   }
 }

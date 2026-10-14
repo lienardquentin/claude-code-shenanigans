@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { isProd, narrowed, owed, parseProject, parseReviews, parseServiceAnswer, targetsOf, withLive } from '../hooks/proof'
+import { dealt, isChanging, parseFindings } from '../hooks/statues'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -69,7 +70,7 @@ const PROOF = {
 /** Stands for the machine beneath the mod and for anduril beside it. */
 const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
-  const world = { files, ran: [] as string[], fingerprint: '', fingerprints: 0, cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[] } }
+  const world = { files, ran: [] as string[], fingerprint: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[] } }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -93,7 +94,9 @@ const machine = (on: On, given: Record<string, string> = {}) => {
 
     world.ran.push(e.argv.join(' '))
 
-    if (script.endsWith('service.py')) {
+    if (e.argv[0] === 'sh' && (e.argv[2] ?? '').includes('git rev-parse HEAD')) stdout = world.whole
+    else if (e.argv[0] === 'sh' && (e.argv[2] ?? '').includes('New files:')) stdout = world.change
+    else if (script.endsWith('service.py')) {
       world.jobs.service.push(job())
       stdout = world.service
     } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`)) {
@@ -125,6 +128,38 @@ const machine = (on: On, given: Record<string, string> = {}) => {
 }
 
 const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}) => String((await $.tool.call({ tool, ...input } as never)).result)
+
+const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 's', reason: 'answer', agentId } as never)
+
+/** A statue's answer: its account, then its findings as the json block it ends with. */
+const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
+
+/** Stands for the engine that sends the statues, and for the Claude they report to. */
+const statues = (on: On) => {
+  const spawned: Record<string, unknown>[] = []
+  const submitted: string[] = []
+
+  on('agent.spawn', (_, e) => {
+    spawned.push(e as unknown as Record<string, unknown>)
+
+    return { model: 'opus' } as never
+  })
+  // Core alone mints an agent's id: a statue is known by the type it runs as
+  on('agent.list', () => ({ value: [{ id: 'isildur-1', description: 'x', type: 'argonath:isildur', status: 'running' }, { id: 'anarion-1', description: 'x', type: 'argonath:anarion', status: 'running' }, { id: 'someone', description: 'x', type: 'Explore', status: 'running' }] }) as never)
+  on('agent.register', () => ({ value: { agent: 'argonath:isildur' } }) as never)
+  on('prompt.submit', (_, e) => {
+    submitted.push(e.text)
+
+    return { text: e.text } as never
+  })
+  on('command.register', () => ({ value: undefined }) as never)
+  on('tool.register', () => ({ value: undefined }) as never)
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', () => ({ cwd: CWD }) as never)
+  on('turn.complete', () => ({ text: 'done' }) as never)
+
+  return { spawned, submitted }
+}
 
 describe('what the project builds', () => {
   test('is read a target each, with its kind, its folders, its tests and what a service is played with', () => {
@@ -277,6 +312,29 @@ describe('what the service handler answered', () => {
   })
 })
 
+describe('the statues', () => {
+  test('are dealt the reviews the project names in turn, and none sits without one', () => {
+    expect(dealt([{ command: 'code-review', args: 'medium' }, { command: 'security-review', args: '' }, { command: 'perf', args: '' }])).toEqual([
+      { name: 'isildur', title: 'Isildur', reviews: ['/code-review medium', '/perf'] },
+      { name: 'anarion', title: 'Anárion', reviews: ['/security-review'] },
+    ])
+    expect(dealt([{ command: 'code-review', args: '' }]).map(seat => seat.name)).toEqual(['isildur'])
+  })
+
+  test('answer their findings in their last json block, blocking or minor, and nothing when none reads', () => {
+    expect(parseFindings(FOUND([{ severity: 'blocking', where: 'a.py:1', text: 'Wrong.' }, { severity: 'nit', where: '', text: 'Style.' }]))).toEqual([
+      { severity: 'blocking', where: 'a.py:1', text: 'Wrong.' },
+      { severity: 'minor', where: '', text: 'Style.' },
+    ])
+    expect(parseFindings('Looks fine to me.')).toBeUndefined()
+  })
+
+  test('run only commands that read', () => {
+    for (const command of ['git add -A', 'rm -rf beacons', 'echo x > app.py', 'sed -i s/a/b/ app.py', 'npm install left-pad']) expect(isChanging(command)).toBe(true)
+    for (const command of ['git diff HEAD', 'git log -3 2>&1', 'grep -n lit app.py', 'uv run pytest -q 2>/dev/null', 'ls beacons']) expect(isChanging(command)).toBe(false)
+  })
+})
+
 describe('argonath', () => {
   test('says how to name targets to a Claude that asks where none are', async ($, on) => {
     machine(on, { [`${CWD}/.claude/argonath`]: '' })
@@ -386,40 +444,85 @@ describe('argonath', () => {
     })
   }
 
-  test('runs the reviews once the turn that proved every changed run pinned has ended, and not again for the same change', async ($, on) => {
+  test('sends the statues once the turn that proved every changed run pinned has ended, tells Claude their verdict, and judges the same change once', async ($, on) => {
     const world = machine(on)
-    const reviewed: string[] = []
-    on('command.run', (_, e) => {
-      reviewed.push(`/${e.command} ${e.args}`.trim())
-
-      return { text: '' } as never
-    })
-    on('command.register', () => ({ value: undefined }) as never)
-    on('ui.toast', () => ({ value: undefined }) as never)
-    on('session.start', () => ({ cwd: CWD }) as never)
-    on('turn.complete', () => ({ text: 'done' }) as never)
+    const { spawned, submitted } = statues(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
     const turn = async () => {
       await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
       await world.clock.advance(2_500)
     }
 
-    // A tool call is a hook the turn waits on: nothing is run before it ends
+    // A tool call is a hook the turn waits on: nothing is sent before it ends
     expect(await call($, 'mcp__argonath__prove', { target: 'gondor' })).toContain('pinned: gondor GET /health')
-    expect(reviewed).toEqual([])
+    expect(spawned).toEqual([])
 
     await turn()
-    expect(reviewed).toEqual(['/code-review medium', '/security-review'])
+    expect(spawned.map(one => one.subagent_type)).toEqual(['argonath:isildur', 'argonath:anarion'])
+    expect(String(spawned[0]?.prompt)).toMatch(/Your review: \/code-review medium\.[\s\S]*<change>\ndiff --git a\/beacons\/gondor\/app\.py/)
+    expect(String(spawned[1]?.prompt)).toContain('Your review: /security-review.')
+    expect(await call($, 'mcp__argonath__judgement')).toMatch(/is judging the change: sitting/)
+
+    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
+    expect(submitted).toEqual([])
+    await ends($, 'anarion-1', FOUND([{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]))
+
+    expect(submitted[0]).toMatch(/has judged the change: fail[\s\S]*Isildur \(\/code-review medium\): pass\n- \[minor\] app\.py:70: lit could[\s\S]*Anárion \(\/security-review\): fail\n- \[blocking\] app\.py:72/)
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { json: true }))).toMatchObject({ verdict: 'fail', seats: [{ statue: 'isildur', state: 'pass' }, { statue: 'anarion', state: 'fail' }] })
 
     await call($, 'mcp__argonath__prove', { target: 'gondor' })
     await turn()
-    expect(reviewed).toHaveLength(2)
+    expect(spawned).toHaveLength(2)
 
-    // The change moved on: it is reviewed again
-    world.fingerprint = 'diff --git a/beacons/gondor/app.py'
+    // The change moved on: the judgement is stale, and the statues judge it again
+    world.whole = 'abc123\nmore\n'
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { json: true })).verdict).toBe('stale')
     await call($, 'mcp__argonath__prove', { target: 'gondor' })
     await turn()
-    expect(reviewed).toHaveLength(4)
+    expect(spawned).toHaveLength(4)
+  })
+
+  test('sends no statue on a change a changed run of which is not pinned', async ($, on) => {
+    machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    // narsil's run is bare
+    await call($, 'mcp__argonath__prove')
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true }))).toEqual({ verdict: 'unsettled', targets: ['narsil'] })
+    expect(spawned).toEqual([])
+  })
+
+  test('sends the statues on a change a mod asks them to judge, and keeps their hands off the tree', async ($, on) => {
+    machine(on)
+    const { spawned, submitted } = statues(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true })).verdict).toBe('sitting')
+    expect(spawned).toHaveLength(2)
+
+    const by = (agentId: string, command: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
+    expect(await by('isildur-1', 'git commit -am fixed')).toMatchObject({ deny: expect.stringMatching(/changes nothing/) })
+    expect(await by('anarion-1', 'git diff HEAD -- beacons')).toMatchObject({ result: 'ran' })
+    expect(await by('someone', 'git commit -am fixed')).toMatchObject({ result: 'ran' })
+
+    await ends($, 'isildur-1', FOUND([]))
+    await ends($, 'anarion-1', 'I could not decide.')
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { json: true }))).toMatchObject({ verdict: 'silent', seats: [{ state: 'pass' }, { state: 'silent', why: 'it gave no findings that read' }] })
+    // A mod asked: it reads the verdict itself, and no Claude is woken with it
+    expect(submitted).toEqual([])
+  })
+
+  test('answers what the project builds to a mod, its folders from the project', async ($, on) => {
+    machine(on)
+
+    expect(JSON.parse(await call($, 'mcp__argonath__targets'))).toEqual([
+      { label: 'narsil', kind: 'cli', roots: ['narsil'] },
+      { label: 'gondor', kind: 'service', roots: ['beacons/gondor'] },
+      { label: 'anor', kind: 'frontend', roots: ['beacons/anor'] },
+    ])
   })
 
   test('runs no review while a changed run is not pinned', async ($, on) => {

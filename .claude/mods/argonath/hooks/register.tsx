@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ArgonathRadius, ArgonathState, ArgonathTarget } from '../types'
+import type { ArgonathJudgement, ArgonathRadius, ArgonathSeat, ArgonathState, ArgonathTarget } from '../types'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
+import { STATUES, STATUE_EFFORT, STATUE_MODEL, dealt, isChanging, judgementJson, judgementText, seated, statuePrompt, statueSystem, verdictOf } from './statues'
 import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import type { Changed, Review } from './proof'
@@ -60,6 +61,7 @@ const isHidden = atom({ plugin: 'argonath', key: 'isHidden' } as const, false)
 const glow = atom({ plugin: 'argonath', key: 'glow' } as const, 0)
 const home = atom({ plugin: 'argonath', key: 'home' } as const, '')
 const reviewed = atom({ plugin: 'argonath', key: 'reviewed' } as const, '')
+const judgement = atom({ plugin: 'argonath', key: 'judgement' } as const, null as ArgonathJudgement | null)
 
 /** The folder the session started in: a `cd` Claude runs does not move the project from under the mod. */
 const homeOf = async ($: $): Promise<string> => {
@@ -95,14 +97,29 @@ const TOOLS = [
       "Makes the radius afresh and runs, for each target, only the tests marked on the runs that changed, on two sides: HEAD's source with the working tree's tests laid over it, and the working tree. A changed run is `pinned` when a test marked on it fails on the first and passes on the second, `loose` when its tests pass on both and so do not see the change, `broken` when one fails on the working tree. No other test is run or reported: one no changed run is marked by is out of scope. Runs nothing for a target where nothing changed, or where no changed run is marked yet. The first proof of a commit builds it, which can take minutes. Argonath also does this by itself once a turn that edited a target has ended.",
     inputSchema: { type: 'object', properties: ASKED },
   },
+  {
+    name: 'judgement',
+    description:
+      "The judgement of the statues of the Argonath, Isildur and Anárion, on the change once every changed run is pinned: each carries the reviews the project names, and finds what is blocking (the change must not be committed with it) or minor. `pass` when nothing blocks, `fail` when something does, `sitting` while they judge, `silent` when one could not judge, `stale` when the change moved since. With `convene`, the statues are sent on the change as it stands if they have not judged it yet; they judge in the background, and this answers at once.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        convene: { type: 'boolean', description: 'Send the statues on the change as it stands, when every changed run is pinned and they have not judged it yet.' },
+        json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on the verdict.' },
+      },
+    },
+  },
+  {
+    name: 'targets',
+    description: 'What the project builds, as JSON: each target with its label, its kind (cli, service, frontend) and its source folders from the project\'s folder.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ] as const
 
 // The targets the project names, as the system prompt's section reads them: a module's own copy, set again at each load
 let known: readonly ArgonathTarget[] = []
 // The reviews the project names, run once a change is settled
 let reviews: readonly Review[] = []
-
-const reviewLine = (list: readonly Review[]): string => list.map(({ command, args }) => `/${command}${args === '' ? '' : ` ${args}`}`).join(', ')
 
 const sectionText = (list: readonly ArgonathTarget[], cwd: string): string => {
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
@@ -112,7 +129,9 @@ const sectionText = (list: readonly ArgonathTarget[], cwd: string): string => {
     'After changing a target\'s source, mcp__argonath__radius lists the kept runs or requests whose answer changed since HEAD, each bare or marked by a test.',
     `For each bare one, write one integration test that makes that run or request and asserts what it now answers, with a comment \`${MARK} <the run as listed>\` on the line above the test; write none for one that did not change.`,
     'Then mcp__argonath__prove runs the tests on HEAD\'s source and on the working tree: a test that covers the change fails on the first and passes on the second, and the change is covered when every changed run is pinned.',
-    ...(reviews.length > 0 ? [`Once a proof finds every changed run pinned, Argonath runs ${reviewLine(reviews)} on the change when the turn ends, once a change.`] : []),
+    ...(reviews.length > 0
+      ? [`Once a proof finds every changed run pinned, the statues of the Argonath judge the change when the turn ends, once a change: ${dealt(reviews).map(seat => `${seat.title} with ${seat.reviews.join(', ')}`).join(', ')}. Their verdict is sent to you; fix what they find blocking before the change is committed.`]
+      : []),
   ].join(' ')
 }
 
@@ -271,24 +290,98 @@ let reviewDue = ''
 const owe = async ($: $): Promise<void> => {
   if (reviews.length === 0 || unsettled(await read($, radii)).length > 0) return
 
-  const due = fingerprintOf([...(await fingerprints($))].map(([label, held]) => `${label}\n${held}`).join('\n'))
+  const due = await wholeFingerprint($)
 
   reviewDue = due === (await read($, reviewed)) ? '' : due
 }
 
-/** Runs the reviews owed, each as if the person typed it: queued behind one another, and run while the session is idle. */
+/** The whole change as one fingerprint: HEAD, the diff against it, and the files git neither tracks nor ignores. */
+const wholeFingerprint = async ($: $): Promise<string> => {
+  const ran = await $.process
+    .run(['sh', '-c', 'git rev-parse HEAD; git diff HEAD --no-color --no-ext-diff; git ls-files -o --exclude-standard'], { cwd: await homeOf($) })
+    .catch(() => undefined)
+
+  return fingerprintOf(ran?.stdout ?? '')
+}
+
+/** The change as the statues are handed it: the diff against HEAD, then the new files by name. */
+const changeText = async ($: $): Promise<string> => {
+  const ran = await $.process
+    .run(['sh', '-c', 'git diff HEAD --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard'], { cwd: await homeOf($) })
+    .catch(() => undefined)
+
+  return ran?.stdout ?? ''
+}
+
+/**
+ * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
+ * not judged again. Answers the judgement, sitting or done.
+ */
+const convene = async ($: $, by: ArgonathJudgement['by']): Promise<ArgonathJudgement> => {
+  const due = await wholeFingerprint($)
+  const held = await read($, judgement)
+
+  reviewDue = ''
+  if (held !== null && held.fingerprint === due) return held
+
+  await update($, reviewed, () => due)
+
+  const change = await changeText($)
+  const seats: ArgonathSeat[] = []
+
+  for (const seat of dealt(reviews)) {
+    const started = await $.agent
+      .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change) })
+      .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
+
+    seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
+  }
+
+  const made: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats }
+
+  await update($, judgement, () => made)
+
+  if (seats.length > 0) $.ui.toast(`Argonath: every changed run is pinned, so ${seats.map(seat => seat.title).join(' and ')} ${seats.length === 1 ? 'judges' : 'judge'} the change`)
+  if (verdictOf(made) !== 'sitting') await rise($, made)
+
+  return made
+}
+
+/** The statues have judged: the person is shown the verdict, and a Claude whose turn convened them is told it. */
+const rise = async ($: $, made: ArgonathJudgement): Promise<void> => {
+  const verdict = verdictOf(made)
+
+  if (made.seats.length === 0) return
+
+  $.ui.toast(`Argonath: the change ${verdict === 'pass' ? 'passes' : verdict === 'fail' ? 'is stopped: a finding blocks it' : 'was not judged by every statue'}`)
+
+  if (made.by !== 'turn') return
+
+  await $.prompt
+    .submit({ text: `${judgementText(made, false)}\n\n${verdict === 'fail' ? 'Fix what blocks before the change is committed, then prove it again: the statues judge the new change.' : verdict === 'silent' ? 'A statue could not judge: say so to the person.' : 'Mention the minor findings to the person, if any.'}` })
+    .catch(() => undefined)
+}
+
+/** The seat of a statue whose turn this is: by the id its spawn answered, else, where it answered none, by its type. */
+const seatOf = async ($: $, held: ArgonathJudgement, agentId: string): Promise<ArgonathSeat | undefined> => {
+  const sitting = held.seats.filter(seat => seat.state === 'sitting')
+  const byId = sitting.find(seat => seat.agentId !== '' && seat.agentId === agentId)
+
+  if (byId !== undefined) return byId
+
+  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
+
+  return agent === undefined ? undefined : sitting.find(seat => seat.agentId === '' && agent.type === `argonath:${seat.statue}`)
+}
+
+/** Sends the statues on the change the reviews are owed, once the turn that settled it has ended. */
 const review = async ($: $): Promise<void> => {
   const due = reviewDue
 
   reviewDue = ''
   if (due === '' || due === (await read($, reviewed))) return
 
-  await update($, reviewed, () => due)
-  $.ui.toast(`Argonath: every changed run is pinned, so ${reviewLine(reviews)} ${reviews.length === 1 ? 'reviews' : 'review'} the change`)
-
-  for (const { command, args } of reviews) {
-    void $.command.run({ command, args }).catch((error: unknown) => update($, note, () => `/${command} could not be run: ${error instanceof Error ? error.message : String(error)}`))
-  }
+  await convene($, 'turn')
 }
 
 const foundText = (found: readonly (ArgonathRadius | string)[]): string => found.map(one => (typeof one === 'string' ? one : radiusText(one))).join('\n\n―――\n\n')
@@ -362,6 +455,9 @@ const settle = async ($: $): Promise<void> => {
 
 const TONE: Record<ArgonathState, Tone> = { bare: 'danger', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'danger' }
 
+const VERDICT_TONE: Record<ArgonathSeat['state'], Tone> = { sitting: 'info', pass: 'success', fail: 'danger', silent: 'warning' }
+const VERDICT_TONE_COLOR: Record<ArgonathSeat['state'], string> = { sitting: 'suggestion', pass: 'success', fail: 'error', silent: 'warning' }
+
 const toneOf = (held: ArgonathRadius): Tone => (held.seams.some(seam => seam.state === 'bare' || seam.state === 'broken') || held.turned.length > 0 ? 'danger' : isQuiet(held) ? 'success' : 'warning')
 
 // Sting glows blue, whatever is near: the counts say what
@@ -397,6 +493,21 @@ export const register: Register = on => {
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
+
+    // The statues judge a settled change; Claude never sends one, and the mod sends them on nothing else
+    for (const statue of STATUES) {
+      await $.agent
+        .register({
+          name: statue.name,
+          description: `${statue.title}, a statue of the Argonath: judges a change every integration test pins, read-only. Sent by the Argonath mod alone.`,
+          prompt: statueSystem(statue.title),
+          tools: ['Read', 'Grep', 'Glob', 'Bash', 'Skill'],
+          disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Agent'],
+          model: STATUE_MODEL,
+          effort: STATUE_EFFORT,
+        })
+        .catch(() => undefined)
+    }
 
     await setUp($).catch(() => [])
     $.clock.every(BEAT_MS, () => void beat($).catch(() => undefined))
@@ -441,7 +552,30 @@ export const register: Register = on => {
     return done
   }).catch((_$, e, next) => next(e))
 
+  for (const statue of STATUES) on('agent.offer', { agent: `argonath:${statue.name}` }, () => ({ isOffered: false }))
+
+  // A statue judges and changes nothing: a command that would change the tree or the machine is refused it
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const held = await read($, judgement)
+
+    if (held === null || e.agentId === undefined || (await seatOf($, held, e.agentId)) === undefined) return next(e)
+    if (isChanging(e.command)) return { deny: 'A statue of the Argonath judges the change and changes nothing: run only commands that read.' }
+
+    return next(e)
+  }).catch((_$, e, next) => next(e))
+
+  // A statue's turn has ended: its answer is its findings. The session's own turn has ended: what it edited is looked at
   on('turn.complete', async ($, e, next) => {
+    const held = await read($, judgement)
+    const seat = held === null || e.agentId === undefined ? undefined : await seatOf($, held, e.agentId)
+
+    if (held !== null && seat !== undefined) {
+      const made = { ...held, seats: held.seats.map(one => (one === seat ? seated(one, e.answer ?? '', e.isAborted ? 'aborted' : e.reason) : one)) }
+
+      await update($, judgement, () => made)
+      if (verdictOf(made) !== 'sitting') await rise($, made)
+    }
+
     // A subagent's turn is not the session's: its edits wait for the turn that spawned it
     // A proof Claude asked for during the turn may have owed the reviews: they too wait for the turn to end
     if (e.agentId === undefined && !e.isAborted && ((await read($, touched)).length > 0 || reviewDue !== '')) isOwed = true
@@ -454,6 +588,33 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__argonath__radius' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, false))) }))
 
   on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, true))) }))
+
+  on('tool.call', { tool: 'mcp__argonath__judgement' }, async ($, e) => {
+    const given = e as unknown as { convene?: unknown; json?: unknown }
+    const isJson = given.json === true
+
+    if (given.convene === true) {
+      await setUp($)
+
+      const open = unsettled(await read($, radii))
+
+      if (open.length > 0) return { result: isJson ? JSON.stringify({ verdict: 'unsettled', targets: open.map(one => one.label) }) : `A changed run of ${open.map(one => one.label).join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
+
+      await convene($, 'tool')
+    }
+
+    const held = await read($, judgement)
+    const isStale = held !== null && held.fingerprint !== (await wholeFingerprint($))
+
+    return { result: isJson ? judgementJson(held, isStale) : held === null ? 'The statues have judged no change yet: they judge one once every changed run is pinned.' : judgementText(held, isStale) }
+  })
+
+  on('tool.call', { tool: 'mcp__argonath__targets' }, async $ => {
+    const cwd = await homeOf($)
+    const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
+
+    return { result: JSON.stringify((await setUp($)).map(({ label, kind, roots }) => ({ label, kind, roots: roots.map(within) }))) }
+  })
 
   on('command.run', { command: 'argonath' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
@@ -502,6 +663,7 @@ export const register: Register = on => {
     const problem = await read($, note)
     const owedTo = await read($, touched)
     const openKey = await read($, selected)
+    const judged = await read($, judgement)
 
     // What a button asked for and did not get is said in the pane by `look` itself
     // The person pressed it between turns: a proof that settles the change runs its reviews at once
@@ -570,6 +732,27 @@ export const register: Register = on => {
         {doing !== '' && <Text color="suggestion">{doing}</Text>}
         {problem !== '' && <Text color="warning">{problem}</Text>}
         {list.map(section)}
+        {judged !== null && judged.seats.length > 0 && (
+          <Box flexDirection="column" borderStyle="round" paddingX={1}>
+            <Box flexDirection="row" gap={2}>
+              <Text bold>The statues</Text>
+              {badge({ label: verdictOf(judged), tone: VERDICT_TONE[verdictOf(judged)] })}
+              <Text dimColor>{new Date(judged.at).toLocaleTimeString()}</Text>
+            </Box>
+            {judged.seats.map(seat => (
+              <Box key={`seat-${seat.statue}`} flexDirection="column">
+                <Text>
+                  <Text bold>{`${seat.title} `}</Text>
+                  <Text dimColor>{`${seat.reviews.join(', ')} · `}</Text>
+                  <Text color={VERDICT_TONE_COLOR[seat.state]}>{`${seat.state}${seat.why !== '' ? `, ${seat.why}` : ''}`}</Text>
+                </Text>
+                {seat.findings.map(finding => (
+                  <Text color={finding.severity === 'blocking' ? 'error' : undefined} dimColor={finding.severity === 'minor'}>{`  ${finding.severity === 'blocking' ? '✗' : '·'} ${finding.where !== '' ? `${finding.where}: ` : ''}${finding.text}`}</Text>
+                ))}
+              </Box>
+            ))}
+          </Box>
+        )}
       </Box>,
     )
   })

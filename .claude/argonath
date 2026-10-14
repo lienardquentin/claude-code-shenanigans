@@ -1,8 +1,8 @@
 # What the Argonath mod knows this project builds: label=kind@root, the root the folder whose edits are edits of it.
 # An edit there owes the target a look once the turn ends: what changed in what it does, and whether a test pins it.
 
-# Once a proof finds every changed run pinned, the change is reviewed, once a change, each command as if typed when the
-# turn ends: its bugs at medium effort, then its security.
+# Once a proof finds every changed run pinned, the statues judge the change, once a change, the reviews dealt to them in
+# turn: Isildur its bugs at medium effort, Anárion its security.
 review=/code-review medium
 review=/security-review
 
