@@ -32,19 +32,22 @@ const SEEKS = 12
 let ticks = 0
 let sought = 0
 
-/** Asks the Fellowship mod whether it is there, until it answers or has been asked enough: other mods register late. */
+/** Looks for the Fellowship's command, until it is there or has been looked for enough: other mods register late. */
 const seekFellowship = async ($: $): Promise<void> => {
   ticks += 1
   if (sought >= SEEKS || (ticks - 1) % SEEK_TICKS !== 0 || (await read($, fellowship))) return
 
   sought += 1
 
-  const got = await $.mcp.call('fellowship', 'quest').catch(() => undefined)
+  const commands = await $.command.list().catch(() => [])
 
-  if (got !== undefined && !got.isError) await update($, fellowship, () => true)
+  if (commands.some(command => command.name === 'fellowship')) await update($, fellowship, () => true)
 }
 
-/** Sets the Fellowship out on the plan, as a press asked; what it answers is said in the pane. */
+/**
+ * Sets the Fellowship out on the plan, as a press asked, by its own command run as the person would type it: the
+ * Fellowship reads the plan from this mod, and a call made under this mod's own hooks would not be answered by them.
+ */
 const sendFellowship = async ($: $): Promise<void> => {
   const how = await read($, setOut)
 
@@ -52,10 +55,9 @@ const sendFellowship = async ($: $): Promise<void> => {
 
   await update($, setOut, () => '')
 
-  const got = await $.mcp.call('fellowship', 'set_out', { auto: how === 'auto' }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)))
-  const text = typeof got === 'string' ? `The Fellowship did not answer: ${got}` : got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n')
+  const ran = await $.command.run({ command: 'fellowship', args: how === 'auto' ? '--auto' : '' }).catch((error: unknown) => ({ text: `The Fellowship could not be set out: ${error instanceof Error ? error.message : String(error)}` }))
 
-  await update($, note, () => text)
+  await update($, note, () => ran.text ?? '')
 }
 
 /** Convenes the council a press asked for, and sets the Fellowship out: a press only asks, as what it starts does not outlive it. */
