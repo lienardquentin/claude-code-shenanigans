@@ -82,6 +82,16 @@ export const parseRef = (input: string, origin?: Origin): ElrondRef | string => 
   return `"${text}" names no issue. ${HOW_TO}`
 }
 
+/**
+ * A shell command the council is not to run: it reads, and its plan goes to its file through Write. The same list the
+ * statues of the Argonath and Galadriel are held to: git that moves anything, a file written or removed, an install.
+ */
+export const isChanging = (command: string): boolean =>
+  /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(add|commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch)\b/.test(command) ||
+  /(^|[;&|(]\s*|\s)(rm|mv|cp|touch|mkdir|chmod|chown|tee|truncate|dd|(npm|pnpm|yarn)\s+(install|i|add|remove|update)|pip3?\s+install|uv\s+(add|remove|sync|lock|pip)|cargo\s+(add|install|update)|sed\s+-i|perl\s+-i|curl|wget)\b/.test(command) ||
+  // A redirection writes a file; one into the void, or into another stream, does not
+  /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(command)
+
 /** The folder the council writes its plans to, from the project's folder: it ignores itself in git. */
 export const PLANS_DIR = '.elrond/plans'
 

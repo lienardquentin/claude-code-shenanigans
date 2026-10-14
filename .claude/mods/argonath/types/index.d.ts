@@ -134,7 +134,22 @@ export type ArgonathJudgement = {
   /** Who convened it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
   by: 'turn' | 'tool'
   seats: ArgonathSeat[]
+  /** What the change was taken against: its merge base with HEAD is diffed. HEAD when left out. */
+  against?: string
+  /** Whether there was no change to judge, and so no statue sat. */
+  isEmpty?: boolean
 }
+
+/**
+ * Where one target stands in a proof, for a mod that reads it as JSON:
+ * - `pinned`: every changed run is pinned, and no test turned
+ * - `unchanged`: no kept run changed
+ * - `unsettled`: a changed run is not pinned yet, or a test turned
+ * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, anduril did not answer)
+ * - `unhandled`: the change reached its folders, and Argonath has no handler for its kind: nothing is proved of it
+ * - `untouched`: the change did not reach its folders, and its handler could not look either
+ */
+export type ArgonathProofState = 'pinned' | 'unchanged' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
 
 declare module 'claude-code' {
   interface PluginState {

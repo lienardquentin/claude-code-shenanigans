@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { blocksOf, isChanging, isTestPath, missingFrom, parseGaze, takenBy } from '../hooks/mirror'
+import { blocksOf, isChanging, isTestPath, missingFrom, parseGaze, takenBy, tamperedWith } from '../hooks/mirror'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -45,6 +45,15 @@ describe('the Mirror', () => {
     expect(missingFrom(TEST_LINES, 'import x\n')).toHaveLength(3)
   })
 
+  test('finds what a shell command took out of her tests, in a file no reason was given for', () => {
+    const blocks = [{ file: 'beacons/tests/test_gondor.py', lines: TEST_LINES }]
+    const loosened = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
+
+    expect(tamperedWith(blocks, [], [{ file: 'beacons/tests/test_gondor.py', text: `# sting: x\n${TEST_LINES.join('\n')}` }])).toEqual([])
+    expect(tamperedWith(blocks, [], [{ file: 'beacons/tests/test_gondor.py', text: loosened }])).toEqual([{ file: 'beacons/tests/test_gondor.py', lines: [TEST_LINES[2]!] }])
+    expect(tamperedWith(blocks, [{ file: 'beacons/tests/test_gondor.py' }], [{ file: 'beacons/tests/test_gondor.py', text: loosened }])).toEqual([])
+  })
+
   test('lets her run tests and read, and nothing that changes the tree', () => {
     expect(isChanging('uv run --project beacons pytest -q beacons/tests 2>&1')).toBe(false)
     expect(isChanging('git stash')).toBe(true)
@@ -53,7 +62,7 @@ describe('the Mirror', () => {
 
 /** Stands for the machine and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, files: {} as Record<string, string>, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   // The session's directory may wander into a subfolder; git's top stays the project's
   on('session.cwd', () => ({ value: world.cwd }) as never)
@@ -67,7 +76,7 @@ const machine = (on: On) => {
 
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
-  on('fs.read', () => ({ value: '' }) as never)
+  on('fs.read', (_, e) => ({ value: world.files[e.path] ?? '' }) as never)
   on('agent.spawn', (_, e) => {
     world.spawned.push(e as unknown as Record<string, unknown>)
 
@@ -109,14 +118,17 @@ describe('lothlorien', () => {
     expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true }))).toMatchObject({ state: 'gazing' })
 
     await ends($, 'galadriel-1', SHOWN)
+    world.files[FILE] = TEST_LINES.join('\n')
 
     expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true }))).toEqual({
       state: 'shown',
+      ref: '',
       isLocked: true,
       tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_quenching_one_beacon' }],
       red: 'FAILED test_quenching_one_beacon - assert 404 == 200',
       why: '',
       amendments: [],
+      tampered: [],
     })
     // A mod asked: it reads what she showed itself
     expect(world.submitted).toEqual([])
@@ -188,5 +200,42 @@ describe('lothlorien', () => {
     await ends($, 'galadriel-1', SHOWN)
 
     expect(world.submitted[0]).toMatch(/^The Mirror shows what is to come: 1 test, red, locked until they are committed\.\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon[\s\S]*mcp__lothlorien__amend/)
+  })
+})
+
+describe('the Mirror, for a mod', () => {
+  test('gazes on the lighter model for a task that is not heavy', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 1: keep when a beacon is lit.', weight: 'standard' })
+
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'lothlorien:galadriel-swift' })
+  })
+
+  test('tells a mod what was taken out of her locked tests with no reason, while they are locked', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 2: quench.' })
+    await ends($, 'galadriel-1', SHOWN)
+
+    world.files[FILE] = TEST_LINES.join('\n')
+    expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true }))).toMatchObject({ isLocked: true, tampered: [] })
+
+    world.files[FILE] = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
+    expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true })).tampered).toEqual([{ file: 'beacons/tests/test_gondor.py', lines: [TEST_LINES[2]] }])
+  })
+
+  test('forgets only the vision of the issue it is asked about, and says so as JSON', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 2: quench.', ref: 'github:beacons/gondor#12' })
+    await ends($, 'galadriel-1', SHOWN)
+    // Her tests are committed: HEAD moved past them
+    world.head = 'bbb222'
+
+    expect(JSON.parse(await call($, 'mcp__lothlorien__forget', { ref: 'github:beacons/gondor#13', json: true }))).toMatchObject({ forgotten: false })
+    expect(JSON.parse(await call($, 'mcp__lothlorien__forget', { ref: 'github:beacons/gondor#12', json: true }))).toEqual({ forgotten: true, text: 'The Mirror is still.' })
+    expect(JSON.parse(await call($, 'mcp__lothlorien__forget', { json: true }))).toMatchObject({ forgotten: false })
   })
 })

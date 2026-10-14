@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskState } from '../types'
-import { HOW_TO, MARK, acceptRisk, askRisk, isPlanPath, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, COUNCIL_SYSTEM, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
+import { HOW_TO, MARK, isChanging, acceptRisk, askRisk, isPlanPath, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, COUNCIL_SYSTEM, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
 import type { Issue, Origin } from './council'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
@@ -120,7 +120,15 @@ const TOOLS = [
   {
     name: 'forget',
     description: 'Forgets the plan of an issue once the pull request that closes it is merged, which the forge is asked: kept across sessions, its file, and the plan in force. For Mount Doom.',
-    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        pr: { type: 'string', description: 'The merged pull request, by its URL.' },
+        json: { type: 'boolean', description: 'Answer as JSON, `{ forgotten, text }`, for a mod that reads it.' },
+      },
+      required: ['ref', 'pr'],
+    },
   },
   {
     name: 'plan',
@@ -201,9 +209,9 @@ const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean
 }
 
 /** Forgets the plan of an issue whose pull request is merged: kept across sessions, its file, and the plan in force. */
-const forget = async ($: $, ref: string, pr: string): Promise<string> => {
-  if ((await kept($, ref)) === undefined && (await current($))?.ref !== ref) return `No plan of ${ref} is kept.`
-  if (!(await isMergedFrom($, pr))) return `${pr} is not a merged pull request: the plan of ${ref} is kept.`
+const forget = async ($: $, ref: string, pr: string): Promise<{ forgotten: boolean; text: string }> => {
+  if ((await kept($, ref)) === undefined && (await current($))?.ref !== ref) return { forgotten: false, text: `No plan of ${ref} is kept.` }
+  if (!(await isMergedFrom($, pr))) return { forgotten: false, text: `${pr} is not a merged pull request: the plan of ${ref} is kept.` }
 
   const cwd = await rootOf($)
 
@@ -211,7 +219,7 @@ const forget = async ($: $, ref: string, pr: string): Promise<string> => {
   await $.process.run(['rm', '-f', planPathOf(cwd, ref)], { cwd }).catch(() => undefined)
   if ((await current($))?.ref === ref) await update($, plan, () => null)
 
-  return `The plan of ${ref} is forgotten, its file with it.`
+  return { forgotten: true, text: `The plan of ${ref} is forgotten, its file with it.` }
 }
 
 /** Sets the plan in force, keeps it across sessions, and opens the pane on it. */
@@ -426,9 +434,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__elrond__forget' }, async ($, e) => {
-    const given = e as unknown as { ref?: unknown; pr?: unknown }
+    const given = e as unknown as { ref?: unknown; pr?: unknown; json?: unknown }
+    const done = await forget($, String(given.ref ?? ''), String(given.pr ?? ''))
 
-    return { result: await forget($, String(given.ref ?? ''), String(given.pr ?? '')) }
+    return { result: given.json === true ? JSON.stringify(done) : done.text }
   })
 
   on('tool.call', { tool: 'mcp__elrond__issue' }, async ($, e) => {
@@ -449,6 +458,17 @@ export const register: Register = on => {
     if ((e as unknown as { json?: unknown }).json === true) return { result: JSON.stringify(held) }
 
     return { result: held !== null ? planText(held) : sitting !== null ? `The council still sits on ${sitting.ref}: no plan yet.` : `No plan is in force. ${HOW_TO}` }
+  })
+
+  // The council reads, and plans from an issue it is handed as data: a shell command of its that would change the tree
+  // or the machine is refused it, whatever the person's rules allow
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const sitting = await read($, council)
+
+    if (sitting === null || e.agentId === undefined || !(await isCouncil($, sitting, e.agentId))) return next(e)
+    if (isChanging(e.command)) return { deny: 'The Elrond council reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.' }
+
+    return next(e)
   })
 
   // The council writes its plan file and nothing else: the permission rule allows the folder, and this holds it to it

@@ -44,9 +44,10 @@ export type FellowshipPlan = {
  * - `judging`: every changed run is pinned; the statues of the Argonath judge the change, which is committed once they pass it
  * - `stuck`: a companion gave up, or its tries ran out; the person decides
  * - `arrived`: every task is committed; the pull request waits to be opened
+ * - `warding`: Anárion judges the whole branch, what its tasks do together, before the pull request is opened
  * - `sailed`: the pull request is open
  */
-export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'sailed'
+export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'warding' | 'sailed'
 
 /** What the Mirror showed of a task: Galadriel's red tests, which its member makes pass. */
 export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; red: string }
@@ -63,6 +64,10 @@ export type FellowshipMarch = {
   at: number
   /** What the companion answered when its turn ended. */
   answer: string
+  /** HEAD when the task was first sent: a commit past it was made past the proof and the statues. */
+  head?: string
+  /** Whether this try's member was already sent back once with its proof, rather than a member a rung up. */
+  isResumed?: boolean
 }
 
 /** A task the Fellowship committed. */
@@ -74,6 +79,8 @@ export type FellowshipCommit = {
   by: string
   /** What the statues found that did not block it, a line each. */
   minor: string[]
+  /** The targets the change reached that nothing proves (a frontend): the statues judged them alone. */
+  unproven?: string[]
 }
 
 /** The quest: one Elrond plan taken to a pull request, one committed task at a time. */
@@ -101,6 +108,10 @@ export type FellowshipQuest = {
   commits: FellowshipCommit[]
   /** The pull or merge request, once opened. */
   pr: string
+  /** Whether Anárion passed the whole branch as it stands; a commit after it is judged again before sailing. */
+  isWarded?: boolean
+  /** The targets the task at hand reached that nothing proves, from its last proof. */
+  unproven?: string[]
   at: number
 }
 

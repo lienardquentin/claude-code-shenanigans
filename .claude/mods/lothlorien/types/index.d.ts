@@ -19,6 +19,8 @@ export type LothlorienAmendment = { file: string; why: string; by: string; at: n
 /** One gaze into the Mirror: the tests a purpose asks for, written before what they test. */
 export type LothlorienVision = {
   purpose: string
+  /** The issue it was gazed for, as the mod that asked names it (`github:owner/repo#12`); none from /mirror. */
+  ref?: string
   /** Who asked: a mod through the tool, or the person through /mirror, whose Claude is told what she showed. */
   by: 'tool' | 'command'
   /** The id her spawn answered; empty where it answered none, and she is known by her type. */

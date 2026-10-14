@@ -107,6 +107,7 @@ const findingLine = (finding: ArgonathFinding): string => `- [${finding.severity
 export const judgementText = (judgement: ArgonathJudgement, isStale: boolean): string => {
   const verdict = verdictOf(judgement)
 
+  if (judgement.isEmpty === true) return `There was no change to judge${isStale ? ' then: the tree has moved since' : ''}.`
   if (judgement.seats.length === 0) return 'The project names no review: the Argonath lets a settled change pass unjudged.'
 
   return [
@@ -121,7 +122,7 @@ export const judgementText = (judgement: ArgonathJudgement, isStale: boolean): s
 
 /** The judgement as a mod reads it. */
 export const judgementJson = (judgement: ArgonathJudgement | null, isStale: boolean): string =>
-  JSON.stringify(judgement === null ? { verdict: 'none' } : { verdict: judgement.seats.length === 0 ? 'pass' : isStale ? 'stale' : verdictOf(judgement), fingerprint: judgement.fingerprint, seats: judgement.seats.map(({ statue, title, reviews, state, findings, why }) => ({ statue, title, reviews, state, findings, why })) })
+  JSON.stringify(judgement === null ? { verdict: 'none' } : { verdict: judgement.isEmpty === true && isStale ? 'stale' : judgement.seats.length === 0 ? 'pass' : isStale ? 'stale' : verdictOf(judgement), isEmpty: judgement.isEmpty === true, fingerprint: judgement.fingerprint, seats: judgement.seats.map(({ statue, title, reviews, state, findings, why }) => ({ statue, title, reviews, state, findings, why })) })
 
 /** A shell command a statue is not to run: it judges, and changes nothing. */
 export const isChanging = (command: string): boolean =>

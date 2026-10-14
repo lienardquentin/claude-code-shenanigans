@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { isProd, narrowed, owed, parseProject, parseReviews, parseServiceAnswer, targetsOf, withLive } from '../hooks/proof'
+import { UNTRACKED, changesByTarget, isProd, narrowed, owed, parseProject, parseReviews, parseServiceAnswer, proofAnswer, targetsOf, withLive } from '../hooks/proof'
+import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, isChanging, parseFindings } from '../hooks/statues'
 
 type Engine = Parameters<TestBody>[0]
@@ -632,5 +633,151 @@ describe('argonath', () => {
     await world.clock.advance(2_500)
 
     expect(reviewed).toEqual([])
+  })
+})
+
+const radiusWith = (label: string, states: ArgonathState[], change: Partial<ArgonathRadius> = {}): ArgonathRadius => ({
+  label,
+  kind: 'service',
+  at: 0,
+  summary: '',
+  seams: states.map((state, at) => ({ line: `GET /${at}`, evidence: '', tests: [], state })),
+  unchanged: [],
+  isProved: true,
+  unproved: '',
+  turned: [],
+  isStale: false,
+  live: '',
+  ...change,
+})
+
+describe('a proof read as JSON', () => {
+  test('settles the change when every changed run is pinned, or none changed', () => {
+    expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned']), isTouched: true }])).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned' })
+    expect(proofAnswer([{ label: 'narsil', kind: 'cli', found: radiusWith('narsil', []), isTouched: false }])).toMatchObject({ verdict: 'settled', line: 'no kept run changed: nothing to pin' })
+  })
+
+  test('does not settle it while a run is unpinned, a test turned, or the tests could not run', () => {
+    expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned', 'bare', 'marked']), isTouched: true }])).toMatchObject({ verdict: 'unsettled', line: 'not pinned yet: 1 bare, 1 marked' })
+    expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', [], { turned: ['test_old'] }), isTouched: true }]).verdict).toBe('unsettled')
+    const unproved = proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { unproved: 'The proof of gondor could not be made: boom' }), isTouched: true }])
+
+    expect(unproved.verdict).toBe('unsettled')
+    expect(unproved.line).toBe('Argonath could not prove gondor: The proof of gondor could not be made: boom')
+  })
+
+  test('says a target the change reached could not be looked at, where its handler failed', () => {
+    const answer = proofAnswer([
+      { label: 'gondor', kind: 'service', found: 'No request of gondor is kept to play.', isTouched: true },
+      { label: 'narsil', kind: 'cli', found: radiusWith('narsil', ['pinned']), isTouched: true },
+    ])
+
+    expect(answer).toMatchObject({ verdict: 'unlooked', line: 'Argonath could not look at gondor (No request of gondor is kept to play.)' })
+    expect(answer.targets.map(one => one.state)).toEqual(['unlooked', 'pinned'])
+  })
+
+  test('lets a target the change did not reach go, and names a frontend it reached that nothing proves', () => {
+    const answer = proofAnswer([
+      { label: 'anor', kind: 'frontend', found: 'anor is a frontend: Argonath has no handler for a frontend yet.', isTouched: true },
+      { label: 'gondor', kind: 'service', found: 'No request of gondor is kept to play.', isTouched: false },
+      { label: 'narsil', kind: 'cli', found: radiusWith('narsil', ['pinned']), isTouched: true },
+    ])
+
+    expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; nothing proves anor', unhandled: ['anor'] })
+    expect(answer.targets.map(one => one.state)).toEqual(['unhandled', 'untouched', 'pinned'])
+  })
+})
+
+describe('what the change holds of each target', () => {
+  test('is split by folder from one diff and one list of new files', () => {
+    const output = [
+      'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py',
+      '+lit_at = None',
+      'diff --git a/narsil/src/main.rs b/narsil/src/main.rs',
+      '+fn main() {}',
+      '',
+      UNTRACKED,
+      'beacons/gondor/tests/test_lit.py',
+      '',
+    ].join('\n')
+    const held = changesByTarget(output, [{ label: 'gondor', roots: [`${CWD}/beacons/gondor`] }, { label: 'narsil', roots: [`${CWD}/narsil`] }, { label: 'anor', roots: [`${CWD}/beacons/anor`] }], CWD)
+
+    expect(held.get('gondor')).toMatch(/app\.py[\s\S]*lit_at[\s\S]*tests\/test_lit\.py/)
+    expect(held.get('gondor')).not.toMatch(/main\.rs/)
+    expect(held.get('narsil')).toMatch(/main\.rs/)
+    expect(held.get('anor')).toBe('')
+  })
+})
+
+describe('a proof asked again', () => {
+  test('of the same change is answered from the last, and made afresh once a target is edited', async ($, on) => {
+    const world = machine(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'edited' }) as never)
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    expect(world.jobs.prove).toHaveLength(1)
+
+    await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b' } as never)
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    expect(world.jobs.prove).toHaveLength(2)
+  })
+
+  test('of a change that moved is made afresh', async ($, on) => {
+    const world = machine(on)
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    world.whole = 'abc123\n+ another line\n'
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+
+    expect(world.jobs.prove).toHaveLength(2)
+  })
+
+  test('answers a mod as JSON, with each target the change reached', async ($, on) => {
+    const world = machine(on)
+    world.fingerprint = 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\n'
+
+    const said = JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true }))
+
+    expect(said).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned', targets: [{ label: 'gondor', kind: 'service', state: 'pinned' }], unhandled: [] })
+    expect(said.text).toContain('pinned: gondor GET /health')
+  })
+})
+
+describe('the statues, on a change', () => {
+  test('are not sent on one that holds nothing', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    world.change = '\nNew files:\n'
+
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true }))).toMatchObject({ verdict: 'pass', isEmpty: true, seats: [] })
+    expect(spawned).toEqual([])
+  })
+
+  test('judge a whole branch since where it left its base, whatever the proof of the change at hand', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+
+    // narsil's run is bare: the change at hand is not settled, but the branch is judged as it was committed
+    await call($, 'mcp__argonath__prove')
+    await call($, 'mcp__argonath__judgement', { convene: true, json: true, statues: ['anarion'], against: 'main' })
+
+    expect(spawned.map(one => one.subagent_type)).toEqual(['argonath:anarion'])
+    expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' main'))).toBe(true)
+  })
+})
+
+describe('a shell command', () => {
+  test('of an agent that only reads is not looked at for edits', async ($, on) => {
+    const world = machine(on)
+    statues(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
+    await call($, 'mcp__argonath__radius', { target: 'gondor' })
+
+    await $.tool.call({ tool: 'Bash', command: 'git log -1', agentId: 'isildur-1' } as never)
+    expect(world.fingerprints).toBe(0)
+
+    await $.tool.call({ tool: 'Bash', command: 'make', agentId: 'helper-1' } as never)
+    expect(world.fingerprints).toBe(2)
   })
 })

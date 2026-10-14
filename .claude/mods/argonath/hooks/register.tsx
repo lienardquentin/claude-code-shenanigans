@@ -10,6 +10,7 @@ import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import type { Changed, Review } from './proof'
 import {
+  CHANGE_SCRIPT,
   HOME,
   HOW_TO,
   MARK,
@@ -35,6 +36,9 @@ import {
   radiusText,
   targetsOf,
   tidy,
+  UNTRACKED,
+  changesByTarget,
+  proofAnswer,
   withLive,
 } from './proof'
 
@@ -100,6 +104,7 @@ const TOOLS = [
       properties: {
         ...ASKED,
         owe: { type: 'boolean', description: 'false from a mod that convenes the statues on the change itself: a proof that pins it then owes no judgement at the turn\'s end, which would judge it twice.' },
+        json: { type: 'boolean', description: 'Answer as JSON, for a mod that settles on it: `verdict` (settled, unsettled, or unlooked when a target the change reached could not be looked at), `line`, each target\'s `state`, the `unhandled` targets nothing proves, and `text`, the proof as it reads.' },
       },
     },
   },
@@ -113,6 +118,7 @@ const TOOLS = [
         convene: { type: 'boolean', description: 'Send the statues on the change as it stands, when every changed run is pinned and they have not judged it yet.' },
         about: { type: 'string', description: 'With convene: what the change is meant to do (the task, its acceptance), which the statues judge it against.' },
         statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these statues sit, each with its share of the reviews; both when left out.' },
+        against: { type: 'string', description: 'With convene: judge the change since where HEAD left this branch or commit (its merge base), committed or not, such as a whole branch before its pull request. HEAD when left out.' },
         json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on the verdict.' },
       },
     },
@@ -234,16 +240,31 @@ const proveIn = async ($: $, target: ArgonathTarget, made: ArgonathRadius, again
 // `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
 type Asked = { target?: string; against: string; isProving: boolean; isOwing?: boolean }
 
+/** What a look found of one target: its radius, or why it has none; no target where the look found none to look at. */
+type Looked = { target?: ArgonathTarget; found: ArgonathRadius | string }
+
+// The last proof made, by the change it was made on and what was asked: the same proof asked again is answered from it
+let lastProof: { key: string; looked: Looked[] } | undefined
+
 /** Looks again at the targets asked for: what changed in each, and, when asked, whether its tests see it. Answers what was found, a radius or a sentence a target. */
-const look = async ($: $, asked: Asked, only?: readonly string[]): Promise<(ArgonathRadius | string)[]> => {
+const look = async ($: $, asked: Asked, only?: readonly string[]): Promise<Looked[]> => {
   const list = await setUp($)
 
-  if (list.length === 0) return [HOW_TO]
-  if (asked.target !== undefined && !list.some(({ label }) => label === asked.target)) return [`Argonath knows no target named ${asked.target}. It knows ${list.map(({ label }) => label).join(', ')}.`]
+  if (list.length === 0) return [{ found: HOW_TO }]
+  if (asked.target !== undefined && !list.some(({ label }) => label === asked.target)) return [{ found: `Argonath knows no target named ${asked.target}. It knows ${list.map(({ label }) => label).join(', ')}.` }]
 
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
+  // A proof takes minutes: one asked again of the same change, as a member's last and its mod's next are, is not made twice
+  const key = asked.isProving ? `${await wholeFingerprint($)}|${asked.against}|${chosen.map(({ label }) => label).join(',')}` : ''
+
+  if (key !== '' && lastProof?.key === key) {
+    if (asked.isOwing !== false) await owe($)
+
+    return lastProof.looked
+  }
+
   const cwd = await homeOf($)
-  const found: (ArgonathRadius | string)[] = []
+  const found: Looked[] = []
   // The checkouts a handler or a proof makes are no part of the repo: the folder says so itself, before any is made
   const ignore = `${cwd}/${HOME}/.gitignore`
   if (!(await $.fs.exists(ignore).catch(() => false))) await $.fs.write(ignore, '*\n').catch(() => undefined)
@@ -255,7 +276,7 @@ const look = async ($: $, asked: Asked, only?: readonly string[]): Promise<(Argo
       const changed = await changedIn($, target, asked.against).catch((error: unknown) => `${target.label} could not be looked at: ${error instanceof Error ? error.message : String(error)}`)
 
       if (typeof changed === 'string') {
-        found.push(changed)
+        found.push({ target, found: changed })
         continue
       }
 
@@ -278,18 +299,28 @@ const look = async ($: $, asked: Asked, only?: readonly string[]): Promise<(Argo
 
       const kept = made
       await update($, radii, held => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label))))
-      found.push(kept)
+      found.push({ target, found: kept })
     }
   } finally {
     await update($, working, () => '')
   }
 
   await update($, touched, held => held.filter(label => !chosen.some(target => target.label === label)))
-  await update($, note, () => found.filter((one): one is string => typeof one === 'string').join(' '))
-  if (found.some(one => typeof one !== 'string')) await update($, isHidden, () => false)
+  await update($, note, () => found.flatMap(one => (typeof one.found === 'string' ? [one.found] : [])).join(' '))
+  if (found.some(one => typeof one.found !== 'string')) await update($, isHidden, () => false)
+  // Kept only when the tree did not move while it was made: a proof of a change it no longer is answers nothing
+  if (key !== '') lastProof = key.startsWith(`${await wholeFingerprint($)}|`) ? { key, looked: found } : undefined
   if (asked.isProving && asked.isOwing !== false) await owe($)
 
   return found
+}
+
+/** A proof as a mod reads it: whether it settles the change, and each target's state, with the proof as it reads. */
+const proofJson = async ($: $, looked: readonly Looked[]): Promise<string> => {
+  const changes = await changesOf($)
+  const entries = looked.map(({ target, found }) => ({ label: target?.label ?? '', kind: target?.kind ?? ('' as const), found, isTouched: target === undefined || (changes.get(target.label) ?? '') !== '' }))
+
+  return JSON.stringify({ ...proofAnswer(entries.filter(one => one.label !== '')), ...(entries.some(one => one.label === '') ? { verdict: 'unlooked', line: looked.map(one => one.found).filter((one): one is string => typeof one === 'string').join(' ') } : {}), text: foundText(looked) })
 }
 
 // The fingerprint of a settled change the reviews are owed, run once the session is idle; empty when none is
@@ -304,38 +335,49 @@ const owe = async ($: $): Promise<void> => {
   reviewDue = due === (await read($, reviewed)) ? '' : due
 }
 
-/** The whole change as one fingerprint: HEAD, the diff against it, and the files git neither tracks nor ignores. */
-const wholeFingerprint = async ($: $): Promise<string> => {
-  const ran = await $.process
-    .run(['sh', '-c', 'git rev-parse HEAD; git diff HEAD --no-color --no-ext-diff; git ls-files -o --exclude-standard'], { cwd: await homeOf($) })
-    .catch(() => undefined)
+/** The whole change as one fingerprint: HEAD, the diff since `against` left it, and the new files by name and content. */
+const wholeFingerprint = async ($: $, against = 'HEAD'): Promise<string> => {
+  const ran = await $.process.run(['sh', '-c', CHANGE_SCRIPT, 'sh', against], { cwd: await homeOf($) }).catch(() => undefined)
 
   return fingerprintOf(ran?.stdout ?? '')
 }
 
-/** The change as the statues are handed it: the diff against HEAD, then the new files by name. */
-const changeText = async ($: $): Promise<string> => {
+/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name. */
+const changeText = async ($: $, against = 'HEAD'): Promise<string> => {
   const ran = await $.process
-    .run(['sh', '-c', 'git diff HEAD --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard'], { cwd: await homeOf($) })
+    .run(['sh', '-c', 'b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard', 'sh', against], { cwd: await homeOf($) })
     .catch(() => undefined)
 
   return ran?.stdout ?? ''
 }
 
+/** Whether a change as `changeText` gives it holds nothing: no diff, and no new file. */
+const isNoChange = (change: string): boolean => change.trim() === 'New files:' || change.trim() === ''
+
 /**
  * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
  * not judged again. Answers the judgement, sitting or done.
  */
-const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[]): Promise<ArgonathJudgement> => {
-  const due = await wholeFingerprint($)
+const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD'): Promise<ArgonathJudgement> => {
+  const due = await wholeFingerprint($, against)
   const held = await read($, judgement)
 
   reviewDue = ''
-  if (held !== null && held.fingerprint === due) return held
+  if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against) return held
 
   await update($, reviewed, () => due)
 
-  const change = await changeText($)
+  const change = await changeText($, against)
+
+  // Nothing to judge: no statue is sent on it
+  if (isNoChange(change)) {
+    const empty: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats: [], against, isEmpty: true }
+
+    await update($, judgement, () => empty)
+
+    return empty
+  }
+
   const seats: ArgonathSeat[] = []
 
   for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
@@ -346,7 +388,7 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: rea
     seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
   }
 
-  const made: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats }
+  const made: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats, against }
 
   await update($, judgement, () => made)
 
@@ -392,12 +434,12 @@ const review = async ($: $): Promise<void> => {
   // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
   if ((await wholeFingerprint($)) !== due) return
   // And a change committed whole leaves nothing to judge
-  if ((await changeText($)).trim() === 'New files:') return
+  if (isNoChange(await changeText($))) return
 
   await convene($, 'turn')
 }
 
-const foundText = (found: readonly (ArgonathRadius | string)[]): string => found.map(one => (typeof one === 'string' ? one : radiusText(one))).join('\n\n―――\n\n')
+const foundText = (looked: readonly Looked[]): string => looked.map(({ found }) => (typeof found === 'string' ? found : radiusText(found))).join('\n\n―――\n\n')
 
 const askedOf = (e: unknown, isProving: boolean): Asked => {
   const given = e as { target?: unknown; against?: unknown }
@@ -414,6 +456,17 @@ const askedOf = (e: unknown, isProving: boolean): Asked => {
  * statues itself: the Fellowship's members (the Black Gate sends them too), Galadriel's tests, Bombadil.
  */
 const SENT_BY_A_MOD = /^(fellowship|lothlorien|bombadil):/
+
+/** The agent types that only read: the council that plans, and the statues. A command of theirs is not looked at for edits. */
+const READ_ONLY = /^(elrond|argonath):/
+
+const isReadOnly = async ($: $, agentId: string | undefined): Promise<boolean> => {
+  if (agentId === undefined) return false
+
+  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
+
+  return agent !== undefined && READ_ONLY.test(agent.type)
+}
 
 /** Whether an edit is one another mod's agent made, which that mod has judged: a statue judging it at the turn's end too would judge it twice. */
 const isAMods = async ($: $, agentId: string | undefined): Promise<boolean> => {
@@ -434,6 +487,7 @@ const edited = async ($: $, path: unknown, agentId?: string): Promise<void> => {
 
   if (hit.length === 0) return
 
+  lastProof = undefined
   // The radius is old either way; a look at the turn's end, and the statues it may send, are owed only to an edit no
   // other mod answers for
   if (!(await isAMods($, agentId))) await update($, touched, held => [...new Set([...held, ...hit])])
@@ -444,19 +498,21 @@ const edited = async ($: $, path: unknown, agentId?: string): Promise<void> => {
  * What each target's folders hold against HEAD, by label: the diff of what git tracks there, and the files it neither
  * tracks nor ignores. Two of these around a shell command say which targets it changed.
  */
-const fingerprints = async ($: $): Promise<Map<string, string>> => {
+const fingerprints = async ($: $): Promise<Map<string, string>> => changesOf($)
+
+/** What each target's folders hold against HEAD, by label, read in one go: empty for a target the change did not reach. */
+const changesOf = async ($: $): Promise<Map<string, string>> => {
   const cwd = await homeOf($)
-  const held = new Map<string, string>()
+  const list = await read($, targets)
+  const roots = [...new Set(list.flatMap(({ roots }) => roots))]
 
-  for (const { label, roots } of await read($, targets)) {
-    const ran = await $.process
-      .run(['sh', '-c', 'git diff HEAD --no-color --no-ext-diff -- "$@"; git ls-files -o --exclude-standard -- "$@"', 'sh', ...roots], { cwd })
-      .catch(() => undefined)
+  if (roots.length === 0) return new Map()
 
-    if (ran !== undefined && ran.exitCode === 0) held.set(label, ran.stdout)
-  }
+  const ran = await $.process
+    .run(['sh', '-c', `git diff HEAD --no-color --no-ext-diff -- "$@"; echo; echo '${UNTRACKED}'; git ls-files -o --exclude-standard -- "$@"`, 'sh', ...roots], { cwd })
+    .catch(() => undefined)
 
-  return held
+  return ran === undefined || ran.exitCode !== 0 ? new Map() : changesByTarget(ran.stdout, list, cwd)
 }
 
 // A turn that edited a target has ended: the next tick of the clock looks at what it touched
@@ -570,7 +626,7 @@ export const register: Register = on => {
 
   // A shell command edits too (a `git checkout`, a `sed`, a formatter): a target whose folders it changed is edited
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if ((await read($, targets)).length === 0) return next(e)
+    if ((await read($, targets)).length === 0 || (await isReadOnly($, e.agentId))) return next(e)
 
     const before = await fingerprints($)
     const done = await next(e)
@@ -618,28 +674,32 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__argonath__radius' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, false))) }))
 
   on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => {
+    const given = e as unknown as { owe?: unknown; json?: unknown }
     // A subagent's proof waits for the turn that sent it; a mod that convenes the statues itself says it owes none
-    const isOwing = e.agentId === undefined && (e as unknown as { owe?: unknown }).owe !== false
+    const isOwing = e.agentId === undefined && given.owe !== false
+    const looked = await look($, { ...askedOf(e, true), isOwing })
 
-    return { result: foundText(await look($, { ...askedOf(e, true), isOwing })) }
+    return { result: given.json === true ? await proofJson($, looked) : foundText(looked) }
   })
 
   on('tool.call', { tool: 'mcp__argonath__judgement' }, async ($, e) => {
-    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown }
+    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown; against?: unknown }
     const isJson = given.json === true
+    const against = typeof given.against === 'string' && given.against.trim() !== '' ? given.against.trim() : 'HEAD'
 
     if (given.convene === true) {
       await setUp($)
 
-      const open = unsettled(await read($, radii))
+      // A whole branch is judged once its every change was proved: only the change at hand waits on a proof
+      const open = against === 'HEAD' ? unsettled(await read($, radii)) : []
 
       if (open.length > 0) return { result: isJson ? JSON.stringify({ verdict: 'unsettled', targets: open.map(one => one.label) }) : `A changed run of ${open.map(one => one.label).join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
 
-      await convene($, 'tool', typeof given.about === 'string' ? given.about : '', Array.isArray(given.statues) ? given.statues.filter((one): one is string => typeof one === 'string') : undefined)
+      await convene($, 'tool', typeof given.about === 'string' ? given.about : '', Array.isArray(given.statues) ? given.statues.filter((one): one is string => typeof one === 'string') : undefined, against)
     }
 
     const held = await read($, judgement)
-    const isStale = held !== null && held.fingerprint !== (await wholeFingerprint($))
+    const isStale = held !== null && held.fingerprint !== (await wholeFingerprint($, held.against ?? 'HEAD'))
 
     return { result: isJson ? judgementJson(held, isStale) : held === null ? 'The statues have judged no change yet: they judge one once every changed run is pinned.' : judgementText(held, isStale) }
   })

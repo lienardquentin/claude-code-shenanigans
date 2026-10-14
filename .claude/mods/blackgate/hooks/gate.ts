@@ -237,15 +237,21 @@ export const commitMessage = (pr: BlackgatePr, comment: BlackgateComment, by: st
     COMMIT_TRAILER,
   ].join('\n')
 
-/** Argonath's proof, in a line, and whether it settles the change. */
-export const proofVerdict = (proof: string): { isSettled: boolean; line: string } => {
-  const unpinned = [...proof.matchAll(/^(bare|marked|loose|broken): /gm)].map(found => found[1] ?? '')
+/**
+ * Argonath's proof, as it answers a mod in JSON: whether it settles the change (every changed run pinned, no test
+ * turned), and whether a target the change reached could not be looked at at all, which no member mends. An answer that
+ * is not one is a proof that could not be looked at.
+ */
+export const proofVerdict = (answer: string): { isSettled: boolean; isUnlooked: boolean; line: string; text: string } => {
+  try {
+    const held = JSON.parse(answer) as { verdict?: unknown; line?: unknown; text?: unknown }
 
-  if (unpinned.length > 0) return { isSettled: false, line: `not pinned yet: ${['bare', 'marked', 'loose', 'broken'].flatMap(state => (unpinned.includes(state) ? [`${unpinned.filter(one => one === state).length} ${state}`] : [])).join(', ')}` }
-  if (proof.includes("Passing on the commit's source and failing on the working tree")) return { isSettled: false, line: 'a test that passed on the commit fails on the working tree' }
-  if (/could not be looked at|names no tests to prove|has no \{tests\}|knows no target|could not be proved/.test(proof)) return { isSettled: false, line: 'Argonath could not prove the change' }
+    if (typeof held.verdict !== 'string') throw new Error('no verdict')
 
-  return { isSettled: true, line: /Nothing a kept run does changed/.test(proof) || proof.trim() === '' ? 'no kept run changed: nothing to pin' : 'every changed run is pinned' }
+    return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: typeof held.line === 'string' && held.line !== '' ? held.line : held.verdict, text: typeof held.text === 'string' && held.text !== '' ? held.text : answer }
+  } catch {
+    return { isSettled: false, isUnlooked: true, line: `Argonath answered no proof that reads: ${answer.trim().slice(0, 200)}`, text: answer }
+  }
 }
 
 /** The statues' judgement as Argonath answers it to a mod. */

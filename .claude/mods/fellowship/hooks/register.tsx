@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, isModSource, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, isModSource, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, resumePrompt, statuesFor, tally, triesOf, unsettledOf, wardPurpose } from './quest'
 import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
@@ -44,7 +44,15 @@ const TOOLS = [
   {
     name: 'forget',
     description: 'Forgets a quest once its pull request is merged from its branch, which the forge is asked; one not merged is kept. For Mount Doom.',
-    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        pr: { type: 'string', description: 'The merged pull request, by its URL.' },
+        json: { type: 'boolean', description: 'Answer as JSON, `{ forgotten, text }`, for a mod that reads it.' },
+      },
+      required: ['ref', 'pr'],
+    },
   },
   {
     name: 'quest',
@@ -58,7 +66,7 @@ const TOOLS = [
   },
 ] as const
 
-const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', gazing: 'info', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', sailed: 'success' }
+const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', gazing: 'info', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', warding: 'info', sailed: 'success' }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -139,11 +147,11 @@ const relics = async ($: $): Promise<{ ref: string; branch: string; base: string
 }
 
 /** Forgets a quest whose pull request is merged from its branch, here and across sessions. Nothing else is touched. */
-const forget = async ($: $, ref: string, pr: string): Promise<string> => {
+const forget = async ($: $, ref: string, pr: string): Promise<{ forgotten: boolean; text: string }> => {
   const found = (await relics($)).find(one => one.ref === ref)
 
-  if (found === undefined) return `No quest on ${ref} is kept.`
-  if (!(await isMergedFrom($, pr, found.branch))) return `${pr} is not a merged pull request from ${found.branch}: the quest on ${ref} is kept.`
+  if (found === undefined) return { forgotten: false, text: `No quest on ${ref} is kept.` }
+  if (!(await isMergedFrom($, pr, found.branch))) return { forgotten: false, text: `${pr} is not a merged pull request from ${found.branch}: the quest on ${ref} is kept.` }
 
   await $.store.delete(STORE_KEY(ref)).catch(() => undefined)
   if ((await read($, quest))?.ref === ref) {
@@ -151,7 +159,7 @@ const forget = async ($: $, ref: string, pr: string): Promise<string> => {
     await update($, plan, () => null)
   }
 
-  return `The quest on ${ref} is forgotten.`
+  return { forgotten: true, text: `The quest on ${ref} is forgotten.` }
 }
 
 /** Sets the quest, and keeps it across sessions. */
@@ -219,7 +227,8 @@ const setOut = async ($: $, isAuto: boolean): Promise<string> => {
 
   const base = resumed?.base ?? (current.out === branch ? await defaultBranch($) : current.out)
   // A quest left mid-march has no member out any more: the person sends it again
-  const phase: FellowshipPhase = resumed === undefined ? 'ready' : resumed.phase === 'gazing' || resumed.phase === 'marching' || resumed.phase === 'proving' || resumed.phase === 'judging' ? 'stuck' : resumed.phase
+  // Nor is Anárion still judging the whole branch: it is sailed for again
+  const phase: FellowshipPhase = resumed === undefined ? 'ready' : resumed.phase === 'gazing' || resumed.phase === 'marching' || resumed.phase === 'proving' || resumed.phase === 'judging' ? 'stuck' : resumed.phase === 'warding' ? 'arrived' : resumed.phase
 
   await update($, quest, () => ({
     ref: made.ref,
@@ -269,6 +278,9 @@ const targetsOf = async ($: $): Promise<Target[]> => {
 /** Sends a member on a task: marked doing in Elrond, chosen by the try and the task, and spawned with the plan around it. */
 const march = async ($: $, made: FellowshipPlan, task: FellowshipTask, attempt: number, retry?: Retry): Promise<void> => {
   const member = memberFor(made, task, attempt, await targetsOf($))
+  const last = (await read($, quest))?.march
+  // A task sent again keeps HEAD as it was when it was first sent: a commit made past the proof since stays one
+  const head = last !== null && last !== undefined && last.taskId === task.id && last.head !== undefined && last.head !== '' ? last.head : (await git($, ['rev-parse', 'HEAD'])).out
 
   await ask($, 'elrond', 'task', { id: task.id, state: 'doing' })
 
@@ -283,7 +295,7 @@ const march = async ($: $, made: FellowshipPlan, task: FellowshipTask, attempt: 
     return
   }
 
-  await keep($, was => ({ ...was, phase: 'marching', verdictLine: '', march: { taskId: task.id, title: task.title, member, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '' } }))
+  await keep($, was => ({ ...was, phase: 'marching', verdictLine: '', march: { taskId: task.id, title: task.title, member, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '', head, isResumed: false } }))
   await update($, note, () => '')
 }
 
@@ -333,7 +345,7 @@ const sendNext = async ($: $): Promise<void> => {
 const gazeOn = async ($: $, made: FellowshipPlan, task: FellowshipTask): Promise<void> => {
   await update($, working, () => `Galadriel gazes on task ${task.id}…`)
 
-  const sent = await ask($, 'lothlorien', 'gaze', { purpose: purposeOf(made, task) })
+  const sent = await ask($, 'lothlorien', 'gaze', { purpose: purposeOf(made, task), ref: made.ref, weight: task.weight })
 
   if (sent.isError || !/gazes/.test(sent.text)) {
     await keep($, was => ({ ...was, gazed: task.id, vision: null }))
@@ -394,6 +406,22 @@ const behold = async ($: $): Promise<void> => {
  * the quest for the person.
  */
 const again = async ($: $, out: NonNullable<FellowshipQuest['march']>, why: { proof?: string; findings?: string[] }, line: string): Promise<void> => {
+  // A proof that does not settle the change sends its member back once, with all it read and did, before a fresh
+  // member a rung up starts over: what the statues find blocking goes up a rung at once
+  // Where its spawn answered no id, the member is known by the type it runs as: the last of it sent
+  const agentId = out.agentId !== '' ? out.agentId : ((await $.agent.list().catch(() => [])).filter(one => one.type === `fellowship:${out.member}`).at(-1)?.id ?? '')
+
+  if (why.proof !== undefined && out.isResumed !== true && agentId !== '') {
+    const sent = await $.session.send({ to: { agentId }, text: resumePrompt(why.proof) }).catch(() => undefined)
+
+    if (sent?.isDelivered === true) {
+      await keep($, was => ({ ...was, phase: 'marching', march: { ...out, isResumed: true, answer: '' } }))
+      await update($, note, () => `${MEMBERS[out.member].title} is sent back to task ${out.taskId} with the proof: ${line}`)
+
+      return
+    }
+  }
+
   const made = await readPlan($)
   const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
 
@@ -408,6 +436,27 @@ const again = async ($: $, out: NonNullable<FellowshipQuest['march']>, why: { pr
   await tell($, `task ${out.taskId} is stuck: ${line}`)
 }
 
+/**
+ * Why the change in the tree cannot be taken as the task's: HEAD moved since the task was first sent, so a commit was
+ * made past the proof and the statues. Nothing when it did not.
+ */
+const headMoved = async ($: $, out: NonNullable<FellowshipQuest['march']>): Promise<string | undefined> => {
+  if (out.head === undefined || out.head === '') return undefined
+
+  const now = (await git($, ['rev-parse', 'HEAD'])).out
+
+  return now === out.head
+    ? undefined
+    : `HEAD moved from ${out.head.slice(0, 7)} to ${now.slice(0, 7)} while task ${out.taskId} was out: a commit was made past the Argonath's proof and its statues. Put it back as uncommitted work (git reset --soft ${out.head.slice(0, 7)}), then put it before the Argonath again.`
+}
+
+/** Stops the quest on a task for the person, saying why. */
+const stop = async ($: $, out: NonNullable<FellowshipQuest['march']>, why: string): Promise<void> => {
+  await keep($, was => ({ ...was, phase: 'stuck' }))
+  await update($, note, () => why)
+  await tell($, `task ${out.taskId} is stuck: ${why}`)
+}
+
 /** Proves what a member built: settled, the statues of the Argonath are sent to judge it; else the task goes up a rung. */
 const prove = async ($: $): Promise<void> => {
   const held = await read($, quest)
@@ -415,37 +464,52 @@ const prove = async ($: $): Promise<void> => {
   if (held === null || held.phase !== 'proving' || held.march === null) return
 
   const out = held.march
+  const moved = await headMoved($, out)
+
+  if (moved !== undefined) return stop($, out, moved)
 
   await update($, working, () => `Argonath proves task ${out.taskId}…`)
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
-  const proof = await ask($, 'argonath', 'prove', { owe: false })
-  const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
+  const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
+  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, unhandled: [] as string[], text: proof.text } : proofVerdict(proof.text)
 
-  await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
+  await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
 
-  if (!verdict.isSettled) return again($, out, { proof: proof.text }, verdict.line)
+  // Argonath could not look at what the change reached: no member mends that, and no try is spent on it
+  if (verdict.isUnlooked) return stop($, out, `${verdict.line}. No member can mend that: set the target right in .claude/argonath, then put task ${out.taskId} before the Argonath again.`)
+  if (!verdict.isSettled) return again($, out, { proof: verdict.text }, verdict.line)
+
+  const mirror = held.vision?.taskId === out.taskId ? await mirrorOf($) : { amendments: [], tampered: [] }
+
+  // What was taken out of Galadriel's tests without a reason blocks the change, as a finding would
+  if (mirror.tampered.length > 0) {
+    const findings = mirror.tampered.map(one => `- Lothlórien, ${one.file}: locked lines of Galadriel's tests were taken out with no reason given (${one.lines.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). Put them back, or call mcp__lothlorien__amend with the file and why before changing them.`)
+
+    return again($, out, { findings }, `${findings.length} of Galadriel's test ${findings.length === 1 ? 'file' : 'files'} changed with no reason`)
+  }
 
   await update($, working, () => `The statues of the Argonath are sent to judge task ${out.taskId}…`)
 
   const made = await readPlan($)
   const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
-  const amended = held.vision?.taskId === out.taskId ? await amendmentsOf($) : []
-  const about = made === null || typeof made === 'string' || task === undefined ? '' : purposeOf(made, task, amended)
-  const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about })).text)
+  const about = made === null || typeof made === 'string' || task === undefined ? '' : purposeOf(made, task, mirror.amendments)
+  // Where nothing proves what the change reached, both statues judge it; else as the task's weight and risks ask
+  const statues = made === null || typeof made === 'string' || task === undefined || verdict.unhandled.length > 0 ? ['isildur', 'anarion'] : statuesFor(made, task)
+  const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about, statues })).text)
 
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
   await settle($, judged)
 }
 
-/** What a member changed of Galadriel's tests, and why, as Lothlórien keeps it. */
-const amendmentsOf = async ($: $): Promise<{ file: string; why: string; by: string }[]> => {
+/** What a member changed of Galadriel's tests and why, and what was taken out of them with no reason, as Lothlórien keeps it. */
+const mirrorOf = async ($: $): Promise<{ amendments: { file: string; why: string; by: string }[]; tampered: { file: string; lines: string[] }[] }> => {
   try {
-    const shown = JSON.parse((await ask($, 'lothlorien', 'mirror', { json: true })).text) as { amendments?: { file: string; why: string; by: string }[] }
+    const shown = JSON.parse((await ask($, 'lothlorien', 'mirror', { json: true })).text) as { amendments?: { file: string; why: string; by: string }[]; tampered?: { file: string; lines: string[] }[] }
 
-    return Array.isArray(shown.amendments) ? shown.amendments : []
+    return { amendments: Array.isArray(shown.amendments) ? shown.amendments : [], tampered: Array.isArray(shown.tampered) ? shown.tampered : [] }
   } catch {
-    return []
+    return { amendments: [], tampered: [] }
   }
 }
 
@@ -501,16 +565,26 @@ const commitNow = async ($: $, minor: readonly string[]): Promise<string> => {
     return `Task ${out.taskId} is not in the Elrond plan in force: ${typeof made === 'string' ? made : 'set out again.'}`
   }
 
+  // The statues judged the change against HEAD as it was sent: a commit made since was judged by no one
+  const moved = await headMoved($, out)
+
+  if (moved !== undefined) {
+    await stop($, out, moved)
+
+    return moved
+  }
+
   await update($, working, () => `Committing task ${task.id}…`)
 
   const by = MEMBERS[out.member].title
+  const unproven = held.unproven ?? []
   const dirty = await git($, ['status', '--porcelain'])
   let sha = ''
 
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
     const added = await git($, ['add', '-A'])
-    const done = added.ok ? await git($, ['commit', '-m', commitMessage(made, task, by, minor)]) : added
+    const done = added.ok ? await git($, ['commit', '-m', commitMessage(made, task, by, minor, unproven)]) : added
 
     if (!done.ok) {
       await keep($, was => ({ ...was, phase: 'stuck' }))
@@ -524,7 +598,7 @@ const commitNow = async ($: $, minor: readonly string[]): Promise<string> => {
 
   await ask($, 'elrond', 'task', { id: task.id, state: 'done' })
 
-  const after = await keep($, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor] }] }))
+  const after = await keep($, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven] }] }))
   const left = await readPlan($)
   const isArrived = typeof left === 'object' && left !== null && isAllDone(left)
   const said = `Task ${task.id}, "${task.title}", built by ${by}, passed the Argonath and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
@@ -549,8 +623,8 @@ const resubmit = async ($: $): Promise<string> => {
 }
 /** What a quest that is out waits on before it may be abandoned; nothing when it waits on nothing. */
 const waitBeforeAbandon = (held: FellowshipQuest): string | undefined =>
-  held.phase === 'gazing' || held.phase === 'marching' || held.phase === 'proving' || held.phase === 'judging'
-    ? `The quest is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+  held.phase === 'gazing' || held.phase === 'marching' || held.phase === 'proving' || held.phase === 'judging' || held.phase === 'warding'
+    ? `The quest is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
     : undefined
 
 /**
@@ -629,11 +703,21 @@ const sail = async ($: $): Promise<string> => {
 
   if (held === null) return HOW_TO
   if (held.phase === 'sailed') return `The pull request is open: ${held.pr}`
+  if (held.phase === 'warding') return `Anárion judges the whole branch of ${held.ref}: the pull request opens once he passes it.`
   if (held.phase !== 'arrived') return `The quest has not arrived: it is ${held.phase}. Every task is committed first.`
 
   const made = await readPlan($)
 
   if (made === null || typeof made === 'string') return made ?? 'Elrond holds no plan any more.'
+
+  // Each task was judged alone: Anárion judges what they let in together, once, before the branch leaves the machine
+  if (held.isWarded !== true) {
+    const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, statues: ['anarion'], against: held.base, about: wardPurpose(made) })).text)
+
+    await keep($, was => ({ ...was, phase: 'warding', verdictLine: judged.line }))
+
+    return ward($, judged)
+  }
 
   const opened = await openRequest($, held.branch, prArgv(made, held))
 
@@ -645,6 +729,41 @@ const sail = async ($: $): Promise<string> => {
   await tell($, `the pull request for ${held.ref} is open${url === '' ? '' : `: ${url}`}`)
 
   return `The Fellowship has sailed: ${held.branch} is pushed and the pull request that closes ${held.ref} is open${url === '' ? '' : ` at ${url}`}.`
+}
+
+/**
+ * What Anárion's judgement of the whole branch comes to: it sails once he passes it; what he finds blocking, or his
+ * silence, stops it for the person. Answers what was done, in a sentence.
+ */
+const ward = async ($: $, judged: ReturnType<typeof parseJudgement>): Promise<string> => {
+  const held = await read($, quest)
+
+  if (held === null || held.phase !== 'warding') return ''
+  if (judged.verdict === 'sitting') return `Anárion judges the whole branch of ${held.ref} before it sails: the pull request opens once he passes it.`
+
+  if (judged.verdict === 'pass') {
+    await keep($, was => ({ ...was, phase: 'arrived', isWarded: true, verdictLine: `the whole branch ${judged.line}` }))
+
+    return sail($)
+  }
+
+  const why =
+    judged.verdict === 'fail'
+      ? `Anárion found what blocks the whole branch of ${held.ref}:\n${judged.blocking.join('\n')}\nFix it and commit, then sail again: he judges the branch as it then stands.`
+      : `Anárion could not judge the whole branch of ${held.ref} (${judged.line}): sail again to have him judge it.`
+
+  await keep($, was => ({ ...was, phase: 'arrived', isWarded: false, verdictLine: `the whole branch: ${judged.line}` }))
+  await update($, note, () => why)
+  await tell($, why.split('\n')[0] ?? why)
+
+  return why
+}
+
+/** Looks at Anárion's judgement of the whole branch, while he sits. */
+const watchWard = async ($: $): Promise<void> => {
+  const said = await ward($, parseJudgement((await ask($, 'argonath', 'judgement', { json: true })).text))
+
+  if (said !== '' && !said.startsWith('Anárion judges')) await update($, note, () => said)
 }
 
 // Whether the clock is doing what was asked: a proof takes minutes, and the next tick waits for it
@@ -662,14 +781,16 @@ const tick = async ($: $): Promise<void> => {
     ticks += 1
     const phase = (await read($, quest))?.phase
 
-    if (ticks % JUDGE_EVERY !== 0 || (phase !== 'judging' && phase !== 'gazing')) return
+    if (ticks % JUDGE_EVERY !== 0 || (phase !== 'judging' && phase !== 'gazing' && phase !== 'warding')) return
   }
 
   isBusy = true
   if (asked !== '') await update($, wanted, () => '')
 
   try {
-    if (asked === '') await ((await read($, quest))?.phase === 'gazing' ? behold($) : judge($))
+    const phase = (await read($, quest))?.phase
+
+    if (asked === '') await (phase === 'gazing' ? behold($) : phase === 'warding' ? watchWard($) : judge($))
     else if (asked === 'next') await sendNext($)
     else if (asked === 'prove') await prove($)
     else {
@@ -820,9 +941,10 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__fellowship__relics' }, async $ => ({ result: JSON.stringify(await relics($)) }))
 
   on('tool.call', { tool: 'mcp__fellowship__forget' }, async ($, e) => {
-    const given = e as unknown as { ref?: unknown; pr?: unknown }
+    const given = e as unknown as { ref?: unknown; pr?: unknown; json?: unknown }
+    const done = await forget($, String(given.ref ?? ''), String(given.pr ?? ''))
 
-    return { result: await forget($, String(given.ref ?? ''), String(given.pr ?? '')) }
+    return { result: given.json === true ? JSON.stringify(done) : done.text }
   })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
@@ -929,6 +1051,8 @@ export const register: Register = on => {
           </Box>
         )}
         {held.phase === 'gazing' && <Text color="suggestion">{`Galadriel gazes into the Mirror: task ${held.gazed ?? ''}'s tests are written first, red`}</Text>}
+        {held.phase === 'warding' && <Text color="suggestion">Anárion judges the whole branch before it sails</Text>}
+        {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isWarded === true ? 'success' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
         {held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {out !== null && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>

@@ -181,31 +181,47 @@ export const branchOf = (plan: FellowshipPlan): string => {
   return `fellowship/${issueOf(plan.ref)?.number ?? 'quest'}${slug === '' ? '' : `-${slug}`}`
 }
 
-/** Argonath's proof, in a line, and whether it settles the change: every changed run pinned, no test turned, nothing left unproved. */
-export const proofVerdict = (proof: string): { isSettled: boolean; line: string } => {
-  const unpinned = [...proof.matchAll(/^(bare|marked|loose|broken): /gm)].map(found => found[1] ?? '')
-  const isTurned = proof.includes("Passing on the commit's source and failing on the working tree")
-  // What Argonath says where it could not look or could not prove
-  const isUnproved = /could not be looked at|names no tests to prove|has no \{tests\}|knows no target|could not be proved/.test(proof)
+/**
+ * Argonath's proof, as it answers a mod in JSON: whether it settles the change (every changed run pinned, no test
+ * turned), whether a target the change reached could not be looked at at all, which no member can mend, the targets
+ * nothing proves, and the proof as it reads. An answer that is not one is a proof that could not be looked at.
+ */
+export const proofVerdict = (answer: string): { isSettled: boolean; isUnlooked: boolean; line: string; unhandled: string[]; text: string } => {
+  try {
+    const held = JSON.parse(answer) as { verdict?: unknown; line?: unknown; unhandled?: unknown; text?: unknown }
 
-  if (unpinned.length > 0) {
-    const counts = ['bare', 'marked', 'loose', 'broken'].flatMap(state => {
-      const many = unpinned.filter(one => one === state).length
+    if (typeof held.verdict !== 'string') throw new Error('no verdict')
 
-      return many > 0 ? [`${many} ${state}`] : []
-    })
-
-    return { isSettled: false, line: `not pinned yet: ${counts.join(', ')}` }
+    return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: text(held.line) || held.verdict, unhandled: strings(held.unhandled), text: text(held.text) || answer }
+  } catch {
+    return { isSettled: false, isUnlooked: true, line: `Argonath answered no proof that reads: ${answer.trim().slice(0, 200)}`, unhandled: [], text: answer }
   }
-
-  if (isTurned) return { isSettled: false, line: 'a test that passed on the commit fails on the working tree' }
-  if (isUnproved) return { isSettled: false, line: 'Argonath could not prove the change' }
-
-  // One target may say nothing of it changed while another pins what did
-  const isPinned = /^pinned: /m.test(proof)
-
-  return { isSettled: true, line: isPinned ? 'every changed run is pinned' : 'no kept run changed: nothing to pin' }
 }
+
+/**
+ * The statues a task's change is judged by: Isildur, whose eye is on what it does, every time; Anárion, whose eye is on
+ * what it lets in, on a heavy task or one a high risk threatens. He judges the whole branch once more before it sails.
+ */
+export const statuesFor = (plan: FellowshipPlan, task: FellowshipTask): ('isildur' | 'anarion')[] =>
+  task.weight === 'heavy' || plan.risks.some(risk => risk.severity === 'high' && risk.tasks.includes(task.id)) ? ['isildur', 'anarion'] : ['isildur']
+
+/** What a member is sent back with when its proof did not settle its change: it carries on with what it knows. */
+export const resumePrompt = (proof: string): string =>
+  [
+    "The Fellowship proved your change, and Argonath's proof does not settle it yet. Carry on from where you are: write the integration test each changed run it lists as bare asks for, bring a loose or broken one to what the code now does, or fix the code where a change was not meant. Then prove it again, and end your turn with your account as before.",
+    '<proof>',
+    proof.trim(),
+    '</proof>',
+  ].join('\n')
+
+/** What the whole branch is meant to do, for Anárion to judge it against before it sails. */
+export const wardPurpose = (plan: FellowshipPlan): string =>
+  [
+    `The whole branch of the plan for ${plan.ref}, "${plan.title}", before its pull request is opened. Each task was proved and judged alone; judge what the tasks let in together.`,
+    ...(plan.summary !== '' ? [`What it asks for: ${plan.summary}`] : []),
+    'Its tasks:',
+    ...plan.tasks.map(task => `- ${task.id}. ${task.title}`),
+  ].join('\n')
 
 /** A command the companion is not to run: the Fellowship commits, and the quest's branch is its own. */
 export const isForbiddenGit = (command: string): boolean => /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull)\b/.test(command)
@@ -301,7 +317,7 @@ export const purposeOf = (plan: FellowshipPlan, task: FellowshipTask, amendments
   ].join('\n')
 
 /** The message a task is committed with. */
-export const commitMessage = (plan: FellowshipPlan, task: FellowshipTask, by: string, minor: readonly string[] = []): string => {
+export const commitMessage = (plan: FellowshipPlan, task: FellowshipTask, by: string, minor: readonly string[] = [], unproven: readonly string[] = []): string => {
   const issue = issueOf(plan.ref)
 
   return [
@@ -310,6 +326,7 @@ export const commitMessage = (plan: FellowshipPlan, task: FellowshipTask, by: st
     `Task ${task.id} of the Elrond plan for ${plan.url !== '' ? plan.url : plan.ref}, built by ${by} of the Fellowship, proven and judged by the Argonath.`,
     ...(task.acceptance !== '' ? ['', `Done when: ${task.acceptance}`] : []),
     ...(minor.length > 0 ? ['', 'Minor findings of the statues, left as they are:', ...minor] : []),
+    ...(unproven.length > 0 ? ['', `Not proven by the Argonath, which has no handler for ${unproven.join(', ')}: judged by the statues alone.`] : []),
     '',
     COMMIT_TRAILER,
   ].join('\n')
@@ -331,6 +348,9 @@ export const prBody = (plan: FellowshipPlan, quest: FellowshipQuest): string =>
     ...quest.commits.map(one => `- ${one.sha === '' ? 'no change' : one.sha.slice(0, 7)} ${one.taskId}. ${one.title} (${one.by})`),
     ...(quest.commits.some(one => one.minor.length > 0)
       ? ['', '## Minor findings', '', 'What the statues of the Argonath found and let pass:', '', ...quest.commits.flatMap(one => one.minor.map(line => `${line.replace(/^- /, `- task ${one.taskId}: `)}`))]
+      : []),
+    ...(quest.commits.some(one => (one.unproven ?? []).length > 0)
+      ? ['', '## Not proven', '', 'What no integration test proves, for the Argonath has no handler for it: the statues judged it alone.', '', ...quest.commits.filter(one => (one.unproven ?? []).length > 0).map(one => `- task ${one.taskId}: ${(one.unproven ?? []).join(', ')}`)]
       : []),
     '',
     'Planned by Elrond, built task by task by the Fellowship, each change proven and judged by the Argonath.',

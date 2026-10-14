@@ -39,6 +39,7 @@ const machine = (on: On) => {
     tools: [] as string[],
     ran: [] as string[],
     forgot: [] as string[],
+    keepsNothing: [] as string[],
     branch: BRANCH,
     dirty: '',
     state: 'OPEN',
@@ -74,8 +75,10 @@ const machine = (on: On) => {
     if (e.tool === 'forget') {
       world.forgot.push(`${e.server} ${String(e.args.ref ?? '')} ${String(e.args.pr ?? '')}`.trim())
       world.kept[e.server] = []
+      // A mod that keeps nothing of the relic says so, and is not counted
+      const forgotten = !world.keepsNothing.includes(e.server)
 
-      return text(e.server === 'blackgate' ? 'The gate is closed.' : e.server === 'lothlorien' ? 'The Mirror is still.' : 'It is forgotten.')
+      return text(e.args.json === true ? JSON.stringify({ forgotten, text: forgotten ? 'It is forgotten.' : 'Nothing is kept.' }) : 'It is forgotten.')
     }
 
     return { value: { content: [], isError: true } } as never
@@ -149,8 +152,18 @@ describe('mountdoom', () => {
     expect(world.ran).toContain('git switch main')
     expect(world.ran).toContain('git pull --ff-only origin main')
     expect(world.ran).toContain(`git branch -D ${BRANCH}`)
-    expect(world.forgot).toEqual([`fellowship ${REF} ${PR}`, `blackgate ${REF} ${PR}`, `elrond ${REF} ${PR}`, 'lothlorien'])
+    // The Mirror is asked to forget the vision of this issue alone
+    expect(world.forgot).toEqual([`fellowship ${REF} ${PR}`, `blackgate ${REF} ${PR}`, `elrond ${REF} ${PR}`, `lothlorien ${REF}`])
     expect(said).toBe(`${REF} is cast into the fire: back on main, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, blackgate, elrond, lothlorien.`)
+  })
+
+  test('counts as forgetting only a mod that says, as JSON, it forgot', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    world.keepsNothing = ['lothlorien', 'blackgate']
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(/forgotten by fellowship, elrond\.$/)
   })
 
   test('leaves a checked-out branch with uncommitted changes as it is', async ($, on) => {

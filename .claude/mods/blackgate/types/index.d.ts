@@ -56,7 +56,16 @@ export type BlackgatePr = {
 export type BlackgatePhase = 'weighing' | 'ready' | 'marching' | 'proving' | 'judging' | 'stuck' | 'done'
 
 /** A member out on a comment. */
-export type BlackgateMarch = { commentId: string; member: string; agentId: string; attempt: number; answer: string; at: number }
+export type BlackgateMarch = {
+  commentId: string
+  member: string
+  agentId: string
+  attempt: number
+  answer: string
+  at: number
+  /** HEAD when the comment was first sent: a commit past it was made past the proof and the statues. */
+  head?: string
+}
 
 export type BlackgateGate = {
   pr: BlackgatePr

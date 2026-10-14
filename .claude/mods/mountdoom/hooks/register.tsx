@@ -59,6 +59,17 @@ const ask = async ($: $, server: string, tool: string, args: Record<string, unkn
   }
 }
 
+/** Has a mod forget what it keeps of a relic, and says whether it did, as the mod answers it in JSON. */
+const forgets = async ($: $, keeper: string, args: Record<string, unknown>): Promise<boolean> => {
+  const got = await ask($, keeper, 'forget', { ...args, json: true })
+
+  try {
+    return !got.isError && (JSON.parse(got.text) as { forgotten?: unknown }).forgotten === true
+  } catch {
+    return false
+  }
+}
+
 const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> => {
   const ran = await $.process.run(argv, { cwd: await rootOf($), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
@@ -157,15 +168,11 @@ const burn = async ($: $, relic: MountdoomRelic): Promise<string> => {
 
   const forgotten: string[] = []
 
-  for (const keeper of relic.keepers) {
-    const got = await ask($, keeper, 'forget', { ref: relic.ref, pr: relic.pr })
+  for (const keeper of relic.keepers) if (await forgets($, keeper, { ref: relic.ref, pr: relic.pr })) forgotten.push(keeper)
 
-    if (!got.isError && /forgotten|closed/.test(got.text)) forgotten.push(keeper)
-  }
-
-  // The plan of the issue, and what the Mirror showed of it
-  if (isIssueRef(relic.ref) && /forgotten/.test((await ask($, 'elrond', 'forget', { ref: relic.ref, pr: relic.pr })).text)) forgotten.push('elrond')
-  if (relic.keepers.includes('fellowship') && /still/.test((await ask($, 'lothlorien', 'forget')).text)) forgotten.push('lothlorien')
+  // The plan of the issue, and what the Mirror showed of it: of this issue alone
+  if (isIssueRef(relic.ref) && (await forgets($, 'elrond', { ref: relic.ref, pr: relic.pr }))) forgotten.push('elrond')
+  if (relic.keepers.includes('fellowship') && (await forgets($, 'lothlorien', { ref: relic.ref }))) forgotten.push('lothlorien')
 
   return `${relic.ref || relic.branch} is cast into the fire: ${[...said, forgotten.length > 0 ? `forgotten by ${forgotten.join(', ')}` : ''].filter(one => one !== '').join(', ')}.`
 }

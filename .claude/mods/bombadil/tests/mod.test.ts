@@ -19,8 +19,12 @@ const ISSUE = {
   comments: [{ author: 'quent', body: 'Only the health route.' }],
 }
 
-const PINNED = 'gondor: 1 kept request changed · 1 pinned.\n\npinned: gondor GET /health\n  pinned by test_health.'
-const BARE = 'gondor: 1 kept request changed · 1 bare.\n\nbare: gondor GET /health\n  no test is marked on it.'
+/** A proof as Argonath answers it to a mod. */
+const proofOf = (verdict: string, line: string, text: string) => JSON.stringify({ verdict, line, targets: [], unhandled: [], text })
+
+const PINNED = proofOf('settled', 'every changed run is pinned', 'gondor: 1 kept request changed · 1 pinned.\n\npinned: gondor GET /health\n  pinned by test_health.')
+const BARE = proofOf('unsettled', 'not pinned yet: 1 bare', 'gondor: 1 kept request changed · 1 bare.\n\nbare: gondor GET /health\n  no test is marked on it.')
+const UNLOOKED = proofOf('unlooked', 'Argonath could not look at gondor (No request of gondor is kept to play.)', '')
 
 const judged = (verdict: string, findings: { severity: string; where: string; text: string }[] = []) => JSON.stringify({ verdict, seats: [{ statue: 'isildur', title: 'Isildur', reviews: ['/code-review medium'], state: verdict, findings, why: '' }] })
 
@@ -40,7 +44,10 @@ describe('an errand', () => {
 
   test('is settled only once every changed run is pinned, and leaves the branch to the errand', () => {
     expect(proofVerdict(PINNED).isSettled).toBe(true)
-    expect(proofVerdict(BARE)).toEqual({ isSettled: false, line: 'not pinned yet: 1 bare' })
+    expect(proofVerdict(BARE)).toMatchObject({ isSettled: false, isUnlooked: false, line: 'not pinned yet: 1 bare' })
+    expect(proofVerdict(UNLOOKED)).toMatchObject({ isSettled: false, isUnlooked: true })
+    // A proof that does not read is never a settled one
+    expect(proofVerdict('pinned: gondor GET /health')).toMatchObject({ isSettled: false, isUnlooked: true })
     expect(isForbiddenGit('git commit -am x')).toBe(true)
     expect(isForbiddenGit('git diff HEAD')).toBe(false)
   })
@@ -48,7 +55,7 @@ describe('an errand', () => {
 
 /** Stands for the machine, Elrond, Argonath, the Fellowship and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { server: string; tool: string; args: Record<string, unknown> }[], dirty: '', branches: ['main'], proofs: [PINNED], judgements: [judged('sitting'), judged('pass', [{ severity: 'minor', where: 'app.py:70', text: 'say why.' }])], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { head: 'c0ffee1234', tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { server: string; tool: string; args: Record<string, unknown> }[], dirty: '', branches: ['main'], proofs: [PINNED], judgements: [judged('sitting'), judged('pass', [{ severity: 'minor', where: 'app.py:70', text: 'say why.' }])], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -69,7 +76,7 @@ const machine = (on: On) => {
 
       return answer('')
     }
-    if (line === 'git rev-parse HEAD') return answer('c0ffee1234\n')
+    if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
     if (e.argv[0] === 'gh') return answer('https://github.com/lienardquentin/claude-code-shenanigans/pull/36\n')
 
     return answer('')
@@ -186,6 +193,33 @@ describe('bombadil', () => {
     await ends($, 'tom-1', 'Done again.')
     await settle(world)
     expect(world.spawned).toHaveLength(2)
+    expect(await call($, 'mcp__bombadil__status')).toMatch(/: stuck/)
+  })
+
+  test('stops for the person, committing nothing, when he committed past the proof', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__bombadil__errand', { issue: '#35' })
+
+    world.head = 'deadbeef99'
+    await ends($, 'tom-1', 'Done, and committed.')
+    await settle(world)
+    expect(await call($, 'mcp__bombadil__status')).toMatch(/: stuck/)
+    expect(world.asked.some(one => one.tool === 'prove' || one.tool === 'judgement')).toBe(false)
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
+  })
+
+  test('stops at once where Argonath could not look at what the change reached, with no second try', async ($, on) => {
+    const world = machine(on)
+    world.proofs = [UNLOOKED]
+    await $.session.start({} as never)
+    await call($, 'mcp__bombadil__errand', { issue: '#35' })
+
+    await ends($, 'tom-1', 'Done.')
+    await settle(world)
+
+    expect(world.spawned).toHaveLength(1)
+    expect(world.asked.some(one => one.tool === 'judgement')).toBe(false)
     expect(await call($, 'mcp__bombadil__status')).toMatch(/: stuck/)
   })
 

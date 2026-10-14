@@ -1,4 +1,4 @@
-import type { ArgonathKind, ArgonathOutcome, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../types'
+import type { ArgonathKind, ArgonathOutcome, ArgonathProofState, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../types'
 
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
@@ -120,6 +120,77 @@ export const fingerprintOf = (text: string): string => {
   for (let at = 0; at < text.length; at += 1) hash = Math.imul(hash ^ text.charCodeAt(at), 0x01000193) >>> 0
 
   return `${text.length.toString(16)}-${hash.toString(16)}`
+}
+
+/**
+ * The shell script that says what the change holds, as one text to fingerprint: HEAD, the diff against the merge base
+ * of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by content, so an edit of a new file
+ * moves it too.
+ */
+export const CHANGE_SCRIPT =
+  'b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --'
+
+/** What each target's folders hold against HEAD, split from one diff and one list of new files, by label. */
+export const changesByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
+  const [diff = '', fresh = ''] = output.split(`\n${UNTRACKED}\n`)
+  const chunks = diff.split(/^(?=diff --git )/m).filter(chunk => chunk.startsWith('diff --git '))
+  const pathOf = (chunk: string) => `${cwd}/${/^diff --git a\/(\S+)/.exec(chunk)?.[1] ?? ''}`
+  const held = new Map<string, string>()
+
+  for (const target of targets) {
+    const isIn = (path: string) => targetsOf(path, [target as ArgonathTarget]).length > 0
+    const files = fresh.split('\n').filter(line => line.trim() !== '' && isIn(`${cwd}/${line.trim()}`))
+
+    held.set(target.label, [...chunks.filter(chunk => isIn(pathOf(chunk))), ...files].join('\n'))
+  }
+
+  return held
+}
+
+/** The line between the diff and the new files in what `changesByTarget` reads. */
+export const UNTRACKED = '--argonath-untracked--'
+
+/** Where one target stands in a proof: see `ArgonathProofState`. */
+export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarget['kind'] | undefined, isTouched: boolean): ArgonathProofState => {
+  if (typeof found === 'string') return !isTouched ? 'untouched' : kind === 'frontend' ? 'unhandled' : 'unlooked'
+  if (found.seams.length === 0 && found.turned.length === 0) return 'unchanged'
+
+  return isQuiet(found) && found.unproved === '' ? 'pinned' : 'unsettled'
+}
+
+/** A proof as a mod reads it: whether it settles the change, why in a line, and each target's state. */
+export type ProofAnswer = {
+  verdict: 'settled' | 'unsettled' | 'unlooked'
+  line: string
+  targets: { label: string; kind: ArgonathTarget['kind'] | ''; state: ArgonathProofState; why: string }[]
+  /** The targets the change reached that nothing proves: a statue judges them alone. */
+  unhandled: string[]
+}
+
+/** What a proof comes to, from each target's radius or why it has none. */
+export const proofAnswer = (entries: readonly { label: string; kind: ArgonathTarget['kind'] | ''; found: ArgonathRadius | string; isTouched: boolean }[]): ProofAnswer => {
+  const targets = entries.map(({ label, kind, found, isTouched }) => ({ label, kind, state: proofStateOf(found, kind === '' ? undefined : kind, isTouched), why: typeof found === 'string' ? found : found.unproved }))
+  const radii = entries.map(({ found }) => found).filter((found): found is ArgonathRadius => typeof found !== 'string')
+  const unlooked = targets.filter(one => one.state === 'unlooked')
+  const unhandled = targets.filter(one => one.state === 'unhandled').map(one => one.label)
+  const counts = (['bare', 'marked', 'loose', 'broken'] as const).flatMap(state => {
+    const many = radii.reduce((sum, radius) => sum + radius.seams.filter(seam => seam.state === state).length, 0)
+
+    return many > 0 ? [`${many} ${state}`] : []
+  })
+  const isTurned = radii.some(radius => radius.turned.length > 0)
+  const unproved = targets.filter(one => one.state === 'unsettled' && one.why !== '')
+
+  if (entries.length === 0) return { verdict: 'unlooked', line: 'Argonath knows no target to prove', targets, unhandled }
+  if (unlooked.length > 0) return { verdict: 'unlooked', line: `Argonath could not look at ${unlooked.map(one => `${one.label} (${one.why})`).join('; ')}`, targets, unhandled }
+  if (counts.length > 0) return { verdict: 'unsettled', line: `not pinned yet: ${counts.join(', ')}`, targets, unhandled }
+  if (isTurned) return { verdict: 'unsettled', line: 'a test that passed on the commit fails on the working tree', targets, unhandled }
+  if (unproved.length > 0) return { verdict: 'unsettled', line: `Argonath could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`, targets, unhandled }
+
+  const isPinned = targets.some(one => one.state === 'pinned')
+  const said = isPinned ? 'every changed run is pinned' : 'no kept run changed: nothing to pin'
+
+  return { verdict: 'settled', line: unhandled.length > 0 ? `${said}; nothing proves ${unhandled.join(', ')}` : said, targets, unhandled }
 }
 
 /** The targets an edited file is of: those with a root that holds it. */

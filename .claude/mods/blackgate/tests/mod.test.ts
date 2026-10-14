@@ -41,7 +41,8 @@ const GITHUB = JSON.stringify({
 
 const WEIGHTS = '```json\n[{ "id": "T1", "weight": "light", "kind": "change" }, { "id": "T2", "weight": "standard", "kind": "question" }, { "id": "R2", "weight": "standard", "kind": "change" }]\n```'
 
-const PINNED = 'gondor: 1 kept request changed · 1 pinned.\n\npinned: gondor POST /beacons/amon-din/quench'
+// A proof as Argonath answers it to a mod
+const PINNED = JSON.stringify({ verdict: 'settled', line: 'every changed run is pinned', targets: [], unhandled: [], text: 'gondor: 1 kept request changed · 1 pinned.\n\npinned: gondor POST /beacons/amon-din/quench' })
 const judged = (verdict: string) => JSON.stringify({ verdict, seats: [{ statue: 'isildur', title: 'Isildur', reviews: [], state: verdict, findings: [], why: '' }] })
 
 describe('the gate', () => {
@@ -103,7 +104,7 @@ describe('the gate', () => {
 
 /** Stands for the machine, the forge, the Mouth of Sauron, Argonath and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { tool: string; args: Record<string, unknown> }[], branch: 'main', dirty: '', judgements: [judged('sitting'), judged('pass')], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { head: 'beef0001', proof: PINNED, tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { tool: string; args: Record<string, unknown> }[], branch: 'main', dirty: '', judgements: [judged('sitting'), judged('pass')], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -126,7 +127,7 @@ const machine = (on: On) => {
 
       return answer('')
     }
-    if (line === 'git rev-parse HEAD') return answer('beef0001\n')
+    if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
 
     return answer('')
   })
@@ -136,7 +137,7 @@ const machine = (on: On) => {
     const text = (said: string) => ({ value: { content: [{ type: 'text', text: said }], isError: false } }) as never
 
     if (e.tool === 'targets') return text(JSON.stringify(TARGETS))
-    if (e.tool === 'prove') return text(PINNED)
+    if (e.tool === 'prove') return text(world.proof)
     if (e.tool === 'judgement') return text(world.judgements.length > 1 ? (world.judgements.shift() ?? '') : (world.judgements[0] ?? ''))
 
     return { value: { content: [], isError: true } } as never
@@ -210,6 +211,38 @@ describe('blackgate', () => {
 
     expect((await $.command.run({ command: 'blackgate', args: 'push' } as never)).text).toMatch(/fellowship\/34-gondor-quench-a-single-beacon is pushed: 2 answered comments/)
     expect(world.ran).toContain('git push origin fellowship/34-gondor-quench-a-single-beacon')
+  })
+
+  test('stops on a comment, committing nothing, when its member committed past the proof or Argonath could not look', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__blackgate__open')
+    await call($, 'mcp__blackgate__march')
+    await settle(world)
+
+    world.head = 'deadbeef99'
+    await ends($, 'frodo-1', 'Renamed it, and committed.')
+    await settle(world)
+
+    expect(world.asked.some(one => one.tool === 'argonath.prove' || one.tool === 'argonath.judgement')).toBe(false)
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
+    expect(await call($, 'mcp__blackgate__gate')).toMatch(/: stuck[\s\S]*HEAD moved from beef000 to deadbee/)
+  })
+
+  test('stops on a comment at once where Argonath could not look at what the answer reached', async ($, on) => {
+    const world = machine(on)
+    world.proof = JSON.stringify({ verdict: 'unlooked', line: 'Argonath could not look at gondor (No request of gondor is kept to play.)', targets: [], unhandled: [], text: '' })
+    await $.session.start({} as never)
+    await call($, 'mcp__blackgate__open')
+    await call($, 'mcp__blackgate__march')
+    await settle(world)
+
+    await ends($, 'frodo-1', 'Renamed it.')
+    await settle(world)
+
+    expect(world.spawned).toHaveLength(1)
+    expect(world.asked.some(one => one.tool === 'argonath.judgement')).toBe(false)
+    expect(await call($, 'mcp__blackgate__gate')).toMatch(/: stuck/)
   })
 
   test('leaves a comment the member finds needs an answer to the person, and holds the member off the branch', async ($, on) => {

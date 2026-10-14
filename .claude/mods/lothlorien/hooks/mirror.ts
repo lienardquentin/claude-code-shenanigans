@@ -1,8 +1,11 @@
-import type { LothlorienBlock, LothlorienTest, LothlorienVision } from '../types'
+import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienVision } from '../types'
 
 /** What Galadriel gazes with: Opus, at medium effort. */
 export const GALADRIEL_MODEL = 'claude-opus-5-5'
 export const GALADRIEL_EFFORT = 'medium'
+
+/** What she gazes with on a task that is not heavy: Sonnet, its tests no harder to see. */
+export const GALADRIEL_SWIFT_MODEL = 'claude-sonnet-5-5'
 
 export const HOW_TO = 'The Mirror shows nothing yet. /mirror <the behaviour to come> has Galadriel write the failing tests that show it, before it is built.'
 
@@ -129,6 +132,16 @@ export const missingFrom = (locked: readonly string[], text: string): string[] =
   return [...new Set(locked)].filter(line => !now.has(line))
 }
 
+/**
+ * The locked lines each file no longer holds, though no reason was given for changing it: what an edit the lock did
+ * not see (a shell command) took out of her tests.
+ */
+export const tamperedWith = (blocks: readonly LothlorienBlock[], amendments: readonly Pick<LothlorienAmendment, 'file'>[], files: readonly { file: string; text: string }[]): { file: string; lines: string[] }[] =>
+  files
+    .filter(({ file }) => !amendments.some(one => one.file === file))
+    .map(({ file, text }) => ({ file, lines: missingFrom(lockedIn(blocks, file), text) }))
+    .filter(one => one.lines.length > 0)
+
 /** A command Galadriel is not to run: she writes tests through Write and Edit, and runs only what reads or tests. */
 export const isChanging = (command: string): boolean =>
   /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(add|commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch)\b/.test(command) ||
@@ -136,7 +149,7 @@ export const isChanging = (command: string): boolean =>
   /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(command)
 
 /** The vision in full, for Claude. */
-export const visionText = (vision: LothlorienVision, isLocked: boolean): string =>
+export const visionText = (vision: LothlorienVision, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
   [
     vision.state === 'gazing'
       ? 'Galadriel gazes into the Mirror: the tests are being written.'
@@ -148,9 +161,10 @@ export const visionText = (vision: LothlorienVision, isLocked: boolean): string 
     ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
     ...(vision.red !== '' ? ['', 'How they failed:', vision.red] : []),
     ...(vision.amendments.length > 0 ? ['', 'Changed since, and why:', ...vision.amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
+    ...(tampered.length > 0 ? ['', 'Taken out of her tests with no reason given (an edit the lock did not see):', ...tampered.map(one => `- ${one.file}: ${one.lines.slice(0, 3).map(line => `\`${line.trim()}\``).join(', ')}`)] : []),
     ...(isLocked && vision.state === 'shown' ? ['', 'Make them pass without changing them. A test that is wrong is changed only after mcp__lothlorien__amend says which file and why: the reason goes to whoever judges the change.'] : []),
   ].join('\n')
 
 /** The vision as a mod reads it. */
-export const visionJson = (vision: LothlorienVision | null, isLocked: boolean): string =>
-  JSON.stringify(vision === null ? { state: 'none' } : { state: vision.state, isLocked, tests: vision.tests, red: vision.red, why: vision.why, amendments: vision.amendments.map(({ file, why, by }) => ({ file, why, by })) })
+export const visionJson = (vision: LothlorienVision | null, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
+  JSON.stringify(vision === null ? { state: 'none' } : { state: vision.state, ref: vision.ref ?? '', isLocked, tests: vision.tests, red: vision.red, why: vision.why, amendments: vision.amendments.map(({ file, why, by }) => ({ file, why, by })), tampered })

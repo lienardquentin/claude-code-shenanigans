@@ -54,7 +54,15 @@ const TOOLS = [
   {
     name: 'forget',
     description: 'Forgets the errand once its pull request is merged from its branch, which the forge is asked; one not merged is kept. For Mount Doom.',
-    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        pr: { type: 'string', description: 'The merged pull request, by its URL.' },
+        json: { type: 'boolean', description: 'Answer as JSON, `{ forgotten, text }`, for a mod that reads it.' },
+      },
+      required: ['ref', 'pr'],
+    },
   },
   {
     name: 'status',
@@ -146,7 +154,8 @@ const begin = async ($: $, input: string): Promise<string> => {
   if (!switched.ok) return `The errand could not take the branch ${branch}: ${switched.out}`
 
   const thread = (issue.comments ?? []).map(one => `--- ${one.author}:\n${one.body}`).join('\n\n')
-  const made: BombadilErrand = { ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', body: [issue.body ?? '', thread].filter(one => one.trim() !== '').join('\n\n'), branch, base, phase: 'singing', agentId: '', tries: 0, answer: '', proof: '', proofLine: '', verdictLine: '', minor: [], sha: '', pr: '', at: Date.now() }
+  const head = (await git($, ['rev-parse', 'HEAD'])).out
+  const made: BombadilErrand = { ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', body: [issue.body ?? '', thread].filter(one => one.trim() !== '').join('\n\n'), branch, base, phase: 'singing', agentId: '', tries: 0, head, answer: '', proof: '', proofLine: '', verdictLine: '', minor: [], sha: '', pr: '', at: Date.now() }
 
   await update($, errand, () => made)
   await update($, note, () => '')
@@ -191,21 +200,46 @@ const again = async ($: $, why: { proof?: string; findings?: string[] }, line: s
   await tell($, `${held.ref} is stuck: ${line}`)
 }
 
+/**
+ * Why the change in the tree cannot be taken as the errand's: HEAD moved since it set out, so a commit was made past
+ * the proof and Isildur. Nothing when it did not.
+ */
+const headMoved = async ($: $, held: BombadilErrand): Promise<string | undefined> => {
+  if (held.head === undefined || held.head === '') return undefined
+
+  const now = (await git($, ['rev-parse', 'HEAD'])).out
+
+  return now === held.head ? undefined : `HEAD moved from ${held.head.slice(0, 7)} to ${now.slice(0, 7)} on ${held.branch}: a commit was made past the Argonath's proof and Isildur. Put it back as uncommitted work (git reset --soft ${held.head.slice(0, 7)}), then /bombadil it again or finish it by hand.`
+}
+
+/** Stops the errand for the person, saying why. */
+const stop = async ($: $, held: BombadilErrand, why: string): Promise<void> => {
+  await keep($, was => ({ ...was, phase: 'stuck' }))
+  await update($, note, () => why)
+  await tell($, `${held.ref} is stuck: ${why}`)
+}
+
 /** Proves what he built: settled, Isildur judges it; else he tries again. */
 const prove = async ($: $): Promise<void> => {
   const held = await read($, errand)
 
   if (held === null || held.phase !== 'proving') return
 
+  const moved = await headMoved($, held)
+
+  if (moved !== undefined) return stop($, held, moved)
+
   await update($, working, () => `Argonath proves ${held.ref}…`)
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
-  const proof = await ask($, 'argonath', 'prove', { owe: false })
-  const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
+  const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
+  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, text: proof.text } : proofVerdict(proof.text)
 
-  await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
+  await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line }))
 
-  if (!verdict.isSettled) return again($, { proof: proof.text }, verdict.line)
+  // Argonath could not look at what the change reached: no try mends that
+  if (verdict.isUnlooked) return stop($, held, `${verdict.line}. Set the target right in .claude/argonath, then finish the errand by hand.`)
+  if (!verdict.isSettled) return again($, { proof: verdict.text }, verdict.line)
 
   await update($, working, () => `Isildur judges ${held.ref}…`)
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: 'judging' }))
@@ -238,6 +272,11 @@ const commit = async ($: $, minor: readonly string[]): Promise<void> => {
   const held = await read($, errand)
 
   if (held === null) return
+
+  // Isildur judged the change against HEAD as the errand set out: a commit made since was judged by no one
+  const moved = await headMoved($, held)
+
+  if (moved !== undefined) return stop($, held, moved)
 
   const dirty = await git($, ['status', '--porcelain'])
   let sha = ''
@@ -463,15 +502,16 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__bombadil__forget' }, async ($, e) => {
-    const given = e as unknown as { ref?: unknown; pr?: unknown }
+    const given = e as unknown as { ref?: unknown; pr?: unknown; json?: unknown }
+    const answer = (forgotten: boolean, text: string) => ({ result: given.json === true ? JSON.stringify({ forgotten, text }) : text })
     const held = await read($, errand)
 
-    if (held === null || held.ref !== given.ref) return { result: `No errand on ${String(given.ref ?? '')} is kept.` }
-    if (!(await isMergedFrom($, String(given.pr ?? ''), held.branch))) return { result: `${String(given.pr ?? '')} is not a merged pull request from ${held.branch}: the errand is kept.` }
+    if (held === null || held.ref !== given.ref) return answer(false, `No errand on ${String(given.ref ?? '')} is kept.`)
+    if (!(await isMergedFrom($, String(given.pr ?? ''), held.branch))) return answer(false, `${String(given.pr ?? '')} is not a merged pull request from ${held.branch}: the errand is kept.`)
 
     await update($, errand, () => null)
 
-    return { result: `The errand on ${held.ref} is forgotten.` }
+    return answer(true, `The errand on ${held.ref} is forgotten.`)
   })
 
   on('tool.call', { tool: 'mcp__bombadil__status' }, async $ => {

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { LothlorienState, LothlorienVision } from '../types'
-import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SYSTEM, HOW_TO, blocksOf, gazePrompt, isChanging, isTestPath, lockedIn, missingFrom, parseGaze, takenBy, visionJson, visionText } from './mirror'
+import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYSTEM, HOW_TO, blocksOf, gazePrompt, isChanging, isTestPath, lockedIn, missingFrom, parseGaze, takenBy, tamperedWith, visionJson, visionText } from './mirror'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
@@ -13,6 +13,9 @@ const PANE = 'lothlorien'
 const TITLE = 'Lothlórien'
 const AGENT = 'galadriel'
 const AGENT_TYPE = `lothlorien:${AGENT}`
+// She gazes on Sonnet for a task that is not heavy: the same charge, a lighter model
+const SWIFT = 'galadriel-swift'
+const SWIFT_TYPE = `lothlorien:${SWIFT}`
 
 const vision = atom({ plugin: 'lothlorien', key: 'vision' } as const, null as LothlorienVision | null)
 const note = atom({ plugin: 'lothlorien', key: 'note' } as const, '')
@@ -26,7 +29,11 @@ const TOOLS = [
       "Has Galadriel gaze into the Mirror: before a behaviour is built, she writes the tests that will prove it, runs them to show them red, and they are locked until they are committed. She runs in the background: this answers at once, and mcp__lothlorien__mirror says what she showed. Call it before building a behaviour test-first, with what is to be built and how to tell it is done.",
     inputSchema: {
       type: 'object',
-      properties: { purpose: { type: 'string', description: 'What is to come: the behaviour, the task, how to tell it is done.' } },
+      properties: {
+        purpose: { type: 'string', description: 'What is to come: the behaviour, the task, how to tell it is done.' },
+        ref: { type: 'string', description: 'The issue it is for, as the mod that asks names it: forget then lets go only of the vision of that issue.' },
+        weight: { type: 'string', enum: ['light', 'standard', 'heavy'], description: 'How much the task asks: she gazes on a lighter model for one that is not heavy. Heavy when left out.' },
+      },
       required: ['purpose'],
     },
   },
@@ -37,8 +44,14 @@ const TOOLS = [
   },
   {
     name: 'forget',
-    description: 'Lets the Mirror go still: forgets what Galadriel showed once her tests are committed. One still locked is kept. For Mount Doom.',
-    inputSchema: { type: 'object', properties: {} },
+    description: 'Lets the Mirror go still: forgets what Galadriel showed once her tests are committed. One still locked is kept, and so is one gazed for another issue than the one named. For Mount Doom.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'The issue whose vision to forget: a vision gazed for another is kept.' },
+        json: { type: 'boolean', description: 'Answer as JSON, `{ forgotten, text }`, for a mod that reads it.' },
+      },
+    },
   },
   {
     name: 'amend',
@@ -86,7 +99,7 @@ const within = async ($: $, path: string): Promise<string> => {
 const isLocked = async ($: $, held: LothlorienVision | null): Promise<boolean> => held !== null && held.state === 'shown' && (await git($, ['rev-parse', 'HEAD'])).out === held.head
 
 /** Sends Galadriel to gaze. Answers what was done, in a sentence. */
-const gaze = async ($: $, purpose: string, by: LothlorienVision['by']): Promise<string> => {
+const gaze = async ($: $, purpose: string, by: LothlorienVision['by'], ref = '', weight = 'heavy'): Promise<string> => {
   if (purpose.trim() === '') return 'Say what is to come: the behaviour, and how to tell it is done.'
 
   const held = await read($, vision)
@@ -94,11 +107,11 @@ const gaze = async ($: $, purpose: string, by: LothlorienVision['by']): Promise<
   if (held?.state === 'gazing') return 'Galadriel is gazing already: wait for what the Mirror shows.'
 
   const head = (await git($, ['rev-parse', 'HEAD'])).out
-  const started = await $.agent.spawn({ subagentType: AGENT_TYPE, description: 'Galadriel gazes into the Mirror', prompt: gazePrompt(purpose) }).catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
+  const started = await $.agent.spawn({ subagentType: weight === 'heavy' ? AGENT_TYPE : SWIFT_TYPE, description: 'Galadriel gazes into the Mirror', prompt: gazePrompt(purpose) }).catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) return `Galadriel could not be sent: ${started.deny}`
 
-  await update($, vision, (): LothlorienVision => ({ purpose: purpose.trim(), by, agentId: started.agentId ?? '', state: 'gazing', head, tests: [], red: '', why: '', blocks: [], amendments: [], at: Date.now() }))
+  await update($, vision, (): LothlorienVision => ({ purpose: purpose.trim(), ...(ref !== '' ? { ref } : {}), by, agentId: started.agentId ?? '', state: 'gazing', head, tests: [], red: '', why: '', blocks: [], amendments: [], at: Date.now() }))
   await update($, note, () => '')
 
   return 'Galadriel gazes into the Mirror: she writes the tests of what is to come and shows them red. mcp__lothlorien__mirror says what she showed.'
@@ -150,7 +163,7 @@ const behold = async ($: $, held: LothlorienVision, answer: string, ended: strin
 const isGaladriel = async ($: $, held: LothlorienVision | null, agentId: string): Promise<boolean> => {
   if (held === null || held.state !== 'gazing') return false
 
-  return held.agentId !== '' ? agentId === held.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && one.type === AGENT_TYPE && one.status === 'running')
+  return held.agentId !== '' ? agentId === held.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && (one.type === AGENT_TYPE || one.type === SWIFT_TYPE) && one.status === 'running')
 }
 
 /** Who is changing her tests, for the record: the agent's type, else the session itself. */
@@ -160,6 +173,18 @@ const whoIs = async ($: $, agentId: string | undefined): Promise<string> => {
   const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
 
   return agent?.type ?? agentId
+}
+
+/** What was taken out of her locked tests with no reason given, while they are locked: an edit the lock did not see. */
+const tampered = async ($: $, held: LothlorienVision | null): Promise<{ file: string; lines: string[] }[]> => {
+  if (held === null || !(await isLocked($, held))) return []
+
+  const root = await rootOf($)
+  const files = []
+
+  for (const file of [...new Set(held.blocks.map(block => block.file))]) files.push({ file, text: String(await $.fs.read(`${root}/${file}`).catch(() => '')) })
+
+  return tamperedWith(held.blocks, held.amendments, files)
 }
 
 /** Unlocks a file of hers for a change, keeping why. */
@@ -200,18 +225,20 @@ const sectionText = (held: LothlorienVision): string =>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'mirror', description: 'Galadriel writes the failing tests of what is to come: /mirror <the behaviour>; /mirror alone shows what the Mirror holds' })
-    await $.agent
-      .register({
-        name: AGENT,
-        description: 'Galadriel: writes the failing tests of a behaviour before it is built, and only tests. Sent by the Lothlórien mod alone.',
-        prompt: GALADRIEL_SYSTEM,
-        tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'],
-        permissionMode: 'acceptEdits',
-        disallowedTools: ['Agent', 'NotebookEdit'],
-        model: GALADRIEL_MODEL,
-        effort: GALADRIEL_EFFORT,
-      })
-      .catch(() => undefined)
+    for (const [name, model] of [[AGENT, GALADRIEL_MODEL], [SWIFT, GALADRIEL_SWIFT_MODEL]] as const) {
+      await $.agent
+        .register({
+          name,
+          description: 'Galadriel: writes the failing tests of a behaviour before it is built, and only tests. Sent by the Lothlórien mod alone.',
+          prompt: GALADRIEL_SYSTEM,
+          tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'],
+          permissionMode: 'acceptEdits',
+          disallowedTools: ['Agent', 'NotebookEdit'],
+          model,
+          effort: GALADRIEL_EFFORT,
+        })
+        .catch(() => undefined)
+    }
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
@@ -224,6 +251,7 @@ export const register: Register = on => {
 
   // Galadriel is sent by the mod, never through the Agent tool
   on('agent.offer', { agent: AGENT_TYPE }, () => ({ isOffered: false }))
+  on('agent.offer', { agent: SWIFT_TYPE }, () => ({ isOffered: false }))
 
   // Her turn has ended: what she wrote is what the Mirror shows
   on('turn.complete', async ($, e, next) => {
@@ -268,24 +296,34 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__lothlorien__pane' }, $ => view.answer(() => $.ui.panes()))
 
-  on('tool.call', { tool: 'mcp__lothlorien__gaze' }, async ($, e) => ({ result: await gaze($, String((e as unknown as { purpose?: unknown }).purpose ?? ''), 'tool') }))
+  on('tool.call', { tool: 'mcp__lothlorien__gaze' }, async ($, e) => {
+    const given = e as unknown as { purpose?: unknown; ref?: unknown; weight?: unknown }
+
+    return { result: await gaze($, String(given.purpose ?? ''), 'tool', typeof given.ref === 'string' ? given.ref : '', given.weight === 'light' || given.weight === 'standard' ? given.weight : 'heavy') }
+  })
 
   on('tool.call', { tool: 'mcp__lothlorien__mirror' }, async ($, e) => {
     const held = await read($, vision)
     const locked = await isLocked($, held)
 
-    return { result: (e as unknown as { json?: unknown }).json === true ? visionJson(held, locked) : held === null ? HOW_TO : visionText(held, locked) }
+    const taken = await tampered($, held)
+
+    return { result: (e as unknown as { json?: unknown }).json === true ? visionJson(held, locked, taken) : held === null ? HOW_TO : visionText(held, locked, taken) }
   })
 
-  on('tool.call', { tool: 'mcp__lothlorien__forget' }, async $ => {
+  on('tool.call', { tool: 'mcp__lothlorien__forget' }, async ($, e) => {
+    const given = e as unknown as { ref?: unknown; json?: unknown }
+    const ref = typeof given.ref === 'string' ? given.ref : ''
+    const answer = (forgotten: boolean, text: string) => ({ result: given.json === true ? JSON.stringify({ forgotten, text }) : text })
     const held = await read($, vision)
 
-    if (held === null) return { result: 'The Mirror is still.' }
-    if (held.state === 'gazing' || (await isLocked($, held))) return { result: 'Galadriel\'s tests are not committed yet: the Mirror keeps them.' }
+    if (held === null) return answer(false, 'The Mirror is still.')
+    if (ref !== '' && held.ref !== undefined && held.ref !== ref) return answer(false, `The Mirror holds the vision of ${held.ref}, not of ${ref}: it is kept.`)
+    if (held.state === 'gazing' || (await isLocked($, held))) return answer(false, 'Galadriel\'s tests are not committed yet: the Mirror keeps them.')
 
     await update($, vision, () => null)
 
-    return { result: 'The Mirror is still.' }
+    return answer(true, 'The Mirror is still.')
   })
 
   on('tool.call', { tool: 'mcp__lothlorien__amend' }, async ($, e) => {

@@ -57,7 +57,15 @@ const TOOLS = [
   {
     name: 'forget',
     description: 'Closes the gate once its pull request is merged, which the forge is asked; one not merged is kept. For Mount Doom.',
-    inputSchema: { type: 'object', properties: { ref: { type: 'string' }, pr: { type: 'string', description: 'The merged pull request, by its URL.' } }, required: ['ref', 'pr'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        pr: { type: 'string', description: 'The merged pull request, by its URL.' },
+        json: { type: 'boolean', description: 'Answer as JSON, `{ forgotten, text }`, for a mod that reads it.' },
+      },
+      required: ['ref', 'pr'],
+    },
   },
   {
     name: 'gate',
@@ -209,6 +217,8 @@ const send = async ($: $, comment: BlackgateComment, attempt: number, retry?: { 
   if (held === null) return
 
   const member = memberFor(comment, attempt, await targetsOf($), held.comments.indexOf(comment))
+  // A comment sent again keeps HEAD as it was when it was first sent: a commit made past the proof since stays one
+  const head = held.march !== null && held.march.commentId === comment.id && held.march.head !== undefined && held.march.head !== '' ? held.march.head : (await git($, ['rev-parse', 'HEAD'])).out
   const started = await $.agent
     .spawn({ subagentType: `fellowship:${member}`, description: `${member}: a review comment on ${held.pr.repo}#${held.pr.number}`, prompt: marchPrompt(held.pr, comment, retry) })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
@@ -219,7 +229,7 @@ const send = async ($: $, comment: BlackgateComment, attempt: number, retry?: { 
     return
   }
 
-  await keep($, was => ({ ...setComment(comment.id, one => ({ ...one, state: 'doing' }))(was), phase: 'marching', verdictLine: '', march: { commentId: comment.id, member, agentId: started.agentId ?? '', attempt, answer: '', at: Date.now() } }))
+  await keep($, was => ({ ...setComment(comment.id, one => ({ ...one, state: 'doing' }))(was), phase: 'marching', verdictLine: '', march: { commentId: comment.id, member, agentId: started.agentId ?? '', attempt, answer: '', at: Date.now(), head } }))
 }
 
 /** Sends a member on the next comment that asks for a change, or finds every one answered. */
@@ -254,6 +264,27 @@ const again = async ($: $, why: { proof?: string; findings?: string[] }, line: s
   await tell($, `${comment.author}'s comment is stuck: ${line}`)
 }
 
+/**
+ * Why the change in the tree cannot be taken as the answer: HEAD moved since the comment was first sent, so a commit
+ * was made past the proof and the statues. Nothing when it did not.
+ */
+const headMoved = async ($: $, held: BlackgateGate): Promise<string | undefined> => {
+  const head = held.march?.head
+
+  if (head === undefined || head === '') return undefined
+
+  const now = (await git($, ['rev-parse', 'HEAD'])).out
+
+  return now === head ? undefined : `HEAD moved from ${head.slice(0, 7)} to ${now.slice(0, 7)} while the comment was answered: a commit was made past the Argonath's proof and its statues. Put it back as uncommitted work (git reset --soft ${head.slice(0, 7)}), then march again.`
+}
+
+/** Stops the gate on a comment for the person, saying why. */
+const stop = async ($: $, comment: BlackgateComment, why: string): Promise<void> => {
+  await keep($, was => ({ ...setComment(comment.id, one => ({ ...one, state: 'stuck', note: why }))(was), phase: 'stuck' }))
+  await update($, note, () => why)
+  await tell($, `${comment.author}'s comment is stuck: ${why}`)
+}
+
 /** Proves what the member built: settled, the statues judge it; else a rung up. */
 const prove = async ($: $): Promise<void> => {
   const held = await read($, gate)
@@ -261,15 +292,21 @@ const prove = async ($: $): Promise<void> => {
 
   if (held === null || held.phase !== 'proving' || comment === undefined) return
 
+  const moved = await headMoved($, held)
+
+  if (moved !== undefined) return stop($, comment, moved)
+
   await update($, working, () => `Argonath proves the answer to ${comment.author}'s comment…`)
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
-  const proof = await ask($, 'argonath', 'prove', { owe: false })
-  const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
+  const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
+  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, text: proof.text } : proofVerdict(proof.text)
 
-  await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
+  await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line }))
 
-  if (!verdict.isSettled) return again($, { proof: proof.text }, verdict.line)
+  // Argonath could not look at what the change reached: no member mends that
+  if (verdict.isUnlooked) return stop($, comment, `${verdict.line}. Set the target right in .claude/argonath, then march again.`)
+  if (!verdict.isSettled) return again($, { proof: verdict.text }, verdict.line)
 
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: 'judging' }))
   await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about: purposeOf(held.pr, comment) })).text))
@@ -300,6 +337,11 @@ const commit = async ($: $, minor: readonly string[]): Promise<void> => {
   const comment = held?.comments.find(one => one.id === out?.commentId)
 
   if (held === null || out === null || out === undefined || comment === undefined) return
+
+  // The statues judged the answer against HEAD as the comment was sent: a commit made since was judged by no one
+  const moved = await headMoved($, held)
+
+  if (moved !== undefined) return stop($, comment, moved)
 
   let sha = ''
 
@@ -461,15 +503,16 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__blackgate__forget' }, async ($, e) => {
-    const given = e as unknown as { pr?: unknown }
+    const given = e as unknown as { pr?: unknown; json?: unknown }
+    const answer = (forgotten: boolean, text: string) => ({ result: given.json === true ? JSON.stringify({ forgotten, text }) : text })
     const held = await read($, gate)
 
-    if (held === null || held.pr.url !== given.pr) return { result: 'No gate is open on that pull request.' }
-    if (!(await isMergedFrom($, held.pr.url, held.pr.branch))) return { result: `${held.pr.url} is not merged: the gate stays open.` }
+    if (held === null || held.pr.url !== given.pr) return answer(false, 'No gate is open on that pull request.')
+    if (!(await isMergedFrom($, held.pr.url, held.pr.branch))) return answer(false, `${held.pr.url} is not merged: the gate stays open.`)
 
     await update($, gate, () => null)
 
-    return { result: `The gate on ${held.pr.repo}#${held.pr.number} is closed.` }
+    return answer(true, `The gate on ${held.pr.repo}#${held.pr.number} is closed.`)
   })
 
   on('tool.call', { tool: 'mcp__blackgate__gate' }, async $ => {
