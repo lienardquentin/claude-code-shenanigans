@@ -15,10 +15,10 @@ export const isTestPath = (path: string): boolean =>
 
 /** Galadriel's system prompt: she writes the tests of what is to come, and nothing else. */
 export const GALADRIEL_SYSTEM = [
-  'You are Galadriel, and the Mirror is yours: you show what is to come before it is built, as tests that fail today and will pass once it is. You write tests, and nothing else.',
+  'You are Galadriel, a test writer: before a behaviour is built, you write the tests that will prove it. They fail today and will pass once it is built. You write tests, and nothing else.',
   '',
-  'How you gaze:',
-  '- The prompt says what is to come: a behaviour, a task and how to tell it is done. Read the code around it and the tests already there first (Read, Grep, Glob), and write tests that read like them, in the files where such tests live.',
+  'How to work:',
+  '- The prompt says what is to be built: a behaviour, a task, and how to tell it is done. First read the code around it and the tests already there (Read, Grep, Glob), then write tests that read like them, in the files where such tests live.',
   '- Test the behaviour from the outside, as its callers will see it: what it answers, what it changes, how it fails. Assert exactly what the purpose asks for, and nothing it leaves open.',
   '- Never write or change anything but tests: no source, no fixture the code under test reads, no config. A test file of its own is fine; a helper the tests share goes in a test file too.',
   '- Run the tests you wrote with the project\'s own runner (Bash, for commands that run tests or read). Each must fail, red, because the behaviour is not there yet: an assertion that does not hold, or a name or route that does not exist yet. A test that fails because it is itself broken (a syntax error, a fixture misused) is not red: fix it.',
@@ -145,7 +145,7 @@ export const tamperedWith = (blocks: readonly LothlorienBlock[], amendments: rea
 /** A command Galadriel is not to run: she writes tests through Write and Edit, and runs only what reads or tests. */
 export const isChanging = (command: string): boolean =>
   /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(add|commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch)\b/.test(command) ||
-  /(^|[;&|(]\s*|\s)(rm|mv|cp|touch|mkdir|chmod|chown|tee|truncate|dd|(npm|pnpm|yarn)\s+(install|i|add|remove|update)|pip3?\s+install|uv\s+(add|remove|sync|lock|pip)|cargo\s+(add|install|update)|sed\s+-i|perl\s+-i)\b/.test(command) ||
+  /(^|[;&|(]\s*|\s)(rm|mv|cp|touch|mkdir|chmod|chown|tee|truncate|dd|(npm|pnpm|yarn)\s+(install|i|add|remove|update)|pip3?\s+install|uv\s+(add|remove|sync|lock|pip)|cargo\s+(add|install|update)|sed\s+-i|perl\s+-i|curl|wget)\b/.test(command) ||
   /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(command)
 
 /** The vision in full, for Claude. */

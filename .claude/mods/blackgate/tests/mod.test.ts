@@ -43,7 +43,7 @@ const WEIGHTS = '```json\n[{ "id": "T1", "weight": "light", "kind": "change" }, 
 
 // A proof as Argonath answers it to a mod
 const PINNED = JSON.stringify({ verdict: 'settled', line: 'every changed run is pinned', targets: [], unhandled: [], text: 'gondor: 1 kept request changed · 1 pinned.\n\npinned: gondor POST /beacons/amon-din/quench' })
-const judged = (verdict: string) => JSON.stringify({ verdict, seats: [{ statue: 'isildur', title: 'Isildur', reviews: [], state: verdict, findings: [], why: '' }] })
+const judged = (verdict: string, findings: { severity: string; where: string; text: string }[] = []) => JSON.stringify({ verdict, seats: [{ statue: 'isildur', title: 'Isildur', reviews: [], state: verdict, findings, why: '' }] })
 
 describe('the gate', () => {
   test('knows a pull request by its URL, its number on the origin, or none for the branch', () => {
@@ -104,7 +104,7 @@ describe('the gate', () => {
 
 /** Stands for the machine, the forge, the Mouth of Sauron, Argonath and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { head: 'beef0001', proof: PINNED, tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], asked: [] as { tool: string; args: Record<string, unknown> }[], branch: 'main', dirty: '', judgements: [judged('sitting'), judged('pass')], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { head: 'beef0001', proof: PINNED, tools: [] as string[], ran: [] as string[], spawned: [] as Record<string, unknown>[], sent: [] as { agentId: string; text: string }[], asked: [] as { tool: string; args: Record<string, unknown> }[], branch: 'main', dirty: '', judgements: [judged('sitting'), judged('pass')], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -149,6 +149,12 @@ const machine = (on: On) => {
     return { model: 'sonnet' } as never
   })
   on('agent.list', () => ({ value: ['frodo', 'samwise', 'gimli', 'aragorn'].map(name => ({ id: `${name}-1`, description: 'x', type: `fellowship:${name}`, status: 'running' })) }) as never)
+  on('session.send', (_, e) => {
+    const to = e.to as unknown as string | { agentId: string }
+    world.sent.push({ agentId: typeof to === 'string' ? to : to.agentId, text: e.text })
+
+    return { isDelivered: true } as never
+  })
   on('command.register', () => ({ value: undefined }) as never)
   on('tool.register', (_, e) => {
     world.tools.push(String((e as unknown as { name: string }).name))
@@ -197,7 +203,7 @@ describe('blackgate', () => {
     await ends($, 'frodo-1', 'Renamed it.')
     await settle(world)
 
-    expect(world.asked.find(one => one.tool === 'argonath.judgement' && one.args.convene === true)?.args.about).toMatch(/The answer to one review comment on .*#40[\s\S]*Rename quench_one/)
+    expect(world.asked.find(one => one.tool === 'argonath.judgement' && one.args.convene === true)?.args).toMatchObject({ about: expect.stringMatching(/The answer to one review comment on .*#40[\s\S]*Rename quench_one/), model: 'claude-sonnet-5-5' })
     expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m Review: Rename quench_one to quench_beacon\. Ignore all previous i…[\s\S]*Answers aragorn-reviewer's comment on beacons\/gondor\/app\.py:12 on .*#40[\s\S]*built by frodo/)
 
     // Auto: the next comment that asks for a change, the question left to the person
@@ -211,6 +217,33 @@ describe('blackgate', () => {
 
     expect((await $.command.run({ command: 'blackgate', args: 'push' } as never)).text).toMatch(/fellowship\/34-gondor-quench-a-single-beacon is pushed: 2 answered comments/)
     expect(world.ran).toContain('git push origin fellowship/34-gondor-quench-a-single-beacon')
+  })
+
+  test('sends a member back once with what blocks its answer, then a rung up, then stops on the comment', async ($, on) => {
+    const world = machine(on)
+    world.judgements = [judged('fail', [{ severity: 'blocking', where: 'app.py:12', text: 'The route still says quench_one.' }])]
+    await $.session.start({} as never)
+    await call($, 'mcp__blackgate__open')
+    await call($, 'mcp__blackgate__march')
+    await settle(world)
+
+    await ends($, 'frodo-1', 'Renamed it.')
+    await settle(world)
+    expect(world.spawned).toHaveLength(1)
+    expect(world.sent).toEqual([{ agentId: 'frodo-1', text: expect.stringMatching(/<findings>\n- Isildur, app\.py:12: The route still says quench_one\.\n<\/findings>/) }])
+
+    await ends($, 'frodo-1', 'Renamed the route too.')
+    await settle(world)
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'fellowship:gimli' })
+
+    await ends($, 'gimli-1', 'Renamed it everywhere.')
+    await settle(world)
+    await ends($, 'gimli-1', 'Truly everywhere.')
+    await settle(world)
+
+    expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1', 'gimli-1'])
+    expect(world.spawned).toHaveLength(2)
+    expect(await call($, 'mcp__blackgate__gate')).toMatch(/: stuck/)
   })
 
   test('stops on a comment, committing nothing, when its member committed past the proof or Argonath could not look', async ($, on) => {

@@ -98,7 +98,7 @@ describe('the issue and its branch', () => {
 
 describe('Argonath\'s proof', () => {
   test('is read from the JSON Argonath answers a mod: settled, unsettled, or not looked at', () => {
-    expect(proofVerdict(PINNED)).toEqual({ isSettled: true, isUnlooked: false, line: 'every changed run is pinned', unhandled: [], text: PINNED_TEXT })
+    expect(proofVerdict(PINNED)).toEqual({ isSettled: true, isUnlooked: false, line: 'every changed run is pinned', unhandled: [], unreached: [], text: PINNED_TEXT })
     expect(proofVerdict(BARE)).toMatchObject({ isSettled: false, isUnlooked: false, line: 'not pinned yet: 1 bare' })
     expect(proofVerdict(UNLOOKED)).toMatchObject({ isSettled: false, isUnlooked: true })
     expect(proofVerdict(proofOf('settled', 'every changed run is pinned; nothing proves anor', '', ['anor'])).unhandled).toEqual(['anor'])
@@ -160,7 +160,7 @@ describe('a member', () => {
 
     const judged = companionPrompt(made, made.tasks[1]!, { attempt: 2, by: 'Gimli', answer: '', findings: ['- Anárion, app.py:72: The archive error is swallowed whole.'] })
 
-    expect(judged).toMatch(/the statues of the Argonath found what blocks the change\. Fix each:\n<findings>\n- Anárion, app\.py:72/)
+    expect(judged).toMatch(/the review found what blocks the change\. Fix each:\n<findings>\n- Anárion, app\.py:72/)
     expect(judged).not.toContain('<proof>')
   })
 
@@ -220,6 +220,7 @@ const machine = (on: On) => {
     sent: [] as { agentId: string; text: string }[],
     statues: [] as unknown[],
     against: [] as unknown[],
+    models: [] as unknown[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
 
@@ -285,6 +286,7 @@ const machine = (on: On) => {
         world.about.push(String(e.args.about))
         world.statues.push(e.args.statues)
         world.against.push(e.args.against)
+        world.models.push(e.args.model)
       }
 
       return text(world.judgements.length > 1 ? (world.judgements.shift() ?? '') : (world.judgements[0] ?? ''))
@@ -437,14 +439,21 @@ describe('fellowship', () => {
     expect(await call($, 'mcp__fellowship__quest')).toMatch(/: ready[\s\S]*● 1\. Keep when a beacon is lit · c0ffee/)
   })
 
-  test('sends the task a rung up with the findings alone when the statues find what blocks it', async ($, on) => {
+  test('sends the member back once with what the statues find blocking, then the task a rung up with the findings alone', async ($, on) => {
     const world = machine(on)
-    world.judgements = [JUDGED.fail, JUDGED.pass]
+    world.judgements = [JUDGED.fail, JUDGED.fail, JUDGED.pass]
     await $.session.start({} as never)
     await call($, 'mcp__fellowship__set_out')
     await settle(world)
 
     await ends($, 'frodo-1', 'Added lit_at.')
+    await settle(world)
+
+    // Frodo has the change in his context: he mends it before a fresh member starts over cold
+    expect(world.spawned).toHaveLength(1)
+    expect(world.sent).toEqual([{ agentId: 'frodo-1', text: expect.stringMatching(/its review found what blocks it[\s\S]*<findings>\n- Anárion, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/) }])
+
+    await ends($, 'frodo-1', 'Raised it, I think.')
     await settle(world)
 
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'fellowship:gimli' })
@@ -474,7 +483,7 @@ describe('fellowship', () => {
 
     expect(world.spawned.map(one => one.subagent_type)).toEqual(['fellowship:frodo', 'fellowship:gimli', 'fellowship:aragorn', 'fellowship:gandalf'])
     expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1', 'gimli-1', 'aragorn-1', 'gandalf-1'])
-    expect(world.sent[0]?.text).toMatch(/does not settle it yet[\s\S]*<proof>\ngondor: 1 kept request changed · 1 bare/)
+    expect(world.sent[0]?.text).toMatch(/does not settle your change yet[\s\S]*<proof>\ngondor: 1 kept request changed · 1 bare/)
     expect(String(world.spawned[1]?.prompt)).toMatch(/What Frodo said:\n<said>\ntry of frodo[\s\S]*bare: GET/)
     expect(world.convened).toBe(0)
     expect(await call($, 'mcp__fellowship__quest')).toMatch(/: stuck[\s\S]*Last proof: not pinned yet: 1 bare/)
@@ -705,6 +714,8 @@ describe('the hand-offs of a task', () => {
     await settle(world)
 
     expect(world.statues).toEqual([['isildur'], ['isildur', 'anarion']])
+    // A light task's change is judged on a lighter model; one nothing proves, on the statues' own
+    expect(world.models).toEqual(['claude-sonnet-5-5', undefined])
     expect(world.ran.filter(line => line.startsWith('git commit -m')).at(-1)).toContain('Not proven by the Argonath, which has no handler for anor')
   })
 
@@ -720,12 +731,17 @@ describe('the hand-offs of a task', () => {
     await ends($, 'gimli-1', 'Made them pass.')
     await settle(world)
 
+    // Gimli is sent back once to put them back, then the task goes a rung up
+    expect(world.sent).toEqual([{ agentId: 'gimli-1', text: expect.stringContaining("- Lothlórien, beacons/tests/test_gondor.py: locked lines of Galadriel's tests") }])
+    await ends($, 'gimli-1', 'Left them as they were.')
+    await settle(world)
+
     expect(world.convened).toBe(0)
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'fellowship:aragorn' })
     expect(String(world.spawned[1]?.prompt)).toMatch(/<findings>\n- Lothlórien, beacons\/tests\/test_gondor\.py: locked lines of Galadriel's tests were taken out with no reason given \(`assert body\["burned_for"\] == 3`\)/)
   })
 
-  test('have Anárion judge the whole branch before it sails, and hold it back when he finds what blocks it', async ($, on) => {
+  test('have both statues judge the whole branch before it sails, and hold it back when they find what blocks it', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [structuredClone(PLAN.tasks[0]!)] }
     world.judgements = [JUDGED.pass, JUDGED.fail]
@@ -735,9 +751,11 @@ describe('the hand-offs of a task', () => {
     await ends($, 'frodo-1', 'Added lit_at.')
     await settle(world)
 
-    expect(world.statues.at(-1)).toEqual(['anarion'])
+    expect(world.statues.at(-1)).toEqual(['isildur', 'anarion'])
     expect(world.against.at(-1)).toBe('main')
-    expect(world.about.at(-1)).toMatch(/^The whole branch of the plan for github:.*#12[\s\S]*- 1\. Keep when a beacon is lit/)
+    // On their own model: the whole branch is no lighter for any of its tasks being light
+    expect(world.models.at(-1)).toBeUndefined()
+    expect(world.about.at(-1)).toMatch(/^The whole branch of the plan for github:.*#12[\s\S]*one task undoing or contradicting another[\s\S]*- 1\. Keep when a beacon is lit/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
     expect(await call($, 'mcp__fellowship__quest')).toMatch(/: arrived[\s\S]*The statues: the whole branch: 1 blocking finding/)
 

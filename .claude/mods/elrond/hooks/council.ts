@@ -469,14 +469,21 @@ const sameQuestion = (one: string, other: string): boolean => {
 export const decidedOf = (plan: ElrondPlan): ElrondDecision[] =>
   [...plan.decided, ...answersOf(plan)].reduce<ElrondDecision[]>((all, one) => [...all.filter(held => !sameQuestion(held.text, one.text)), one], [])
 
-/** A plan the council made, keeping what the person decided before it; a question it asks again of those is not asked. */
-export const withDecided = (made: ElrondPlan, decided: readonly ElrondDecision[], accepted: readonly string[] = []): ElrondPlan => ({
-  ...made,
-  decided: [...decided],
-  questions: made.questions.filter(question => !decided.some(held => sameQuestion(held.text, question.text))),
-  accepted: [...accepted],
-  risks: made.risks.filter(risk => !accepted.some(held => sameQuestion(held, risk.text))),
-})
+/**
+ * A plan the council made, keeping what the person decided before it; a question it asks again of those is not asked.
+ * A low risk is accepted as it comes, a nuisance no one need decide: the person takes it back from the pane if it is not.
+ */
+export const withDecided = (made: ElrondPlan, decided: readonly ElrondDecision[], accepted: readonly string[] = []): ElrondPlan => {
+  const open = made.risks.filter(risk => !accepted.some(held => sameQuestion(held, risk.text)))
+
+  return {
+    ...made,
+    decided: [...decided],
+    questions: made.questions.filter(question => !decided.some(held => sameQuestion(held.text, question.text))),
+    accepted: [...accepted, ...open.filter(risk => risk.severity === 'low').map(risk => risk.text)],
+    risks: open.filter(risk => risk.severity !== 'low'),
+  }
+}
 
 /** A decision taken back: open again as a question, its answer offered first. */
 export const reopened = (plan: ElrondPlan, index: number): ElrondPlan => {

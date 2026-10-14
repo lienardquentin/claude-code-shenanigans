@@ -143,13 +143,15 @@ export type ArgonathJudgement = {
 /**
  * Where one target stands in a proof, for a mod that reads it as JSON:
  * - `pinned`: every changed run is pinned, and no test turned
- * - `unchanged`: no kept run changed
+ * - `unchanged`: no kept run changed, and the change did not reach its folders
+ * - `unreached`: the change reached its folders, but no kept run answers otherwise: a refactor, or behaviour no kept
+ *   run reaches, which only the statues are left to tell apart
  * - `unsettled`: a changed run is not pinned yet, or a test turned
  * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, anduril did not answer)
  * - `unhandled`: the change reached its folders, and Argonath has no handler for its kind: nothing is proved of it
  * - `untouched`: the change did not reach its folders, and its handler could not look either
  */
-export type ArgonathProofState = 'pinned' | 'unchanged' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
+export type ArgonathProofState = 'pinned' | 'unchanged' | 'unreached' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
 
 declare module 'claude-code' {
   interface PluginState {

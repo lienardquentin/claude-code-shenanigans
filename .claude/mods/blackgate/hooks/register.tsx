@@ -2,25 +2,13 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BlackgateComment, BlackgateGate, BlackgatePhase, BlackgateWanted } from '../types'
-import { ASKS, HOW_TO, MAX_TRIES, WEIGHER_MODEL, commentLine, commitMessage, gateText, isForbiddenGit, isModPath, marchPrompt, memberFor, parseGithub, parseGitlab, parseJudgement, parsePrRef, parseRemote, parseWeights, proofVerdict, purposeOf, readArgv, weighPrompt } from './gate'
-import type { Target } from './gate'
+import { ASKS, HOW_TO, MAX_TRIES, WEIGHER_MODEL, commentLine, commitMessage, gateText, marchPrompt, memberFor, parseGithub, parseGitlab, parsePrRef, parseRemote, parseWeights, purposeOf, readArgv, statueModelFor, weighPrompt } from './gate'
+import { ask, errorText, git, isForbiddenGit, isMergedFrom, isModPath, parseJudgement, proofVerdict, rootOf, run, sendBack, sendBackPrompt, targetsOf } from './kit/flow'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
-
-/**
- * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself.
- */
-const rootOf = async ($: $): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
-  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
-  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
-
-  return found !== '' ? found : cwd
-}
 
 const PANE = 'blackgate'
 const TITLE = 'Black Gate'
@@ -76,48 +64,6 @@ const TOOLS = [
 
 const PHASE_TONE: Record<BlackgatePhase, Tone> = { weighing: 'info', ready: 'neutral', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', done: 'success' }
 
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-const ask = async ($: $, server: string, tool: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
-  try {
-    const got = await $.mcp.call(server, tool, args)
-
-    return { text: got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n'), isError: got.isError }
-  } catch (error) {
-    return { text: `${server} did not answer ${tool}: ${errorText(error)}`, isError: true }
-  }
-}
-
-const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(argv, { cwd: await rootOf($), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
-}
-
-const git = ($: $, args: readonly string[]) => run($, ['git', ...args])
-
-/**
- * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
- * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
- */
-const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
-  if (!/^https?:\/\//.test(url)) return false
-
-  const isGithub = /\/\/github\.com\//.test(url)
-  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
-
-  if (ran === undefined || ran.exitCode !== 0) return false
-
-  try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-    const from = isGithub ? held.headRefName : held.source_branch
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
-  } catch {
-    return false
-  }
-}
-
 const keep = async ($: $, change: (was: BlackgateGate) => BlackgateGate): Promise<void> => {
   await update($, gate, was => (was === null ? was : change(was)))
 }
@@ -141,7 +87,7 @@ const open = async ($: $, input: string): Promise<string> => {
   if (named === 'current') {
     if (origin === undefined) return 'The origin remote could not be read: name the pull request by its URL.'
 
-    const viewed = await run($, origin.forge === 'github' ? ['gh', 'pr', 'view', '--json', 'number'] : ['glab', 'mr', 'view', '--output', 'json'])
+    const viewed = await run($, origin.forge === 'github' ? ['gh', 'pr', 'view', '--json', 'number'] : ['glab', 'mr', 'view', '--output', 'json'], FORGE_TIMEOUT_MS)
     const number = viewed.ok ? Number((JSON.parse(viewed.out) as { number?: unknown; iid?: unknown }).number ?? (JSON.parse(viewed.out) as { iid?: unknown }).iid) : NaN
 
     if (!Number.isInteger(number)) return `This branch has no open pull request that ${origin.forge === 'github' ? 'gh' : 'glab'} knows of: name one.`
@@ -157,7 +103,7 @@ const open = async ($: $, input: string): Promise<string> => {
   const answers: string[] = []
 
   for (const one of argv) {
-    const got = await run($, one)
+    const got = await run($, one, FORGE_TIMEOUT_MS)
 
     if (!got.ok) return `${one[0] ?? ''} could not read ${named.repo}#${named.number}: ${got.out.split('\n').slice(-1)[0] ?? ''}`
     answers.push(got.out)
@@ -172,7 +118,7 @@ const open = async ($: $, input: string): Promise<string> => {
   if (current !== parsed.pr.branch) {
     if ((await git($, ['status', '--porcelain'])).out !== '') return `The working tree has uncommitted changes: commit or stash them, then open the gate. Its answers are committed on ${parsed.pr.branch}.`
 
-    await git($, ['fetch', 'origin', parsed.pr.branch])
+    await run($, ['git', 'fetch', 'origin', parsed.pr.branch], FORGE_TIMEOUT_MS)
 
     const switched = await git($, ['switch', parsed.pr.branch])
 
@@ -197,17 +143,6 @@ const open = async ($: $, input: string): Promise<string> => {
   const questions = comments.length - changes
 
   return `The Black Gate opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person. /blackgate march sends the members.`}`
-}
-
-/** What the project builds, as Argonath answers it: a member is chosen by the target a comment's file is in. */
-const targetsOf = async ($: $): Promise<Target[]> => {
-  const got = await ask($, 'argonath', 'targets')
-
-  try {
-    return got.isError ? [] : (JSON.parse(got.text) as Target[])
-  } catch {
-    return []
-  }
 }
 
 /** Sends a member on a comment, on a try. */
@@ -251,13 +186,24 @@ const sendNext = async ($: $): Promise<void> => {
   await send($, { ...next, state: 'todo' }, 1)
 }
 
-/** A try that did not pass: a rung up with what stopped it, or, its tries spent, stopped for the person. */
+/**
+ * A try that did not pass: its member sent back once with what stopped it, its work still in its context; then a rung
+ * up, or, its tries spent, stopped for the person.
+ */
 const again = async ($: $, why: { proof?: string; findings?: string[] }, line: string): Promise<void> => {
   const held = await read($, gate)
   const out = held?.march
   const comment = held?.comments.find(one => one.id === out?.commentId)
 
   if (held === null || out === null || out === undefined || comment === undefined) return
+
+  if (out.isResumed !== true && (await sendBack($, out.agentId, `fellowship:${out.member}`, sendBackPrompt(why)))) {
+    await keep($, was => ({ ...was, phase: 'marching', verdictLine: '', march: { ...out, isResumed: true, answer: '' } }))
+    await update($, note, () => `${out.member} is sent back to ${comment.author}'s comment with ${why.findings !== undefined ? 'the findings' : 'the proof'}: ${line}`)
+
+    return
+  }
+
   if (out.attempt < MAX_TRIES) return send($, comment, out.attempt + 1, { by: out.member, answer: out.answer, ...why })
 
   await keep($, was => ({ ...setComment(comment.id, one => ({ ...one, state: 'stuck', note: line }))(was), phase: 'stuck' }))
@@ -300,7 +246,7 @@ const prove = async ($: $): Promise<void> => {
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
   const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
-  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, text: proof.text } : proofVerdict(proof.text)
+  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, unhandled: [] as string[], text: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line }))
 
@@ -308,8 +254,11 @@ const prove = async ($: $): Promise<void> => {
   if (verdict.isUnlooked) return stop($, comment, `${verdict.line}. Set the target right in .claude/argonath, then march again.`)
   if (!verdict.isSettled) return again($, { proof: verdict.text }, verdict.line)
 
+  // A comment that is not heavy is judged on a lighter model, unless nothing proves what its answer reached
+  const model = verdict.unhandled.length > 0 ? undefined : statueModelFor(comment)
+
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: 'judging' }))
-  await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about: purposeOf(held.pr, comment) })).text))
+  await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about: purposeOf(held.pr, comment), ...(model !== undefined ? { model } : {}) })).text))
 }
 
 /** What the statues' verdict comes to: committed when they pass the answer, a rung up when they find what blocks it. */
@@ -377,7 +326,7 @@ const push = async ($: $): Promise<string> => {
 
   await update($, working, () => `Pushing ${held.pr.branch}…`)
 
-  const pushed = await git($, ['push', 'origin', held.pr.branch])
+  const pushed = await run($, ['git', 'push', 'origin', held.pr.branch], FORGE_TIMEOUT_MS)
 
   return pushed.ok ? `${held.pr.branch} is pushed: ${held.comments.filter(one => one.state === 'done').length} answered ${held.comments.filter(one => one.state === 'done').length === 1 ? 'comment' : 'comments'} are on ${held.pr.url}.` : `${held.pr.branch} could not be pushed: ${held.pr.branch} may be behind its remote. ${pushed.out.split('\n').slice(-1)[0] ?? ''}`
 }

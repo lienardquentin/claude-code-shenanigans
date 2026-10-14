@@ -2,32 +2,19 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BombadilErrand, BombadilPhase, BombadilWanted } from '../types'
-import { BOMBADIL_EFFORT, BOMBADIL_MODEL, BOMBADIL_SYSTEM, HOW_TO, MAX_TRIES, NO_ERRAND, branchOf, issueOf, requestArgv, commitMessage, errandPrompt, errandText, isForbiddenGit, isModPath, parseJudgement, prBody, proofVerdict, purposeOf } from './errand'
+import { BOMBADIL_EFFORT, BOMBADIL_MODEL, BOMBADIL_SYSTEM, HOW_TO, MAX_TRIES, NO_ERRAND, branchOf, commitMessage, errandPrompt, errandText, prBody, purposeOf } from './errand'
+import { SWIFT_STATUE_MODEL, ask, errorText, git, isForbiddenGit, isMergedFrom, isModPath, issueOf, openRequest, parseJudgement, proofVerdict, requestArgv, rootOf, sendBack, sendBackPrompt } from './kit/flow'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
 
-/**
- * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself.
- */
-const rootOf = async ($: $): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
-  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
-  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
-
-  return found !== '' ? found : cwd
-}
-
 const PANE = 'bombadil'
 const TITLE = 'Bombadil'
 const AGENT = 'tom'
 const AGENT_TYPE = `bombadil:${AGENT}`
 const TICK_MS = 500
-// How long the forge is given to take a push or open a pull request
-const FORGE_TIMEOUT_MS = 120_000
 // How many ticks pass between two looks at Isildur's judgement
 const JUDGE_EVERY = 6
 
@@ -72,47 +59,6 @@ const TOOLS = [
 ] as const
 
 const PHASE_TONE: Record<BombadilPhase, Tone> = { singing: 'info', proving: 'info', judging: 'info', home: 'accent', stuck: 'danger', refused: 'warning', sailed: 'success' }
-
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-/** A tool of another mod, through the engine's MCP connection: its text, or why it did not answer. */
-const ask = async ($: $, server: string, tool: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
-  try {
-    const got = await $.mcp.call(server, tool, args)
-
-    return { text: got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n'), isError: got.isError }
-  } catch (error) {
-    return { text: `${server} did not answer ${tool}: ${errorText(error)}`, isError: true }
-  }
-}
-
-const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(['git', ...args], { cwd: await rootOf($) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
-}
-
-/**
- * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
- * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
- */
-const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
-  if (!/^https?:\/\//.test(url)) return false
-
-  const isGithub = /\/\/github\.com\//.test(url)
-  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
-
-  if (ran === undefined || ran.exitCode !== 0) return false
-
-  try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-    const from = isGithub ? held.headRefName : held.source_branch
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
-  } catch {
-    return false
-  }
-}
 
 const keep = async ($: $, change: (was: BombadilErrand) => BombadilErrand): Promise<void> => {
   await update($, errand, was => (was === null ? was : change(was)))
@@ -179,16 +125,27 @@ const send = async ($: $, tries: number, retry?: { answer: string; proof?: strin
     return `Bombadil could not be sent: ${started.deny}`
   }
 
-  await keep($, was => ({ ...was, phase: 'singing', tries, agentId: started.agentId ?? '', verdictLine: '' }))
+  await keep($, was => ({ ...was, phase: 'singing', tries, agentId: started.agentId ?? '', verdictLine: '', isResumed: false }))
 
   return undefined
 }
 
-/** A try that did not pass: sent again with what stopped it, or, his tries spent, stopped for the person. */
+/**
+ * A try that did not pass: sent back once with what stopped it, his work still in his context; then sent afresh, or,
+ * his tries spent, stopped for the person.
+ */
 const again = async ($: $, why: { proof?: string; findings?: string[] }, line: string): Promise<void> => {
   const held = await read($, errand)
 
   if (held === null) return
+
+  if (held.isResumed !== true && (await sendBack($, held.agentId, AGENT_TYPE, sendBackPrompt(why)))) {
+    await keep($, was => ({ ...was, phase: 'singing', isResumed: true, answer: '', verdictLine: '' }))
+    await update($, note, () => `Bombadil is sent back to ${held.ref} with ${why.findings !== undefined ? 'the findings' : 'the proof'}: ${line}`)
+
+    return
+  }
+
   if (held.tries < MAX_TRIES) {
     await send($, held.tries + 1, { answer: held.answer, ...why })
 
@@ -233,7 +190,7 @@ const prove = async ($: $): Promise<void> => {
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
   const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
-  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, text: proof.text } : proofVerdict(proof.text)
+  const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, unhandled: [] as string[], text: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line }))
 
@@ -243,7 +200,10 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `Isildur judges ${held.ref}…`)
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: 'judging' }))
-  await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about: purposeOf(held), statues: ['isildur'] })).text))
+  // An errand is small by what it is: Isildur judges it on a lighter model, unless nothing proves what it reached
+  const model = verdict.unhandled.length > 0 ? {} : { model: SWIFT_STATUE_MODEL }
+
+  await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about: purposeOf(held), statues: ['isildur'], ...model })).text))
 }
 
 /** What Isildur's verdict comes to: committed when he passes it, sent back when he finds what blocks it. */
@@ -307,22 +267,13 @@ const sail = async ($: $): Promise<string> => {
   if (held.phase === 'sailed') return `The pull request is open: ${held.pr}`
   if (held.phase !== 'home') return `The errand is ${held.phase}: it sails once it is committed.`
 
-  await update($, working, () => `Pushing ${held.branch}…`)
+  await update($, working, () => `Pushing ${held.branch} and opening the pull request…`)
 
-  const cwd = await rootOf($)
-  const failed = (error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) })
-  const pushed = await $.process.run(['git', 'push', '-u', 'origin', held.branch], { cwd, timeoutMs: FORGE_TIMEOUT_MS }).catch(failed)
+  const opened = await openRequest($, held.branch, requestArgv({ forge: issueOf(held.ref)?.forge ?? 'github', branch: held.branch, base: held.base, title: held.title, body: prBody(held) }))
 
-  if (pushed.exitCode !== 0) return `${held.branch} could not be pushed: ${pushed.stderr.trim() || `git exited with ${pushed.exitCode}`}`
+  if (typeof opened !== 'object') return opened
 
-  await update($, working, () => 'Opening the pull request…')
-
-  const argv = requestArgv({ forge: issueOf(held.ref)?.forge ?? 'github', branch: held.branch, base: held.base, title: held.title, body: prBody(held) })
-  const opened = await $.process.run(argv, { cwd, timeoutMs: FORGE_TIMEOUT_MS }).catch(failed)
-
-  if (opened.exitCode !== 0) return `The pull request could not be opened: ${argv[0] ?? ''} said ${opened.stderr.trim() || `it exited with ${opened.exitCode}`}`
-
-  const url = [...`${opened.stdout}\n${opened.stderr}`.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? ''
+  const url = opened.url
 
   await keep($, was => ({ ...was, phase: 'sailed', pr: url }))
   await tell($, `the pull request for ${held.ref} is open${url === '' ? '' : `: ${url}`}`)

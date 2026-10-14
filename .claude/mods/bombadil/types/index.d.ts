@@ -25,6 +25,8 @@ export type BombadilErrand = {
   agentId: string
   /** Which try this is, from 1. */
   tries: number
+  /** Whether he was sent back on this try with what stopped it, his work still in his context: once a try. */
+  isResumed?: boolean
   /** HEAD when the errand set out on its branch: a commit past it was made past the proof and Isildur. */
   head?: string
   /** What he answered when his turn ended. */

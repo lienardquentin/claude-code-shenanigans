@@ -686,6 +686,16 @@ describe('a proof read as JSON', () => {
     expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; nothing proves anor', unhandled: ['anor'] })
     expect(answer.targets.map(one => one.state)).toEqual(['unhandled', 'untouched', 'pinned'])
   })
+
+  test('settles a change no kept run sees, as a refactor, but names the target it reached', () => {
+    const answer = proofAnswer([
+      { label: 'narsil', kind: 'cli', found: radiusWith('narsil', []), isTouched: true },
+      { label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned']), isTouched: true },
+    ])
+
+    expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; no kept run reaches what changed in narsil', unreached: ['narsil'], unhandled: [] })
+    expect(answer.targets.map(one => one.state)).toEqual(['unreached', 'pinned'])
+  })
 })
 
 describe('what the change holds of each target', () => {
@@ -764,6 +774,43 @@ describe('the statues, on a change', () => {
 
     expect(spawned.map(one => one.subagent_type)).toEqual(['argonath:anarion'])
     expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' main'))).toBe(true)
+    // A whole branch has no radius of its own: the proof of the change at hand is not handed over with it
+    expect(String(spawned[0]?.prompt)).not.toContain('<proof>')
+  })
+
+  test('are handed what the proof found: each altered run with its test and how it answers now, on the model a mod names', async ($, on) => {
+    machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    await call($, 'mcp__argonath__judgement', { convene: true, statues: ['isildur'], model: 'sonnet' })
+
+    const prompt = String(spawned[0]?.prompt)
+    expect(prompt).toContain('<proof>\n- gondor: gondor GET /health (pinned, by test_health_counts_what_burns)')
+    expect(prompt).toContain('+  "lit": 0,')
+    expect(spawned[0]?.model).toBe('sonnet')
+  })
+
+  test('are told of a target the change reached that no kept run sees, so they can tell new behaviour from a refactor', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    world.service = JSON.stringify({ ...SERVICE, cases: SERVICE.cases.map(one => ({ ...one, isChanged: false, evidence: '' })) })
+    world.fingerprint = 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    def helper(): pass\n'
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    expect(JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true }))).toMatchObject({ verdict: 'settled', unreached: ['gondor'] })
+    await call($, 'mcp__argonath__judgement', { convene: true })
+
+    expect(String(spawned[0]?.prompt)).toContain('- gondor: the change reached its source, but no kept run of it answers otherwise.')
+    // No model named: each statue judges with its own
+    expect(spawned[0]?.model).toBeUndefined()
+  })
+
+  test('may read but never reach the network', () => {
+    expect(isChanging('curl -s https://example.com')).toBe(true)
+    expect(isChanging('wget example.com')).toBe(true)
+    expect(isChanging('git log -1')).toBe(false)
   })
 })
 

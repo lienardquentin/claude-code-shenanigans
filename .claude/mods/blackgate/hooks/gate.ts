@@ -1,4 +1,9 @@
 import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../types'
+import { COMMIT_TRAILER, SWIFT_STATUE_MODEL } from './kit/flow'
+import type { Target } from './kit/flow'
+
+export { isForbiddenGit, isModPath, parseJudgement, proofVerdict } from './kit/flow'
+export type { Target } from './kit/flow'
 
 export const HOW_TO = 'No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch\'s own), and /blackgate march sends the Fellowship\'s members to answer them (--auto goes on by itself); /blackgate push pushes what they committed.'
 
@@ -10,8 +15,6 @@ export const MAX_TRIES = 2
 
 /** What a member ends with when a comment cannot be answered with a change: the person answers it. */
 export const ASKS = 'This comment needs an answer:'
-
-const COMMIT_TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>'
 
 /** The repository a git remote points at, and its forge. */
 export const parseRemote = (url: string): { forge: 'github' | 'gitlab'; repo: string } | undefined => {
@@ -176,9 +179,6 @@ export const parseWeights = (answer: string): Map<string, { weight: BlackgateWei
   return weighed
 }
 
-/** A target of the project, as Argonath answers it. */
-export type Target = { label: string; kind: 'frontend' | 'service' | 'cli'; roots: string[] }
-
 const HOBBITS = ['frodo', 'samwise', 'merry', 'pippin'] as const
 const RUNG: Record<BlackgateWeight, number> = { light: 0, standard: 1, heavy: 2 }
 
@@ -211,7 +211,7 @@ export const marchPrompt = (pr: BlackgatePr, comment: BlackgateComment, retry?: 
           `This is the second try. The change ${retry.by} made on the first is still in the working tree: carry on from it.`,
           ...(retry.answer.trim() !== '' ? [`What ${retry.by} said:`, '<said>', retry.answer.trim(), '</said>'] : []),
           ...(retry.findings !== undefined
-            ? ['Every changed run was pinned, but the statues of the Argonath found what blocks the change. Fix each:', '<findings>', ...retry.findings, '</findings>']
+            ? ['Every changed run was pinned, but the review found what blocks the change. Fix each:', '<findings>', ...retry.findings, '</findings>']
             : ["What Argonath's proof found after it:", '<proof>', (retry.proof ?? '').trim(), '</proof>']),
         ]
       : []),
@@ -237,45 +237,8 @@ export const commitMessage = (pr: BlackgatePr, comment: BlackgateComment, by: st
     COMMIT_TRAILER,
   ].join('\n')
 
-/**
- * Argonath's proof, as it answers a mod in JSON: whether it settles the change (every changed run pinned, no test
- * turned), and whether a target the change reached could not be looked at at all, which no member mends. An answer that
- * is not one is a proof that could not be looked at.
- */
-export const proofVerdict = (answer: string): { isSettled: boolean; isUnlooked: boolean; line: string; text: string } => {
-  try {
-    const held = JSON.parse(answer) as { verdict?: unknown; line?: unknown; text?: unknown }
-
-    if (typeof held.verdict !== 'string') throw new Error('no verdict')
-
-    return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: typeof held.line === 'string' && held.line !== '' ? held.line : held.verdict, text: typeof held.text === 'string' && held.text !== '' ? held.text : answer }
-  } catch {
-    return { isSettled: false, isUnlooked: true, line: `Argonath answered no proof that reads: ${answer.trim().slice(0, 200)}`, text: answer }
-  }
-}
-
-/** The statues' judgement as Argonath answers it to a mod. */
-export const parseJudgement = (answer: string): { verdict: string; blocking: string[]; minor: string[] } => {
-  try {
-    const held = JSON.parse(answer) as { verdict?: unknown; seats?: { title?: unknown; findings?: { severity?: unknown; where?: unknown; text?: unknown }[] }[] }
-    const lines = (severity: string) =>
-      (Array.isArray(held.seats) ? held.seats : []).flatMap(seat => (Array.isArray(seat.findings) ? seat.findings : []).filter(one => one.severity === severity).map(one => `- ${String(seat.title ?? '')}${typeof one.where === 'string' && one.where !== '' ? `, ${one.where}` : ''}: ${String(one.text ?? '')}`))
-
-    return { verdict: typeof held.verdict === 'string' ? held.verdict : 'unreadable', blocking: lines('blocking'), minor: lines('minor') }
-  } catch {
-    return { verdict: 'unreadable', blocking: [], minor: [] }
-  }
-}
-
-/** A command a member is not to run: the gate commits, and the branch is the pull request's. */
-export const isForbiddenGit = (command: string): boolean => /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull)\b/.test(command)
-
-/** A path in the folders the mods keep for themselves. */
-export const isModPath = (cwd: string, path: string): boolean => {
-  const within = path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path.replace(/^\.\//, '')
-
-  return /^\.(elrond|argonath|anduril|fellowship|bombadil|blackgate)(\/|$)/.test(within)
-}
+/** The model the statues judge an answer with: their own for a heavy comment, a lighter one for any other. */
+export const statueModelFor = (comment: Pick<BlackgateComment, 'weight'>): string | undefined => (comment.weight === 'heavy' ? undefined : SWIFT_STATUE_MODEL)
 
 const MARK: Record<BlackgateComment['state'], string> = { todo: '○', doing: '◐', done: '●', asked: '?', stuck: '✗' }
 

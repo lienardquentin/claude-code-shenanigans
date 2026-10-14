@@ -352,9 +352,10 @@ describe('elrond', () => {
       ...LAID,
       questions: [],
       risks: [
-        { risk: 'The log line may leak the beacon name', severity: 'low', mitigation: 'Log at debug', tasks: [2] },
+        { risk: 'The log line may leak the beacon name', severity: 'medium', mitigation: 'Log at debug', tasks: [2] },
         { risk: 'Two quenches race in Postgres', severity: 'high', mitigation: 'Use the DELETE rowcount', tasks: [1, 9] },
         'An old plain risk',
+        { risk: 'A log message has a typo', severity: 'low', mitigation: '', tasks: [] },
       ],
     }
     // The session's clock convenes what a press asks for: it starts with the session
@@ -364,12 +365,15 @@ describe('elrond', () => {
 
     const plan = await call($, 'mcp__elrond__plan')
     // The worst first; a task it names that the plan has not is dropped
-    expect(plan).toMatch(/Risks, the worst first:\n- \[high\] Two quenches race in Postgres\n  Mitigation: Use the DELETE rowcount\n  Threatens task 1\n- \[medium\] An old plain risk\n- \[low\] The log line/)
+    expect(plan).toMatch(/Risks, the worst first:\n- \[high\] Two quenches race in Postgres\n  Mitigation: Use the DELETE rowcount\n  Threatens task 1\n- \[medium\] The log line may leak the beacon name\n  Mitigation: Log at debug\n  Threatens task 2\n- \[medium\] An old plain risk/)
+    // A low risk is accepted as it comes: no one need decide it
+    expect(plan).toContain('Risks the person accepted as they are:\n- A log message has a typo')
+    expect(plan).not.toContain('[low]')
     // A task carries the risks that threaten it, for whoever begins it
     expect(plan).toMatch(/○ 1\. Keep when a beacon is lit[\s\S]*   Risk \[high\]: Two quenches race in Postgres Mitigation: Use the DELETE rowcount\n○ 2/)
 
     const pane = await $.ui.mount({ plugin: 'elrond', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'elrond' })
-    expect(await call($, 'mcp__elrond__pane')).toMatch(/Risks\s+1 high · 1 medium · 1 low[\s\S]*! HIGH  Two quenches race in Postgres\s+Mitigation: Use the DELETE rowcount\s+Threatens task 1\s+\[Accept\]\s+\[Make it a task\]\s+\[Ask about it\]/)
+    expect(await call($, 'mcp__elrond__pane')).toMatch(/Risks\s+1 high · 2 medium[\s\S]*! HIGH  Two quenches race in Postgres\s+Mitigation: Use the DELETE rowcount\s+Threatens task 1\s+\[Accept\]\s+\[Make it a task\]\s+\[Ask about it\]/)
 
     // Indexes are the plan's own, whatever order the pane draws them in
     await pane.press({ key: 'task-risk-1' })
@@ -378,20 +382,20 @@ describe('elrond', () => {
 
     const chosen = await call($, 'mcp__elrond__plan')
     expect(chosen).toContain('- [high] Two quenches race in Postgres (the person wants a task to cover it)')
-    expect(chosen).toContain('Risks the person accepted as they are:\n- An old plain risk')
-    expect(chosen).toContain('Open questions:\n- Risk (low): The log line may leak the beacon name How should the plan handle it?\n  (unanswered; offered: Log at debug | Cover it with a task | Accept it as it is)')
+    expect(chosen).toContain('Risks the person accepted as they are:\n- A log message has a typo\n- An old plain risk')
+    expect(chosen).toContain('Open questions:\n- Risk (medium): The log line may leak the beacon name How should the plan handle it?\n  (unanswered; offered: Log at debug | Cover it with a task | Accept it as it is)')
 
     await pane.press({ key: 'revise' })
     await world.clock.advance(600)
     const prompt = String(world.spawned[1]?.prompt)
-    expect(prompt).toContain('<accepted-risks>\n- An old plain risk\n</accepted-risks>')
+    expect(prompt).toContain('<accepted-risks>\n- A log message has a typo\n- An old plain risk\n</accepted-risks>')
     expect(prompt).toContain('<risks-to-cover>\n- [high] Two quenches race in Postgres (mitigation offered: Use the DELETE rowcount)\n</risks-to-cover>')
 
     // The revised plan raises the accepted risk again: it is not shown, and stays accepted
     await ends($, 'council-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [{ risk: 'an old plain risk.', severity: 'medium' }] }), '```'].join('\n'))
     const revised = await call($, 'mcp__elrond__plan')
     expect(revised).not.toContain('Risks, the worst first')
-    expect(revised).toContain('Risks the person accepted as they are:\n- An old plain risk')
+    expect(revised).toContain('Risks the person accepted as they are:\n- A log message has a typo\n- An old plain risk')
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {

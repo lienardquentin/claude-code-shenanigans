@@ -39,6 +39,7 @@ import {
   UNTRACKED,
   changesByTarget,
   proofAnswer,
+  proofBrief,
   withLive,
 } from './proof'
 
@@ -119,6 +120,7 @@ const TOOLS = [
         about: { type: 'string', description: 'With convene: what the change is meant to do (the task, its acceptance), which the statues judge it against.' },
         statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these statues sit, each with its share of the reviews; both when left out.' },
         against: { type: 'string', description: 'With convene: judge the change since where HEAD left this branch or commit (its merge base), committed or not, such as a whole branch before its pull request. HEAD when left out.' },
+        model: { type: 'string', description: "With convene: the model the statues judge with, an alias (`sonnet`) or a full id, for a lighter change; their own (Opus) when left out." },
         json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on the verdict.' },
       },
     },
@@ -355,10 +357,24 @@ const changeText = async ($: $, against = 'HEAD'): Promise<string> => {
 const isNoChange = (change: string): boolean => change.trim() === 'New files:' || change.trim() === ''
 
 /**
- * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
- * not judged again. Answers the judgement, sitting or done.
+ * What the last proof found of the change at hand, for the statues: the runs it altered, and the targets it reached
+ * that no kept run sees. Only a radius of the tree as it stands is told; a whole branch has none.
  */
-const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD'): Promise<ArgonathJudgement> => {
+const briefOf = async ($: $, against: string): Promise<string> => {
+  if (against !== 'HEAD') return ''
+
+  const fresh = (await read($, radii)).filter(one => !one.isStale)
+  const changes = await changesOf($)
+  const unreached = fresh.filter(one => one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
+
+  return proofBrief(fresh, unreached)
+}
+
+/**
+ * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
+ * not judged again. Answers the judgement, sitting or done. A mod may name a lighter model for a lighter change.
+ */
+const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string): Promise<ArgonathJudgement> => {
   const due = await wholeFingerprint($, against)
   const held = await read($, judgement)
 
@@ -379,10 +395,11 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   }
 
   const seats: ArgonathSeat[] = []
+  const brief = await briefOf($, against)
 
   for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
     const started = await $.agent
-      .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about) })
+      .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(model !== undefined ? { model } : {}) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
     seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
@@ -683,7 +700,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__argonath__judgement' }, async ($, e) => {
-    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown; against?: unknown }
+    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown; against?: unknown; model?: unknown }
     const isJson = given.json === true
     const against = typeof given.against === 'string' && given.against.trim() !== '' ? given.against.trim() : 'HEAD'
 
@@ -695,7 +712,9 @@ export const register: Register = on => {
 
       if (open.length > 0) return { result: isJson ? JSON.stringify({ verdict: 'unsettled', targets: open.map(one => one.label) }) : `A changed run of ${open.map(one => one.label).join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
 
-      await convene($, 'tool', typeof given.about === 'string' ? given.about : '', Array.isArray(given.statues) ? given.statues.filter((one): one is string => typeof one === 'string') : undefined, against)
+      const model = typeof given.model === 'string' && /^[\w.-]+$/.test(given.model) ? given.model : undefined
+
+      await convene($, 'tool', typeof given.about === 'string' ? given.about : '', Array.isArray(given.statues) ? given.statues.filter((one): one is string => typeof one === 'string') : undefined, against, model)
     }
 
     const held = await read($, judgement)

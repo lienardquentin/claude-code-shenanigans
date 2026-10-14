@@ -153,7 +153,7 @@ export const UNTRACKED = '--argonath-untracked--'
 /** Where one target stands in a proof: see `ArgonathProofState`. */
 export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarget['kind'] | undefined, isTouched: boolean): ArgonathProofState => {
   if (typeof found === 'string') return !isTouched ? 'untouched' : kind === 'frontend' ? 'unhandled' : 'unlooked'
-  if (found.seams.length === 0 && found.turned.length === 0) return 'unchanged'
+  if (found.seams.length === 0 && found.turned.length === 0) return isTouched ? 'unreached' : 'unchanged'
 
   return isQuiet(found) && found.unproved === '' ? 'pinned' : 'unsettled'
 }
@@ -165,6 +165,8 @@ export type ProofAnswer = {
   targets: { label: string; kind: ArgonathTarget['kind'] | ''; state: ArgonathProofState; why: string }[]
   /** The targets the change reached that nothing proves: a statue judges them alone. */
   unhandled: string[]
+  /** The targets the change reached where no kept run answers otherwise: a refactor, or behaviour no kept run reaches. */
+  unreached: string[]
 }
 
 /** What a proof comes to, from each target's radius or why it has none. */
@@ -173,6 +175,7 @@ export const proofAnswer = (entries: readonly { label: string; kind: ArgonathTar
   const radii = entries.map(({ found }) => found).filter((found): found is ArgonathRadius => typeof found !== 'string')
   const unlooked = targets.filter(one => one.state === 'unlooked')
   const unhandled = targets.filter(one => one.state === 'unhandled').map(one => one.label)
+  const unreached = targets.filter(one => one.state === 'unreached').map(one => one.label)
   const counts = (['bare', 'marked', 'loose', 'broken'] as const).flatMap(state => {
     const many = radii.reduce((sum, radius) => sum + radius.seams.filter(seam => seam.state === state).length, 0)
 
@@ -181,16 +184,44 @@ export const proofAnswer = (entries: readonly { label: string; kind: ArgonathTar
   const isTurned = radii.some(radius => radius.turned.length > 0)
   const unproved = targets.filter(one => one.state === 'unsettled' && one.why !== '')
 
-  if (entries.length === 0) return { verdict: 'unlooked', line: 'Argonath knows no target to prove', targets, unhandled }
-  if (unlooked.length > 0) return { verdict: 'unlooked', line: `Argonath could not look at ${unlooked.map(one => `${one.label} (${one.why})`).join('; ')}`, targets, unhandled }
-  if (counts.length > 0) return { verdict: 'unsettled', line: `not pinned yet: ${counts.join(', ')}`, targets, unhandled }
-  if (isTurned) return { verdict: 'unsettled', line: 'a test that passed on the commit fails on the working tree', targets, unhandled }
-  if (unproved.length > 0) return { verdict: 'unsettled', line: `Argonath could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`, targets, unhandled }
+  const not = (verdict: ProofAnswer['verdict'], line: string): ProofAnswer => ({ verdict, line, targets, unhandled, unreached })
+
+  if (entries.length === 0) return not('unlooked', 'Argonath knows no target to prove')
+  if (unlooked.length > 0) return not('unlooked', `Argonath could not look at ${unlooked.map(one => `${one.label} (${one.why})`).join('; ')}`)
+  if (counts.length > 0) return not('unsettled', `not pinned yet: ${counts.join(', ')}`)
+  if (isTurned) return not('unsettled', 'a test that passed on the commit fails on the working tree')
+  if (unproved.length > 0) return not('unsettled', `Argonath could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`)
 
   const isPinned = targets.some(one => one.state === 'pinned')
   const said = isPinned ? 'every changed run is pinned' : 'no kept run changed: nothing to pin'
+  // A change no kept run sees settles, as a refactor does, but is said: the statues are left to tell a refactor from new behaviour
+  const caveats = [...(unreached.length > 0 ? [`no kept run reaches what changed in ${unreached.join(', ')}`] : []), ...(unhandled.length > 0 ? [`nothing proves ${unhandled.join(', ')}`] : [])]
 
-  return { verdict: 'settled', line: unhandled.length > 0 ? `${said}; nothing proves ${unhandled.join(', ')}` : said, targets, unhandled }
+  return not('settled', [said, ...caveats].join('; '))
+}
+
+// How much of a changed run's evidence, and of the whole proof, the statues are handed
+const BRIEF_EVIDENCE = 1_500
+const BRIEF_CHARS = 12_000
+
+/**
+ * What a proof found, as the statues are handed it: each run whose answer changed, the tests that pin it and how it
+ * answers now against before, and the targets the change reached that no kept run sees. Empty when there is nothing.
+ */
+export const proofBrief = (radii: readonly ArgonathRadius[], unreached: readonly string[]): string => {
+  const lines = [
+    ...radii.flatMap(radius =>
+      radius.seams.map(seam => {
+        const evidence = seam.evidence.trim()
+        const shown = evidence.length > BRIEF_EVIDENCE ? `${evidence.slice(0, BRIEF_EVIDENCE)}\n… (cut)` : evidence
+
+        return [`- ${radius.label}: ${seam.line} (${seam.state}${seam.tests.length > 0 ? `, by ${seam.tests.map(test => test.name).join(', ')}` : ''})`, ...(shown !== '' ? shown.split('\n').map(line => `    ${line}`) : [])].join('\n')
+      }),
+    ),
+    ...unreached.map(label => `- ${label}: the change reached its source, but no kept run of it answers otherwise. No integration test proves this part of the change.`),
+  ].join('\n')
+
+  return lines.length > BRIEF_CHARS ? `${lines.slice(0, BRIEF_CHARS)}\n… (cut)` : lines
 }
 
 /** The targets an edited file is of: those with a root that holds it. */

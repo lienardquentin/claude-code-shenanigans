@@ -65,6 +65,8 @@ export type BlackgateMarch = {
   at: number
   /** HEAD when the comment was first sent: a commit past it was made past the proof and the statues. */
   head?: string
+  /** Whether the member was sent back on this try with what stopped it, its work still in its context: once a try. */
+  isResumed?: boolean
 }
 
 export type BlackgateGate = {
