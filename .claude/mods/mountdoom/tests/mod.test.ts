@@ -100,6 +100,14 @@ const machine = (on: On) => {
 
 const call = async ($: Engine, tool: string) => String((await $.tool.call({ tool } as never)).result)
 
+/** Casts as the person types it: the command answers at once, and the clock casts, telling what came of it. */
+const casting = async ($: Engine, world: ReturnType<typeof machine>, args = 'cast'): Promise<string> => {
+  expect((await $.command.run({ command: 'mountdoom', args } as never)).text).toMatch(/the pane says/)
+  await world.clock.advance(600)
+
+  return (world.toasts.at(-1) ?? '').replace(/^Mount Doom: /, '')
+}
+
 describe('mountdoom', () => {
   test('watches what the mods keep, tells the person once when it is merged, and offers Claude no way to cast it', async ($, on) => {
     const world = machine(on)
@@ -120,7 +128,7 @@ describe('mountdoom', () => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/^Nothing kept is merged yet\./)
+    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
     expect(world.forgot).toEqual([])
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
@@ -130,7 +138,13 @@ describe('mountdoom', () => {
     world.state = 'MERGED'
     await $.session.start({} as never)
 
-    const said = (await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text
+    // Nothing is asked of the other mods beneath the command's hooks
+    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/the pane says/)
+    expect(world.forgot).toEqual([])
+
+    await world.clock.advance(600)
+
+    const said = (world.toasts.at(-1) ?? '').replace(/^Mount Doom: /, '')
 
     expect(world.ran).toContain('git switch main')
     expect(world.ran).toContain('git pull --ff-only origin main')
@@ -145,7 +159,7 @@ describe('mountdoom', () => {
     world.dirty = ' M beacons/gondor/app.py\n'
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/is checked out with uncommitted changes/)
+    expect(await casting($, world)).toMatch(/is checked out with uncommitted changes/)
     expect(world.forgot).toEqual([])
   })
 })

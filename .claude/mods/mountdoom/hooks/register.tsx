@@ -8,6 +8,18 @@ import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
 
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it), else the session's directory itself.
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
+  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
+
+  return found !== '' ? found : cwd
+}
+
 const PANE = 'mountdoom'
 const TITLE = 'Mount Doom'
 // How often the forge is asked whether what is kept is merged
@@ -19,6 +31,10 @@ const FORGE_TIMEOUT_MS = 60_000
 const relics = atom({ plugin: 'mountdoom', key: 'relics' } as const, [] as MountdoomRelic[])
 const told = atom({ plugin: 'mountdoom', key: 'told' } as const, [] as string[])
 const note = atom({ plugin: 'mountdoom', key: 'note' } as const, '')
+const wanted = atom({ plugin: 'mountdoom', key: 'wanted' } as const, '')
+
+// How often the clock looks for what a command asked of it
+const TICK_MS = 500
 const working = atom({ plugin: 'mountdoom', key: 'working' } as const, '')
 
 const view = paneView({ id: PANE, title: TITLE, command: '/mountdoom' })
@@ -44,7 +60,7 @@ const ask = async ($: $, server: string, tool: string, args: Record<string, unkn
 }
 
 const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  const ran = await $.process.run(argv, { cwd: await rootOf($), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
 }
@@ -181,6 +197,29 @@ const cast = async ($: $, named: string): Promise<string> => {
   }
 }
 
+let isBusy = false
+
+/** Looks or casts as /mountdoom asked, outside its hooks: what came of it is told as well as kept in the pane. */
+const tick = async ($: $): Promise<void> => {
+  const asked = await read($, wanted)
+
+  if (isBusy || asked === '') return
+
+  isBusy = true
+  await update($, wanted, () => '')
+
+  try {
+    const said = asked === 'look' ? relicsText(await watch($)) : await cast($, asked.replace(/^cast\s*/, ''))
+
+    $.ui.toast(`Mount Doom: ${said.split('\n')[0] ?? ''}`)
+    await update($, note, () => said)
+  } catch (error) {
+    await update($, note, () => `Mount Doom stumbled: ${errorText(error)}`)
+  } finally {
+    isBusy = false
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'mountdoom', description: 'Throw what is kept of a merged pull request into the fire: /mountdoom shows what is watched; /mountdoom cast [branch or pr] casts' })
@@ -189,6 +228,7 @@ export const register: Register = on => {
 
     $.clock.after(FIRST_LOOK_MS, () => void watch($).catch(() => undefined))
     $.clock.every(WATCH_MS, () => void watch($).catch(() => undefined))
+    $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
     $.ui.invalidate('ui.render')
 
     return next(e)
@@ -204,10 +244,12 @@ export const register: Register = on => {
 
     await $.ui.open({ id: PANE, title: TITLE })
 
-    if (words[0] === 'cast') return { text: await cast($, words.slice(1).join(' ')) }
-    if (words.length > 0) return { text: `/mountdoom knows cast; not ${words[0] ?? ''}.` }
+    if (words.length > 0 && words[0] !== 'cast') return { text: `/mountdoom knows cast; not ${words[0] ?? ''}.` }
 
-    return { text: relicsText(await watch($)) }
+    // Looking and casting ask the other mods, whose hooks answer no call made beneath a command's: the clock does both
+    await update($, wanted, () => (words[0] === 'cast' ? `cast ${words.slice(1).join(' ')}`.trim() : 'look'))
+
+    return { text: words[0] === 'cast' ? 'Mount Doom casts what is merged: the pane says what went into the fire.' : `${relicsText(await read($, relics))}\n\nLooking again: the pane says what the forge answers.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

@@ -10,6 +10,18 @@ import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
 
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it), else the session's directory itself.
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
+  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
+
+  return found !== '' ? found : cwd
+}
+
 const PANE = 'blackgate'
 const TITLE = 'Black Gate'
 const TICK_MS = 500
@@ -69,7 +81,7 @@ const ask = async ($: $, server: string, tool: string, args: Record<string, unkn
 }
 
 const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  const ran = await $.process.run(argv, { cwd: await rootOf($), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
 }
@@ -251,7 +263,8 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `Argonath proves the answer to ${comment.author}'s comment…`)
 
-  const proof = await ask($, 'argonath', 'prove')
+  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
+  const proof = await ask($, 'argonath', 'prove', { owe: false })
   const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
@@ -430,7 +443,7 @@ export const register: Register = on => {
 
     if (given.agentId === undefined || !(await isOut($, await read($, gate), given.agentId))) return next(e)
     if (given.tool === 'Bash' && typeof given.command === 'string' && isForbiddenGit(given.command)) return { deny: 'The gate commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.' }
-    if (typeof given.file_path === 'string' && isModPath(await $.session.cwd(), given.file_path)) return { deny: 'That folder belongs to a mod: change the project, not what the mods keep.' }
+    if (typeof given.file_path === 'string' && isModPath(await rootOf($), given.file_path)) return { deny: 'That folder belongs to a mod: change the project, not what the mods keep.' }
 
     return next(e)
   }).catch((_$, e, next) => next(e))

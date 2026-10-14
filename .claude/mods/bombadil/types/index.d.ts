@@ -47,6 +47,8 @@ declare module 'claude-code' {
       errand: BombadilErrand | null
       note: string
       wanted: BombadilWanted
+      /** The issue /bombadil was given, for the clock to begin on: Elrond, who reads it, answers no call made beneath a command's hooks. */
+      begin: string
       working: string
     }
   }

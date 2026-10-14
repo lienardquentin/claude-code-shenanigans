@@ -9,6 +9,18 @@ import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
 
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it), else the session's directory itself.
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
+  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
+
+  return found !== '' ? found : cwd
+}
+
 const PANE = 'bombadil'
 const TITLE = 'Bombadil'
 const AGENT = 'tom'
@@ -22,6 +34,7 @@ const JUDGE_EVERY = 6
 const errand = atom({ plugin: 'bombadil', key: 'errand' } as const, null as BombadilErrand | null)
 const note = atom({ plugin: 'bombadil', key: 'note' } as const, '')
 const wanted = atom({ plugin: 'bombadil', key: 'wanted' } as const, '' as BombadilWanted)
+const beginOn = atom({ plugin: 'bombadil', key: 'begin' } as const, '')
 const working = atom({ plugin: 'bombadil', key: 'working' } as const, '')
 
 const view = paneView({ id: PANE, title: TITLE, command: '/bombadil' })
@@ -66,7 +79,7 @@ const ask = async ($: $, server: string, tool: string, args: Record<string, unkn
 }
 
 const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  const ran = await $.process.run(['git', ...args], { cwd: await rootOf($) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
 }
@@ -186,7 +199,8 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `Argonath proves ${held.ref}…`)
 
-  const proof = await ask($, 'argonath', 'prove')
+  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
+  const proof = await ask($, 'argonath', 'prove', { owe: false })
   const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
@@ -256,7 +270,7 @@ const sail = async ($: $): Promise<string> => {
 
   await update($, working, () => `Pushing ${held.branch}…`)
 
-  const cwd = await $.session.cwd()
+  const cwd = await rootOf($)
   const failed = (error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) })
   const pushed = await $.process.run(['git', 'push', '-u', 'origin', held.branch], { cwd, timeoutMs: FORGE_TIMEOUT_MS }).catch(failed)
 
@@ -310,6 +324,28 @@ let ticks = 0
 /** Does what a turn or a press asked for, one thing at a time; while Isildur sits, looks at his judgement now and then. */
 const tick = async ($: $): Promise<void> => {
   if (isBusy) return
+
+  const issue = await read($, beginOn)
+
+  // An errand the person asked for: what began of it is told as well as kept in the pane, as the command answered first
+  if (issue !== '') {
+    isBusy = true
+    await update($, beginOn, () => '')
+
+    try {
+      const said = await begin($, issue)
+
+      $.ui.toast(`Bombadil: ${said}`)
+      await update($, note, () => said)
+    } catch (error) {
+      await update($, note, () => `The errand stumbled: ${errorText(error)}`)
+    } finally {
+      isBusy = false
+      await update($, working, () => '')
+    }
+
+    return
+  }
 
   const asked = await read($, wanted)
 
@@ -411,7 +447,7 @@ export const register: Register = on => {
 
     if (given.agentId === undefined || !(await isTom($, await read($, errand), given.agentId))) return next(e)
     if (given.tool === 'Bash' && typeof given.command === 'string' && isForbiddenGit(given.command)) return { deny: 'The errand commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.' }
-    if (typeof given.file_path === 'string' && isModPath(await $.session.cwd(), given.file_path)) return { deny: 'That folder belongs to a mod: change the project, not what the mods keep.' }
+    if (typeof given.file_path === 'string' && isModPath(await rootOf($), given.file_path)) return { deny: 'That folder belongs to a mod: change the project, not what the mods keep.' }
 
     return next(e)
   }).catch((_$, e, next) => next(e))
@@ -460,7 +496,10 @@ export const register: Register = on => {
       return { text: held === null ? HOW_TO : errandText(held) }
     }
 
-    return { text: await alone($, () => begin($, said)) }
+    // Beginning reads the issue from Elrond, whose hooks answer no call made beneath a command's: the clock begins it
+    await update($, beginOn, () => said)
+
+    return { text: `Bombadil sets out on ${said}: the pane says how it went.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

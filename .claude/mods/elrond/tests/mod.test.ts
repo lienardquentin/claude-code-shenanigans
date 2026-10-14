@@ -186,7 +186,8 @@ const machine = (on: On) => {
   on('process.run', (_, e) => {
     world.ran.push(e.argv.join(' '))
 
-    const stdout = e.argv[0] === 'git' ? 'git@github.com:lienardquentin/claude-code-shenanigans.git\n' : e.argv[0] === 'gh' ? world.gh : ''
+    const line = e.argv.join(' ')
+    const stdout = line === 'git rev-parse --show-toplevel' ? `${CWD}\n` : e.argv[0] === 'git' ? 'git@github.com:lienardquentin/claude-code-shenanigans.git\n' : e.argv[0] === 'gh' ? world.gh : ''
 
     return { value: { exitCode: stdout === '' ? 1 : 0, stdout, stderr: stdout === '' ? 'not found' : '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })

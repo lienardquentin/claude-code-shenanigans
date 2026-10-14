@@ -9,6 +9,18 @@ import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
 
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it), else the session's directory itself.
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
+  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
+
+  return found !== '' ? found : cwd
+}
+
 const PANE = 'elrond'
 const TITLE = 'Elrond'
 const AGENT = 'council'
@@ -131,7 +143,7 @@ const TOOLS = [
 
 /** The project's own repository, from its origin remote: what a bare `#12` names. */
 const originOf = async ($: $): Promise<Origin | undefined> => {
-  const ran = await $.process.run(['git', 'remote', 'get-url', 'origin'], { cwd: await $.session.cwd() }).catch(() => undefined)
+  const ran = await $.process.run(['git', 'remote', 'get-url', 'origin'], { cwd: await rootOf($) }).catch(() => undefined)
 
   return ran?.exitCode === 0 ? parseRemote(ran.stdout) : undefined
 }
@@ -193,7 +205,7 @@ const forget = async ($: $, ref: string, pr: string): Promise<string> => {
   if ((await kept($, ref)) === undefined && (await current($))?.ref !== ref) return `No plan of ${ref} is kept.`
   if (!(await isMergedFrom($, pr))) return `${pr} is not a merged pull request: the plan of ${ref} is kept.`
 
-  const cwd = await $.session.cwd()
+  const cwd = await rootOf($)
 
   await $.store.delete(STORE_KEY(ref)).catch(() => undefined)
   await $.process.run(['rm', '-f', planPathOf(cwd, ref)], { cwd }).catch(() => undefined)
@@ -244,7 +256,7 @@ const convene = async ($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
 
   await update($, note, () => `Reading ${key}…`)
 
-  const cwd = await $.session.cwd()
+  const cwd = await rootOf($)
   const planPath = planPathOf(cwd, key)
   // The folder ignores itself, and a plan an earlier council wrote is not read as this one's
   await $.fs.write(`${cwd}/.elrond/.gitignore`, '*\n').catch(() => undefined)
@@ -444,7 +456,7 @@ export const register: Register = on => {
     const sitting = await read($, council)
 
     if (sitting === null || e.agentId === undefined || !(await isCouncil($, sitting, e.agentId))) return next(e)
-    if (!isPlanPath(await $.session.cwd(), e.file_path)) return { deny: `The Elrond council writes its plan to ${sitting.planPath ?? 'the plans folder'} and nothing else.` }
+    if (!isPlanPath(await rootOf($), e.file_path)) return { deny: `The Elrond council writes its plan to ${sitting.planPath ?? 'the plans folder'} and nothing else.` }
 
     return next(e)
   })

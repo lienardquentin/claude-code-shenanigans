@@ -133,6 +133,19 @@ describe('bombadil', () => {
     expect(String(world.spawned[0]?.prompt)).toContain('--- quent:\nOnly the health route.')
   })
 
+  test('sets off from /bombadil <issue> through the clock, which reads the issue outside the command\'s hooks', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    expect((await $.command.run({ command: 'bombadil', args: '#35' } as never)).text).toBe('Bombadil sets out on #35: the pane says how it went.')
+    expect(world.asked).toEqual([])
+
+    await settle(world)
+
+    expect(world.asked[0]).toEqual({ server: 'elrond', tool: 'issue', args: { issue: '#35' } })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'bombadil:tom' })
+  })
+
   test('proves what he built, has Isildur alone judge it, commits it, and waits for the go to open the pull request', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)

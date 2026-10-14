@@ -21,6 +21,11 @@ declare module 'claude-code' {
       /** The pull requests the person was told are merged: each is told once. */
       told: string[]
       note: string
+      /**
+       * What /mountdoom asked the clock for: `look`, or `cast` and what to cast. The other mods answer no call made
+       * beneath a command's hooks, and a look and a cast both ask them.
+       */
+      wanted: string
       working: string
     }
   }
