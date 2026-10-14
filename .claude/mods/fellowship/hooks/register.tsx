@@ -400,6 +400,56 @@ const resubmit = async ($: $): Promise<string> => {
 
   return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
 }
+/**
+ * Gives the quest up: its tasks reopened in Elrond, its local branch deleted from the branch it set out from, and the
+ * quest forgotten here and across sessions, so the plan can be set out on afresh. Nothing on the forge is touched.
+ */
+const abandon = async ($: $): Promise<string> => {
+  const made = await readPlan($)
+  const held = (await read($, quest)) ?? (typeof made === 'object' && made !== null ? ((await $.store.get(STORE_KEY(made.ref)).catch(() => undefined)) as FellowshipQuest | undefined) ?? null : null)
+
+  if (held === null) return 'No quest is kept: there is nothing to abandon.'
+  if (held.phase === 'marching' || held.phase === 'proving' || held.phase === 'judging') return `The quest is ${held.phase}: wait until ${held.phase === 'judging' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+
+  const current = await git($, ['rev-parse', '--abbrev-ref', 'HEAD'])
+
+  if (!current.ok) return `The Fellowship could not read the branch: ${current.out}`
+
+  // Leaving the quest's branch carries what is uncommitted along: work left there is the person's to keep or drop first
+  if (current.out === held.branch) {
+    const dirty = await git($, ['status', '--porcelain'])
+
+    if (dirty.out !== '') return `${held.branch} has uncommitted changes: commit, stash or drop them, then abandon the quest.`
+
+    const back = await git($, ['switch', held.base])
+
+    if (!back.ok) return `The Fellowship could not go back to ${held.base}: ${back.out}`
+  }
+
+  const exists = await git($, ['rev-parse', '--verify', '--quiet', `refs/heads/${held.branch}`])
+  const deleted = exists.ok ? await git($, ['branch', '-D', held.branch]) : { ok: true, out: '' }
+
+  // The tasks it took up are open again in the plan, which can be set out on as it is
+  const reopened = typeof made === 'object' && made !== null && made.ref === held.ref ? made.tasks.filter(task => task.state !== 'todo') : []
+
+  for (const task of reopened) await ask($, 'elrond', 'task', { id: task.id, state: 'todo' })
+
+  await update($, quest, () => null)
+  await $.store.delete(STORE_KEY(held.ref)).catch(() => undefined)
+  await update($, note, () => '')
+  await update($, wanted, () => '')
+  if (reopened.length > 0) await readPlan($)
+
+  return [
+    `The quest on ${held.ref} is abandoned.`,
+    deleted.ok ? (exists.ok ? `${held.branch} is deleted, with its ${held.commits.length} ${held.commits.length === 1 ? 'commit' : 'commits'}.` : `${held.branch} was already gone.`) : `${held.branch} could not be deleted: ${deleted.out}.`,
+    reopened.length > 0 ? `${reopened.length} ${reopened.length === 1 ? 'task is' : 'tasks are'} open again in the Elrond plan.` : '',
+    held.pr !== '' ? `Its pull request, ${held.pr}, is left as it is on the forge.` : '',
+  ]
+    .filter(line => line !== '')
+    .join(' ')
+}
+
 /** Pushes the branch and opens the pull request that closes the issue. */
 const sail = async ($: $): Promise<string> => {
   const held = await read($, quest)
@@ -495,7 +545,7 @@ const sectionText = (held: FellowshipQuest): string =>
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'fellowship', description: 'Build the Elrond plan task by task: /fellowship sets out (--auto goes on by itself); next, commit, sail, halt' })
+    await $.command.register({ name: 'fellowship', description: 'Build the Elrond plan task by task: /fellowship sets out (--auto goes on by itself); next, commit, sail, halt, abandon' })
 
     for (const [name, member] of Object.entries(MEMBERS) as [FellowshipMember, (typeof MEMBERS)[FellowshipMember]][]) {
       await $.agent
@@ -602,6 +652,9 @@ export const register: Register = on => {
 
     await $.ui.open({ id: PANE, title: TITLE })
 
+    // Abandoning deletes a branch: the person types it, and no tool offers it to Claude
+    if (verb === 'abandon') return { text: await alone($, () => abandon($)) }
+
     if (verb === 'halt') {
       await keep($, was => ({ ...was, isAuto: false }))
 
@@ -617,7 +670,7 @@ export const register: Register = on => {
 
     if (verb === 'commit') return { text: await resubmit($) }
     if (verb === 'sail') return { text: await alone($, () => sail($)) }
-    if (verb !== '') return { text: `/fellowship knows set out (no word, or --auto), next, commit, sail and halt; not ${verb}.` }
+    if (verb !== '') return { text: `/fellowship knows set out (no word, or --auto), next, commit, sail, halt and abandon; not ${verb}.` }
 
     // A quest under way is shown; any other sets out
     if (held !== null && held.phase !== 'sailed' && !isAuto) return { text: questText(held, await read($, plan)) }

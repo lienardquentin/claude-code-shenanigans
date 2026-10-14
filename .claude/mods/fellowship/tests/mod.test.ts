@@ -165,6 +165,7 @@ const machine = (on: On) => {
     convened: 0,
     about: [] as string[],
     branch: 'main',
+    branches: ['main'] as string[],
     dirty: '',
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
@@ -178,9 +179,15 @@ const machine = (on: On) => {
 
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${world.branch}\n`)
     if (line === 'git status --porcelain') return answer(world.dirty)
-    if (line.startsWith('git rev-parse --verify')) return answer('', 1)
-    if (line.startsWith('git switch -c ')) {
+    if (line.startsWith('git rev-parse --verify')) return answer('', world.branches.includes((e.argv.at(-1) ?? '').replace('refs/heads/', '')) ? 0 : 1)
+    if (line.startsWith('git switch')) {
       world.branch = e.argv.at(-1) ?? ''
+      if (!world.branches.includes(world.branch)) world.branches.push(world.branch)
+
+      return answer('')
+    }
+    if (line.startsWith('git branch -D ')) {
+      world.branches = world.branches.filter(one => one !== e.argv.at(-1))
 
       return answer('')
     }
@@ -233,6 +240,11 @@ const machine = (on: On) => {
     return { text: e.text } as never
   })
   on('store.get', (_, e) => ({ value: world.store[(e as unknown as { key: string }).key] }) as never)
+  on('store.delete', (_, e) => {
+    delete world.store[(e as unknown as { key: string }).key]
+
+    return { value: undefined } as never
+  })
   on('store.set', (_, e) => {
     const given = e as unknown as { key: string; value: unknown }
     world.store[given.key] = given.value
@@ -404,6 +416,30 @@ describe('fellowship', () => {
     expect(await by('frodo-1', 'pytest beacons')).toMatchObject({ result: 'ran' })
     expect(await by('someone-else', 'git commit -am done')).toMatchObject({ result: 'ran' })
     expect(world.spawned).toHaveLength(1)
+  })
+
+  test('is abandoned at the person\'s word: back on its base, its branch deleted, its tasks reopened, and set out on afresh', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__set_out')
+    await settle(world)
+
+    // A member out is waited for
+    expect((await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text).toMatch(/is marching: wait until Frodo is back/)
+
+    await ends($, 'frodo-1', 'Added lit_at.')
+    await settle(world)
+
+    const said = (await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text
+
+    expect(said).toBe('The quest on github:lienardquentin/claude-code-shenanigans#12 is abandoned. fellowship/12-beacons-answer-how-long-they-have-burned is deleted, with its 1 commit. 1 task is open again in the Elrond plan.')
+    expect(world.ran).toContain('git switch main')
+    expect(world.ran).toContain('git branch -D fellowship/12-beacons-answer-how-long-they-have-burned')
+    expect(world.marked.at(-1)).toBe('1 todo')
+    expect(world.store['quest:github:lienardquentin/claude-code-shenanigans#12']).toBeUndefined()
+
+    // Nothing is kept: the plan is set out on afresh, from its first task
+    expect(await call($, 'mcp__fellowship__set_out')).toMatch(/sets out on github:.*#12/)
   })
 
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {
