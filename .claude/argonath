@@ -19,6 +19,8 @@ gondor.python=beacons
 gondor.env=DATABASE_URL=
 gondor.env=KAFKA_BROKERS=
 gondor.env=ROHAN_URL=http://127.0.0.1:9
+# When a request was answered: the two builds are played seconds apart, so a time in an answer is not a change of it
+gondor.mask=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:?\d\d)?
 gondor.tests=beacons/tests
 gondor.test=uv run --quiet --project beacons pytest -v beacons/tests/test_gondor.py -k "{tests: or }"
 
@@ -36,7 +38,8 @@ gondor.live.cleanup=DELETE FROM lightings WHERE rid LIKE '{rid}%'
 gondor.live.cleanup=DELETE FROM burning WHERE rid LIKE '{rid}%'
 gondor.live.restore=INSERT INTO burning (beacon, rid, since) VALUES {rows} ON CONFLICT (beacon) DO NOTHING
 
-# The requests played, in order, against one app: what one does to it, the next sees.
+# The requests played, in order, against one app: what one does to it, the next sees. A request may carry a JSON body
+# as one quoted word after its path: $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
 $ gondor GET /health
 $ gondor GET /beacons
 $ gondor POST /beacons/amon-din/light

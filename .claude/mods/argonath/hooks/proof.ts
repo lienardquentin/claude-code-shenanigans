@@ -29,7 +29,8 @@ const KINDS: readonly ArgonathKind[] = ['cli', 'service', 'frontend']
  * - `label.python=folder`: a service's Python folder, put on the path and its uv project when it has one;
  * - `label.env=NAME=value`: what a service is played with, the same on both builds;
  * - `label.mask=regex`: what to leave out of its answers when two builds are compared;
- * - `$ label …`: a service's request kept to be played, `$ gondor GET /health`. A CLI's runs are anduril's to keep.
+ * - `$ label …`: a service's request kept to be played, `$ gondor GET /health`, with a JSON body as one quoted word
+ *   after its path, `$ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'`. A CLI's runs are anduril's to keep.
  *
  * What does not read is left out, and a setting of a target the file does not name is dropped.
  */
