@@ -56,8 +56,20 @@ const STATE_TONE: Record<LothlorienState, Tone> = { gazing: 'info', shown: 'succ
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it, and a status names paths from the top while a diff and a read take them from where they run).
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
+  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
+
+  return found !== '' ? found : cwd
+}
+
 const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  const ran = await $.process.run(['git', ...args], { cwd: await rootOf($) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   // Trimmed at the end alone: a porcelain status line opens on a column of its code, a space for a file changed unstaged
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trimEnd() }
@@ -65,9 +77,9 @@ const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: s
 
 /** A path as the project names it: from its folder. */
 const within = async ($: $, path: string): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
+  const root = await rootOf($)
 
-  return path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path.replace(/^\.\//, '')
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, '')
 }
 
 /** Whether her tests are still locked: shown, and not committed yet, HEAD where it was when she gazed. */
@@ -103,9 +115,9 @@ const writtenBy = async ($: $): Promise<ReturnType<typeof blocksOf>> => {
   const tracked = entries.filter(entry => entry.code !== '??').map(entry => entry.file)
   const diff = tracked.length === 0 ? '' : (await git($, ['diff', '-U0', '--no-color', 'HEAD', '--', ...tracked])).out
   const created: { file: string; text: string }[] = []
-  const cwd = await $.session.cwd()
+  const root = await rootOf($)
 
-  for (const entry of entries.filter(one => one.code === '??')) created.push({ file: entry.file, text: String(await $.fs.read(`${cwd}/${entry.file}`).catch(() => '')) })
+  for (const entry of entries.filter(one => one.code === '??')) created.push({ file: entry.file, text: String(await $.fs.read(`${root}/${entry.file}`).catch(() => '')) })
 
   return blocksOf(diff, created)
 }

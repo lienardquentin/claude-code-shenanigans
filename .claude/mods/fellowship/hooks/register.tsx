@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, isModSource, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
 import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
@@ -88,6 +88,16 @@ const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: s
   const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
+}
+
+/**
+ * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
+ * Claude's shell moves it), else the session's directory itself.
+ */
+const rootOf = async ($: $): Promise<string> => {
+  const top = await git($, ['rev-parse', '--show-toplevel'])
+
+  return top.ok && top.out !== '' ? top.out : (await $.session.cwd()).replace(/\/+$/, '')
 }
 
 /**
@@ -408,7 +418,8 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `Argonath proves task ${out.taskId}…`)
 
-  const proof = await ask($, 'argonath', 'prove')
+  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
+  const proof = await ask($, 'argonath', 'prove', { owe: false })
   const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
@@ -770,7 +781,14 @@ export const register: Register = on => {
 
     const path = typeof given.file_path === 'string' ? given.file_path : typeof given.notebook_path === 'string' ? given.notebook_path : undefined
 
-    if (path !== undefined && isModPath(await $.session.cwd(), path)) return { deny: 'That folder belongs to a mod: a member changes the project, not what the mods keep.' }
+    if (path !== undefined) {
+      const root = await rootOf($)
+      const march = (await read($, quest))?.march
+      const task = march === null || march === undefined ? undefined : (await read($, plan))?.tasks.find(one => one.id === march.taskId)
+
+      if (isModPath(root, path)) return { deny: 'That folder belongs to a mod: a member changes the project, not what the mods keep.' }
+      if (isModSource(root, path, task)) return { deny: "That is a mod's source, and your task is not about a mod: say in your account what of it stood in your way, and leave it as it is." }
+    }
 
     return next(e)
   })

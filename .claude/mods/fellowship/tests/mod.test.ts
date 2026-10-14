@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { branchOf, closingLine, commitMessage, companionPrompt, isForbiddenGit, isModPath, issueOf, memberFor, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, triesOf, unsettledOf } from '../hooks/quest'
+import { branchOf, closingLine, commitMessage, companionPrompt, isForbiddenGit, isModPath, isModSource, issueOf, memberFor, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, purposeOf, triesOf, unsettledOf } from '../hooks/quest'
 import type { FellowshipPlan, FellowshipQuest } from '../types'
 import { MEMBERS } from '../hooks/quest'
 import type { Target } from '../hooks/quest'
@@ -96,6 +96,8 @@ describe('Argonath\'s proof', () => {
     expect(proofVerdict(`${PINNED}\n\n―――\n\n${BARE}`)).toEqual({ isSettled: false, line: 'not pinned yet: 1 bare' })
     expect(proofVerdict(`${PINNED}\n\nPassing on the commit's source and failing on the working tree: test_old.`).isSettled).toBe(false)
     expect(proofVerdict('gondor could not be looked at: boom').isSettled).toBe(false)
+    // One target saying nothing of it changed does not hide another's pins
+    expect(proofVerdict(`narsil: …\nNothing a kept run does changed: no integration test is owed.\n\n―――\n\n${PINNED}`)).toEqual({ isSettled: true, line: 'every changed run is pinned' })
   })
 })
 
@@ -147,6 +149,25 @@ describe('a member', () => {
     for (const command of ['git status', 'git diff HEAD', 'pytest -k commit', 'echo git']) expect(isForbiddenGit(command)).toBe(false)
     expect(isModPath(CWD, '/proj/.elrond/plans/x.json')).toBe(true)
     expect(isModPath(CWD, '/proj/beacons/gondor/app.py')).toBe(false)
+    // A fix to a mod is not the quest's, unless the task is about the mod: it would ride into its pull request
+    const task = { files: ['beacons/gondor/app.py'] }
+
+    expect(isModSource(CWD, '/proj/.claude/mods/argonath/handlers/live.py', task)).toBe(true)
+    expect(isModSource(CWD, '.claude/mods/fellowship/hooks/quest.ts', task)).toBe(true)
+    expect(isModSource(CWD, '/proj/.claude/argonath', task)).toBe(false)
+    expect(isModSource(CWD, '/proj/.claude/mods/argonath/handlers/live.py', { files: ['.claude/mods/argonath/handlers/live.py'] })).toBe(false)
+  })
+
+  test('is told every decision the person made, the answers to the plan\'s own questions among them, and so are the statues', () => {
+    const made = plan({ decided: [{ text: 'Is an unlit beacon 0 or null?', answer: 'null' }], questions: [{ text: 'How long may a keeper be?', options: [], answer: '64 characters, refused with a 422' }, { text: 'Open?', options: [], answer: '' }] })
+    const prompt = companionPrompt(made, made.tasks[0]!)
+    const purpose = purposeOf(made, made.tasks[0]!)
+
+    for (const text of [prompt, purpose]) {
+      expect(text).toContain('- Is an unlit beacon 0 or null? → null')
+      expect(text).toContain('- How long may a keeper be? → 64 characters, refused with a 422')
+      expect(text).not.toContain('Open?')
+    }
   })
 })
 
@@ -369,7 +390,7 @@ describe('fellowship', () => {
     await settle(world)
 
     expect(world.convened).toBe(1)
-    expect(world.about[0]).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.[\s\S]*Done when: lit_at is set on light\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
+    expect(world.about[0]).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
     expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Isildur, app\.py:70: lit could be named burning\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
     // No Claude is woken: the statues are the judges

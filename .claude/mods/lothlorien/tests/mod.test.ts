@@ -53,13 +53,17 @@ describe('the Mirror', () => {
 
 /** Stands for the machine and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
-  on('session.cwd', () => ({ value: CWD }) as never)
+  // The session's directory may wander into a subfolder; git's top stays the project's
+  on('session.cwd', () => ({ value: world.cwd }) as never)
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
-    // A diff is of the paths named, as git answers it: a path misread from the status has none
-    const stdout = line === 'git rev-parse HEAD' ? `${world.head}\n` : line.startsWith('git status') ? world.status : line.startsWith('git diff') ? (e.argv.includes('beacons/tests/test_gondor.py') ? world.diff : '') : ''
+    const isAtTop = e.init?.cwd === CWD
+    // A diff is of the paths named, from where it runs, as git answers it: a path misread from the status, or one
+    // named from a subfolder, has none
+    const stdout =
+      line === 'git rev-parse --show-toplevel' ? `${CWD}\n` : line === 'git rev-parse HEAD' ? `${world.head}\n` : line.startsWith('git status') ? world.status : line.startsWith('git diff') ? (isAtTop && e.argv.includes('beacons/tests/test_gondor.py') ? world.diff : '') : ''
 
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
@@ -116,6 +120,17 @@ describe('lothlorien', () => {
     })
     // A mod asked: it reads what she showed itself
     expect(world.submitted).toEqual([])
+  })
+
+  test('reads what she wrote from the project\'s top while the session\'s directory is in a subfolder', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    world.cwd = `${CWD}/narsil/tests`
+    await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 2: quench one beacon.' })
+    await ends($, 'galadriel-1', SHOWN)
+
+    expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true }))).toMatchObject({ state: 'shown', isLocked: true })
   })
 
   test('holds her to test files and to commands that test or read', async ($, on) => {
