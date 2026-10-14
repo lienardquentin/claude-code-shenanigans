@@ -145,7 +145,16 @@ const statues = (on: On) => {
     return { model: 'opus' } as never
   })
   // Core alone mints an agent's id: a statue is known by the type it runs as
-  on('agent.list', () => ({ value: [{ id: 'isildur-1', description: 'x', type: 'argonath:isildur', status: 'running' }, { id: 'anarion-1', description: 'x', type: 'argonath:anarion', status: 'running' }, { id: 'someone', description: 'x', type: 'Explore', status: 'running' }] }) as never)
+  on('agent.list', () => ({
+    value: [
+      { id: 'isildur-1', description: 'x', type: 'argonath:isildur', status: 'running' },
+      { id: 'anarion-1', description: 'x', type: 'argonath:anarion', status: 'running' },
+      { id: 'someone', description: 'x', type: 'Explore', status: 'running' },
+      // A member another mod sent, and a helper the person spawned
+      { id: 'gimli-1', description: 'x', type: 'fellowship:gimli', status: 'running' },
+      { id: 'helper-1', description: 'x', type: 'general-purpose', status: 'running' },
+    ],
+  }) as never)
   on('agent.register', () => ({ value: { agent: 'argonath:isildur' } }) as never)
   on('prompt.submit', (_, e) => {
     submitted.push(e.text)
@@ -220,8 +229,15 @@ describe('the live stage', () => {
       before: 'SELECT beacon, rid FROM burning',
       cleanup: ["DELETE FROM lightings WHERE rid LIKE '{rid}%'", "DELETE FROM burning WHERE rid LIKE '{rid}%'"],
       restore: 'INSERT INTO burning (beacon, rid) VALUES {rows} ON CONFLICT (beacon) DO NOTHING',
+      scratch: '',
     })
     expect(parseProject(PROJECT, CWD).find(({ label }) => label === 'gondor')?.live).toBeNull()
+  })
+
+  test('is read to play each build against a copy of the database of its own, named by the variable that holds its address', () => {
+    const gondor = parseProject(`${PROJECT}\n${LIVE}\ngondor.live.scratch=DATABASE_URL`, CWD).find(({ label }) => label === 'gondor')
+
+    expect(gondor?.live?.scratch).toBe('DATABASE_URL')
   })
 
   test('knows a context that names prod, whatever its case', () => {
@@ -388,6 +404,26 @@ describe('argonath', () => {
     expect(world.asked).toHaveLength(0)
   })
 
+  test('leaves an edit another mod\'s agent made to that mod, and looks at one a helper the person spawned made', async ($, on) => {
+    const world = machine(on)
+    statues(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'edited' }) as never)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+    const turn = async () => {
+      await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
+      await world.clock.advance(2_500)
+    }
+
+    // The Fellowship proves and judges what its member built: the session's turn ending owes it nothing
+    await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'gimli-1' } as never)
+    await turn()
+    expect(world.jobs.prove).toHaveLength(0)
+
+    await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'helper-1' } as never)
+    await turn()
+    expect(world.jobs.prove).toHaveLength(1)
+  })
+
   test('counts a shell command that changed a target\'s folders as an edit of it, and one that did not as none', async ($, on) => {
     const world = machine(on)
     // The shell command reverts gondor's archive: what git says of gondor's folder is not the same after it
@@ -503,6 +539,18 @@ describe('argonath', () => {
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     expect(await call($, 'mcp__argonath__prove', { target: 'gondor', agentId: 'merry-1' })).toContain('pinned: gondor GET /health')
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
+    await world.clock.advance(2_500)
+
+    expect(spawned).toEqual([])
+  })
+
+  test('owes no judgement to a proof a mod asked for while saying it convenes the statues itself', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    expect(await call($, 'mcp__argonath__prove', { target: 'gondor', owe: false })).toContain('pinned: gondor GET /health')
     await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
     await world.clock.advance(2_500)
 

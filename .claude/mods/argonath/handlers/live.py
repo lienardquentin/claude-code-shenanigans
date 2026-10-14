@@ -7,11 +7,14 @@ environment the deployed workload has: its variables as its spec sets them, a se
 and each service named in `forward` reached through a `kubectl port-forward` of its own, its address in every value
 put to the forwarded one. What the project sets in `env` is laid over that.
 
-Nothing is left behind. Every request carries an id of the run's own (`argonath-<time>-<build>-<n>`) for the service
-to file what it writes under. Before the first build plays, `before` reads what the database holds that a request may
-undo; after each build, every `cleanup` statement is run with that id, and `restore` puts back what `before` read.
-The statements run in the database's own pod, through its psql, which lets them in with no password. The port
-forwards are ended last, whatever happened.
+Nothing is left behind. With `scratch`, the variable that holds the database's address, each build plays against a
+copy of the database of its own: made in the database's pod from a dump of it, the variable pointed at the copy, and
+the copy dropped once the build has played. A build's migrations (a column its schema adds) then run on its copy
+alone, and the shared database is only read. Without it, every request carries an id of the run's own
+(`argonath-<time>-<build>-<n>`) for the service to file what it writes under: before the first build plays, `before`
+reads what the database holds that a request may undo; after each build, every `cleanup` statement is run with that id,
+and `restore` puts back what `before` read. Both run in the database's own pod, through its own tools, which let them in
+with no password. The port forwards are ended last, whatever happened.
 
 A context whose name holds "prod" is never touched: nothing is read from it, and nothing is run in it.
 
@@ -21,7 +24,7 @@ the real dependencies change while the run lasts, by others' doing.
 Reads one JSON job on stdin and writes one JSON answer on stdout:
 
     {"home", "label", "app", "python", "env": {...}, "requests": [...], "from",
-     "live": {"workload", "forward": [...], "env": {...}, "db", "before", "cleanup": [...], "restore"}}
+     "live": {"workload", "forward": [...], "env": {...}, "db", "before", "cleanup": [...], "restore", "scratch"}}
 
 The answer: {"label", "where", "skipped", "error", "cases": [{"line", "isChanged", "evidence"}]}
 """
@@ -34,17 +37,25 @@ import shutil
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 
 from prove import Stop, checkout, git, tail
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIDE_SECONDS = 180
 FORWARD_SECONDS = 20
+COPY_SECONDS = 300
 PSQL = 'exec psql -X -q -A -t -F "|" -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -c "$0"'
+# The database copied whole into a new one named $0, in its own pod: a dump read back, its owners left out
+COPY = (
+    'set -e; user="${POSTGRES_USER:-postgres}"; createdb -U "$user" "$0"; '
+    'pg_dump -U "$user" -d "${POSTGRES_DB:-$user}" --no-owner --no-privileges | psql -X -q -v ON_ERROR_STOP=1 -U "$user" -d "$0" >/dev/null'
+)
+DROP = 'exec dropdb -U "${POSTGRES_USER:-postgres}" --if-exists --force "$0"'
 
 
-def kubectl(context, namespace, *args, stdin=None):
-    done = subprocess.run(["kubectl", "--context", context, "-n", namespace, *args], input=stdin, capture_output=True, text=True, errors="replace", timeout=60)
+def kubectl(context, namespace, *args, stdin=None, seconds=60):
+    done = subprocess.run(["kubectl", "--context", context, "-n", namespace, *args], input=stdin, capture_output=True, text=True, errors="replace", timeout=seconds)
     if done.returncode != 0:
         raise Stop("kubectl %s failed: %s" % (args[0], tail(done.stderr, 2)))
     return done.stdout
@@ -86,6 +97,25 @@ def psql(context, namespace, db, sql):
     """The rows a statement answers, run in the database's own pod: each a list of its columns."""
     out = kubectl(context, namespace, "exec", db, "--", "sh", "-c", PSQL, sql)
     return [line.split("|") for line in out.splitlines() if line.strip()]
+
+
+def copied(context, namespace, db, name):
+    """A copy of the database, made in its own pod under a name of the run's own."""
+    kubectl(context, namespace, "exec", db, "--", "sh", "-c", COPY, name, seconds=COPY_SECONDS)
+
+
+def dropped(context, namespace, db, name):
+    """The copy taken away, whoever is still connected to it."""
+    kubectl(context, namespace, "exec", db, "--", "sh", "-c", DROP, name)
+
+
+def pointed_at(address, name):
+    """A database's address, its database named `name`: a URL's path, or a connection string's dbname."""
+    if "://" in address:
+        return urlsplit(address)._replace(path="/" + name).geturl()
+    if re.search(r"(^|\s)dbname=", address):
+        return re.sub(r"(^|\s)dbname=\S*", lambda found: found.group(1) + "dbname=" + name, address)
+    return (address + " dbname=" + name).strip()
 
 
 def quoted(value):
@@ -166,7 +196,13 @@ def main():
             env = {key: value.replace("%s:%s" % (service, port), "127.0.0.1:%s" % local) for key, value in env.items()}
         env.update(live["env"])
 
-        if live["before"]:
+        scratch = live.get("scratch", "")
+        if scratch and not live["db"]:
+            raise Stop("a copy of the database is asked for (live.scratch), but no live.db says where it runs")
+        if scratch and not env.get(scratch):
+            raise Stop("the workload has no %s to point at a copy of its database" % scratch)
+
+        if live["before"] and not scratch:
             snapshot = psql(context, namespace, live["db"], live["before"])
 
         code, sha, _ = git(job["home"], "rev-parse", "--verify", "--quiet", job["from"] + "^{commit}")
@@ -175,6 +211,14 @@ def main():
 
         played = []
         for side, folder in (("from", checkout(job["home"], job["label"], sha)), ("to", job["home"])):
+            if scratch:
+                copy = "%s_%s" % (rid.replace("-", "_"), side)
+                copied(context, namespace, live["db"], copy)
+                try:
+                    played.append(play(job, folder, {**env, scratch: pointed_at(env[scratch], copy)}, "%s-%s" % (rid, side)))
+                finally:
+                    dropped(context, namespace, live["db"], copy)
+                continue
             try:
                 played.append(play(job, folder, env, "%s-%s" % (rid, side)))
             finally:

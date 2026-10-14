@@ -42,6 +42,12 @@ export type ArgonathLive = {
   cleanup: string[]
   /** Run after each build: what `before` read, put back. */
   restore: string
+  /**
+   * The variable that holds the database's address, `DATABASE_URL`: each build then plays against a copy of the
+   * database of its own, made in `db`'s pod and dropped after, its schema migrated by that build alone. The shared
+   * database is only read; `before`, `cleanup` and `restore` are not run. Empty to play against the shared one.
+   */
+  scratch: string
 }
 
 /** How a test ended on one side of a proof; `none` when that side did not run it. */

@@ -43,7 +43,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
     const line = raw.trim()
     const kept = /^\$\s+(.+)$/.exec(line)
     // The shortest label that reads: `gondor.live.env` is gondor's `live.env`, not a `gondor.live`'s `env`
-    const set = /^([\w.-]+?)\.(tests|test|python|env|mask|live|live\.forward|live\.env|live\.db|live\.before|live\.cleanup|live\.restore)\s*=\s*(.*)$/.exec(line)
+    const set = /^([\w.-]+?)\.(tests|test|python|env|mask|live|live\.forward|live\.env|live\.db|live\.before|live\.cleanup|live\.restore|live\.scratch)\s*=\s*(.*)$/.exec(line)
     const named = /^([\w.-]+)\s*=\s*(cli|service|frontend)(?::([^@]*))?\s*@\s*(.+)$/.exec(line)
 
     if (line === '' || line.startsWith('#')) continue
@@ -75,7 +75,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
     if (target === undefined) continue
     if (what.startsWith('live')) {
       // The workload makes a live stage; what goes with it is kept for it, the order of the lines aside
-      target.live ??= { workload: '', forward: [], env: {}, db: '', before: '', cleanup: [], restore: '' }
+      target.live ??= { workload: '', forward: [], env: {}, db: '', before: '', cleanup: [], restore: '', scratch: '' }
       const live = target.live
       const cut = value.indexOf('=')
 
@@ -86,6 +86,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
       else if (what === 'live.before') live.before = value
       else if (what === 'live.cleanup') live.cleanup.push(value)
       else if (what === 'live.restore') live.restore = value
+      else if (what === 'live.scratch') live.scratch = value
     } else if (what === 'tests') target.tests = value.split(',').map(path => path.trim()).filter(path => path !== '').map(path => under(cwd, path))
     else if (what === 'test') target.test = value
     else if (what === 'python') target.python = value.replace(/^\.\//, '')

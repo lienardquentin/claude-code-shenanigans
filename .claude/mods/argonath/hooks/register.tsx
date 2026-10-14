@@ -95,7 +95,13 @@ const TOOLS = [
     name: 'prove',
     description:
       "Makes the radius afresh and runs, for each target, only the tests marked on the runs that changed, on two sides: HEAD's source with the working tree's tests laid over it, and the working tree. A changed run is `pinned` when a test marked on it fails on the first and passes on the second, `loose` when its tests pass on both and so do not see the change, `broken` when one fails on the working tree. No other test is run or reported: one no changed run is marked by is out of scope. Runs nothing for a target where nothing changed, or where no changed run is marked yet. The first proof of a commit builds it, which can take minutes. Argonath also does this by itself once a turn that edited a target has ended.",
-    inputSchema: { type: 'object', properties: ASKED },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...ASKED,
+        owe: { type: 'boolean', description: 'false from a mod that convenes the statues on the change itself: a proof that pins it then owes no judgement at the turn\'s end, which would judge it twice.' },
+      },
+    },
   },
   {
     name: 'judgement',
@@ -403,8 +409,23 @@ const askedOf = (e: unknown, isProving: boolean): Asked => {
   }
 }
 
+/**
+ * The agent types other mods send to change the tree, each of which has its mod prove the change and convene the
+ * statues itself: the Fellowship's members (the Black Gate sends them too), Galadriel's tests, Bombadil.
+ */
+const SENT_BY_A_MOD = /^(fellowship|lothlorien|bombadil):/
+
+/** Whether an edit is one another mod's agent made, which that mod has judged: a statue judging it at the turn's end too would judge it twice. */
+const isAMods = async ($: $, agentId: string | undefined): Promise<boolean> => {
+  if (agentId === undefined) return false
+
+  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
+
+  return agent !== undefined && SENT_BY_A_MOD.test(agent.type)
+}
+
 /** Marks a target's radius as one of an earlier working tree, and owes it a look once the turn has ended. */
-const edited = async ($: $, path: unknown): Promise<void> => {
+const edited = async ($: $, path: unknown, agentId?: string): Promise<void> => {
   if (typeof path !== 'string' || path === '') return
 
   const cwd = await homeOf($)
@@ -413,7 +434,9 @@ const edited = async ($: $, path: unknown): Promise<void> => {
 
   if (hit.length === 0) return
 
-  await update($, touched, held => [...new Set([...held, ...hit])])
+  // The radius is old either way; a look at the turn's end, and the statues it may send, are owed only to an edit no
+  // other mod answers for
+  if (!(await isAMods($, agentId))) await update($, touched, held => [...new Set([...held, ...hit])])
   await update($, radii, held => held.map(one => (hit.includes(one.label) && !one.isStale ? { ...one, isStale: true } : one)))
 }
 
@@ -533,14 +556,14 @@ export const register: Register = on => {
   // An edit of a target's file makes its radius old, and owes it a look once the turn has ended
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const done = await next(e)
-    await edited($, e.file_path)
+    await edited($, e.file_path, e.agentId)
 
     return done
   }).catch((_$, e, next) => next(e))
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const done = await next(e)
-    await edited($, e.file_path)
+    await edited($, e.file_path, e.agentId)
 
     return done
   }).catch((_$, e, next) => next(e))
@@ -554,7 +577,7 @@ export const register: Register = on => {
     const after = await fingerprints($)
     const changed = [...after].filter(([label, now]) => before.has(label) && before.get(label) !== now).map(([label]) => label)
 
-    for (const target of (await read($, targets)).filter(({ label }) => changed.includes(label))) await edited($, target.roots[0])
+    for (const target of (await read($, targets)).filter(({ label }) => changed.includes(label))) await edited($, target.roots[0], e.agentId)
 
     return done
   }).catch((_$, e, next) => next(e))
@@ -594,7 +617,12 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'mcp__argonath__radius' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, false))) }))
 
-  on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => ({ result: foundText(await look($, { ...askedOf(e, true), isOwing: e.agentId === undefined })) }))
+  on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => {
+    // A subagent's proof waits for the turn that sent it; a mod that convenes the statues itself says it owes none
+    const isOwing = e.agentId === undefined && (e as unknown as { owe?: unknown }).owe !== false
+
+    return { result: foundText(await look($, { ...askedOf(e, true), isOwing })) }
+  })
 
   on('tool.call', { tool: 'mcp__argonath__judgement' }, async ($, e) => {
     const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown }
