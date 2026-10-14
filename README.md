@@ -232,6 +232,25 @@ claude plugin install renovate-desk@renovate-desk-mods
 
 Then open the pane with `/renovate`.
 
+### Middle-earth
+
+The Lord of the Rings mods are one marketplace, `middle-earth`, kept in
+[`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json):
+`elrond`, `fellowship`, `lothlorien`, `argonath`, `anduril`, `palantir`, `bombadil`, `blackgate` and `mountdoom`.
+They lean on one another (Fellowship builds Elrond's plan, Argonath proves each change through Anduril, Bombadil and
+the Black Gate send their builders through both), so install them together from a clone:
+
+```
+claude plugin marketplace add <path to this clone>/.claude/mods
+for mod in elrond fellowship lothlorien argonath anduril palantir bombadil blackgate mountdoom; do
+  claude plugin install "$mod@middle-earth"
+done
+```
+
+Each still has a marketplace of its own (`<mod>@<mod>-mods`) for installing it alone. A mod's kept state belongs to
+the marketplace it was installed from, so one moved from its own marketplace to `middle-earth` starts with an empty
+store.
+
 ### `anduril`
 
 Keeps a record of every run of the command-line tool being written, whoever ran it, and shows them in a pane. It
@@ -273,8 +292,8 @@ lives in [`.claude/mods/anduril`](.claude/mods/anduril), and [`narsil`](narsil) 
   comparison says that neither was looked for.
 
 It needs `python3`, and `git` for a comparison, on a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
-what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it from
-a clone:
+what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it with
+the other [Middle-earth](#middle-earth) mods, or alone from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/anduril
