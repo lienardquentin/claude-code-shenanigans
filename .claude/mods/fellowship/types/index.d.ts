@@ -1,6 +1,12 @@
 /** Where a task of the plan stands, as Elrond keeps it. */
 export type FellowshipTaskState = 'todo' | 'doing' | 'done'
 
+/** How much a task asks of whoever builds it, as the council weighed it. */
+export type FellowshipWeight = 'light' | 'standard' | 'heavy'
+
+/** A member of the Fellowship, by the agent type it is sent as. */
+export type FellowshipMember = 'gandalf' | 'aragorn' | 'legolas' | 'gimli' | 'boromir' | 'frodo' | 'samwise' | 'merry' | 'pippin'
+
 /** One task of the Elrond plan, as Fellowship reads it through `mcp__elrond__plan`. */
 export type FellowshipTask = {
   id: number
@@ -10,6 +16,7 @@ export type FellowshipTask = {
   files: string[]
   dependsOn: number[]
   acceptance: string
+  weight: FellowshipWeight
   state: FellowshipTaskState
 }
 
@@ -33,17 +40,18 @@ export type FellowshipPlan = {
  * - `ready`: no companion out; the next task waits for the person, or goes at once on an auto quest
  * - `marching`: a companion builds a task
  * - `proving`: Argonath proves what the companion built
- * - `proven`: every changed run is pinned; the change waits for its reviews and its commit
+ * - `judging`: every changed run is pinned; the statues of the Argonath judge the change, which is committed once they pass it
  * - `stuck`: a companion gave up, or its tries ran out; the person decides
  * - `arrived`: every task is committed; the pull request waits to be opened
  * - `sailed`: the pull request is open
  */
-export type FellowshipPhase = 'ready' | 'marching' | 'proving' | 'proven' | 'stuck' | 'arrived' | 'sailed'
+export type FellowshipPhase = 'ready' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'sailed'
 
-/** One companion out on a task. */
+/** One member out on a task. */
 export type FellowshipMarch = {
   taskId: number
   title: string
+  member: FellowshipMember
   /** The id its spawn answered; empty where the spawn answered none, and the companion is known by its type. */
   agentId: string
   /** Which try this is, from 1. */
@@ -54,7 +62,15 @@ export type FellowshipMarch = {
 }
 
 /** A task the Fellowship committed. */
-export type FellowshipCommit = { taskId: number; title: string; sha: string }
+export type FellowshipCommit = {
+  taskId: number
+  title: string
+  sha: string
+  /** Who built it. */
+  by: string
+  /** What the statues found that did not block it, a line each. */
+  minor: string[]
+}
 
 /** The quest: one Elrond plan taken to a pull request, one committed task at a time. */
 export type FellowshipQuest = {
@@ -72,6 +88,8 @@ export type FellowshipQuest = {
   proof: string
   /** Its verdict in a line. */
   proofLine: string
+  /** The statues' verdict on the change, in a line; empty before they judge it. */
+  verdictLine: string
   commits: FellowshipCommit[]
   /** The pull or merge request, once opened. */
   pr: string
@@ -79,7 +97,7 @@ export type FellowshipQuest = {
 }
 
 /** Something a press or a turn asked the clock to do, outside the hook that asked. */
-export type FellowshipWanted = '' | 'set out' | 'next' | 'prove' | 'commit' | 'sail'
+export type FellowshipWanted = '' | 'set out' | 'next' | 'prove' | 'sail'
 
 declare module 'claude-code' {
   interface PluginState {

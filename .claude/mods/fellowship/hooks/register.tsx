@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { COMPANION_SYSTEM, HOW_TO, MARK, MAX_ATTEMPTS, branchOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, nextTask, parsePlan, prArgv, proofVerdict, provenText, questText, tally, unsettledOf } from './quest'
+import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
@@ -11,8 +12,8 @@ type $ = EngineInterface
 
 const PANE = 'fellowship'
 const TITLE = 'Fellowship'
-const AGENT = 'companion'
-const AGENT_TYPE = `fellowship:${AGENT}`
+// How many ticks of the clock pass between two looks at the statues' judgement
+const JUDGE_EVERY = 6
 // How often the clock looks for what a press or a turn asked for
 const TICK_MS = 500
 // How long the forge is given to take a push or open a pull request
@@ -32,7 +33,7 @@ const TOOLS = [
   {
     name: 'set_out',
     description:
-      'Sets the Fellowship out on the Elrond plan in force: on a branch of its own, it sends a companion subagent to build each task in turn in the working tree, has Argonath prove each change, and commits it once proven; at the end it opens the pull request that closes the issue. It sets out only once every question of the plan is answered and every risk decided. Call it when the person asks to implement a planned issue.',
+      'Sets the Fellowship out on the Elrond plan in force: on a branch of its own, it sends a member of the Fellowship to build each task in turn in the working tree (a hobbit, the elf, the dwarf or the man of Gondor, Aragorn or Gandalf, by the weight and the target of the task, one rung up each try), has the Argonath prove each change and its statues judge it, and commits it once they pass it; at the end it opens the pull request that closes the issue. It sets out only once every question of the plan is answered and every risk decided. Call it when the person asks to implement a planned issue.',
     inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself: send each task once the one before is committed, and open the pull request at the end. Only when the person asked for it.' } } },
   },
   {
@@ -42,7 +43,7 @@ const TOOLS = [
   },
   {
     name: 'commit',
-    description: "Proves the uncommitted change of the task the Fellowship's companion built once more, and commits it if every changed run is pinned; then sends the next task on an auto quest. Call it once Argonath's reviews of the change have answered and their findings are addressed.",
+    description: "Puts the uncommitted change of a stuck task before the Argonath again: proved, then judged by its statues, and committed once they pass it. Call it when the person has finished a stuck task by hand and asks to commit it.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -52,7 +53,7 @@ const TOOLS = [
   },
 ] as const
 
-const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', marching: 'info', proving: 'info', proven: 'success', stuck: 'danger', arrived: 'accent', sailed: 'success' }
+const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', sailed: 'success' }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -148,8 +149,8 @@ const setOut = async ($: $, isAuto: boolean): Promise<string> => {
   }
 
   const base = resumed?.base ?? (current.out === branch ? await defaultBranch($) : current.out)
-  // A quest left mid-march has no companion out any more: the person sends it again
-  const phase: FellowshipPhase = resumed === undefined ? 'ready' : resumed.phase === 'marching' || resumed.phase === 'proving' ? 'stuck' : resumed.phase
+  // A quest left mid-march has no member out any more: the person sends it again
+  const phase: FellowshipPhase = resumed === undefined ? 'ready' : resumed.phase === 'marching' || resumed.phase === 'proving' || resumed.phase === 'judging' ? 'stuck' : resumed.phase
 
   await update($, quest, () => ({
     ref: made.ref,
@@ -158,10 +159,11 @@ const setOut = async ($: $, isAuto: boolean): Promise<string> => {
     branch,
     base,
     isAuto,
-    phase: isAllDone(made) && phase !== 'arrived' && phase !== 'proven' ? 'arrived' : phase,
+    phase: isAllDone(made) && phase !== 'arrived' ? 'arrived' : phase,
     march: resumed?.march ?? null,
     proof: resumed?.proof ?? '',
     proofLine: resumed?.proofLine ?? '',
+    verdictLine: resumed?.verdictLine ?? '',
     commits: resumed?.commits ?? [],
     pr: '',
     at: resumed?.at ?? Date.now(),
@@ -179,29 +181,42 @@ const setOut = async ($: $, isAuto: boolean): Promise<string> => {
 
   return resumed !== undefined
     ? `The Fellowship takes up its quest on ${made.ref} (${tally(made)}, ${now?.phase ?? phase}) on ${branch}, ${how}.`
-    : `The Fellowship sets out on ${made.ref}, "${made.title}", on ${branch} from ${base}, ${how}: a companion is sent on the first task.`
+    : `The Fellowship sets out on ${made.ref}, "${made.title}", on ${branch} from ${base}, ${how}: the first task is sent.`
 }
 
-/** Sends a companion on a task: marked doing in Elrond, and spawned with the plan around it. */
-const march = async ($: $, made: FellowshipPlan, task: FellowshipTask, attempt: number, retry?: { answer: string; proof: string }): Promise<void> => {
+/** What the project builds, as Argonath answers it: a member is chosen by the target its task is in. */
+const targetsOf = async ($: $): Promise<Target[]> => {
+  const got = await ask($, 'argonath', 'targets')
+
+  try {
+    return got.isError ? [] : (JSON.parse(got.text) as Target[])
+  } catch {
+    return []
+  }
+}
+
+/** Sends a member on a task: marked doing in Elrond, chosen by the try and the task, and spawned with the plan around it. */
+const march = async ($: $, made: FellowshipPlan, task: FellowshipTask, attempt: number, retry?: Retry): Promise<void> => {
+  const member = memberFor(made, task, attempt, await targetsOf($))
+
   await ask($, 'elrond', 'task', { id: task.id, state: 'doing' })
 
   const started = await $.agent
-    .spawn({ subagentType: AGENT_TYPE, description: `Task ${task.id}: ${task.title}`, prompt: companionPrompt(made, task, retry === undefined ? undefined : { attempt, ...retry }) })
+    .spawn({ subagentType: `fellowship:${member}`, description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(made, task, retry) })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) {
     await keep($, was => ({ ...was, phase: 'stuck', march: null }))
-    await update($, note, () => `A companion could not be sent on task ${task.id}: ${started.deny}`)
+    await update($, note, () => `${MEMBERS[member].title} could not be sent on task ${task.id}: ${started.deny}`)
 
     return
   }
 
-  await keep($, was => ({ ...was, phase: 'marching', march: { taskId: task.id, title: task.title, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '' } }))
+  await keep($, was => ({ ...was, phase: 'marching', verdictLine: '', march: { taskId: task.id, title: task.title, member, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '' } }))
   await update($, note, () => '')
 }
 
-/** Sends the next task, or finds the quest arrived. */
+/** Sends the next task, or finds the quest arrived. A stuck task is sent again from its first rung, on what the tree holds. */
 const sendNext = async ($: $): Promise<void> => {
   const held = await read($, quest)
 
@@ -233,14 +248,33 @@ const sendNext = async ($: $): Promise<void> => {
     return
   }
 
-  // A task sent again carries on from what its last companion left in the tree
-  const isAgain = held.march?.taskId === task.id && held.proof !== ''
+  const last = held.march?.taskId === task.id ? held.march : null
+  const retry: Retry | undefined = last === null || held.proof === '' ? undefined : { attempt: 1, by: MEMBERS[last.member].title, answer: last.answer, proof: held.proof }
 
-  await update($, working, () => `Sending a companion on task ${task.id}…`)
-  await march($, made, task, 1, isAgain ? { answer: held.march?.answer ?? '', proof: held.proof } : undefined)
+  await update($, working, () => `Sending a member on task ${task.id}…`)
+  await march($, made, task, 1, retry)
 }
 
-/** Proves what a companion built: settled, Claude is woken for the reviews and the commit; else the task is tried again. */
+/**
+ * Sends the task up a rung after a try that did not pass, with what stopped it; or, when Gandalf has tried it, stops
+ * the quest for the person.
+ */
+const again = async ($: $, out: NonNullable<FellowshipQuest['march']>, why: { proof?: string; findings?: string[] }, line: string): Promise<void> => {
+  const made = await readPlan($)
+  const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
+
+  if (typeof made === 'object' && made !== null && task !== undefined && out.attempt < triesOf(made, task)) {
+    await march($, made, task, out.attempt + 1, { attempt: out.attempt + 1, by: MEMBERS[out.member].title, answer: out.answer, ...why })
+
+    return
+  }
+
+  await keep($, was => ({ ...was, phase: 'stuck' }))
+  await update($, note, () => `Task ${out.taskId} did not pass after ${out.attempt} ${out.attempt === 1 ? 'try' : 'tries'}, the last ${MEMBERS[out.member].title}'s: ${line}. Finish it by hand and commit, or send it again.`)
+  await tell($, `task ${out.taskId} is stuck: ${line}`)
+}
+
+/** Proves what a member built: settled, the statues of the Argonath are sent to judge it; else the task goes up a rung. */
 const prove = async ($: $): Promise<void> => {
   const held = await read($, quest)
 
@@ -255,79 +289,114 @@ const prove = async ($: $): Promise<void> => {
 
   await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
 
-  if (verdict.isSettled) {
-    const now = await keep($, was => ({ ...was, phase: 'proven' }))
+  if (!verdict.isSettled) return again($, out, { proof: proof.text }, verdict.line)
 
-    if (now !== null) await $.prompt.submit({ text: provenText(now, { id: out.taskId, title: out.title }, verdict.line) }).catch(() => undefined)
-    await tell($, `task ${out.taskId} is proven: ${verdict.line}`)
+  await update($, working, () => `The statues of the Argonath are sent to judge task ${out.taskId}…`)
 
-    return
-  }
+  const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true })).text)
 
-  const made = await readPlan($)
-  const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
+  await keep($, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
+  await settle($, judged)
+}
 
-  if (out.attempt < MAX_ATTEMPTS && typeof made === 'object' && made !== null && task !== undefined) {
-    await march($, made, task, out.attempt + 1, { answer: out.answer, proof: proof.text })
+/** Looks at the statues' judgement of the change, while they sit. */
+const judge = async ($: $): Promise<void> => {
+  const held = await read($, quest)
+
+  if (held === null || held.phase !== 'judging') return
+
+  await settle($, parseJudgement((await ask($, 'argonath', 'judgement', { json: true })).text))
+}
+
+/** What the statues' verdict comes to: committed when they pass the change, sent back up a rung when they find what blocks it. */
+const settle = async ($: $, judged: ReturnType<typeof parseJudgement>): Promise<void> => {
+  const held = await read($, quest)
+
+  if (held === null || held.phase !== 'judging' || held.march === null) return
+
+  const out = held.march
+
+  await keep($, was => ({ ...was, verdictLine: judged.line }))
+
+  if (judged.verdict === 'sitting') return
+  if (judged.verdict === 'pass') return void (await commitNow($, judged.minor))
+  if (judged.verdict === 'fail') return again($, out, { findings: judged.blocking }, judged.line)
+
+  // The change moved while they sat, or they never sat on it: it is proved and judged afresh
+  if (judged.verdict === 'stale' || judged.verdict === 'unsettled' || judged.verdict === 'none') {
+    await keep($, was => ({ ...was, phase: 'proving' }))
+    await update($, wanted, () => 'prove')
 
     return
   }
 
   await keep($, was => ({ ...was, phase: 'stuck' }))
-  await update($, note, () => `Task ${out.taskId} is not proven after ${out.attempt} ${out.attempt === 1 ? 'try' : 'tries'}: ${verdict.line}. Fix it by hand and commit, or send it again.`)
-  await tell($, `task ${out.taskId} is stuck: ${verdict.line}`)
+  await update($, note, () => `The statues could not judge task ${out.taskId}: ${judged.line}. Commit it once they can, or send it again.`)
+  await tell($, `task ${out.taskId} was not judged: ${judged.line}`)
 }
 
-/** Proves the change once more, and commits it as the task's own. Answers what was done, in a sentence or with the proof. */
-const commit = async ($: $): Promise<string> => {
+/** Commits the change the statues passed as the task's own, and goes on. Answers what was done, in a sentence. */
+const commitNow = async ($: $, minor: readonly string[]): Promise<string> => {
   const held = await read($, quest)
 
-  if (held === null) return HOW_TO
-  if (held.march === null || (held.phase !== 'proven' && held.phase !== 'stuck')) return `There is nothing to commit: the quest is ${held.phase}.`
+  if (held === null || held.march === null) return 'There is nothing to commit.'
 
   const out = held.march
   const made = await readPlan($)
   const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
 
-  if (task === undefined || made === null || typeof made === 'string') return `Task ${out.taskId} is not in the Elrond plan in force: ${typeof made === 'string' ? made : 'set out again.'}`
+  if (task === undefined || made === null || typeof made === 'string') {
+    await keep($, was => ({ ...was, phase: 'stuck' }))
 
-  await update($, working, () => `Argonath proves task ${task.id} before it is committed…`)
-
-  const proof = await ask($, 'argonath', 'prove')
-  const verdict = proof.isError ? { isSettled: false, line: proof.text } : proofVerdict(proof.text)
-
-  await keep($, was => ({ ...was, proof: proof.text, proofLine: verdict.line }))
-
-  if (!verdict.isSettled) return `Task ${task.id} is not committed: ${verdict.line}. Argonath's proof:\n\n${proof.text}`
+    return `Task ${out.taskId} is not in the Elrond plan in force: ${typeof made === 'string' ? made : 'set out again.'}`
+  }
 
   await update($, working, () => `Committing task ${task.id}…`)
 
+  const by = MEMBERS[out.member].title
   const dirty = await git($, ['status', '--porcelain'])
   let sha = ''
 
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
     const added = await git($, ['add', '-A'])
-    const done = added.ok ? await git($, ['commit', '-m', commitMessage(made, task)]) : added
+    const done = added.ok ? await git($, ['commit', '-m', commitMessage(made, task, by, minor)]) : added
 
-    if (!done.ok) return `Task ${task.id} could not be committed: ${done.out}`
+    if (!done.ok) {
+      await keep($, was => ({ ...was, phase: 'stuck' }))
+      await update($, note, () => `Task ${task.id} could not be committed: ${done.out}`)
+
+      return `Task ${task.id} could not be committed: ${done.out}`
+    }
 
     sha = (await git($, ['rev-parse', 'HEAD'])).out
   }
 
   await ask($, 'elrond', 'task', { id: task.id, state: 'done' })
 
-  const after = await keep($, was => ({ ...was, phase: 'ready', march: null, proof: '', proofLine: '', commits: [...was.commits, { taskId: task.id, title: task.title, sha }] }))
+  const after = await keep($, was => ({ ...was, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor] }] }))
   const left = await readPlan($)
   const isArrived = typeof left === 'object' && left !== null && isAllDone(left)
+  const said = `Task ${task.id}, "${task.title}", built by ${by}, passed the Argonath and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
 
   if (isArrived || after?.isAuto === true) await update($, wanted, () => 'next')
+  else await tell($, `${said} The next task waits for you.`)
 
-  return `Task ${task.id}, "${task.title}", is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`} on ${held.branch}. ${
-    isArrived ? 'Every task is done: the pull request is next.' : after?.isAuto === true ? 'The next task is sent.' : 'The next task waits for the person: /fellowship next, or the pane.'
-  }`
+  return said
 }
 
+/** Puts a stuck task's change before the Argonath again: proved, judged, and committed once the statues pass it. */
+const resubmit = async ($: $): Promise<string> => {
+  const held = await read($, quest)
+
+  if (held === null) return HOW_TO
+  if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest is ${held.phase}.`
+
+  await keep($, was => ({ ...was, phase: 'proving' }))
+  await update($, wanted, () => 'prove')
+
+  return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
+}
 /** Pushes the branch and opens the pull request that closes the issue. */
 const sail = async ($: $): Promise<string> => {
   const held = await read($, quest)
@@ -363,21 +432,29 @@ const sail = async ($: $): Promise<string> => {
 
 // Whether the clock is doing what was asked: a proof takes minutes, and the next tick waits for it
 let isBusy = false
+// Ticks since the statues' judgement was last looked at
+let ticks = 0
 
-/** Does what a press or a turn asked for, one thing at a time. */
+/** Does what a press or a turn asked for, one thing at a time; and while the statues sit, looks at their judgement now and then. */
 const tick = async ($: $): Promise<void> => {
+  if (isBusy) return
+
   const asked = await read($, wanted)
 
-  if (asked === '' || isBusy) return
+  if (asked === '') {
+    ticks += 1
+    if (ticks % JUDGE_EVERY !== 0 || (await read($, quest))?.phase !== 'judging') return
+  }
 
   isBusy = true
-  await update($, wanted, () => '')
+  if (asked !== '') await update($, wanted, () => '')
 
   try {
-    if (asked === 'next') await sendNext($)
+    if (asked === '') await judge($)
+    else if (asked === 'next') await sendNext($)
     else if (asked === 'prove') await prove($)
     else {
-      const said = asked === 'set out' ? await setOut($, false) : asked === 'commit' ? await commit($) : await sail($)
+      const said = asked === 'set out' ? await setOut($, false) : await sail($)
 
       await update($, note, () => said)
     }
@@ -401,35 +478,36 @@ const alone = async <T,>($: $, run: () => Promise<T>): Promise<T> => {
   }
 }
 
-/** Whether an agent is the companion out: by the id its spawn answered, else, where it answered none, by its type. */
+/** Whether an agent is the member out: by the id its spawn answered, else, where it answered none, by its type. */
 const isCompanion = async ($: $, held: FellowshipQuest | null, agentId: string): Promise<boolean> => {
   if (held === null || held.march === null) return false
 
-  return held.march.agentId !== '' ? agentId === held.march.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && one.type === AGENT_TYPE && one.status === 'running')
+  const out = held.march
+
+  return out.agentId !== '' ? agentId === out.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && one.type === `fellowship:${out.member}` && one.status === 'running')
 }
 
 const sectionText = (held: FellowshipQuest): string =>
-  [
-    `The Fellowship mod is on a quest: the Elrond plan for ${held.ref}, built task by task on ${held.branch} by companion subagents, each change proven by Argonath and committed alone. It is ${held.phase}.`,
-    held.phase === 'proven'
-      ? `Task ${held.march?.taskId ?? ''}'s change is proven and uncommitted: once Argonath's reviews of it have answered and their findings are addressed, call mcp__fellowship__commit.`
-      : 'Leave the working tree to the companion while one is out; mcp__fellowship__quest says where the quest stands.',
-  ].join(' ')
+  `The Fellowship mod is on a quest: the Elrond plan for ${held.ref}, built task by task on ${held.branch} by its members, each change proven and judged by the Argonath and committed alone. It is ${held.phase}. Leave the working tree to the member out; mcp__fellowship__quest says where the quest stands.`
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'fellowship', description: 'Build the Elrond plan task by task: /fellowship sets out (--auto goes on by itself); next, commit, sail, halt' })
-    await $.agent
-      .register({
-        name: AGENT,
-        description: 'Builds one task of an Elrond plan in the working tree and proves it with Argonath. Sent by the Fellowship mod alone.',
-        prompt: COMPANION_SYSTEM,
-        tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'mcp__argonath__radius', 'mcp__argonath__prove'],
-        permissionMode: 'acceptEdits',
-        disallowedTools: ['Agent', 'mcp__elrond__task', 'mcp__fellowship__commit', 'mcp__fellowship__sail'],
-        model: 'inherit',
-      })
-      .catch(() => undefined)
+
+    for (const [name, member] of Object.entries(MEMBERS) as [FellowshipMember, (typeof MEMBERS)[FellowshipMember]][]) {
+      await $.agent
+        .register({
+          name,
+          description: `${member.title} of the Fellowship: builds one task of an Elrond plan in the working tree, proven and judged by the Argonath. Sent by the Fellowship mod alone.`,
+          prompt: memberSystem(name),
+          tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'mcp__argonath__radius', 'mcp__argonath__prove'],
+          permissionMode: 'acceptEdits',
+          disallowedTools: ['Agent', 'mcp__elrond__task', 'mcp__argonath__judgement', 'mcp__fellowship__commit', 'mcp__fellowship__sail'],
+          model: member.model,
+          effort: member.effort,
+        })
+        .catch(() => undefined)
+    }
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
@@ -442,21 +520,27 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A companion is sent by the Fellowship, never through the Agent tool
-  on('agent.offer', { agent: AGENT_TYPE }, () => ({ isOffered: false }))
+  // A member is sent by the Fellowship, never through the Agent tool
+  for (const name of Object.keys(MEMBERS)) on('agent.offer', { agent: `fellowship:${name}` }, () => ({ isOffered: false }))
 
-  // The companion's turn has ended: what it built is proven, outside this hook
+  // The member's turn has ended: what it built is proven, outside this hook
   on('turn.complete', async ($, e, next) => {
     const held = await read($, quest)
 
-    if (held?.phase === 'marching' && e.agentId !== undefined && (await isCompanion($, held, e.agentId))) {
-      const out = held.march
+    if (held?.phase === 'marching' && held.march !== null && e.agentId !== undefined && (await isCompanion($, held, e.agentId))) {
+      const out = { ...held.march, answer: e.answer ?? '' }
+      const title = MEMBERS[out.member].title
+      const revise = out.member === 'gandalf' ? out.answer.split('\n').find(line => line.trim().startsWith(REVISE)) : undefined
 
       if (e.isAborted || e.reason !== 'answer') {
-        await keep($, was => ({ ...was, phase: 'stuck', march: out === null ? null : { ...out, answer: e.answer ?? '' } }))
-        await update($, note, () => `The companion on task ${out?.taskId ?? ''} ${e.isAborted ? 'was interrupted' : e.reason === 'refusal' ? 'refused' : 'ended on an API error'}: send it again from the pane.`)
+        await keep($, was => ({ ...was, phase: 'stuck', march: out }))
+        await update($, note, () => `${title} on task ${out.taskId} ${e.isAborted ? 'was interrupted' : e.reason === 'refusal' ? 'refused' : 'ended on an API error'}: send it again from the pane.`)
+      } else if (revise !== undefined) {
+        await keep($, was => ({ ...was, phase: 'stuck', march: out }))
+        await update($, note, () => `Gandalf stops on task ${out.taskId}. ${revise.trim()} Revise the plan in the Elrond pane, then send it again.`)
+        await tell($, `Gandalf says the plan must be revised at task ${out.taskId}`)
       } else {
-        await keep($, was => ({ ...was, phase: 'proving', march: out === null ? null : { ...out, answer: e.answer ?? '' } }))
+        await keep($, was => ({ ...was, phase: 'proving', march: out }))
         await update($, wanted, () => 'prove')
       }
     }
@@ -464,7 +548,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The companion builds its task, and leaves the branch, the commits and the plan to the Fellowship
+  // The member builds its task, and leaves the branch, the commits and the plan to the Fellowship
   on('tool.call', async ($, e, next) => {
     const agentId = (e as { agentId?: string }).agentId
 
@@ -476,7 +560,7 @@ export const register: Register = on => {
 
     const path = typeof given.file_path === 'string' ? given.file_path : typeof given.notebook_path === 'string' ? given.notebook_path : undefined
 
-    if (path !== undefined && isModPath(await $.session.cwd(), path)) return { deny: 'That folder belongs to a mod: a companion changes the project, not what the mods keep.' }
+    if (path !== undefined && isModPath(await $.session.cwd(), path)) return { deny: 'That folder belongs to a mod: a member changes the project, not what the mods keep.' }
 
     return next(e)
   })
@@ -503,7 +587,7 @@ export const register: Register = on => {
     return { result: questText(held, typeof made === 'string' ? await read($, plan) : made) }
   })
 
-  on('tool.call', { tool: 'mcp__fellowship__commit' }, async $ => ({ result: await alone($, () => commit($)) }))
+  on('tool.call', { tool: 'mcp__fellowship__commit' }, async $ => ({ result: await resubmit($) }))
 
   on('tool.call', { tool: 'mcp__fellowship__sail' }, async $ => ({ result: await alone($, () => sail($)) }))
 
@@ -525,14 +609,14 @@ export const register: Register = on => {
       if (held === null || (held.phase !== 'ready' && held.phase !== 'stuck')) return { text: held === null ? HOW_TO : `The quest is ${held.phase}: no task is sent now.` }
       await update($, wanted, () => 'next')
 
-      return { text: 'A companion is sent on the next task.' }
+      return { text: 'A member is sent on the next task.' }
     }
 
-    if (verb === 'commit') return { text: await alone($, () => commit($)) }
+    if (verb === 'commit') return { text: await resubmit($) }
     if (verb === 'sail') return { text: await alone($, () => sail($)) }
     if (verb !== '') return { text: `/fellowship knows set out (no word, or --auto), next, commit, sail and halt; not ${verb}.` }
 
-    // A quest under way is shown, and made auto when asked; any other sets out
+    // A quest under way is shown; any other sets out
     if (held !== null && held.phase !== 'sailed' && !isAuto) return { text: questText(held, await read($, plan)) }
 
     return { text: await alone($, () => setOut($, isAuto)) }
@@ -570,6 +654,7 @@ export const register: Register = on => {
 
     const out = held.march
     const commitOf = (id: number) => held.commits.find(one => one.taskId === id)
+    const outTask = out === null || made === null ? undefined : made.tasks.find(task => task.id === out.taskId)
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
@@ -584,16 +669,17 @@ export const register: Register = on => {
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
             {made.tasks.map(task => (
               <Text key={`task-${task.id}`} color={out?.taskId === task.id ? 'suggestion' : task.state === 'done' ? 'success' : undefined} dimColor={task.state === 'todo' && out?.taskId !== task.id}>
-                {`${MARK[task.state]} ${task.id}. ${task.title}${commitOf(task.id) !== undefined ? `  · ${commitOf(task.id)?.sha.slice(0, 7) || 'no change'}` : ''}${out?.taskId === task.id ? `  · ${held.phase}` : ''}`}
+                {`${MARK[task.state]} ${task.id}. ${task.title}  · ${task.weight}${commitOf(task.id) !== undefined ? ` · ${commitOf(task.id)?.by ?? ''} ${commitOf(task.id)?.sha.slice(0, 7) || 'no change'}` : ''}${out?.taskId === task.id ? ` · ${MEMBERS[out.member].title}, ${held.phase}` : ''}`}
               </Text>
             ))}
           </Box>
         )}
         {out !== null && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
-            <Text bold>{`Companion on task ${out.taskId}: ${out.title}`}</Text>
-            <Text dimColor>{`try ${out.attempt} of ${MAX_ATTEMPTS} · since ${new Date(out.at).toLocaleTimeString()}`}</Text>
-            {held.proofLine !== '' && <Text color={held.phase === 'proven' ? 'success' : 'warning'}>{`Argonath: ${held.proofLine}`}</Text>}
+            <Text bold>{`${MEMBERS[out.member].title} on task ${out.taskId}: ${out.title}`}</Text>
+            <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${new Date(out.at).toLocaleTimeString()}`}</Text>
+            {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`Argonath's proof: ${held.proofLine}`}</Text>}
+            {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
           </Box>
         )}
         {held.pr !== '' && <Text color="success">{`Pull request: ${held.pr}`}</Text>}
@@ -603,9 +689,9 @@ export const register: Register = on => {
               {held.phase === 'stuck' ? 'Send again' : 'Send the next task'}
             </Button>
           )}
-          {(held.phase === 'proven' || (held.phase === 'stuck' && out !== null)) && (
-            <Button key="commit" hotkey="c" variant={held.phase === 'proven' ? 'primary' : 'secondary'} onPress={() => press('commit')}>
-              Prove and commit
+          {held.phase === 'stuck' && out !== null && (
+            <Button key="commit" hotkey="c" onPress={() => resubmit($).then(said => update($, note, () => said))}>
+              Put it before the Argonath
             </Button>
           )}
           {held.phase === 'arrived' && (
