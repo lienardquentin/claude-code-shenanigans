@@ -59,7 +59,8 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> => {
   const ran = await $.process.run(['git', ...args], { cwd: await $.session.cwd() }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
-  return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
+  // Trimmed at the end alone: a porcelain status line opens on a column of its code, a space for a file changed unstaged
+  return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trimEnd() }
 }
 
 /** A path as the project names it: from its folder. */

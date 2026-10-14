@@ -58,7 +58,8 @@ const machine = (on: On) => {
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
-    const stdout = line === 'git rev-parse HEAD' ? `${world.head}\n` : line.startsWith('git status') ? world.status : line.startsWith('git diff') ? world.diff : ''
+    // A diff is of the paths named, as git answers it: a path misread from the status has none
+    const stdout = line === 'git rev-parse HEAD' ? `${world.head}\n` : line.startsWith('git status') ? world.status : line.startsWith('git diff') ? (e.argv.includes('beacons/tests/test_gondor.py') ? world.diff : '') : ''
 
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
