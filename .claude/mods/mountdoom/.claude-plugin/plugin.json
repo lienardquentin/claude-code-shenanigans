@@ -1,0 +1,6 @@
+{
+  "name": "mountdoom",
+  "version": "0.1.0",
+  "description": "Mount Doom: once a quest's or an errand's pull request is merged, everything kept of it is cast into the fire: its local branch, its plan and what every mod remembers of it",
+  "types": "./types/index.d.ts"
+}
