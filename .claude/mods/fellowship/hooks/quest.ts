@@ -322,14 +322,14 @@ export const prBody = (plan: FellowshipPlan, quest: FellowshipQuest): string =>
   ].join('\n')
 
 /** The forge's CLI that opens the pull request (a merge request on GitLab) from the quest's branch. */
-export const prArgv = (plan: FellowshipPlan, quest: FellowshipQuest): string[] => {
-  const forge = issueOf(plan.ref)?.forge ?? 'github'
-  const body = prBody(plan, quest)
+export const prArgv = (plan: FellowshipPlan, quest: FellowshipQuest): string[] =>
+  requestArgv({ forge: issueOf(plan.ref)?.forge ?? 'github', branch: quest.branch, base: quest.base, title: plan.title, body: prBody(plan, quest) })
 
-  return forge === 'github'
-    ? ['gh', 'pr', 'create', '--base', quest.base, '--head', quest.branch, '--title', plan.title, '--body', body]
-    : ['glab', 'mr', 'create', '--source-branch', quest.branch, '--target-branch', quest.base, '--title', plan.title, '--description', body, '--yes']
-}
+/** The forge's CLI that opens a pull request (a merge request on GitLab) from a branch onto another. */
+export const requestArgv = ({ forge, branch, base, title, body }: { forge: 'github' | 'gitlab'; branch: string; base: string; title: string; body: string }): string[] =>
+  forge === 'github'
+    ? ['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body]
+    : ['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes']
 
 /** The quest in full, for Claude. */
 export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null): string =>

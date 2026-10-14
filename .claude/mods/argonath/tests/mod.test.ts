@@ -528,6 +528,18 @@ describe('argonath', () => {
     expect(submitted).toEqual([])
   })
 
+  test('sends only the statues a mod names, each with its share of the reviews', async ($, on) => {
+    machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+    await call($, 'mcp__argonath__judgement', { convene: true, statues: ['isildur'] })
+
+    expect(spawned.map(one => one.subagent_type)).toEqual(['argonath:isildur'])
+    expect(String(spawned[0]?.prompt)).toContain('Your review: /code-review medium.')
+  })
+
   test('answers what the project builds to a mod, its folders from the project', async ($, on) => {
     machine(on)
 

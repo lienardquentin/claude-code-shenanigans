@@ -106,6 +106,7 @@ const TOOLS = [
       properties: {
         convene: { type: 'boolean', description: 'Send the statues on the change as it stands, when every changed run is pinned and they have not judged it yet.' },
         about: { type: 'string', description: 'With convene: what the change is meant to do (the task, its acceptance), which the statues judge it against.' },
+        statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these statues sit, each with its share of the reviews; both when left out.' },
         json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on the verdict.' },
       },
     },
@@ -319,7 +320,7 @@ const changeText = async ($: $): Promise<string> => {
  * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
  * not judged again. Answers the judgement, sitting or done.
  */
-const convene = async ($: $, by: ArgonathJudgement['by'], about = ''): Promise<ArgonathJudgement> => {
+const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[]): Promise<ArgonathJudgement> => {
   const due = await wholeFingerprint($)
   const held = await read($, judgement)
 
@@ -331,7 +332,7 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = ''): Promise<A
   const change = await changeText($)
   const seats: ArgonathSeat[] = []
 
-  for (const seat of dealt(reviews)) {
+  for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
     const started = await $.agent
       .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
@@ -592,7 +593,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => ({ result: foundText(await look($, { ...askedOf(e, true), isOwing: e.agentId === undefined })) }))
 
   on('tool.call', { tool: 'mcp__argonath__judgement' }, async ($, e) => {
-    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown }
+    const given = e as unknown as { convene?: unknown; json?: unknown; about?: unknown; statues?: unknown }
     const isJson = given.json === true
 
     if (given.convene === true) {
@@ -602,7 +603,7 @@ export const register: Register = on => {
 
       if (open.length > 0) return { result: isJson ? JSON.stringify({ verdict: 'unsettled', targets: open.map(one => one.label) }) : `A changed run of ${open.map(one => one.label).join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
 
-      await convene($, 'tool', typeof given.about === 'string' ? given.about : '')
+      await convene($, 'tool', typeof given.about === 'string' ? given.about : '', Array.isArray(given.statues) ? given.statues.filter((one): one is string => typeof one === 'string') : undefined)
     }
 
     const held = await read($, judgement)

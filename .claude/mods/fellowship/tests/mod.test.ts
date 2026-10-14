@@ -514,6 +514,14 @@ describe('fellowship', () => {
     expect(world.spawned).toHaveLength(1)
   })
 
+  test('opens a pull request for another mod on the forge of the issue it names', async ($, on) => {
+    const world = machine(on)
+
+    expect(await call($, 'mcp__fellowship__pr', { ref: 'github:o/r#35', branch: 'bombadil/35-x', base: 'main', title: 'T', body: 'B' })).toBe('The pull request from bombadil/35-x onto main is open: https://github.com/lienardquentin/claude-code-shenanigans/pull/13')
+    expect(world.ran).toContain('git push -u origin bombadil/35-x')
+    expect(world.ran).toContain('gh pr create --base main --head bombadil/35-x --title T --body B')
+  })
+
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)

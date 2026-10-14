@@ -250,6 +250,13 @@ describe('elrond', () => {
     expect(world.store['plan:github:lienardquentin/claude-code-shenanigans#12']).toBeDefined()
   })
 
+  test('reads an issue whole for a mod that works from one, and says why when it cannot', async ($, on) => {
+    machine(on)
+
+    expect(JSON.parse(await call($, 'mcp__elrond__issue', { issue: '#12' }))).toMatchObject({ ref: 'github:lienardquentin/claude-code-shenanigans#12', title: 'Beacons answer how long they have burned', comments: [{ author: 'quent', body: 'In seconds, please.' }] })
+    expect(JSON.parse(await call($, 'mcp__elrond__issue', { issue: 'the beacons one' })).error).toMatch(/names no issue/)
+  })
+
   test('answers the plan whole as JSON to a mod that works from it, and null when none is in force', async ($, on) => {
     machine(on)
 

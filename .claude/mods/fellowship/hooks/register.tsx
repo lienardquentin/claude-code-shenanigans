@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, issueOf, purposeOf, requestArgv, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
 import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
@@ -45,6 +45,22 @@ const TOOLS = [
     name: 'commit',
     description: "Puts the uncommitted change of a stuck task before the Argonath again: proved, then judged by its statues, and committed once they pass it. Call it when the person has finished a stuck task by hand and asks to commit it.",
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'pr',
+    description:
+      "Pushes a branch and opens a pull request from it (a merge request on GitLab), on the forge of the issue it names: for a mod that has finished a change on a branch of its own. It reaches outside the machine: call it only when the person asked for that pull request.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'The issue, as Elrond writes it short: github:owner/repo#12; it says the forge.' },
+        branch: { type: 'string' },
+        base: { type: 'string', description: 'The branch it goes onto.' },
+        title: { type: 'string' },
+        body: { type: 'string' },
+      },
+      required: ['ref', 'branch', 'base', 'title', 'body'],
+    },
   },
   {
     name: 'sail',
@@ -527,6 +543,23 @@ const abandon = async ($: $): Promise<string> => {
     .join(' ')
 }
 
+/** Pushes a branch and opens a pull request from it with the forge's CLI: its URL, or why it could not be. */
+const openRequest = async ($: $, branch: string, argv: readonly string[]): Promise<{ url: string } | string> => {
+  await update($, working, () => `Pushing ${branch}…`)
+
+  const pushed = await $.process.run(['git', 'push', '-u', 'origin', branch], { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+
+  if (pushed.exitCode !== 0) return `${branch} could not be pushed: ${pushed.stderr.trim() || `git exited with ${pushed.exitCode}`}`
+
+  await update($, working, () => 'Opening the pull request…')
+
+  const opened = await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+
+  if (opened.exitCode !== 0) return `The pull request could not be opened: ${argv[0] ?? ''} said ${opened.stderr.trim() || `it exited with ${opened.exitCode}`}`
+
+  return { url: [...`${opened.stdout}\n${opened.stderr}`.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? '' }
+}
+
 /** Pushes the branch and opens the pull request that closes the issue. */
 const sail = async ($: $): Promise<string> => {
   const held = await read($, quest)
@@ -539,20 +572,11 @@ const sail = async ($: $): Promise<string> => {
 
   if (made === null || typeof made === 'string') return made ?? 'Elrond holds no plan any more.'
 
-  await update($, working, () => `Pushing ${held.branch}…`)
+  const opened = await openRequest($, held.branch, prArgv(made, held))
 
-  const pushed = await $.process.run(['git', 'push', '-u', 'origin', held.branch], { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  if (typeof opened !== 'object') return opened
 
-  if (pushed.exitCode !== 0) return `${held.branch} could not be pushed: ${pushed.stderr.trim() || `git exited with ${pushed.exitCode}`}`
-
-  await update($, working, () => 'Opening the pull request…')
-
-  const argv = prArgv(made, held)
-  const opened = await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  if (opened.exitCode !== 0) return `The pull request could not be opened: ${argv[0]} said ${opened.stderr.trim() || `it exited with ${opened.exitCode}`}`
-
-  const url = [...`${opened.stdout}\n${opened.stderr}`.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? ''
+  const url = opened.url
 
   await keep($, was => ({ ...was, phase: 'sailed', pr: url }))
   await tell($, `the pull request for ${held.ref} is open${url === '' ? '' : `: ${url}`}`)
@@ -722,6 +746,17 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__fellowship__commit' }, async $ => ({ result: await resubmit($) }))
 
   on('tool.call', { tool: 'mcp__fellowship__sail' }, async $ => ({ result: await alone($, () => sail($)) }))
+
+  on('tool.call', { tool: 'mcp__fellowship__pr' }, async ($, e) => {
+    const given = e as unknown as { ref?: unknown; branch?: unknown; base?: unknown; title?: unknown; body?: unknown }
+    const [ref, branch, base, title, body] = [given.ref, given.branch, given.base, given.title, given.body].map(one => (typeof one === 'string' ? one.trim() : ''))
+
+    if (branch === '' || base === '' || title === '') return { result: 'A pull request needs a branch, a base and a title.' }
+
+    const opened = await alone($, () => openRequest($, branch ?? '', requestArgv({ forge: issueOf(ref ?? '')?.forge ?? 'github', branch: branch ?? '', base: base ?? '', title: title ?? '', body: body ?? '' })))
+
+    return { result: typeof opened === 'object' ? `The pull request from ${branch ?? ''} onto ${base ?? ''} is open${opened.url === '' ? '' : `: ${opened.url}`}` : opened }
+  })
 
   on('command.run', { command: 'fellowship' }, async ($, e) => {
     const words = e.args.trim().split(/\s+/).filter(word => word !== '')
