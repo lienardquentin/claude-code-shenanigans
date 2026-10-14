@@ -13,7 +13,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use serde::Serialize;
 
-use chronicle::{BEACONS, Lighting};
+use chronicle::{BEACONS, Lighting, NO_KEEPER};
 
 /// Reads and keeps a chronicle of beacon lightings.
 #[derive(Parser)]
@@ -116,7 +116,7 @@ enum By {
 
 #[derive(Serialize)]
 struct Count {
-    name: String,
+    name: Option<String>,
     lightings: u64,
     watchers: u64,
 }
@@ -164,7 +164,7 @@ fn show(lightings: &[Lighting], id: u64, format: Format) -> Result<(), String> {
             println!("  Beacon    {}", lighting.beacon);
             println!("  Realm     {}", lighting.realm);
             println!("  Lit at    {}", lighting.lit_at);
-            println!("  Keeper    {}", lighting.keeper);
+            println!("  Keeper    {}", lighting.keeper.as_deref().unwrap_or(NO_KEEPER));
             println!("  Watchers  {}", lighting.watchers);
             if !lighting.note.is_empty() {
                 println!("  Note      {}", lighting.note);
@@ -193,12 +193,12 @@ fn ordinal(n: usize) -> String {
 }
 
 fn tally(lightings: &[Lighting], by: By, format: Format) {
-    let mut counts: HashMap<&str, (u64, u64)> = HashMap::new();
+    let mut counts: HashMap<Option<&str>, (u64, u64)> = HashMap::new();
     for lighting in lightings {
         let name = match by {
-            By::Beacon => &lighting.beacon,
-            By::Keeper => &lighting.keeper,
-            By::Realm => &lighting.realm,
+            By::Beacon => Some(lighting.beacon.as_str()),
+            By::Keeper => lighting.keeper.as_deref(),
+            By::Realm => Some(lighting.realm.as_str()),
         };
         let count = counts.entry(name).or_default();
         count.0 += 1;
@@ -207,7 +207,7 @@ fn tally(lightings: &[Lighting], by: By, format: Format) {
     let mut counts: Vec<Count> = counts
         .into_iter()
         .map(|(name, (lightings, watchers))| Count {
-            name: name.to_string(),
+            name: name.map(str::to_string),
             lightings,
             watchers,
         })
@@ -216,10 +216,10 @@ fn tally(lightings: &[Lighting], by: By, format: Format) {
     match format {
         Format::Json => json(&counts),
         Format::Table => {
-            let name = counts.iter().map(|c| c.name.chars().count()).max().unwrap_or(0).max(4);
+            let name = counts.iter().map(|c| c.name.as_deref().unwrap_or(NO_KEEPER).chars().count()).max().unwrap_or(0).max(4);
             println!("{:<name$}  {:>9}  {:>8}", "NAME", "LIGHTINGS", "WATCHERS");
             for count in &counts {
-                println!("{:<name$}  {:>9}  {:>8}", count.name, count.lightings, count.watchers);
+                println!("{:<name$}  {:>9}  {:>8}", count.name.as_deref().unwrap_or(NO_KEEPER), count.lightings, count.watchers);
             }
             let lightings: u64 = counts.iter().map(|count| count.lightings).sum();
             let watchers: u64 = counts.iter().map(|count| count.watchers).sum();
@@ -341,7 +341,7 @@ fn scribe(path: &Path, lightings: &[Lighting], keeper: Option<String>) -> Result
         beacon,
         realm,
         lit_at: time::now(),
-        keeper,
+        keeper: Some(keeper),
         watchers,
         note,
     };

@@ -4,7 +4,7 @@ use std::env;
 
 use terminal_size::{Width, terminal_size};
 
-use crate::chronicle::Lighting;
+use crate::chronicle::{Lighting, NO_KEEPER};
 use crate::time;
 
 const BOLD: &str = "\x1b[1m";
@@ -60,7 +60,7 @@ pub fn print(lightings: &[Lighting]) {
     let beacon = longest("BEACON", lightings.iter().map(|l| l.beacon.as_str()));
     let realm = longest("REALM", lightings.iter().map(|l| l.realm.as_str()));
     let lit_at = longest("LIT AT", lightings.iter().map(|l| l.lit_at.as_str()));
-    let keeper = longest("KEEPER", lightings.iter().map(|l| l.keeper.as_str()));
+    let keeper = longest("KEEPER", lightings.iter().map(|l| l.keeper.as_deref().unwrap_or(NO_KEEPER)));
     let watchers = "WATCHERS".len();
     // Two spaces between columns; the note takes what is left of the line, and goes when nothing is.
     let taken = id + beacon + realm + lit_at + keeper + watchers + 2 * 6;
@@ -84,7 +84,7 @@ pub fn print(lightings: &[Lighting]) {
             lighting.beacon,
             painted(&realm_cell, realm_code(&lighting.realm), color),
             lighting.lit_at,
-            lighting.keeper,
+            lighting.keeper.as_deref().unwrap_or(NO_KEEPER),
             lighting.watchers,
         );
         if with_note && !lighting.note.is_empty() {
