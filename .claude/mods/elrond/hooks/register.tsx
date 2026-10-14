@@ -64,7 +64,7 @@ const TOOLS = [
   {
     name: 'plan',
     description: 'The plan in the Elrond pane, whole: the issue, the approach, each task with its steps, files, dependencies, acceptance and state, the open questions and the risks. Read it before working on a planned issue.',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: { type: 'object', properties: { json: { type: 'boolean', description: 'Answer the plan as JSON, for a mod that works from it; `null` when none is in force.' } } },
   },
   {
     name: 'task',
@@ -328,9 +328,12 @@ export const register: Register = on => {
     return { result: done.plan === undefined ? done.text : `${done.text}\n\n${planText(done.plan)}` }
   })
 
-  on('tool.call', { tool: 'mcp__elrond__plan' }, async $ => {
+  on('tool.call', { tool: 'mcp__elrond__plan' }, async ($, e) => {
     const held = await current($)
     const sitting = await read($, council)
+
+    // A mod that works from the plan reads it whole, as it is kept
+    if ((e as unknown as { json?: unknown }).json === true) return { result: JSON.stringify(held) }
 
     return { result: held !== null ? planText(held) : sitting !== null ? `The council still sits on ${sitting.ref}: no plan yet.` : `No plan is in force. ${HOW_TO}` }
   })

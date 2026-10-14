@@ -250,6 +250,17 @@ describe('elrond', () => {
     expect(world.store['plan:github:lienardquentin/claude-code-shenanigans#12']).toBeDefined()
   })
 
+  test('answers the plan whole as JSON to a mod that works from it, and null when none is in force', async ($, on) => {
+    machine(on)
+
+    expect(await call($, 'mcp__elrond__plan', { json: true })).toBe('null')
+
+    await call($, 'mcp__elrond__convene', { issue: '#12' })
+    await ends($, 'council-1', PLAN)
+
+    expect(JSON.parse(await call($, 'mcp__elrond__plan', { json: true }))).toMatchObject({ ref: 'github:lienardquentin/claude-code-shenanigans#12', tasks: [{ id: 1, state: 'todo' }, { id: 2, dependsOn: [1] }] })
+  })
+
   test('lands the plan the council writes to its file, and hands it a line of its own', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__elrond__convene', { issue: '#12' })
