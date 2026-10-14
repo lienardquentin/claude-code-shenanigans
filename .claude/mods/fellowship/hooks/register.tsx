@@ -536,6 +536,12 @@ const resubmit = async ($: $): Promise<string> => {
 
   return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
 }
+/** What a quest that is out waits on before it may be abandoned; nothing when it waits on nothing. */
+const waitBeforeAbandon = (held: FellowshipQuest): string | undefined =>
+  held.phase === 'gazing' || held.phase === 'marching' || held.phase === 'proving' || held.phase === 'judging'
+    ? `The quest is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+    : undefined
+
 /**
  * Gives the quest up: its tasks reopened in Elrond, its local branch deleted from the branch it set out from, and the
  * quest forgotten here and across sessions, so the plan can be set out on afresh. Nothing on the forge is touched.
@@ -545,7 +551,10 @@ const abandon = async ($: $): Promise<string> => {
   const held = (await read($, quest)) ?? (typeof made === 'object' && made !== null ? ((await $.store.get(STORE_KEY(made.ref)).catch(() => undefined)) as FellowshipQuest | undefined) ?? null : null)
 
   if (held === null) return 'No quest is kept: there is nothing to abandon.'
-  if (held.phase === 'gazing' || held.phase === 'marching' || held.phase === 'proving' || held.phase === 'judging') return `The quest is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+
+  const waiting = waitBeforeAbandon(held)
+
+  if (waiting !== undefined) return waiting
 
   const current = await git($, ['rev-parse', '--abbrev-ref', 'HEAD'])
 
@@ -653,8 +662,10 @@ const tick = async ($: $): Promise<void> => {
     else if (asked === 'next') await sendNext($)
     else if (asked === 'prove') await prove($)
     else {
-      const said = asked === 'set out' ? await setOut($, false) : await sail($)
+      const said = asked === 'set out' || asked === 'set out auto' ? await setOut($, asked === 'set out auto') : asked === 'abandon' ? await abandon($) : await sail($)
 
+      // A command typed answers before it is done: what came of it is told as well as kept in the pane
+      $.ui.toast(`Fellowship: ${said}`)
       await update($, note, () => said)
     }
   } catch (error) {
@@ -807,7 +818,14 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     // Abandoning deletes a branch: the person types it, and no tool offers it to Claude
-    if (verb === 'abandon') return { text: await alone($, () => abandon($)) }
+    if (verb === 'abandon') {
+      const waiting = held === null ? undefined : waitBeforeAbandon(held)
+
+      if (waiting !== undefined) return { text: waiting }
+      await update($, wanted, () => 'abandon')
+
+      return { text: 'The quest is being abandoned: the pane says how it went.' }
+    }
 
     if (verb === 'halt') {
       await keep($, was => ({ ...was, isAuto: false }))
@@ -823,13 +841,21 @@ export const register: Register = on => {
     }
 
     if (verb === 'commit') return { text: await resubmit($) }
-    if (verb === 'sail') return { text: await alone($, () => sail($)) }
+    if (verb === 'sail') {
+      await update($, wanted, () => 'sail')
+
+      return { text: 'The Fellowship makes ready to sail: the pane says how it went.' }
+    }
     if (verb !== '') return { text: `/fellowship knows set out (no word, or --auto), next, commit, sail, halt and abandon; not ${verb}.` }
 
     // A quest under way is shown; any other sets out
     if (held !== null && held.phase !== 'sailed' && !isAuto) return { text: questText(held, await read($, plan)) }
 
-    return { text: await alone($, () => setOut($, isAuto)) }
+    // Setting out, sailing and abandoning read the plan from Elrond: a call made beneath a command's hooks is not answered
+    // by Elrond's, which sit in the same chain, so the clock makes them
+    await update($, wanted, () => (isAuto ? 'set out auto' : 'set out'))
+
+    return { text: `The Fellowship sets out on the Elrond plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

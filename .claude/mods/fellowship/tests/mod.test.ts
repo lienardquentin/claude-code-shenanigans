@@ -156,6 +156,7 @@ const machine = (on: On) => {
     ran: [] as string[],
     spawned: [] as Record<string, unknown>[],
     submitted: [] as string[],
+    toasts: [] as string[],
     marked: [] as string[],
     store: {} as Record<string, unknown>,
     plan: structuredClone(PLAN) as typeof PLAN | null,
@@ -280,7 +281,11 @@ const machine = (on: On) => {
   })
   on('session.start', () => ({ cwd: CWD }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
-  on('ui.toast', () => ({ value: undefined }) as never)
+  on('ui.toast', (_, e) => {
+    world.toasts.push(String((e as unknown as { text: string }).text))
+
+    return { value: undefined } as never
+  })
   on('ui.notify', () => ({ value: { isSent: true, channel: 'terminal_bell' } }) as never)
   on('turn.complete', () => ({ text: '' }) as never)
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
@@ -457,9 +462,11 @@ describe('fellowship', () => {
     await ends($, 'frodo-1', 'Added lit_at.')
     await settle(world)
 
-    const said = (await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text
+    // The clock abandons it, outside the command's hooks
+    expect((await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text).toMatch(/being abandoned/)
+    await settle(world)
 
-    expect(said).toBe('The quest on github:lienardquentin/claude-code-shenanigans#12 is abandoned. fellowship/12-beacons-answer-how-long-they-have-burned is deleted, with its 1 commit. 1 task is open again in the Elrond plan.')
+    expect(world.toasts.at(-1)).toBe('Fellowship: The quest on github:lienardquentin/claude-code-shenanigans#12 is abandoned. fellowship/12-beacons-answer-how-long-they-have-burned is deleted, with its 1 commit. 1 task is open again in the Elrond plan.')
     expect(world.ran).toContain('git switch main')
     expect(world.ran).toContain('git branch -D fellowship/12-beacons-answer-how-long-they-have-burned')
     expect(world.marked.at(-1)).toBe('1 todo')
@@ -547,6 +554,19 @@ describe('fellowship', () => {
     world.prState = { state: 'MERGED', headRefName: 'fellowship/12-beacons-answer-how-long-they-have-burned' }
     expect(await call($, 'mcp__fellowship__forget', { ref: 'github:lienardquentin/claude-code-shenanigans#12', pr })).toBe('The quest on github:lienardquentin/claude-code-shenanigans#12 is forgotten.')
     expect(JSON.parse(await call($, 'mcp__fellowship__relics'))).toEqual([])
+  })
+
+  test('sets out from /fellowship --auto through the clock, which reads the plan outside the command\'s hooks', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the Elrond plan, going on by itself/)
+    expect(world.ran).toEqual([])
+    await settle(world)
+
+    expect(world.toasts[0]).toMatch(/sets out on github:.*#12/)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'fellowship:frodo' })
+    expect(await call($, 'mcp__fellowship__quest')).toMatch(/going on by itself/)
   })
 
   test('on an auto quest, goes on task by task and opens the pull request that closes the issue', async ($, on) => {

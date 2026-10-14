@@ -105,7 +105,7 @@ export type FellowshipQuest = {
 }
 
 /** Something a press or a turn asked the clock to do, outside the hook that asked. */
-export type FellowshipWanted = '' | 'set out' | 'next' | 'prove' | 'sail'
+export type FellowshipWanted = '' | 'set out' | 'set out auto' | 'next' | 'prove' | 'sail' | 'abandon'
 
 declare module 'claude-code' {
   interface PluginState {
