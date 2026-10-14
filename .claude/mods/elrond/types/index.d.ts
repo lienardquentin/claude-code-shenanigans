@@ -116,6 +116,10 @@ declare module 'claude-code' {
       selected: number
       /** The issue a press asked to convene again on: the clock convenes it, outside the press. */
       wanted: string
+      /** Whether the Fellowship mod answers: the plan is then set out on through it, and a task built here only by choice. */
+      fellowship: boolean
+      /** How a press asked the Fellowship to set out, stopping after each task or going on by itself: the clock asks it. */
+      setOut: '' | 'step' | 'auto'
     }
   }
 }

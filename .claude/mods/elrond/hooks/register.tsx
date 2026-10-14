@@ -23,9 +23,46 @@ const council = atom({ plugin: 'elrond', key: 'council' } as const, null as Elro
 const note = atom({ plugin: 'elrond', key: 'note' } as const, '')
 const selected = atom({ plugin: 'elrond', key: 'selected' } as const, 0)
 const wanted = atom({ plugin: 'elrond', key: 'wanted' } as const, '')
+const fellowship = atom({ plugin: 'elrond', key: 'fellowship' } as const, false)
+const setOut = atom({ plugin: 'elrond', key: 'setOut' } as const, '' as '' | 'step' | 'auto')
 
-/** Convenes the council a press asked for: a press only asks, as what it starts does not outlive it. */
+// How many ticks pass between two asks of whether the Fellowship is there, and how many asks before it is taken to be absent
+const SEEK_TICKS = 10
+const SEEKS = 12
+let ticks = 0
+let sought = 0
+
+/** Asks the Fellowship mod whether it is there, until it answers or has been asked enough: other mods register late. */
+const seekFellowship = async ($: $): Promise<void> => {
+  ticks += 1
+  if (sought >= SEEKS || (ticks - 1) % SEEK_TICKS !== 0 || (await read($, fellowship))) return
+
+  sought += 1
+
+  const got = await $.mcp.call('fellowship', 'quest').catch(() => undefined)
+
+  if (got !== undefined && !got.isError) await update($, fellowship, () => true)
+}
+
+/** Sets the Fellowship out on the plan, as a press asked; what it answers is said in the pane. */
+const sendFellowship = async ($: $): Promise<void> => {
+  const how = await read($, setOut)
+
+  if (how === '') return
+
+  await update($, setOut, () => '')
+
+  const got = await $.mcp.call('fellowship', 'set_out', { auto: how === 'auto' }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)))
+  const text = typeof got === 'string' ? `The Fellowship did not answer: ${got}` : got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n')
+
+  await update($, note, () => text)
+}
+
+/** Convenes the council a press asked for, and sets the Fellowship out: a press only asks, as what it starts does not outlive it. */
 const tick = async ($: $): Promise<void> => {
+  await seekFellowship($)
+  await sendFellowship($)
+
   const ref = await read($, wanted)
 
   if (ref === '' || (await read($, council)) !== null) return
@@ -473,6 +510,8 @@ export const register: Register = on => {
     const asked = await read($, wanted)
     const openRisks = open === undefined ? [] : risksFor(held, open.id)
     const unDecide = (index: number) => keep($, reopened(held, index))
+    const hasFellowship = await read($, fellowship)
+    const asking = await read($, setOut)
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
@@ -491,6 +530,17 @@ export const register: Register = on => {
             </Button>
           ))}
         </Box>
+        {hasFellowship && !held.tasks.every(task => task.state === 'done') && (
+          <Box flexDirection="row" gap={2}>
+            <Button key="set-out" hotkey="s" variant="primary" onPress={() => update($, setOut, () => 'step')}>
+              Set out with the Fellowship
+            </Button>
+            <Button key="set-out-auto" hotkey="a" onPress={() => update($, setOut, () => 'auto')}>
+              Set out, auto
+            </Button>
+            <Text dimColor>{asking !== '' ? 'the Fellowship is setting out…' : 'it stops after each commit; auto goes on by itself and opens the pull request'}</Text>
+          </Box>
+        )}
         {open !== undefined && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
             <Text bold>{`${open.id}. ${open.title}`}</Text>
@@ -508,8 +558,9 @@ export const register: Register = on => {
             ))}
             <Box flexDirection="row" gap={2}>
               {open.state !== 'done' && (
-                <Button key="begin" hotkey="b" variant="primary" onPress={() => setState(open.id, 'doing').then(() => $.prompt.submit({ text: beginText(held, open), asUser: true })).then(() => undefined)}>
-                  Begin
+                // With the Fellowship there, building a task here is a choice beside setting out, not the way in
+                <Button key="begin" hotkey="b" variant={hasFellowship ? undefined : 'primary'} onPress={() => setState(open.id, 'doing').then(() => $.prompt.submit({ text: beginText(held, open), asUser: true })).then(() => undefined)}>
+                  {hasFellowship ? 'Build here myself' : 'Begin'}
                 </Button>
               )}
               <Button key="done" hotkey="d" onPress={() => setState(open.id, open.state === 'done' ? 'todo' : 'done')}>

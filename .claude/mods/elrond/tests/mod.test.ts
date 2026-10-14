@@ -156,7 +156,7 @@ describe('a plan', () => {
 
 /** Stands for the machine, the forge and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { ran: [] as string[], spawned: [] as Record<string, unknown>[], submitted: [] as string[], store: {} as Record<string, unknown>, gh: GH_ISSUE, clock: mock.clock(on, { now: 1_800_000_000_000 }), files: {} as Record<string, string>, registered: [] as Record<string, unknown>[] }
+  const world = { ran: [] as string[], spawned: [] as Record<string, unknown>[], submitted: [] as string[], store: {} as Record<string, unknown>, gh: GH_ISSUE, clock: mock.clock(on, { now: 1_800_000_000_000 }), files: {} as Record<string, string>, registered: [] as Record<string, unknown>[], fellowship: true, asked: [] as { tool: string; args: Record<string, unknown> }[] }
 
   on('fs.write', (_, e) => {
     world.files[e.path] = e.text
@@ -176,6 +176,16 @@ const machine = (on: On) => {
   })
 
   on('session.cwd', () => ({ value: CWD }) as never)
+  // The Fellowship mod beside it, when the world has it
+  on('mcp.call', (_, e) => {
+    world.asked.push({ tool: `${e.server}.${e.tool}`, args: e.args })
+
+    if (!world.fellowship || e.server !== 'fellowship') return { value: { content: [{ type: 'text', text: 'no such server' }], isError: true } } as never
+
+    const said = e.tool === 'set_out' ? `The Fellowship sets out on github:lienardquentin/claude-code-shenanigans#12, ${e.args.auto === true ? 'going on by itself' : 'stopping after each commit for you'}.` : 'No quest is under way.'
+
+    return { value: { content: [{ type: 'text', text: said }], isError: false } } as never
+  })
   on('process.run', (_, e) => {
     world.ran.push(e.argv.join(' '))
 
@@ -375,6 +385,44 @@ describe('elrond', () => {
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
+    test(`sets the Fellowship out from the pane, stopping after each task or going on by itself, and builds a task here only by choice, on ${surface}`, async ($, on) => {
+      const world = machine(on)
+      await $.session.start({ source: 'startup', cwd: CWD } as never)
+      await call($, 'mcp__elrond__convene', { issue: '#12' })
+      await ends($, 'council-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
+      // The clock finds the Fellowship there
+      await world.clock.advance(600)
+      expect(world.asked).toContainEqual({ tool: 'fellowship.quest', args: {} })
+
+      const pane = await $.ui.mount({ plugin: 'elrond', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'elrond' })
+      expect(await call($, 'mcp__elrond__pane')).toMatch(/\[Set out with the Fellowship\]\*\s+\[Set out, auto\][\s\S]*\[Build here myself\]/)
+
+      await pane.press({ key: 'set-out-auto' })
+      await world.clock.advance(600)
+      expect(world.asked).toContainEqual({ tool: 'fellowship.set_out', args: { auto: true } })
+      expect(await call($, 'mcp__elrond__pane')).toContain('The Fellowship sets out on github:lienardquentin/claude-code-shenanigans#12, going on by itself.')
+
+      await pane.press({ key: 'set-out' })
+      await world.clock.advance(600)
+      expect(world.asked).toContainEqual({ tool: 'fellowship.set_out', args: { auto: false } })
+      // Setting out sends no prompt: the Fellowship's members build, not this session
+      expect(world.submitted.filter(text => text.startsWith('Implement task'))).toEqual([])
+    })
+
+    test(`offers Begin as the way in where no Fellowship answers, on ${surface}`, async ($, on) => {
+      const world = machine(on)
+      world.fellowship = false
+      await $.session.start({ source: 'startup', cwd: CWD } as never)
+      await call($, 'mcp__elrond__convene', { issue: '#12' })
+      await ends($, 'council-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
+      await world.clock.advance(600)
+
+      await $.ui.mount({ plugin: 'elrond', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'elrond' })
+      const drawn = await call($, 'mcp__elrond__pane')
+      expect(drawn).toContain('[Begin]*')
+      expect(drawn).not.toContain('Set out')
+    })
+
     test(`offers quick answers and a field of one's own for each question, and revises the plan with what was answered, on ${surface}`, async ($, on) => {
       const world = machine(on)
       await $.session.start({ source: 'startup', cwd: CWD } as never)
