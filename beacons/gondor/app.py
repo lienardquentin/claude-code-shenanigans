@@ -67,7 +67,13 @@ async def archives_shut(request: Request, failure: archive.Shut):
 
 @app.get("/health")
 async def health():
-    return {"realm": "gondor", "stands": True}
+    # The realm stands whether or not the archives answer: what burns is then not known
+    try:
+        lit = len(await archive.burning())
+    except archive.Shut:
+        lit = None
+
+    return {"realm": "gondor", "stands": True, "lit": lit}
 
 
 @app.get("/beacons")

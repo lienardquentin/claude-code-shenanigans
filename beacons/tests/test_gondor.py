@@ -24,8 +24,9 @@ def client():
         yield gondor_client
 
 
+# sting: gondor GET /health
 def test_health(client):
-    assert client.get("/health").json() == {"realm": "gondor", "stands": True}
+    assert client.get("/health").json() == {"realm": "gondor", "stands": True, "lit": 0}
 
 
 def test_beacons_start_dark_and_come_in_chain_order(client):
