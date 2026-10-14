@@ -1,0 +1,53 @@
+# What the Argonath mod knows this project builds: label=kind@root, the root the folder whose edits are edits of it.
+# An edit there owes the target a look once the turn ends: what changed in what it does, and whether a test pins it.
+
+# Once a proof finds every changed run pinned, the change is reviewed, once a change, each command as if typed when the
+# turn ends: its bugs at medium effort, then its security.
+review=/code-review medium
+review=/security-review
+
+# narsil, the CLI: its runs are kept by anduril, in .claude/anduril.
+narsil=cli@narsil
+narsil.tests=narsil/tests
+# {tests} is filled with the tests marked on what changed, and only those run
+narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli -- --exact {tests}
+
+# Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, standing
+# alone (no database, no broker, a Rohan that never answers).
+gondor=service:gondor.app:app@beacons/gondor
+gondor.python=beacons
+gondor.env=DATABASE_URL=
+gondor.env=KAFKA_BROKERS=
+gondor.env=ROHAN_URL=http://127.0.0.1:9
+gondor.tests=beacons/tests
+gondor.test=uv run --quiet --project beacons pytest -v beacons/tests/test_gondor.py -k "{tests: or }"
+
+# Live: where Gondor is deployed. While it runs there, both builds are played again here against its real Postgres and
+# Rohan, reached by port-forward, with the deployed workload's own variables (a secret read from its secret). A context
+# whose name holds "prod" is refused. The broker is left out: forwarded, it would point the app at its in-cluster name.
+gondor.live=k3d-beacons/beacons/deployment/gondor
+gondor.live.forward=postgres:5432,rohan:8102
+gondor.live.env=KAFKA_BROKERS=
+# What the requests write is filed under the run's own request id, and taken out after each build; the fires a quench
+# put out are lit again as they were, the riders' among them.
+gondor.live.db=deployment/postgres
+gondor.live.before=SELECT beacon, rid, since::text FROM burning
+gondor.live.cleanup=DELETE FROM lightings WHERE rid LIKE '{rid}%'
+gondor.live.cleanup=DELETE FROM burning WHERE rid LIKE '{rid}%'
+gondor.live.restore=INSERT INTO burning (beacon, rid, since) VALUES {rows} ON CONFLICT (beacon) DO NOTHING
+
+# The requests played, in order, against one app: what one does to it, the next sees.
+$ gondor GET /health
+$ gondor GET /beacons
+$ gondor POST /beacons/amon-din/light
+$ gondor GET /beacons
+$ gondor POST /beacons/mount-doom/light
+$ gondor POST /beacons/quench
+$ gondor GET /palantiri
+$ gondor GET /palantiri/anor/gaze
+$ gondor GET /palantiri/ithil/gaze
+$ gondor GET /palantiri/mordor/gaze
+$ gondor POST /muster
+
+# Anor, the Nuxt frontend: Argonath has no frontend handler yet.
+anor=frontend@beacons/anor

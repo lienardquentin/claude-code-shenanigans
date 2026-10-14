@@ -1,0 +1,5 @@
+{
+  "name": "argonath-mods",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "argonath", "source": "./" }]
+}

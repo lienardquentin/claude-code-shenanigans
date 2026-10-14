@@ -1,0 +1,6 @@
+{
+  "name": "argonath",
+  "version": "0.1.0",
+  "description": "The gate every change passes: routes an edit to the handler of what it changed (a CLI through anduril, a web service by its kept requests played in-process) to find which behaviours changed since HEAD, then proves whether an integration test pins each one, in a pane, a glowing band above the prompt and as tools Claude reads",
+  "types": "./types/index.d.ts"
+}

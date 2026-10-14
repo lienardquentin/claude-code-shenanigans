@@ -1,6 +1,0 @@
-# What the sting mod knows of this project's integration tests, by the name anduril watches the tool under.
-# The files and folders that hold them: what a proof lays over a checkout of the commit compared against.
-narsil.tests=narsil/tests
-
-# How they are run, from the repo's root, each test named as it ends.
-narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli

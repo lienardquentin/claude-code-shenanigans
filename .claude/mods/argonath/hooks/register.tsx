@@ -1,0 +1,576 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { ArgonathRadius, ArgonathState, ArgonathTarget } from '../types'
+import { badge } from './kit/badge'
+import type { Tone } from './kit/badge'
+import { paneView } from './kit/pane-text'
+import { table } from './kit/table'
+import type { TableCell } from './kit/table'
+import type { Changed, Review } from './proof'
+import {
+  HOME,
+  HOW_TO,
+  MARK,
+  PROJECT_FILE,
+  isNarrowable,
+  isProd,
+  isQuiet,
+  fingerprintOf,
+  isTested,
+  markedTests,
+  marksOf,
+  narrowed,
+  owed,
+  parseDiffText,
+  parseLiveAnswer,
+  parseProject,
+  parseProof,
+  parseReviews,
+  parseServiceAnswer,
+  proved,
+  radiusLine,
+  radiusOf,
+  radiusText,
+  targetsOf,
+  tidy,
+  withLive,
+} from './proof'
+
+type $ = EngineInterface
+
+const PANE = 'argonath'
+const TITLE = 'Argonath'
+// The tool of anduril's that plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
+const ANDURIL_DIFF = 'mcp__anduril__diff'
+// A look builds and plays on two sides, and a proof runs the tests on each: as long as a host command may run
+const RUN_TIMEOUT_MS = 600_000
+// How many test files are read for marks
+const READ_FILES = 300
+// How often the session is asked whether a look is owed: once a turn has ended with an edit, it runs on the next
+const OWED_MS = 2_000
+
+const targets = atom({ plugin: 'argonath', key: 'targets' } as const, [] as ArgonathTarget[])
+const radii = atom({ plugin: 'argonath', key: 'radii' } as const, [] as ArgonathRadius[])
+const touched = atom({ plugin: 'argonath', key: 'touched' } as const, [] as string[])
+const working = atom({ plugin: 'argonath', key: 'working' } as const, '')
+const note = atom({ plugin: 'argonath', key: 'note' } as const, '')
+const selected = atom({ plugin: 'argonath', key: 'selected' } as const, '')
+const isHidden = atom({ plugin: 'argonath', key: 'isHidden' } as const, false)
+const glow = atom({ plugin: 'argonath', key: 'glow' } as const, 0)
+const home = atom({ plugin: 'argonath', key: 'home' } as const, '')
+const reviewed = atom({ plugin: 'argonath', key: 'reviewed' } as const, '')
+
+/** The folder the session started in: a `cd` Claude runs does not move the project from under the mod. */
+const homeOf = async ($: $): Promise<string> => {
+  const held = await read($, home)
+
+  if (held !== '') return held
+
+  const cwd = tidy(await $.session.cwd())
+
+  await update($, home, () => cwd)
+
+  return cwd
+}
+
+// What the pane last drew, for the model to read
+const view = paneView({ id: PANE, title: TITLE, command: '/argonath' })
+
+const ASKED = {
+  target: { type: 'string', description: 'One target by its name; every target the project names when left out.' },
+  against: { type: 'string', description: 'The commit the working tree is compared with, by any name git resolves (a tag, a branch). HEAD when left out.' },
+} as const
+
+const TOOLS = [
+  {
+    name: 'radius',
+    description:
+      "What the uncommitted change reached in what each target of the project does (a CLI, a web service, a frontend), and what of it an integration test covers. Each target's handler plays what the project keeps of it on the working tree and on HEAD: a CLI's runs through anduril, a service's requests in-process. Each run or request whose answer changed is in the radius, `bare` (no test marked on it) or `marked` (a test has a comment `sting: <the run>` above it); one that did not change is outside it and owed no test. Call it after changing a target's source and before saying the change is done; write a test for each bare run and for no other. `prove` then says whether each test sees the change.",
+    inputSchema: { type: 'object', properties: ASKED },
+  },
+  {
+    name: 'prove',
+    description:
+      "Makes the radius afresh and runs, for each target, only the tests marked on the runs that changed, on two sides: HEAD's source with the working tree's tests laid over it, and the working tree. A changed run is `pinned` when a test marked on it fails on the first and passes on the second, `loose` when its tests pass on both and so do not see the change, `broken` when one fails on the working tree. No other test is run or reported: one no changed run is marked by is out of scope. Runs nothing for a target where nothing changed, or where no changed run is marked yet. The first proof of a commit builds it, which can take minutes. Argonath also does this by itself once a turn that edited a target has ended.",
+    inputSchema: { type: 'object', properties: ASKED },
+  },
+] as const
+
+// The targets the project names, as the system prompt's section reads them: a module's own copy, set again at each load
+let known: readonly ArgonathTarget[] = []
+// The reviews the project names, run once a change is settled
+let reviews: readonly Review[] = []
+
+const reviewLine = (list: readonly Review[]): string => list.map(({ command, args }) => `/${command}${args === '' ? '' : ` ${args}`}`).join(', ')
+
+const sectionText = (list: readonly ArgonathTarget[], cwd: string): string => {
+  const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
+
+  return [
+    `The Argonath mod says which changes in what this project's targets do are covered by an integration test: ${list.map(({ label, kind, roots }) => `\`${label}\` (${kind}, ${roots.map(within).join(', ')})`).join(', ')}.`,
+    'After changing a target\'s source, mcp__argonath__radius lists the kept runs or requests whose answer changed since HEAD, each bare or marked by a test.',
+    `For each bare one, write one integration test that makes that run or request and asserts what it now answers, with a comment \`${MARK} <the run as listed>\` on the line above the test; write none for one that did not change.`,
+    'Then mcp__argonath__prove runs the tests on HEAD\'s source and on the working tree: a test that covers the change fails on the first and passes on the second, and the change is covered when every changed run is pinned.',
+    ...(reviews.length > 0 ? [`Once a proof finds every changed run pinned, Argonath runs ${reviewLine(reviews)} on the change when the turn ends, once a change.`] : []),
+  ].join(' ')
+}
+
+const setUp = async ($: $): Promise<ArgonathTarget[]> => {
+  const cwd = await homeOf($)
+  const text = await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => '')
+  const list = parseProject(text, cwd)
+
+  known = list
+  reviews = parseReviews(text)
+  await update($, targets, () => list)
+
+  return list
+}
+
+/** Every mark in the files a target names as tests: what git tracks there, and what it neither tracks nor ignores. */
+const marksIn = async ($: $, cwd: string, target: ArgonathTarget): Promise<{ line: string; test: string }[]> => {
+  if (target.tests.length === 0) return []
+
+  const listed = await $.process.run(['git', 'ls-files', '-co', '--exclude-standard', '--', ...target.tests], { cwd }).catch(() => undefined)
+  const paths = (listed?.exitCode === 0 ? listed.stdout.split('\n') : []).map(path => path.trim()).filter(path => path !== '')
+  const marks: { line: string; test: string }[] = []
+
+  for (const path of paths.slice(0, READ_FILES)) marks.push(...marksOf(await $.fs.read(`${cwd}/${path}`).catch(() => '')))
+
+  return marks
+}
+
+// What a handler found, and for a service with a live stage, what that stage found in a line
+type Found = Changed & { live?: string }
+
+/** A CLI's handler: anduril plays its kept runs on both builds, and says what changed. */
+const cliChanged = async ($: $, target: ArgonathTarget, against: string): Promise<Changed | string> => {
+  try {
+    const answered = (await $.tool.call({ tool: ANDURIL_DIFF, target: target.label, from: against, to: 'work' } as never)) as unknown as { result?: unknown; text?: unknown }
+    const said = typeof answered.result === 'string' ? answered.result : typeof answered.text === 'string' ? answered.text : ''
+
+    // What anduril says in place of a comparison is why there is no radius
+    return parseDiffText(said) ?? (said !== '' ? said : 'anduril answered nothing to read.')
+  } catch (error) {
+    return `A CLI's radius is read from anduril's diff, which could not be called: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+/**
+ * A service's handler: its kept requests are played in-process on both builds, standing alone; then, where the
+ * project says where it is deployed and it is running, on both builds again against its real dependencies.
+ */
+const serviceChanged = async ($: $, target: ArgonathTarget, against: string): Promise<Found | string> => {
+  if (target.app === '') return `${target.label} names no app: say it as service:module:app, gondor=service:gondor.app:app@beacons/gondor.`
+  if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}: $ ${target.label} GET /health`
+
+  const job = { home: await homeOf($), label: target.label, app: target.app, python: target.python, env: target.env, masks: target.masks, requests: target.requests, from: against }
+  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/service.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS })
+  const fast = parseServiceAnswer(ran.stdout) ?? `The requests could not be played: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the service handler exited with ${ran.exitCode} and said nothing`}`
+
+  if (typeof fast === 'string' || target.live === null) return fast
+
+  // A context that names prod is never touched: the handler, which refuses it too, is not even started
+  if (isProd(target.live.workload)) return { ...fast, live: `Live: not played, the context of ${target.live.workload} names prod, and Argonath reads nothing from it and runs nothing in it` }
+
+  await update($, working, () => `Playing what ${target.label} keeps on both builds against its real dependencies, on ${target.live?.workload ?? ''}…`)
+
+  const live = await $.process
+    .run(['python3', `${tidy($.plugin.root)}/handlers/live.py`], { stdin: JSON.stringify({ ...job, live: target.live }), timeoutMs: RUN_TIMEOUT_MS })
+    .then(done => parseLiveAnswer(done.stdout) ?? { where: target.live?.workload ?? '', skipped: '', error: done.stderr.trim().split('\n').slice(-2).join(' ') || `the live handler exited with ${done.exitCode}`, cases: [] })
+    .catch((error: unknown) => ({ where: target.live?.workload ?? '', skipped: '', error: error instanceof Error ? error.message : String(error), cases: [] }))
+  const merged = withLive(fast, live)
+
+  return { ...merged.changed, live: merged.line }
+}
+
+/** What changed in what one target does, by the handler of its kind. */
+const changedIn = ($: $, target: ArgonathTarget, against: string): Promise<Found | string> =>
+  target.kind === 'cli'
+    ? cliChanged($, target, against)
+    : target.kind === 'service'
+      ? serviceChanged($, target, against)
+      : Promise.resolve(`${target.label} is a frontend: Argonath has no handler for a frontend yet, so what changed in it is not known.`)
+
+/** Runs a target's tests on both sides, and says where each changed run stands. */
+const proveIn = async ($: $, target: ArgonathTarget, made: ArgonathRadius, against: string): Promise<ArgonathRadius | string> => {
+  const cwd = await homeOf($)
+  // Only the tests marked on the runs that changed are run, where the command says how to name them
+  const job = { home: cwd, label: target.label, tests: target.tests, test: narrowed(target.test, markedTests(made)), from: against }
+  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/prove.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS })
+  const proof = parseProof(ran.stdout)
+
+  return proof === undefined ? `The proof of ${target.label} could not be made: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the prove script exited with ${ran.exitCode}`}` : proved(made, proof)
+}
+
+type Asked = { target?: string; against: string; isProving: boolean }
+
+/** Looks again at the targets asked for: what changed in each, and, when asked, whether its tests see it. Answers what was found, a radius or a sentence a target. */
+const look = async ($: $, asked: Asked, only?: readonly string[]): Promise<(ArgonathRadius | string)[]> => {
+  const list = await setUp($)
+
+  if (list.length === 0) return [HOW_TO]
+  if (asked.target !== undefined && !list.some(({ label }) => label === asked.target)) return [`Argonath knows no target named ${asked.target}. It knows ${list.map(({ label }) => label).join(', ')}.`]
+
+  const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
+  const cwd = await homeOf($)
+  const found: (ArgonathRadius | string)[] = []
+  // The checkouts a handler or a proof makes are no part of the repo: the folder says so itself, before any is made
+  const ignore = `${cwd}/${HOME}/.gitignore`
+  if (!(await $.fs.exists(ignore).catch(() => false))) await $.fs.write(ignore, '*\n').catch(() => undefined)
+
+  try {
+    for (const target of chosen) {
+      await update($, working, () => `Playing what ${target.label} keeps on the working tree and on ${asked.against}…`)
+
+      const changed = await changedIn($, target, asked.against).catch((error: unknown) => `${target.label} could not be looked at: ${error instanceof Error ? error.message : String(error)}`)
+
+      if (typeof changed === 'string') {
+        found.push(changed)
+        continue
+      }
+
+      let made = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: await marksIn($, cwd, target) }), live: changed.live ?? '' }
+
+      // No kept run changed: nothing is in the radius, and no test is run
+      // A proof runs only the tests marked on what changed: with none marked yet, there is nothing to run
+      if (asked.isProving && markedTests(made).length > 0) {
+        if (!isTested(target)) made = { ...made, unproved: `${target.label} names no tests to prove: ${target.label}.tests and ${target.label}.test in ${PROJECT_FILE}.` }
+        // A command that cannot be narrowed would run tests out of scope: it is not run at all
+        else if (!isNarrowable(target.test)) made = { ...made, unproved: `${target.label}.test in ${PROJECT_FILE} has no {tests} for the tests to run, so none is run: every test it holds would be, the ones out of scope with them. Name them as its runner takes them, -k "{tests: or }" for pytest, -- --exact {tests} for cargo.` }
+        else {
+          await update($, working, () => `Running the tests of ${target.label} on ${asked.against}'s source and on the working tree…`)
+
+          const done = await proveIn($, target, made, asked.against)
+
+          made = typeof done === 'string' ? { ...made, unproved: done } : done
+        }
+      }
+
+      const kept = made
+      await update($, radii, held => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label))))
+      found.push(kept)
+    }
+  } finally {
+    await update($, working, () => '')
+  }
+
+  await update($, touched, held => held.filter(label => !chosen.some(target => target.label === label)))
+  await update($, note, () => found.filter((one): one is string => typeof one === 'string').join(' '))
+  if (found.some(one => typeof one !== 'string')) await update($, isHidden, () => false)
+  if (asked.isProving) await owe($)
+
+  return found
+}
+
+// The fingerprint of a settled change the reviews are owed, run once the session is idle; empty when none is
+let reviewDue = ''
+
+/** Owes the reviews to the change as it stands, when a proof left no changed run of any target unpinned. */
+const owe = async ($: $): Promise<void> => {
+  if (reviews.length === 0 || unsettled(await read($, radii)).length > 0) return
+
+  const due = fingerprintOf([...(await fingerprints($))].map(([label, held]) => `${label}\n${held}`).join('\n'))
+
+  reviewDue = due === (await read($, reviewed)) ? '' : due
+}
+
+/** Runs the reviews owed, each as if the person typed it: queued behind one another, and run while the session is idle. */
+const review = async ($: $): Promise<void> => {
+  const due = reviewDue
+
+  reviewDue = ''
+  if (due === '' || due === (await read($, reviewed))) return
+
+  await update($, reviewed, () => due)
+  $.ui.toast(`Argonath: every changed run is pinned, so ${reviewLine(reviews)} ${reviews.length === 1 ? 'reviews' : 'review'} the change`)
+
+  for (const { command, args } of reviews) {
+    void $.command.run({ command, args }).catch((error: unknown) => update($, note, () => `/${command} could not be run: ${error instanceof Error ? error.message : String(error)}`))
+  }
+}
+
+const foundText = (found: readonly (ArgonathRadius | string)[]): string => found.map(one => (typeof one === 'string' ? one : radiusText(one))).join('\n\n―――\n\n')
+
+const askedOf = (e: unknown, isProving: boolean): Asked => {
+  const given = e as { target?: unknown; against?: unknown }
+
+  return {
+    target: typeof given.target === 'string' && given.target !== '' ? given.target : undefined,
+    against: typeof given.against === 'string' && given.against.trim() !== '' ? given.against.trim() : 'HEAD',
+    isProving,
+  }
+}
+
+/** Marks a target's radius as one of an earlier working tree, and owes it a look once the turn has ended. */
+const edited = async ($: $, path: unknown): Promise<void> => {
+  if (typeof path !== 'string' || path === '') return
+
+  const cwd = await homeOf($)
+  const whole = /^([A-Za-z]:)?\//.test(tidy(path)) ? tidy(path) : `${cwd}/${tidy(path)}`
+  const hit = targetsOf(whole, await read($, targets)).map(({ label }) => label)
+
+  if (hit.length === 0) return
+
+  await update($, touched, held => [...new Set([...held, ...hit])])
+  await update($, radii, held => held.map(one => (hit.includes(one.label) && !one.isStale ? { ...one, isStale: true } : one)))
+}
+
+/**
+ * What each target's folders hold against HEAD, by label: the diff of what git tracks there, and the files it neither
+ * tracks nor ignores. Two of these around a shell command say which targets it changed.
+ */
+const fingerprints = async ($: $): Promise<Map<string, string>> => {
+  const cwd = await homeOf($)
+  const held = new Map<string, string>()
+
+  for (const { label, roots } of await read($, targets)) {
+    const ran = await $.process
+      .run(['sh', '-c', 'git diff HEAD --no-color --no-ext-diff -- "$@"; git ls-files -o --exclude-standard -- "$@"', 'sh', ...roots], { cwd })
+      .catch(() => undefined)
+
+    if (ran !== undefined && ran.exitCode === 0) held.set(label, ran.stdout)
+  }
+
+  return held
+}
+
+// A turn that edited a target has ended: the next tick of the clock looks at what it touched
+let isOwed = false
+let isLooking = false
+
+/** Looks at the targets edited during the turn that ended, and proves them, while nothing else is looking; then runs the reviews a settled change is owed. */
+const settle = async ($: $): Promise<void> => {
+  if (!isOwed || isLooking) return
+
+  const owedTo = await read($, touched)
+
+  isOwed = false
+
+  if (owedTo.length > 0) {
+    isLooking = true
+    try {
+      await look($, { against: 'HEAD', isProving: true }, owedTo)
+    } finally {
+      isLooking = false
+    }
+  }
+
+  await review($)
+}
+
+const TONE: Record<ArgonathState, Tone> = { bare: 'danger', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'danger' }
+
+const toneOf = (held: ArgonathRadius): Tone => (held.seams.some(seam => seam.state === 'bare' || seam.state === 'broken') || held.turned.length > 0 ? 'danger' : isQuiet(held) ? 'success' : 'warning')
+
+// Sting glows blue, whatever is near: the counts say what
+const GLOW = 'suggestion'
+// The sword: a hilt that stays dim, and a blade whose glow swells and fades, a beat at a time
+const HILT = 'o=['
+// A fixed gray, a shade under the theme's dim text: no theme key is darker
+const HILT_COLOR = '#5c5c5c'
+const BLADE = '=====>'
+const BEATS = ['faint', 'lit', 'bright', 'lit'] as const
+const BEAT_MS = 450
+
+/** The radii a test does not yet pin all of. */
+const unsettled = (all: readonly ArgonathRadius[]): ArgonathRadius[] => all.filter(one => one.seams.length > 0 && !isQuiet(one))
+
+/** Whether the band is lit: a changed run of some target is not pinned, and the person has not hidden it. */
+const isLit = async ($: $): Promise<boolean> => unsettled(await read($, radii)).length > 0 && !(await read($, isHidden))
+
+/** One beat of the glow, while the band is lit: a dark band redraws nothing. */
+const beat = async ($: $): Promise<void> => {
+  if (await isLit($)) await update($, glow, was => (was + 1) % BEATS.length)
+}
+
+/** Each unsettled target in a few words, for the band: `gondor 1 bare · narsil 3 marked`. */
+const bandLine = (all: readonly ArgonathRadius[]): string =>
+  unsettled(all)
+    .map(one => `${one.label} ${radiusLine(one).split(' · ').slice(1).filter(part => !part.includes('changed')).join(' · ')}${one.isStale ? ' (before the last edit)' : ''}`)
+    .join('  │  ')
+
+export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'argonath', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
+
+    // A host that registers no tools still starts the session
+    for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
+
+    await setUp($).catch(() => [])
+    $.clock.every(BEAT_MS, () => void beat($).catch(() => undefined))
+    $.clock.every(OWED_MS, () => void settle($).catch(() => undefined))
+
+    return next(e)
+  })
+
+  // Claude is told which tests are owed: one for each run that changed, and none beyond
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+
+    return known.length === 0 ? composed : { sections: [...composed.sections, { id: 'argonath:radius', text: sectionText(known, await homeOf($)), scope: 'session' as const }] }
+  })
+
+  // An edit of a target's file makes its radius old, and owes it a look once the turn has ended
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const done = await next(e)
+    await edited($, e.file_path)
+
+    return done
+  }).catch((_$, e, next) => next(e))
+
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const done = await next(e)
+    await edited($, e.file_path)
+
+    return done
+  }).catch((_$, e, next) => next(e))
+
+  // A shell command edits too (a `git checkout`, a `sed`, a formatter): a target whose folders it changed is edited
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if ((await read($, targets)).length === 0) return next(e)
+
+    const before = await fingerprints($)
+    const done = await next(e)
+    const after = await fingerprints($)
+    const changed = [...after].filter(([label, now]) => before.has(label) && before.get(label) !== now).map(([label]) => label)
+
+    for (const target of (await read($, targets)).filter(({ label }) => changed.includes(label))) await edited($, target.roots[0])
+
+    return done
+  }).catch((_$, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    // A subagent's turn is not the session's: its edits wait for the turn that spawned it
+    // A proof Claude asked for during the turn may have owed the reviews: they too wait for the turn to end
+    if (e.agentId === undefined && !e.isAborted && ((await read($, touched)).length > 0 || reviewDue !== '')) isOwed = true
+
+    return next(e)
+  })
+
+  on('tool.call', { tool: 'mcp__argonath__pane' }, $ => view.answer(() => $.ui.panes()))
+
+  on('tool.call', { tool: 'mcp__argonath__radius' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, false))) }))
+
+  on('tool.call', { tool: 'mcp__argonath__prove' }, async ($, e) => ({ result: foundText(await look($, askedOf(e, true))) }))
+
+  on('command.run', { command: 'argonath' }, async $ => {
+    await $.ui.open({ id: PANE, title: TITLE })
+
+    const list = await setUp($)
+    const held = await read($, radii)
+
+    return {
+      text:
+        list.length === 0
+          ? HOW_TO
+          : held.length === 0
+            ? `Argonath knows ${list.map(({ label, kind }) => `${label} (${kind})`).join(', ')}. Nothing is looked at yet: Radius in the pane looks.`
+            : held.map(one => `${radiusLine(one)}.`).join(' '),
+    }
+  })
+
+  // The blade glows while a run that changed is not pinned, and is dark otherwise
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey || !(await isLit($))) return next(e)
+
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const glowing = BEATS[await read($, glow)] ?? 'lit'
+
+    return (
+      <Box>
+        {/* The sword keeps its width: on a narrow band the counts are cut, never the blade */}
+        <Box flexShrink={0}>
+          <Text color={HILT_COLOR}>{HILT}</Text>
+          <Text color={GLOW} dimColor={glowing === 'faint'} bold={glowing === 'bright'}>{BLADE}</Text>
+          <Text color={GLOW} bold>{' sting'}</Text>
+        </Box>
+        <Text color={GLOW} wrap="truncate-end">{` · ${bandLine(await read($, radii))}  `}</Text>
+        <Button key="argonath-open" label="Open" onPress={() => $.ui.open({ id: PANE, title: TITLE }).then(() => undefined)} />
+        <Text> </Text>
+        <Button key="argonath-hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Button, Code, Text } = $.ui.resolve(e)
+    const list = await read($, targets)
+    const held = await read($, radii)
+    const doing = await read($, working)
+    const problem = await read($, note)
+    const owedTo = await read($, touched)
+    const openKey = await read($, selected)
+
+    // What a button asked for and did not get is said in the pane by `look` itself
+    // The person pressed it between turns: a proof that settles the change runs its reviews at once
+    const run = (isProving: boolean) => look($, { against: 'HEAD', isProving }).then(() => review($))
+
+    if (list.length === 0) {
+      return view.keep(
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" gap={2}>
+            {badge({ label: 'no target known', tone: 'neutral' })}
+            <Button key="refresh" hotkey="r" onPress={() => setUp($).then(() => undefined)}>
+              Refresh
+            </Button>
+          </Box>
+          <Text>{HOW_TO}</Text>
+        </Box>,
+      )
+    }
+
+    const section = (target: ArgonathTarget) => {
+      const one = held.find(({ label }) => label === target.label)
+      const open = one?.seams.find(seam => `${one.label} ${seam.line}` === openKey)
+      const rows = (one?.seams ?? []).map((seam): TableCell[] => [
+        { text: seam.state, tone: TONE[seam.state] },
+        <Button key={`seam-${target.label}-${seam.line}`} plain onPress={() => update($, selected, was => (was === `${target.label} ${seam.line}` ? '' : `${target.label} ${seam.line}`))}>
+          {`${target.label} ${seam.line}` === openKey ? '▸ ' : ''}
+          {seam.line}
+        </Button>,
+        seam.tests.length === 0 ? '' : seam.tests.map(test => (one?.isProved === true ? `${test.name} (${test.from} → ${test.to})` : test.name)).join(', '),
+      ])
+
+      return (
+        <Box flexDirection="column" borderStyle="round" paddingX={1}>
+          <Box flexDirection="row" gap={2}>
+            <Text bold>{target.label}</Text>
+            <Text dimColor>{target.kind}</Text>
+            {one === undefined ? badge({ label: 'not looked at', tone: 'neutral' }) : badge({ label: radiusLine(one), tone: one.seams.length === 0 ? 'success' : toneOf(one) })}
+            {owedTo.includes(target.label) && <Text color="warning">edited since</Text>}
+          </Box>
+          {one !== undefined && <Text dimColor>{one.summary}</Text>}
+          {one !== undefined && one.live !== '' && <Text dimColor>{one.live}</Text>}
+          {one !== undefined && one.seams.length > 0 && table({ columns: [{ header: 'STATE', width: 7 }, { header: 'RUN' }, { header: 'TEST', wrap: true }], rows })}
+          {open !== undefined && (
+            <Box flexDirection="column">
+              <Text color={open.state === 'pinned' ? 'success' : 'warning'}>{owed(open)}</Text>
+              {open.evidence !== '' && <Code source={open.evidence} format="diff" />}
+            </Box>
+          )}
+          {one !== undefined && one.turned.length > 0 && <Text color="error">{`Passing on the commit's source and failing on the working tree: ${one.turned.join(', ')}`}</Text>}
+          {one !== undefined && one.unproved !== '' && <Text color="warning">{one.unproved}</Text>}
+        </Box>
+      )
+    }
+
+    return view.keep(
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="row" gap={2}>
+          {badge({ label: `${list.length} ${list.length === 1 ? 'target' : 'targets'} · ${unsettled(held).length} with a change no test pins`, tone: unsettled(held).length > 0 ? 'warning' : 'success' })}
+          <Button key="radius" hotkey="r" variant="primary" onPress={() => run(false)}>
+            Radius
+          </Button>
+          <Button key="prove" hotkey="p" onPress={() => run(true)}>
+            Prove
+          </Button>
+        </Box>
+        {doing !== '' && <Text color="suggestion">{doing}</Text>}
+        {problem !== '' && <Text color="warning">{problem}</Text>}
+        {list.map(section)}
+      </Box>,
+    )
+  })
+}

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Runs a tool's integration tests on two sides and hands back what each wrote, for the sting mod.
+"""Runs a tool's integration tests on two sides and hands back what each wrote, for the argonath mod.
 
 One side is the working tree, where the tests are run as they stand. The other is the source of a commit (any name
 git resolves) with the working tree's tests laid over it: the commit is checked out in a worktree of the tool's own,
-.sting/trees/<label>, and the files the project names as tests are copied there from the working tree, what git
+.argonath/trees/<label>, and the files the project names as tests are copied there from the working tree, what git
 tracks and what it neither tracks nor ignores. A test written a moment ago is so run on the source as it was before
 the change: one that pins the change fails there and passes on the working tree.
 
@@ -42,7 +42,7 @@ def tail(text, lines=3):
 
 def checkout(home, label, sha):
     """The commit in the tool's worktree, with nothing of an earlier proof left in it but what git ignores."""
-    tree = os.path.join(home, ".sting", "trees", label)
+    tree = os.path.join(home, ".argonath", "trees", label)
     if os.path.isdir(tree):
         git(tree, "clean", "-fdq")
         code, _, said = git(tree, "checkout", "--detach", "--force", "--quiet", sha)

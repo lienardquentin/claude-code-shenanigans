@@ -1,6 +1,0 @@
-{
-  "name": "sting",
-  "version": "0.1.0",
-  "description": "Says which changes in what the command-line tool being written does are pinned by an integration test: the kept runs that changed since HEAD, each bare or marked by a test, and whether that test fails on HEAD's source and passes on the working tree, in a pane, a band above the prompt and as tools Claude reads",
-  "types": "./types/index.d.ts"
-}

@@ -1,5 +1,0 @@
-{
-  "name": "sting-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "sting", "source": "./" }]
-}
