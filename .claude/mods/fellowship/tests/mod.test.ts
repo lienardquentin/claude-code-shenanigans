@@ -163,6 +163,7 @@ const machine = (on: On) => {
     judgements: [JUDGED.sitting, JUDGED.pass] as string[],
     registered: [] as Record<string, unknown>[],
     convened: 0,
+    about: [] as string[],
     branch: 'main',
     dirty: '',
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
@@ -207,7 +208,10 @@ const machine = (on: On) => {
     if (e.server === 'argonath' && e.tool === 'prove') return text(world.proofs.length > 1 ? (world.proofs.shift() ?? '') : (world.proofs[0] ?? ''))
     if (e.server === 'argonath' && e.tool === 'targets') return text(JSON.stringify(TARGETS))
     if (e.server === 'argonath' && e.tool === 'judgement') {
-      if (e.args.convene === true) world.convened += 1
+      if (e.args.convene === true) {
+        world.convened += 1
+        world.about.push(String(e.args.about))
+      }
 
       return text(world.judgements.length > 1 ? (world.judgements.shift() ?? '') : (world.judgements[0] ?? ''))
     }
@@ -321,6 +325,7 @@ describe('fellowship', () => {
     await settle(world)
 
     expect(world.convened).toBe(1)
+    expect(world.about[0]).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.[\s\S]*Done when: lit_at is set on light\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
     expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Isildur, app\.py:70: lit could be named burning\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
     // No Claude is woken: the statues are the judges

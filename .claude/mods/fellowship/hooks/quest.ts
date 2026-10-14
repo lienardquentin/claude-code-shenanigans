@@ -262,6 +262,16 @@ export const companionPrompt = (plan: FellowshipPlan, task: FellowshipTask, retr
   ].join('\n')
 }
 
+/** What a task's change is meant to do, for the statues to judge it against: the issue, the task, what is left to later tasks. */
+export const purposeOf = (plan: FellowshipPlan, task: FellowshipTask): string =>
+  [
+    `Task ${task.id} of the plan for ${plan.ref}, "${plan.title}": ${task.title}.`,
+    ...(task.why !== '' ? [`Why: ${task.why}`] : []),
+    ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
+    ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
+    ...(plan.tasks.some(one => one.id !== task.id && one.state !== 'done') ? ['Left to later tasks, and so not owed by this change:', ...plan.tasks.filter(one => one.id !== task.id && one.state !== 'done').map(one => `- ${one.id}. ${one.title}`)] : []),
+  ].join('\n')
+
 /** The message a task is committed with. */
 export const commitMessage = (plan: FellowshipPlan, task: FellowshipTask, by: string, minor: readonly string[] = []): string => {
   const issue = issueOf(plan.ref)

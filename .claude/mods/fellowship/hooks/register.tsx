@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FellowshipMember, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipWanted } from '../types'
-import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
+import { HOW_TO, MARK, MEMBERS, REVISE, branchOf, purposeOf, commitMessage, companionPrompt, isAllDone, isForbiddenGit, isModPath, memberFor, memberSystem, nextTask, parseJudgement, parsePlan, prArgv, proofVerdict, questText, tally, triesOf, unsettledOf } from './quest'
 import type { Retry, Target } from './quest'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
@@ -293,7 +293,10 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `The statues of the Argonath are sent to judge task ${out.taskId}…`)
 
-  const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true })).text)
+  const made = await readPlan($)
+  const task = made === null || typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
+  const about = made === null || typeof made === 'string' || task === undefined ? '' : purposeOf(made, task)
+  const judged = parseJudgement((await ask($, 'argonath', 'judgement', { convene: true, json: true, about })).text)
 
   await keep($, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
   await settle($, judged)
