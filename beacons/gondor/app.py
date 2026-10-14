@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from . import archive, realm, tidings
 from .chronicle import request_id, scribe
@@ -76,22 +77,54 @@ async def health():
     return {"realm": "gondor", "stands": True, "lit": lit}
 
 
+class Kindling(BaseModel):
+    """Who lights a beacon, when anyone says."""
+
+    keeper: str | None = None
+
+
 @app.get("/beacons")
 async def beacons():
     burning = await archive.burning()
+    answer = []
 
-    return [{"beacon": name, "lit": name in burning} for name in realm.BEACONS]
+    for name in realm.BEACONS:
+        # A dark beacon has neither keeper nor since
+        keeper, since = burning.get(name, (None, None))
+        answer.append({"beacon": name, "lit": name in burning, "keeper": keeper, "since": since})
+
+    return answer
+
+
+@app.get("/lightings")
+async def lightings():
+    """Every lighting there was, newest last, as narsil's chronicle spells one."""
+    return [
+        {
+            "id": lighting["id"],
+            "beacon": realm.NAMES[str(lighting["beacon"])],
+            "realm": "Gondor",
+            "lit_at": lighting["lit_at"],
+            "keeper": lighting["keeper"],
+            "watchers": 0,
+            "note": "",
+        }
+        for lighting in await archive.lightings()
+    ]
 
 
 @app.post("/beacons/{name}/light")
-async def light(name: str):
+async def light(name: str, kindling: Kindling | None = None):
     if name not in realm.BEACONS:
         raise HTTPException(404, f"no beacon is named {name}")
+
+    # A keeper left out, null or blank is no keeper
+    keeper = ((kindling.keeper if kindling else None) or "").strip() or None
 
     # The fire is written down before anyone asks who is told of it
     await archive.keep(name)
 
-    lit = realm.light(name)
+    lit = realm.light(name, keeper)
 
     tidings.send(name, str(lit["watch_next"]))
 

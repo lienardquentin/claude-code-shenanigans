@@ -93,18 +93,33 @@ def shut(doing: str, failure: BaseException) -> Shut:
     return Shut(f"the archives are shut, {doing}")
 
 
-async def burning() -> set[str]:
-    """The beacons that burn now."""
+async def burning() -> dict[str, tuple[str | None, str]]:
+    """The beacons that burn now, each with its first keeper and since when it burns."""
     if archivists is None:
-        return set(realm.lit)
+        return {beacon: (fire["keeper"], fire["since"]) for beacon, fire in realm.lit.items()}
 
     try:
         async with archivists.connection() as desk:
-            found = await desk.execute("SELECT beacon FROM burning")
+            found = await desk.execute("SELECT beacon, since FROM burning")
 
-            return {beacon for (beacon,) in await found.fetchall()}
+            # The keeper is not written in the archives yet
+            return {beacon: (None, realm.stamp(since)) for beacon, since in await found.fetchall()}
     except (Error, PoolTimeout) as failure:
         raise shut("and none can say what burns", failure) from failure
+
+
+async def lightings() -> list[dict[str, object]]:
+    """Every lighting there was, oldest first: id, beacon, lit_at, keeper."""
+    if archivists is None:
+        return list(realm.lightings)
+
+    try:
+        async with archivists.connection() as desk:
+            found = await desk.execute("SELECT id, beacon, at FROM lightings ORDER BY id")
+
+            return [{"id": id, "beacon": beacon, "lit_at": realm.stamp(at), "keeper": None} for id, beacon, at in await found.fetchall()]
+    except (Error, PoolTimeout) as failure:
+        raise shut("and none can say what was lit", failure) from failure
 
 
 async def keep(beacon: str) -> None:
