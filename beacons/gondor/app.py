@@ -126,7 +126,7 @@ async def light(name: str, kindling: Kindling | None = None):
 
     lit = realm.light(name, keeper)
 
-    tidings.send(name, str(lit["watch_next"]))
+    tidings.send(name, str(lit["watch_next"]), keeper)
 
     return lit
 

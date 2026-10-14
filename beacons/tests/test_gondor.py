@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gondor import archive, realm
+from gondor import archive, realm, tidings
 from gondor.app import app as gondor
 from rohan.app import app as rohan
 
@@ -234,6 +234,20 @@ def test_quench_puts_out_the_fires_but_the_lightings_stay(client):
     assert client.get("/health").json()["lit"] == 0
     assert {b["beacon"]: b for b in client.get("/beacons").json()}["amon-din"]["keeper"] is None
     assert [lighting["keeper"] for lighting in client.get("/lightings").json()] == ["Hirgon"]
+
+
+def test_the_keeper_goes_out_with_the_tidings(client, monkeypatch):
+    sent = []
+
+    def send(beacon: str, watch_next: str, keeper: str | None) -> None:
+        sent.append((beacon, watch_next, keeper))
+
+    monkeypatch.setattr(tidings, "send", send)
+
+    client.post("/beacons/amon-din/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/eilenach/light")
+
+    assert sent == [("amon-din", "eilenach", "Hirgon"), ("eilenach", "nardol", None)]
 
 
 def test_palantiri_are_listed_sorted(client):
