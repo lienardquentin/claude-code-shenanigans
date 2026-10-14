@@ -482,6 +482,21 @@ describe('argonath', () => {
     expect(spawned).toHaveLength(4)
   })
 
+  test('sends no statue on a change that moved on, or was committed, before the turn that proved it ended', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    expect(await call($, 'mcp__argonath__prove', { target: 'gondor' })).toContain('pinned: gondor GET /health')
+    // Committed: HEAD moved, and nothing is left to judge
+    world.whole = 'def456\n'
+    world.change = '\nNew files:\n'
+    await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
+    await world.clock.advance(2_500)
+
+    expect(spawned).toEqual([])
+  })
+
   test('owes no judgement to a proof a subagent made: its work may not be done when the session\'s turn ends', async ($, on) => {
     const world = machine(on)
     const { spawned } = statues(on)

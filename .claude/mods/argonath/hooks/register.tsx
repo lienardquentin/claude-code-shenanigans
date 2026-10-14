@@ -383,6 +383,10 @@ const review = async ($: $): Promise<void> => {
 
   reviewDue = ''
   if (due === '' || due === (await read($, reviewed))) return
+  // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
+  if ((await wholeFingerprint($)) !== due) return
+  // And a change committed whole leaves nothing to judge
+  if ((await changeText($)).trim() === 'New files:') return
 
   await convene($, 'turn')
 }
