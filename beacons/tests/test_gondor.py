@@ -144,6 +144,53 @@ def test_a_blank_keeper_reads_as_none(client):
     assert realm.lit["amon-din"]["keeper"] is None
 
 
+def test_a_keeper_is_stripped_and_named_as_given(client):
+    answer = client.post("/beacons/amon-din/light", json={"keeper": "  Hirgon of Minas Tirith "})
+
+    assert answer.json()["keeper"] == "Hirgon of Minas Tirith"
+    assert client.post("/beacons/eilenach/light", json={"keeper": "x" * 64}).json()["keeper"] == "x" * 64
+    # A non-breaking space and an emoji's joiner are a name's own
+    assert client.post("/beacons/nardol/light", json={"keeper": "Hirgon 🧙‍♂️"}).json()["keeper"] == "Hirgon 🧙‍♂️"
+
+
+# sting: gondor POST /beacons/erelas/light '{"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."}'
+def test_a_keeper_longer_than_64_characters_is_refused_and_nothing_burns(client):
+    # 65 characters
+    answer = client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert answer.status_code == 422
+    assert "64 characters" in str(answer.json()["detail"])
+    assert realm.lit == {}
+    assert client.get("/lightings").json() == []
+
+
+# sting: gondor GET /lightings
+def test_a_refused_lighting_is_not_among_the_lightings(client):
+    client.post("/beacons/eilenach/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert [(lighting["beacon"], lighting["keeper"]) for lighting in client.get("/lightings").json()] == [("Eilenach", "Hirgon")]
+
+
+# sting: gondor POST /beacons/quench
+def test_a_refused_lighting_lights_nothing_for_a_quench_to_put_out(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/eilenach/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert client.post("/beacons/quench").json() == {"quenched": 2}
+
+
+def test_a_keeper_with_a_line_break_or_an_escape_is_refused(client):
+    for keeper in ["Hirgon\nts=forged level=error", "Hirgon\x1b[31m", "Hir\tgon", "Hirgon‮nogriH", "Hirgon Beregond"]:
+        answer = client.post("/beacons/amon-din/light", json={"keeper": keeper})
+
+        assert answer.status_code == 422
+        assert "control characters" in str(answer.json()["detail"])
+
+    assert realm.lit == {}
+
+
 # sting: gondor GET /beacons
 def test_beacons_name_the_first_keeper_and_since_of_what_burns(client):
     dark = {b["beacon"]: b for b in client.get("/beacons").json()}

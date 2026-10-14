@@ -89,7 +89,10 @@ A lighting may name its keeper, the one who lit the fire. The name goes with the
 `GET /beacons` and `GET /lightings`, and on `beacons.lit` to Rohan's watchers.
 
 - **Lighting.** `POST /beacons/amon-din/light` takes an optional body, `{"keeper": "Hirgon"}`. With no body, a `null`
-  keeper or a blank one, the beacon is lit with no keeper. The answer says who it was lit with:
+  keeper or a blank one, the beacon is lit with no keeper. The name is stripped; one longer than 64 characters, or
+  holding a control character (a line break, a tab, an escape, a mark that turns bidirectional text around), is
+  refused with a 422 and nothing is lit; `narsil sync` refuses the same characters from any server. The Steward's
+  field takes 64 characters at most, and Anor refuses a body past 16 KiB with a 413. The answer says who it was lit with:
 
   ```
   {"beacon": "amon-din", "lit": true, "watch_next": "eilenach", "keeper": "Hirgon"}

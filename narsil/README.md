@@ -63,10 +63,12 @@ ALL                  3        10
 `narsil sync --from http://127.0.0.1:8101` asks Gondor for every lighting it knows, its `GET /lightings`, and appends
 to the chronicle each one the chronicle does not hold. Gondor is local or reached by a port-forward, so only plain
 `http://` is spoken: an `https://` address is refused before anything is asked, and nothing is written when Gondor
-does not answer, answers with an error, or answers with what is not a list of lightings.
+does not answer, answers with an error, or answers with what is not a list of lightings. Nor is anything written when
+one of its lightings has a `lit_at` that is not a time, or a field holding a control character that would reach the
+terminal when the chronicle is shown. Gondor's answer is read up to 64 MiB.
 
 A lighting is known when the chronicle holds one with the same beacon, `lit_at` and keeper, whatever id either side
-gave it. `lit_at` is compared as its text, so it must be spelt as Gondor spells it: UTC to the millisecond, with `Z`
+gave it. The realm is not of it: a lighting that differs from one the chronicle holds only by its realm is known. `lit_at` is compared as its text, so it must be spelt as Gondor spells it: UTC to the millisecond, with `Z`
 (`3019-03-12T21:04:09.481Z`). A line that spells the same moment another way, without milliseconds or with `+00:00`,
 is not known: the first sync appends Gondor's copy beside it, as a lighting of its own, and the copy is known after that.
 
@@ -111,7 +113,8 @@ The tests run the sync against a Gondor of their own, on 127.0.0.1, that answers
 ## What to run
 
 Eleven runs that between them touch every part, for `anduril` to keep and to play again on another build.
-[`.claude/anduril`](../.claude/anduril) keeps them, with the forging of the large chronicle the last one reads:
+[`.claude/anduril`](../.claude/anduril) keeps them in this order, with the forging of the large chronicle the tally
+after it reads:
 
 ```
 narsil ls
@@ -123,9 +126,9 @@ narsil tally --by keeper
 narsil tally --by realm --format json
 narsil archive prune --before 3019-03-10 --dry-run
 narsil seal chronicle.jsonl
-narsil sync --from http://127.0.0.1:9 --dry-run
 narsil --chronicle big.jsonl tally
+narsil sync --from http://127.0.0.1:9 --dry-run
 ```
 
-The sync is pointed at a port nothing listens on, so it is refused at once, and writes nothing. The last is for the
-timings, on a chronicle forged for it: `narsil forge big.jsonl --count 200000`.
+The big tally is for the timings, on a chronicle forged for it: `narsil forge big.jsonl --count 20000`. The sync is
+pointed at a port nothing listens on, so it is refused at once, and writes nothing.

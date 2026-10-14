@@ -21,9 +21,15 @@ describe('reasonOf', () => {
     expect(reasonOf({ data: { detail: 'Rohan has 6000 spears, not 9000' } })).toBe('Rohan has 6000 spears, not 9000')
   })
 
+  it('says why Gondor refused what was sent, from the first field it found wrong', () => {
+    const refused = { data: { detail: [{ loc: ['body', 'keeper'], msg: "Value error, a keeper's name is at most 64 characters", type: 'value_error' }] } }
+
+    expect(reasonOf(refused)).toBe("a keeper's name is at most 64 characters")
+  })
+
   it.each([
     ['no data', {}],
-    ['a detail that is not text', { data: { detail: [{ msg: 'x' }] } }],
+    ['a detail that is not text', { data: { detail: [{ loc: ['body'] }] } }],
     ['null', null],
     ['undefined', undefined],
     ['a string', 'boom'],

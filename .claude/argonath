@@ -22,7 +22,7 @@ gondor.env=ROHAN_URL=http://127.0.0.1:9
 # When a request was answered: the two builds are played seconds apart, so a time in an answer is not a change of it
 gondor.mask=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:?\d\d)?
 gondor.tests=beacons/tests
-gondor.test=uv run --quiet --project beacons pytest -v beacons/tests/test_gondor.py -k "{tests: or }"
+gondor.test=uv run --quiet --project beacons pytest -v beacons/tests -k "{tests: or }"
 
 # Live: where Gondor is deployed. While it runs there, both builds are played again here against its real Postgres and
 # Rohan, reached by port-forward, with the deployed workload's own variables (a secret read from its secret). A context
@@ -30,9 +30,13 @@ gondor.test=uv run --quiet --project beacons pytest -v beacons/tests/test_gondor
 gondor.live=k3d-beacons/beacons/deployment/gondor
 gondor.live.forward=postgres:5432,rohan:8102
 gondor.live.env=KAFKA_BROKERS=
-# What the requests write is filed under the run's own request id, and taken out after each build; the fires a quench
-# put out are lit again as they were, the riders' among them.
 gondor.live.db=deployment/postgres
+# An Argonath that reads live.scratch (main, from 914aecc) plays each build against a copy of the database of its
+# own, made in Postgres's pod from a dump and dropped after: a build's migrations run on its copy alone, and the shared
+# database is only read. One that does not read it drops the line, and plays against the shared database with the
+# lines below: what the requests write is filed under the run's own request id, and taken out after each build; the
+# fires a quench put out are lit again as they were, the riders' among them. A build that migrates then migrates it.
+gondor.live.scratch=DATABASE_URL
 # psql answers each row as one line, its columns split on '|', and a NULL as nothing: the keeper is free text and may
 # be NULL, so each fire is read as one hex word of its JSON, which holds no '|' and no newline, and keeps a NULL null.
 gondor.live.before=SELECT encode(convert_to(json_build_object('beacon', beacon, 'rid', rid, 'keeper', keeper, 'since', since)::text, 'UTF8'), 'hex') FROM burning
@@ -47,6 +51,7 @@ $ gondor GET /beacons
 $ gondor POST /beacons/amon-din/light
 $ gondor GET /beacons
 $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
+$ gondor POST /beacons/erelas/light '{"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."}'
 $ gondor GET /lightings
 $ gondor POST /beacons/mount-doom/light
 $ gondor POST /beacons/quench

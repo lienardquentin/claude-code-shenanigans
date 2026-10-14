@@ -11,7 +11,8 @@ const name = ref(props.keeper)
     <template #body>
       <form id="keeper-prompt" @submit.prevent="emit('close', name.trim())">
         <UFormField label="Keeper">
-          <UInput v-model="name" placeholder="Hirgon" autofocus autocomplete="name" class="w-full" />
+          <!-- Gondor refuses a name longer than 64 characters -->
+          <UInput v-model="name" placeholder="Hirgon" autofocus autocomplete="name" :maxlength="64" class="w-full" />
         </UFormField>
       </form>
     </template>

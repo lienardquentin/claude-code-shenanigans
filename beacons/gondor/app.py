@@ -1,6 +1,7 @@
 """Gondor: lights the beacons, gazes into the seeing-stones, and sends the Red Arrow to Rohan."""
 
 import os
+import unicodedata
 from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
@@ -8,7 +9,7 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from . import archive, realm, tidings
 from .chronicle import request_id, scribe
@@ -77,10 +78,34 @@ async def health():
     return {"realm": "gondor", "stands": True, "lit": lit}
 
 
+KEEPER_LONGEST = 64
+# The marks that turn bidirectional text around (U+202A to U+202E, U+2066 to U+2069)
+BIDI_MARKS = {chr(code) for code in [*range(0x202A, 0x202F), *range(0x2066, 0x206A)]}
+
+
+def is_unprintable(character: str) -> bool:
+    """What would break a printed line or turn it around: a control character, a line or paragraph separator, a bidi
+    mark. A non-breaking space or an emoji's joiner is a name's own, and narsil refuses the same set."""
+    return unicodedata.category(character) in ("Cc", "Zl", "Zp") or character in BIDI_MARKS
+
+
 class Kindling(BaseModel):
-    """Who lights a beacon, when anyone says."""
+    """Who lights a beacon, when anyone says: a name stripped, and left out, null or blank for no keeper."""
 
     keeper: str | None = None
+
+    @field_validator("keeper")
+    @classmethod
+    def a_name_one_could_say(cls, keeper: str | None) -> str | None:
+        keeper = (keeper or "").strip()
+
+        if len(keeper) > KEEPER_LONGEST:
+            raise ValueError(f"a keeper's name is at most {KEEPER_LONGEST} characters")
+        # A line break or an escape would be written into Rohan's log and the terminals that read the chronicle
+        if any(is_unprintable(character) for character in keeper):
+            raise ValueError("a keeper's name holds no control characters")
+
+        return keeper or None
 
 
 @app.get("/beacons")
@@ -118,8 +143,7 @@ async def light(name: str, kindling: Kindling | None = None):
     if name not in realm.BEACONS:
         raise HTTPException(404, f"no beacon is named {name}")
 
-    # A keeper left out, null or blank is no keeper
-    keeper = ((kindling.keeper if kindling else None) or "").strip() or None
+    keeper = kindling.keeper if kindling else None
 
     # The fire is written down before anyone asks who is told of it
     await archive.keep(name, keeper)

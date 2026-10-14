@@ -10,7 +10,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum, ValueHint};
 use clap_complete::Shell;
 use serde::Serialize;
 
@@ -88,7 +88,7 @@ enum Command {
     /// Append what Gondor lit and the chronicle has not, under fresh ids
     Sync {
         /// Where Gondor answers, as http://127.0.0.1:8101
-        #[arg(long, value_name = "URL")]
+        #[arg(long, value_name = "URL", value_hint = ValueHint::Url)]
         from: String,
         /// Say what would be appended and write nothing
         #[arg(long)]

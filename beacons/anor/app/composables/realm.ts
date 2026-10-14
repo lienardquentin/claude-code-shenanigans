@@ -28,10 +28,13 @@ export const useKeeper = () => {
 
 /** Asks who lights a beacon: their name, empty for no one in particular, or undefined when the lighting is called off. */
 export const useKeeperPrompt = () => {
-  const prompt = useOverlay().create(defineAsyncComponent(() => import('../components/KeeperPrompt.vue')))
+  const overlay = useOverlay()
+  const KeeperPrompt = defineAsyncComponent(() => import('../components/KeeperPrompt.vue'))
   const { recall } = useKeeper()
 
   return async (beacon: string): Promise<string | undefined> => {
+    // An overlay of its own each time, taken away once it has closed: the chain and the map mounting again leave none behind
+    const prompt = overlay.create(KeeperPrompt, { destroyOnClose: true })
     const answer: unknown = await prompt.open({ beacon, keeper: recall() })
 
     return typeof answer === 'string' ? answer : undefined
@@ -47,10 +50,12 @@ export const useBeacons = () => {
   const light = async (name: string, keeper?: string) => {
     const who = keeper?.trim() || null
 
-    remember(who ?? '')
-
     try {
       const lit = await $fetch<Lit>(`/api/realm/beacons/${name}/light`, { method: 'POST', body: { keeper: who } })
+
+      // The name is offered again once a fire was lit under it: an unnamed or a failed lighting leaves it as it was
+      if (who) remember(who)
+
       const watched = lit.watch_next ? `${named(lit.watch_next)} watches for it.` : 'Rohan has seen it.'
 
       toast.add({

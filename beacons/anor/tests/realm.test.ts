@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { named, reasonOf } from '../app/utils/names'
-import { useBeacons, useRide, useStones } from '../app/composables/realm'
+import { useBeacons, useKeeper, useKeeperPrompt, useRide, useStones } from '../app/composables/realm'
 
 // What Nuxt would auto-import, stood in for: the composables are plain functions over these
 const toast = { add: vi.fn() }
@@ -86,6 +86,11 @@ describe('useBeacons, and who lights them', () => {
     vi.stubGlobal('localStorage', localStorage)
   })
 
+  // The browser's storage is this block's alone: the outer stubs are laid again before each test
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('carries the keeper to Gondor and names them in the toast', async () => {
     $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
 
@@ -117,6 +122,69 @@ describe('useBeacons, and who lights them', () => {
     const inStorage = [...kept.values()].some(value => value.includes('Hirgon'))
 
     expect(inState || inStorage).toBe(true)
+  })
+
+  it('offers the last keeper again, from this browser once the page is opened anew', async () => {
+    $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
+
+    await useBeacons().light('amon-din', 'Hirgon')
+
+    expect(useKeeper().recall()).toBe('Hirgon')
+
+    // A new visit: what the page held is gone, what the browser kept is not
+    states.clear()
+
+    expect(useKeeper().recall()).toBe('Hirgon')
+  })
+
+  it('keeps the last keeper over an unnamed lighting and a failed one', async () => {
+    $fetch.mockResolvedValue({ beacon: 'amon-din', watch_next: 'eilenach' })
+    await useBeacons().light('amon-din', 'Hirgon')
+    await useBeacons().light('eilenach')
+
+    $fetch.mockRejectedValue({ data: { detail: 'the realm is in disarray' } })
+    await useBeacons().light('halifirien', 'Beregond')
+
+    expect(useKeeper().recall()).toBe('Hirgon')
+  })
+})
+
+describe('useKeeperPrompt', () => {
+  // What the person closes the prompt with: a name, or false when they call it off
+  let closedWith: unknown
+  const overlays: { destroyOnClose?: boolean; opened?: unknown }[] = []
+
+  beforeEach(() => {
+    closedWith = 'Hirgon'
+    overlays.length = 0
+    vi.stubGlobal('defineAsyncComponent', (load: unknown) => load)
+    vi.stubGlobal('useOverlay', () => ({
+      create: (_: unknown, options: { destroyOnClose?: boolean } = {}) => {
+        const overlay: { destroyOnClose?: boolean; opened?: unknown } = { ...options }
+
+        overlays.push(overlay)
+
+        return { open: async (props: unknown) => ((overlay.opened = props), closedWith) }
+      },
+    }))
+  })
+
+  it('asks in an overlay of its own each time, taken away once it closes, offering the last keeper', async () => {
+    states.set('keeper', { value: 'Beregond' })
+
+    const ask = useKeeperPrompt()
+
+    expect(await ask('amon-din')).toBe('Hirgon')
+    expect(await ask('eilenach')).toBe('Hirgon')
+    expect(overlays).toHaveLength(2)
+    expect(overlays.every(overlay => overlay.destroyOnClose)).toBe(true)
+    expect(overlays[0]!.opened).toEqual({ beacon: 'amon-din', keeper: 'Beregond' })
+  })
+
+  it('answers undefined when the lighting is called off', async () => {
+    closedWith = false
+
+    expect(await useKeeperPrompt()('amon-din')).toBeUndefined()
   })
 })
 

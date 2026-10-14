@@ -350,26 +350,27 @@ fn fake_gondor(status: &str, content_type: &str, body: &str, times: usize) -> St
     url
 }
 
-/// What Gondor knows, as its /lightings answers: two the keeperless chronicle has (one named, one with no keeper),
-/// and two it has not (one only differing by its keeper from one the chronicle has).
+/// What Gondor knows, as its /lightings answers, against the keeperless chronicle: two it has (one named, one with
+/// no keeper), one it has but for its realm, which does not make a lighting another, and two it has not: one only
+/// differing by its keeper from one it has, and one new.
 const GONDOR_LIGHTINGS: &str = concat!(
     "[",
     r#"{"id":1,"beacon":"Amon Dîn","realm":"Gondor","lit_at":"3019-03-07T07:55:00Z","keeper":"Mablung","watchers":0,"note":""},"#,
     r#"{"id":2,"beacon":"Nardol","realm":"Gondor","lit_at":"3019-03-07T08:20:00Z","keeper":null,"watchers":0,"note":""},"#,
-    r#"{"id":3,"beacon":"Calenhad","realm":"Gondor","lit_at":"3019-03-07T08:40:00Z","keeper":"Hirgon","watchers":0,"note":""},"#,
-    r#"{"id":4,"beacon":"Halifirien","realm":"Gondor","lit_at":"3019-03-08T06:00:00Z","keeper":null,"watchers":0,"note":""}"#,
+    r#"{"id":3,"beacon":"Amon Dîn","realm":"Gondor","lit_at":"3019-03-07T07:55:00Z","keeper":"Hirgon","watchers":0,"note":""},"#,
+    r#"{"id":4,"beacon":"Halifirien","realm":"Gondor","lit_at":"3019-03-08T06:00:00Z","keeper":null,"watchers":0,"note":""},"#,
+    r#"{"id":5,"beacon":"Calenhad","realm":"Gondor","lit_at":"3019-03-07T08:40:00Z","keeper":"Mablung","watchers":0,"note":""}"#,
     "]"
 );
 
-/// The words of the last line narsil printed: where it says how many were, or would be, appended.
-fn last_words(output: &Output) -> Vec<String> {
-    stdout(output)
-        .lines()
-        .last()
-        .unwrap_or("")
-        .split_whitespace()
-        .map(str::to_string)
-        .collect()
+/// The last line narsil printed: where it says how many were, or would be, appended.
+fn last_line(output: &Output) -> String {
+    stdout(output).lines().last().unwrap_or("").to_string()
+}
+
+/// One lighting as Gondor would answer it, for a list of its own.
+fn one_lighting(beacon: &str, lit_at: &str, keeper: &str) -> String {
+    serde_json::json!([{ "id": 1, "beacon": beacon, "realm": "Gondor", "lit_at": lit_at, "keeper": keeper, "watchers": 0, "note": "" }]).to_string()
 }
 
 #[test]
@@ -382,7 +383,8 @@ fn sync_appends_only_what_the_chronicle_has_not_under_fresh_ids() {
     let said = stdout(&output);
     assert!(said.contains("Gondor's lighting 3 is written as 6"), "{said}");
     assert!(said.contains("Gondor's lighting 4 is written as 7"), "{said}");
-    assert!(last_words(&output).contains(&"2".to_string()), "{said}");
+    assert!(!said.contains("lighting 5"), "{said}");
+    assert!(last_line(&output).starts_with(&format!("appended 2 lightings from {url} to ")), "{said}");
 
     let after = fs::read_to_string(home.join("chronicle.jsonl")).unwrap();
     assert!(after.starts_with(&before), "{after}");
@@ -391,9 +393,10 @@ fn sync_appends_only_what_the_chronicle_has_not_under_fresh_ids() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert_eq!(added.len(), 2, "{after}");
+    // The same beacon at the same time by another keeper is another lighting
     assert_eq!(added[0]["id"], 6);
-    assert_eq!(added[0]["beacon"], "Calenhad");
-    assert_eq!(added[0]["lit_at"], "3019-03-07T08:40:00Z");
+    assert_eq!(added[0]["beacon"], "Amon Dîn");
+    assert_eq!(added[0]["lit_at"], "3019-03-07T07:55:00Z");
     assert_eq!(added[0]["keeper"], "Hirgon");
     assert_eq!(added[1]["id"], 7);
     assert_eq!(added[1]["beacon"], "Halifirien");
@@ -410,7 +413,7 @@ fn a_second_sync_appends_nothing() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(once, fs::read(home.join("chronicle.jsonl")).unwrap());
     assert!(!stdout(&output).contains("is written as"), "{}", stdout(&output));
-    assert!(last_words(&output).contains(&"0".to_string()), "{}", stdout(&output));
+    assert!(last_line(&output).starts_with(&format!("appended 0 lightings from {url} to ")), "{}", stdout(&output));
 }
 
 #[test]
@@ -422,8 +425,11 @@ fn a_dry_sync_says_what_it_would_append_and_writes_nothing() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap());
     let said = stdout(&output);
-    assert!(said.contains("Calenhad") && said.contains("Halifirien"), "{said}");
-    assert!(last_words(&output).contains(&"2".to_string()), "{said}");
+    assert!(said.contains("Gondor's lighting 3 would be written as 6"), "{said}");
+    assert!(said.contains("would append lighting 6: Amon Dîn lit at 3019-03-07T07:55:00Z by Hirgon"), "{said}");
+    assert!(said.contains("would append lighting 7: Halifirien lit at 3019-03-08T06:00:00Z by (no keeper)"), "{said}");
+    assert!(!said.contains("Calenhad"), "{said}");
+    assert!(last_line(&output).starts_with(&format!("would append 2 lightings from {url} to ")), "{said}");
 }
 
 #[test]
@@ -437,7 +443,7 @@ fn a_sync_into_a_missing_chronicle_starts_it() {
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["id"].as_u64().unwrap())
         .collect();
-    assert_eq!(ids, [1, 2, 3, 4], "{chronicle}");
+    assert_eq!(ids, [1, 2, 3, 4, 5], "{chronicle}");
 }
 
 // sting: narsil sync --from http://127.0.0.1:9 --dry-run
@@ -445,13 +451,9 @@ fn a_sync_into_a_missing_chronicle_starts_it() {
 fn a_gondor_that_does_not_answer_fails_quickly_and_says_so() {
     let home = keeperless("sync-closed");
     let before = fs::read(home.join("chronicle.jsonl")).unwrap();
-    // A port bound and let go: nothing listens there.
-    let url = {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        format!("http://{}", listener.local_addr().unwrap())
-    };
+    // The run Anduril keeps: the discard port, where nothing on a machine of ours listens
     let started = std::time::Instant::now();
-    let output = run(&home, &["sync", "--from", &url]);
+    let output = run(&home, &["sync", "--from", "http://127.0.0.1:9", "--dry-run"]);
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     assert!(output.status.code().is_some_and(|code| code != 0), "{}", stdout(&output));
     assert!(stderr(&output).starts_with("narsil: "), "{}", stderr(&output));
@@ -473,6 +475,34 @@ fn a_gondor_that_answers_amiss_is_an_error() {
         assert!(stderr(&output).starts_with("narsil: "), "{test}: {}", stderr(&output));
         assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap(), "{test}");
     }
+}
+
+#[test]
+fn a_lighting_narsil_could_not_print_safely_is_refused_and_none_is_written() {
+    for (test, body, why) in [
+        ("sync-escape", one_lighting("Amon Dîn", "3019-03-07T07:55:00Z", "Hirgon\u{1b}[2J"), "its keeper holds a control character"),
+        ("sync-line", one_lighting("Amon Dîn\nNardol", "3019-03-07T07:55:00Z", "Hirgon"), "its beacon holds a control character"),
+        ("sync-bidi", one_lighting("Amon Dîn", "3019-03-07T07:55:00Z", "Hirgon\u{202e}nogriH"), "its keeper holds a control character"),
+        ("sync-time", one_lighting("Amon Dîn", "yesterday", "Hirgon"), r#"its lit_at, "yesterday", is not a time"#),
+    ] {
+        let home = keeperless(test);
+        let before = fs::read(home.join("chronicle.jsonl")).unwrap();
+        let url = fake_gondor("200 OK", "application/json", &body, 1);
+        let output = run(&home, &["sync", "--from", &url]);
+        assert_eq!(output.status.code(), Some(1), "{test}: {}", stdout(&output));
+        assert!(stderr(&output).contains(&format!("Gondor's lighting 1 is not written: {why}")), "{test}: {}", stderr(&output));
+        assert_eq!(before, fs::read(home.join("chronicle.jsonl")).unwrap(), "{test}");
+    }
+}
+
+#[test]
+fn a_gondor_named_in_capitals_is_still_plain_http() {
+    let home = keeperless("sync-capitals");
+    let url = fake_gondor("200 OK", "application/json", GONDOR_LIGHTINGS, 1).replacen("http://", "HTTP://", 1);
+    let output = run(&home, &["sync", "--from", &url, "--dry-run"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let refused = run(&home, &["sync", "--from", "https://127.0.0.1:8101"]);
+    assert!(stderr(&refused).contains("plain http only"), "{}", stderr(&refused));
 }
 
 #[test]

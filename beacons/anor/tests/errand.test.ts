@@ -61,4 +61,27 @@ describe('the errand to Gondor', () => {
     expect(sentHeaders().get('content-type')).toBeNull()
     expect(sentHeaders().get('x-request-id')).toBe('abcd1234')
   })
+
+  it('refuses a body past 16 KiB with a 413, and never sends it on', async () => {
+    const said = await errand({ method: 'POST', headers: { 'content-type': 'application/json', 'content-length': String(64 * 1024) }, body: 'x' })
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 413)
+    expect(said).toEqual({ detail: 'Gondor takes a body of 16384 bytes at most' })
+  })
+
+  it('refuses a length that is not a number of bytes with a 400', async () => {
+    const said = await errand({ method: 'POST', headers: { 'content-type': 'application/json', 'content-length': 'lots' }, body: '{}' })
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 400)
+    expect(said).toEqual({ detail: "a body's length is a number of bytes, not lots" })
+  })
+
+  it('measures a body sent without its length, and refuses it past 16 KiB', async () => {
+    const said = await errand({ method: 'POST', headers: { 'content-type': 'application/json' }, body: `{"keeper":"${'x'.repeat(17 * 1024)}"}` })
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(said).toEqual({ detail: 'Gondor takes a body of 16384 bytes at most' })
+  })
 })
