@@ -979,7 +979,31 @@ export async function startFellowship($: $): Promise<void> {
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
 
+  await recallQuests($).catch(() => undefined)
+
   $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+}
+
+/**
+ * The quests kept across sessions, back as they stood: what was out when the session ended (a member, the proof, the
+ * statues, the Mirror) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
+ * the session holds already (a reload keeps them) is left as it is.
+ */
+async function recallQuests($: $): Promise<void> {
+  const held = await read($, quests)
+
+  for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('quest:'))) {
+    const kept = (await $.store.get(key).catch(() => undefined)) as FellowshipQuest | undefined
+
+    if (kept === undefined || kept === null || typeof kept.ref !== 'string' || held[kept.ref] !== undefined) continue
+
+    const was = kept.phase
+    const phase: FellowshipPhase = was === 'gazing' || was === 'marching' || was === 'proving' || was === 'judging' ? 'stuck' : was === 'warding' ? 'arrived' : was
+    const quest: FellowshipQuest = { ...kept, kind: kept.kind ?? 'plan', phase }
+
+    await update($, quests, all => ({ ...all, [quest.ref]: quest }))
+    await workOf($, quest).catch(() => undefined)
+  }
 }
 
 /** A turn has ended: what a member built is proven, outside the hook; a task it hands back goes to the person. */

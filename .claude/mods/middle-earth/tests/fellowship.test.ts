@@ -984,6 +984,21 @@ describe('an agent the Fellowship sends', () => {
   })
 })
 
+describe('a quest kept across sessions', () => {
+  test('is back after a restart as it stood, stuck where it was out on a task, and nothing is sent', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = { kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'fellowship/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'doing' }], isAuto: false, phase: 'marching', march: { taskId: 1, title: ISSUE.title, member: 'gimli', agentId: 'gimli-0', attempt: 1, at: 1, answer: '' }, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 }
+    await start($, world)
+
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/#21 \(errand\), "Quench answers 404 for an unknown beacon" \(0\/1 done\): stuck/)
+    // A bare /fellowship lists it, and sets nothing out
+    expect((await $.command.run({ command: 'fellowship', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
+    expect(world.spawned).toEqual([])
+  })
+})
+
 describe('an errand', () => {
   test('builds a small issue in one change in its worktree, and waits for the person\'s go to open its pull request', async ($, on) => {
     const world = machine(on)
