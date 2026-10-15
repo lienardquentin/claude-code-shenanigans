@@ -69,7 +69,7 @@ const TOOLS = [
   {
     name: 'set_out',
     description:
-      "Sets the Fellowship out on the Elrond plan in force, or takes up its quest where it was left: in a git worktree of its own (.fellowship/trees/), leaving the person's checkout alone, it sends a member of the Fellowship to build each task in turn, has Argonath prove each change and its statues review it, and commits it once they pass it. Once every task is, the person opens the pull request with /fellowship sail, or it opens by itself on a quest set out with auto. It sets out only once every question of the plan is answered and every risk decided; quests on other issues go on beside it. Call it when the person asks to implement a planned issue. The Black Gate calls it with kind `review` to hand over a pull request's review comments.",
+      "Implements the Elrond plan in force (or resumes it) in a git worktree of its own under .fellowship/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, Argonath checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /fellowship sail, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; quests on other issues run beside it. Call it when the person asks to implement a planned issue. The Black Gate calls it with kind `review` to hand over a pull request's review comments.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -94,7 +94,7 @@ const TOOLS = [
   {
     name: 'errand',
     description:
-      "Sends the Fellowship on an issue too small for the council: in a worktree of its own, one member builds the whole issue in one change, Argonath proves it and the statues review it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). A member hands back an issue that is no errand, for /elrond to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
+      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, Argonath checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /elrond to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
   },
   {
@@ -117,12 +117,12 @@ const TOOLS = [
   },
   {
     name: 'quest',
-    description: "Where the Fellowship's quests stand: each one's phase, the member out, Argonath's last proof, and each task with its commit.",
+    description: "Where each quest the Fellowship is implementing stands: its phase, its worktree, the builder at work, the last test check and review, and each task with its commit.",
     inputSchema: { type: 'object', properties: { ref: { type: 'string', description: 'One quest, by its ref; every quest when left out.' } } },
   },
   {
     name: 'commit',
-    description: "Puts the uncommitted change of a stuck task before the Argonath again: proved, then judged by its statues, and committed once they pass it. Call it when the person has finished a stuck task by hand, in the quest's worktree, and asks to commit it.",
+    description: "Checks and reviews the uncommitted change of a stuck task again, and commits it once the review passes it. Call it when the person has finished a stuck task by hand, in the quest's worktree, and asks to commit it.",
     inputSchema: { type: 'object', properties: { ref: REF } },
   },
 ] as const
@@ -963,9 +963,9 @@ const namedQuest = async ($: $, named = ''): Promise<FellowshipQuest | null> => 
 
 const sectionText = (all: readonly FellowshipQuest[]): string =>
   [
-    `The Fellowship mod has ${all.length === 1 ? 'a quest' : `${all.length} quests`} under way, each built task by task in a git worktree of its own by its members, each change proven and judged by the Argonath and committed alone:`,
+    `The Fellowship mod is implementing ${all.length === 1 ? 'an issue' : `${all.length} issues`}, each task by task in a git worktree of its own by builder subagents, each change test-checked, reviewed and committed alone:`,
     ...all.map(held => `- ${held.ref} (${held.kind}): ${held.phase}, in ${held.tree}`),
-    "Leave the quests' worktrees to their members; mcp__fellowship__quest says where each stands.",
+    "Leave those worktrees to the builders; mcp__fellowship__quest says where each quest stands.",
   ].join('\n')
 
 export const register: Register = on => {

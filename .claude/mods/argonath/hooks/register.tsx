@@ -154,7 +154,7 @@ const TOOLS = [
       properties: {
         ...ASKED,
         mustPass: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, name: { type: 'string' } }, required: ['file', 'name'] }, description: 'From a mod: tests written before the change (each its file and name), which must pass on the working tree for the proof to settle.' },
-        owe: { type: 'boolean', description: 'false from a mod that convenes the statues on the change itself: a proof that pins it then owes no judgement at the turn\'s end, which would judge it twice.' },
+        owe: { type: 'boolean', description: "false from a mod that sends the reviewers on the change itself: a proof that pins it then owes no review at the turn's end, which would review it twice." },
         json: { type: 'boolean', description: 'Answer as JSON, for a mod that settles on it: `verdict` (settled, unsettled, or unlooked when a target the change reached could not be looked at), `line`, each target\'s `state`, the `unhandled` targets nothing proves, and `text`, the proof as it reads.' },
       },
     },
@@ -166,9 +166,9 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        convene: { type: 'boolean', description: 'Send the statues on the change as it stands, when every changed run is pinned and they have not judged it yet.' },
+        convene: { type: 'boolean', description: 'Send the reviewers (the statues, Isildur and Anárion) on the change as it stands, when every changed run is pinned and they have not reviewed it yet.' },
         about: { type: 'string', description: 'With convene: what the change is meant to do (the task, its acceptance), which the statues judge it against.' },
-        statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these statues sit, each with its share of the reviews; both when left out.' },
+        statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these reviewers are sent, each with its share of the reviews (Isildur correctness, Anárion security); both when left out.' },
         against: { type: 'string', description: 'With convene: judge the change since where HEAD left this branch or commit (its merge base), committed or not, such as a whole branch before its pull request. HEAD when left out.' },
         model: { type: 'string', description: "With convene: the model the statues judge with, an alias (`sonnet`) or a full id, for a lighter change; their own (Opus) when left out." },
         tree: ASKED.tree,

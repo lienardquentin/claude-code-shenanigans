@@ -31,7 +31,7 @@ const view = paneView({ id: PANE, title: TITLE, command: '/mountdoom' })
 const TOOLS = [
   {
     name: 'relics',
-    description: "What Mount Doom watches: each branch the Fellowship or the Black Gate keeps work of, its worktree, its pull request, and whether it is merged and ready for the fire. Casting it is the person's: /mountdoom cast.",
+    description: "The work the mods keep that is cleaned up once merged: each branch the Fellowship or the Black Gate keeps, its worktree, its pull request, and whether the forge says it is merged. Cleaning up deletes branches and worktrees, so it is the person's: /mountdoom cast.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const

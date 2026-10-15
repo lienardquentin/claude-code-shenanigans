@@ -33,7 +33,7 @@ const TOOLS = [
   {
     name: 'gaze',
     description:
-      "Has Galadriel gaze into the Mirror: before a behaviour is built, she writes the tests that will prove it, runs them to show them red, and they are locked until they are committed. She runs in the background: this answers at once, and mcp__lothlorien__mirror says what she showed. Call it before building a behaviour test-first, with what is to be built and how to tell it is done.",
+      "Writes tests first: a test-writing subagent (Galadriel) writes the tests that will prove a behaviour before it is built, runs them to show they fail, and they stay locked against edits until committed. It runs in the background: this answers at once, and mcp__lothlorien__mirror says what it wrote. Call it before building a behaviour test-first, with what is to be built and how to tell it is done.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -47,12 +47,12 @@ const TOOLS = [
   },
   {
     name: 'mirror',
-    description: "What the Mirror shows: Galadriel's tests, how they failed, whether they are still locked, and each change made to them and why.",
+    description: 'The tests written first: each test, how it failed, whether it is still locked, and each change made to it and why.',
     inputSchema: { type: 'object', properties: { json: { type: 'boolean', description: 'Answer as JSON, for a mod that waits on her.' }, tree: TREE } },
   },
   {
     name: 'forget',
-    description: 'Lets the Mirror go still: forgets what Galadriel showed once her tests are committed. One still locked is kept, and so is one gazed for another issue than the one named. For Mount Doom.',
+    description: 'Forgets the tests written first once they are committed. Tests still locked are kept, and so are those written for another issue than the one named. For Mount Doom.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -64,7 +64,7 @@ const TOOLS = [
   {
     name: 'amend',
     description:
-      "Unlocks one of Galadriel's test files for a change to her tests, with the reason: a test that asserts something the purpose does not ask, or that cannot pass as written. The reason is kept and shown to whoever judges the change. Never call it to make a test easier to pass.",
+      "Unlocks a locked test file (tests written first) for a change, with the reason: a test that asserts something the purpose does not ask, or that cannot pass as written. The reason is kept and shown to the reviewers. Never call it to make a test easier to pass.",
     inputSchema: {
       type: 'object',
       properties: { file: { type: 'string', description: 'The test file, from the project folder.' }, why: { type: 'string', description: 'What is wrong with the test as she wrote it, in a sentence or two.' } },
