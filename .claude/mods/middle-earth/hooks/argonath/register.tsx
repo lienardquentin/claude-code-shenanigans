@@ -33,6 +33,7 @@ import {
   parseProof,
   parseReviews,
   parseServiceAnswer,
+  parseStandards,
   proved,
   radiusLine,
   radiusOf,
@@ -180,6 +181,8 @@ const TOOLS = [
 let known: readonly ArgonathTarget[] = []
 // The reviews the project names, run once a change is settled
 let reviews: readonly Review[] = []
+// The files of standards the statues judge by, from the project's folder
+let standards: readonly string[] = []
 
 const sectionText = (list: readonly ArgonathTarget[], cwd: string): string => {
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
@@ -199,6 +202,7 @@ async function setUp($: $): Promise<ArgonathTarget[]> {
 
   known = list
   reviews = parseReviews(text)
+  standards = parseStandards(text)
   await update($, targets, () => list)
 
   return list
@@ -478,6 +482,17 @@ async function changeText($: $, against = 'HEAD', place?: Place): Promise<string
   return ran?.stdout ?? ''
 }
 
+/**
+ * The standards the statues judge by, and a builder builds to, each file as the project's folder holds it: a quest's
+ * branch, whose change is the one judged, never loosens them. A file that cannot be read is said so, not left out unseen.
+ */
+export async function standardsText($: $): Promise<string> {
+  const cwd = await homeOf($)
+  const files = await Promise.all(standards.map(async path => `# ${path}\n${await $.fs.read(`${cwd}/${path}`).catch(() => '(this file could not be read)')}`))
+
+  return files.join('\n\n')
+}
+
 /** Whether a change as `changeText` gives it holds nothing: no diff, and no new file. */
 const isNoChange = (change: string): boolean => change.trim() === 'New files:' || change.trim() === ''
 
@@ -522,12 +537,13 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   const seats: ArgonathSeat[] = []
   const brief = await briefOf($, against, place)
+  const rules = await standardsText($)
   // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
   const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
 
   for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
     // A statue judging a quest's change reads it in the quest's worktree
-    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
+    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
     if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })

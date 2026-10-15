@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { UNTRACKED, changesByTarget, isProd, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, proofAnswer, proved, requiredOf, standingByTarget, targetsOf, withLive } from '../hooks/argonath/proof'
+import { UNTRACKED, changesByTarget, isProd, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, standingByTarget, targetsOf, withLive } from '../hooks/argonath/proof'
 import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, isChanging, parseFindings } from '../hooks/argonath/statues'
 
@@ -213,6 +213,11 @@ describe('what the project builds', () => {
       { command: 'security-review', args: '' },
     ])
     expect(parseReviews('narsil=cli@narsil')).toEqual([])
+  })
+
+  test('reads the files of standards the statues judge by, and no target from them', () => {
+    expect(parseStandards('standards=docs/agents/standards.md\n  standards = docs/more.md \nstandards=\nnarsil=cli@narsil')).toEqual(['docs/agents/standards.md', 'docs/more.md'])
+    expect(parseProject('standards=docs/agents/standards.md', CWD)).toEqual([])
   })
 
   test('routes an edited file to the target whose folder holds it, and no other', () => {
@@ -606,6 +611,31 @@ describe('argonath', () => {
     await call($, 'mcp__middle-earth__radius', { target: 'gondor', agentId: 'explorer-1' })
     expect(world.jobs.service.at(-1)).toMatchObject({ home: CWD })
     expect(world.jobs.service.at(-1)).not.toHaveProperty('project')
+  })
+
+  test("hands every statue the project's standards, from its own folder and never a quest's branch, and says which it could not read", async ($, on) => {
+    const tree = `${CWD}/.fellowship/trees/12-burned`
+    const project = `${PROJECT}\nstandards=docs/agents/standards.md\nstandards=docs/gone.md`
+    machine(on, {
+      [`${CWD}/.claude/argonath`]: project,
+      [`${CWD}/docs/agents/standards.md`]: '## Blocking\n- An error swallowed.',
+      [`${tree}/.claude/argonath`]: project,
+      [`${tree}/beacons/tests/test_gondor.py`]: TESTS,
+      [`${tree}/docs/agents/standards.md`]: '## Blocking\n',
+    })
+    const { spawned } = statues(on, true)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'gimli-1' })
+    await call($, 'mcp__middle-earth__judgement', { convene: true, agentId: 'gimli-1' })
+
+    const sent = spawned.filter(one => /isildur|anarion/.test(String(one.subagent_type)))
+
+    expect(sent.map(one => one.subagent_type)).toEqual(['middle-earth:isildur', 'middle-earth:anarion'])
+    for (const one of sent) {
+      expect(String(one.prompt)).toContain('<standards>\n# docs/agents/standards.md\n## Blocking\n- An error swallowed.\n\n# docs/gone.md\n(this file could not be read)\n</standards>')
+    }
   })
 
   test('sends no statue on a change a changed run of which is not pinned', async ($, on) => {

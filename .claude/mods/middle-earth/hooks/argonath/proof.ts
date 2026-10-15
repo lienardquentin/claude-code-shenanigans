@@ -136,6 +136,13 @@ export const parseReviews = (text: string): Review[] =>
     .filter((found): found is RegExpExecArray => found !== null)
     .map(([, command = '', args = '']) => ({ command, args: args.trim() }))
 
+/** The files of written standards the statues judge a change by, a `standards=path` line each, from the project's folder. */
+export const parseStandards = (text: string): string[] =>
+  text
+    .split('\n')
+    .map(line => /^standards\s*=\s*(.+)$/.exec(line.trim())?.[1]?.trim() ?? '')
+    .filter(path => path !== '')
+
 /** A change in a few characters, so the one last reviewed is known again: FNV-1a, in hex. */
 export const fingerprintOf = (text: string): string => {
   let hash = 0x811c9dc5
