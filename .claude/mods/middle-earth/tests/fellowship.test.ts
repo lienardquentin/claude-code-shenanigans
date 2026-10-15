@@ -198,6 +198,15 @@ describe('a member', () => {
     expect(judged).not.toContain('<proof>')
   })
 
+  test("is sent with the project's standards to build to, and with none when the project names none", () => {
+    const made = plan()
+
+    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, null, '# docs/agents/standards.md\n## Blocking\n- An error swallowed.')).toMatch(
+      /build to them, as the statues judge your change by them\.\n<standards>\n# docs\/agents\/standards\.md\n## Blocking\n- An error swallowed\.\n<\/standards>/,
+    )
+    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toContain('<standards>')
+  })
+
   test('hands a plan\'s task back only as Gandalf, an errand or a review comment as any member', () => {
     const made = plan()
 

@@ -41,7 +41,7 @@ import { paneView } from '../kit/pane-text'
 import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
 import { gazeFor, mirrorIn } from '../lothlorien/register'
-import { judgementFor, proveFor, targetsKnown } from '../argonath/register'
+import { judgementFor, proveFor, standardsText, targetsKnown } from '../argonath/register'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -370,7 +370,7 @@ async function march($: $, held: FellowshipQuest, made: FellowshipPlan, task: Fe
 
   await mark($, held, task.id, 'doing')
 
-  const started = await spawnIn($, { subagentType: typeOf(member), description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(held, made, task, member, retry, held.vision), cwd: held.tree })
+  const started = await spawnIn($, { subagentType: typeOf(member), description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(held, made, task, member, retry, held.vision, await standardsText($)), cwd: held.tree })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) {
