@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -71,6 +73,14 @@ def test_quench_puts_them_all_out_and_counts(client):
 
     assert client.post("/beacons/quench").json() == {"quenched": 2}
     assert not any(b["lit"] for b in client.get("/beacons").json())
+
+
+def test_douse_puts_one_beacon_out_and_says_it_burned():
+    realm.lit.update({"amon-din", "eilenach"})
+
+    assert asyncio.run(archive.douse("amon-din")) is True
+    assert realm.lit == {"eilenach"}
+    assert asyncio.run(archive.douse("amon-din")) is False
 
 
 def test_with_no_database_what_burns_is_kept_in_memory(client):

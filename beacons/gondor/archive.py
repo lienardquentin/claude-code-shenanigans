@@ -137,3 +137,20 @@ async def quench() -> int:
             return (await desk.execute("DELETE FROM burning")).rowcount
     except (Error, PoolTimeout) as failure:
         raise shut("and the beacons burn on", failure) from failure
+
+
+async def douse(beacon: str) -> bool:
+    """Puts one beacon out, and says whether it was burning. The lightings there were stay written."""
+    if archivists is None:
+        if beacon not in realm.lit:
+            return False
+
+        realm.lit.discard(beacon)
+
+        return True
+
+    try:
+        async with archivists.connection() as desk:
+            return (await desk.execute("DELETE FROM burning WHERE beacon = %s", (beacon,))).rowcount > 0
+    except (Error, PoolTimeout) as failure:
+        raise shut(f"and {beacon} burns on", failure) from failure
