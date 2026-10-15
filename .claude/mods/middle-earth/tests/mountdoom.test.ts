@@ -69,6 +69,10 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean } = {}) => {
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${world.branch}\n`)
     if (line === 'git status --porcelain') return answer(world.dirty)
     if (line === `git -C ${TREE} status --porcelain`) return answer(world.treeDirty)
+    // What the tree holds, the mods' own folders left out
+    if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(elrond|argonath|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
+    // Andúril builds the quest's CLI in a worktree of its own, inside the quest's
+    if (line === 'git worktree list --porcelain') return answer([`worktree ${CWD}\nbranch refs/heads/main\n`, `worktree ${TREE}\nbranch refs/heads/${BRANCH}\n`, `worktree ${TREE}/.anduril/trees/narsil\ndetached\n`].join('\n'))
     if (line.startsWith('git switch ')) {
       world.branch = e.argv.at(-1) ?? ''
 
@@ -169,7 +173,21 @@ describe('mountdoom', () => {
 
     world.treeDirty = ''
     expect(await casting($, world)).toBe(`${REF} is cast into the fire: its worktree removed, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, elrond.`)
-    expect(world.ran.indexOf(`git worktree remove ${TREE}`)).toBeLessThan(world.ran.indexOf(`git branch -D ${BRANCH}`))
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}`)).toBeGreaterThan(-1)
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}`)).toBeLessThan(world.ran.indexOf(`git branch -D ${BRANCH}`))
+  })
+
+  test('removes a worktree that holds only what the mods keep there, the worktrees nested in it first', async ($, on) => {
+    const world = machine(on, { tree: TREE })
+    world.state = 'MERGED'
+    world.branch = 'main'
+    // Andúril's build, untracked: none of the quest's work
+    world.treeDirty = '?? .anduril/\n'
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(/is cast into the fire: its worktree removed/)
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeGreaterThan(-1)
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeLessThan(world.ran.indexOf(`git worktree remove --force ${TREE}`))
   })
 
   test('counts as forgetting only a part that kept something of it', async ($, on) => {
