@@ -143,7 +143,7 @@ fn refuse_to_overwrite(dst: &Path, force: bool) -> Result<(), String> {
 }
 
 /// The date a flag of `ls` was given, in the chronicle's form, or the refusal of it.
-fn date(flag: &str, text: Option<String>, end_of_day: bool) -> Result<Option<String>, String> {
+fn flag_date(flag: &str, text: Option<String>, end_of_day: bool) -> Result<Option<String>, String> {
     text.map(|text| {
         time::parse(&text, end_of_day)
             .ok_or_else(|| format!("{flag} {text:?} is not a date; write 3019-03-08 or 3019-03-08T06:00:00Z"))
@@ -384,8 +384,8 @@ fn run(cli: Cli) -> Result<(), String> {
         .unwrap_or_else(|| PathBuf::from("chronicle.jsonl"));
     match cli.command {
         Command::Ls { format, since, until } => {
-            let since = date("--since", since, false)?;
-            let until = date("--until", until, true)?;
+            let since = flag_date("--since", since, false)?;
+            let until = flag_date("--until", until, true)?;
             ls(chronicle::read(&path)?, format, since, until)
         }
         Command::Show { id, format } => show(&chronicle::read(&path)?, id, format)?,
