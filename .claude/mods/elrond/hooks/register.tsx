@@ -27,6 +27,12 @@ const wanted = atom({ plugin: 'elrond', key: 'wanted' } as const, '')
 const fellowship = atom({ plugin: 'elrond', key: 'fellowship' } as const, false)
 const setOut = atom({ plugin: 'elrond', key: 'setOut' } as const, '' as '' | 'step' | 'auto')
 
+// The council last seated, kept where no `$` call is needed to read it: its guards are asked of a call raised beneath
+// one of the mod's own, where they can make none, and hold it alike
+let seated: { agentId: string; root: string } | undefined
+
+const COUNCIL_READS = 'The Elrond council reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.'
+
 // How many ticks pass between two asks of whether the Fellowship is there, and how many asks before it is taken to be absent
 const SEEK_TICKS = 10
 const SEEKS = 12
@@ -256,6 +262,8 @@ const convene = async ($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
 
   const started = await $.agent.spawn({ subagentType: AGENT_TYPE, description: `Plan ${key}`, prompt: councilPrompt(key, issue, decided, planPath, { accepted, covered }) }).catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
+  if (started.agentId !== undefined && started.agentId !== '') seated = { agentId: started.agentId, root: cwd }
+
   if (started.deny !== undefined) {
     const why = `The council could not be convened on ${key}: ${started.deny}`
 
@@ -378,9 +386,9 @@ export const register: Register = on => {
       name: AGENT,
       description: 'Plans a GitHub or GitLab issue against this codebase as tasks, read-only. Convened by the Elrond mod alone.',
       prompt: COUNCIL_SYSTEM,
-      // It writes one file, its plan: a permission rule allows the plans folder, and nothing else is asked for
+      // No permission mode of its own: it plans under the session's, as every agent a mod sends does. It writes one
+      // file, its plan, and runs only what reads: the mod's own guard holds it to that
       tools: ['Read', 'Grep', 'Glob', 'Bash', 'Write'],
-      permissionMode: 'dontAsk',
       disallowedTools: ['Edit', 'NotebookEdit'],
       model: 'inherit',
     }).catch(() => undefined)
@@ -454,17 +462,18 @@ export const register: Register = on => {
   })
 
   // The council reads, and plans from an issue it is handed as data: a shell command of its that would change the tree
-  // or the machine is refused it, whatever the person's rules allow
+  // or the machine is refused it, whatever the person's rules allow. Where the guard could not look (it failed, or was
+  // asked beneath a call of the mod's own), the council it seated is refused alike
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const sitting = await read($, council)
 
     if (sitting === null || e.agentId === undefined || !(await isCouncil($, sitting, e.agentId))) return next(e)
-    if (isChanging(e.command)) return { deny: 'The Elrond council reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.' }
+    if (isChanging(e.command)) return { deny: COUNCIL_READS }
 
     return next(e)
-  })
+  }).catch((_$, e, next) => (next.called || seated === undefined || e.agentId !== seated.agentId || !isChanging(e.command) ? next(e) : { deny: COUNCIL_READS }))
 
-  // The council writes its plan file and nothing else: the permission rule allows the folder, and this holds it to it
+  // The council writes its plan file and nothing else, under the session's own permission mode: this holds it to it
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const sitting = await read($, council)
 
@@ -472,7 +481,7 @@ export const register: Register = on => {
     if (!isPlanPath(await rootOf($), e.file_path)) return { deny: `The Elrond council writes its plan to ${sitting.planPath ?? 'the plans folder'} and nothing else.` }
 
     return next(e)
-  })
+  }).catch((_$, e, next) => (next.called || seated === undefined || e.agentId !== seated.agentId || isPlanPath(seated.root, e.file_path) ? next(e) : { deny: 'The Elrond council writes its plan to its file in .elrond/plans and nothing else.' }))
 
   on('tool.call', { tool: 'mcp__elrond__task' }, async ($, e) => {
     const given = e as unknown as { id?: unknown; state?: unknown; ref?: unknown }

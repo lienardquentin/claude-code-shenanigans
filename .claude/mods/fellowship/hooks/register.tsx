@@ -25,6 +25,7 @@ import {
   questLine,
   questText,
   reachesOut,
+  resolvedFrom,
   reviewTasks,
   statueModelFor,
   statuesFor,
@@ -402,6 +403,8 @@ const march = async ($: $, held: FellowshipQuest, made: FellowshipPlan, task: Fe
 
     return
   }
+
+  if (started.agentId !== undefined && started.agentId !== '') fences.set(started.agentId, { root: await rootOf($), tree: held.tree, files: task.files })
 
   await keep($, held.ref, was => ({ ...was, phase: 'marching', verdictLine: '', march: { taskId: task.id, title: task.title, member, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '', head, isResumed: false } }))
   await say($, held.ref, '')
@@ -960,6 +963,55 @@ const questOfAgent = async ($: $, agentId: string, phase?: FellowshipPhase): Pro
   return agent === undefined ? undefined : all.find(held => held.march?.agentId === '' && agent.type === `fellowship:${held.march.member}`)
 }
 
+/** What a member is held to: the person's checkout it stays out of, the quest's worktree it works in, its task's files. */
+type Fence = { root: string; tree: string; files: readonly string[] }
+
+// The members sent, by agent id, kept where no `$` call is needed to read it: their guard is asked of a call raised
+// beneath one of the mod's own, where it can make none, and holds them to their fence alike
+const fences = new Map<string, Fence>()
+
+/** Why a member's tool call is refused; nothing when it stays inside its fence. */
+const fenced = (fence: Fence, e: unknown): string | undefined => {
+  const given = e as { tool?: unknown; command?: unknown; file_path?: unknown; notebook_path?: unknown; path?: unknown }
+
+  if (given.tool === 'Bash' && typeof given.command === 'string') {
+    if (isForbiddenGit(given.command)) return 'The Fellowship commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.'
+    // A cd into the person's checkout would build the quest there, and move where the mods look with it
+    if (reachesOut(fence.root, fence.tree, given.command)) return `You work in the quest's worktree, ${fence.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.`
+  }
+
+  // The file a tool reads or changes, and the folder Grep and Glob search
+  const named = [given.file_path, given.notebook_path, given.tool === 'Grep' || given.tool === 'Glob' ? given.path : undefined].find((one): one is string => typeof one === 'string' && one !== '')
+
+  if (named === undefined) return undefined
+
+  const path = resolvedFrom(fence.tree, named)
+
+  if (isOutside(fence.tree, path)) return `You work in the quest's worktree, ${fence.tree}: read and change files there alone.`
+  if (isModPath(fence.tree, path)) return 'That folder belongs to a mod: a member changes the project, not what the mods keep.'
+  if (isModSource(fence.tree, path, { files: fence.files })) return "That is a mod's source, and your task is not about a mod: say in your account what of it stood in your way, and leave it as it is."
+
+  return undefined
+}
+
+/** The fence of an agent the Fellowship sent: as kept when it was sent, else read from the quest it is out on. */
+const fenceOf = async ($: $, agentId: string): Promise<Fence | undefined> => {
+  const known = fences.get(agentId)
+
+  if (known !== undefined) return known
+
+  const held = await questOfAgent($, agentId)
+
+  if (held === undefined || held.march === null) return undefined
+
+  const task = (await read($, plans))[held.ref]?.tasks.find(one => one.id === held.march?.taskId)
+  const fence = { root: await rootOf($), tree: held.tree, files: task?.files ?? [] }
+
+  fences.set(agentId, fence)
+
+  return fence
+}
+
 /** The quest a command or a call names, by its ref or its branch; else the one the pane shows, else the only one. */
 const namedQuest = async ($: $, named = ''): Promise<FellowshipQuest | null> => {
   const all = await read($, quests)
@@ -989,7 +1041,8 @@ export const register: Register = on => {
           description: `${member.title} of the Fellowship: builds one task of a quest in its worktree, proven and judged by the Argonath. Sent by the Fellowship mod alone.`,
           prompt: memberSystem(name),
           tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', 'mcp__argonath__radius', 'mcp__argonath__prove', 'mcp__lothlorien__amend'],
-          permissionMode: 'acceptEdits',
+          // No permission mode of its own: it builds under the session's, as every agent a mod sends does. The fence
+          // the mod holds it to (its worktree, no git that moves the branch, no mod's folder) is the mod's own guard
           disallowedTools: ['Agent', 'mcp__elrond__task', 'mcp__argonath__judgement', 'mcp__fellowship__commit'],
           model: member.model,
           effort: member.effort,
@@ -1044,31 +1097,22 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The member builds its task in the quest's worktree, and leaves the branch, the commits and the mods' folders to the Fellowship
+  // The member builds its task in the quest's worktree, and leaves the branch, the commits and the mods' folders to the
+  // Fellowship. Where the guard could not look (it failed, or was asked beneath a call of the mod's own), a member it
+  // sent is held to its fence alike
   on('tool.call', async ($, e, next) => {
     const agentId = (e as { agentId?: string }).agentId
-    const held = agentId === undefined ? undefined : await questOfAgent($, agentId)
+    const fence = agentId === undefined ? undefined : await fenceOf($, agentId)
+    const why = fence === undefined ? undefined : fenced(fence, e)
 
-    if (held === undefined || held.march === null) return next(e)
+    return why === undefined ? next(e) : { deny: why }
+  }).catch((_$, e, next) => {
+    const agentId = (e as { agentId?: string }).agentId
+    const fence = next.called || agentId === undefined ? undefined : fences.get(agentId)
+    const why = fence === undefined ? undefined : fenced(fence, e)
 
-    const given = e as unknown as { tool: string; command?: unknown; file_path?: unknown; notebook_path?: unknown }
-
-    if (given.tool === 'Bash' && typeof given.command === 'string' && isForbiddenGit(given.command)) return { deny: 'The Fellowship commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.' }
-    // A cd into the person's checkout would build the quest there, and move where the mods look with it
-    if (given.tool === 'Bash' && typeof given.command === 'string' && reachesOut(await rootOf($), held.tree, given.command)) return { deny: `You work in the quest's worktree, ${held.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.` }
-
-    const path = typeof given.file_path === 'string' ? given.file_path : typeof given.notebook_path === 'string' ? given.notebook_path : undefined
-
-    if (path !== undefined) {
-      const task = (await read($, plans))[held.ref]?.tasks.find(one => one.id === held.march?.taskId)
-
-      if (isOutside(held.tree, path)) return { deny: `You work in the quest's worktree, ${held.tree}: read and change files there alone.` }
-      if (isModPath(held.tree, path)) return { deny: 'That folder belongs to a mod: a member changes the project, not what the mods keep.' }
-      if (isModSource(held.tree, path, task)) return { deny: "That is a mod's source, and your task is not about a mod: say in your account what of it stood in your way, and leave it as it is." }
-    }
-
-    return next(e)
-  }).catch((_$, e, next) => next(e))
+    return why === undefined ? next(e) : { deny: why }
+  })
 
   // Claude is told of the quests while they are under way
   on('prompt.compose', async ($, e, next) => {

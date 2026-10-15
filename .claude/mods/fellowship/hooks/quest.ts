@@ -276,8 +276,24 @@ const withinOf = (root: string, path: string): string => (path.startsWith(`${roo
 export const isModSource = (root: string, path: string, task: Pick<FellowshipTask, 'files'> | undefined): boolean =>
   /^\.claude\/mods(\/|$)/.test(withinOf(root, path)) && !(task?.files ?? []).some(file => /^\.claude\/mods\//.test(file.replace(/^\.\//, '')))
 
-/** Whether a path is outside the folder a member works in: the quest's worktree. */
-export const isOutside = (tree: string, path: string): boolean => /^([A-Za-z]:)?\//.test(path) && path !== tree && !path.startsWith(`${tree}/`)
+/** A path as the folder it is named from resolves it, its `.` and `..` gone: `a/../../b` from a worktree is beside it. */
+export const resolvedFrom = (cwd: string, path: string): string => {
+  const parts: string[] = []
+
+  for (const part of (/^([A-Za-z]:)?\//.test(path) ? path : `${cwd}/${path}`).split('/')) {
+    if (part === '..') parts.pop()
+    else if (part !== '.' && part !== '') parts.push(part)
+  }
+
+  return `/${parts.join('/')}`
+}
+
+/** Whether a path is outside the folder a member works in, the quest's worktree, once resolved from it. */
+export const isOutside = (tree: string, path: string): boolean => {
+  const whole = resolvedFrom(tree, path)
+
+  return whole !== tree && !whole.startsWith(`${tree}/`)
+}
 
 /**
  * Whether a shell command names the person's checkout outside the quest's worktree: a `cd` there, or a file of it

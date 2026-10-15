@@ -53,8 +53,8 @@ type $ = EngineInterface
 
 const PANE = 'argonath'
 const TITLE = 'Argonath'
-// The tool of anduril's that plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
-const ANDURIL_DIFF = 'mcp__anduril__diff'
+// The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
+const ANDURIL = 'anduril'
 // A look builds and plays on two sides, and a proof runs the tests on each: as long as a host command may run
 const RUN_TIMEOUT_MS = 600_000
 // How many test files are read for marks
@@ -212,11 +212,17 @@ const setUp = async ($: $): Promise<ArgonathTarget[]> => {
 }
 
 /**
- * The targets a place's own project file names, their folders in that place: a quest's branch may name others. The
- * project's own are read afresh, or, `isKnown`, as last read.
+ * The targets of a place, their folders in that place. The project's own are read afresh, or, `isKnown`, as last read.
+ * A quest's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
+ * (its tests, its database, its live stage) is never read from a branch. The requests it plays are its own file's.
  */
-const targetsIn = async ($: $, place: Place, isKnown = false): Promise<ArgonathTarget[]> =>
-  place.isHome ? (isKnown ? read($, targets) : setUp($)) : parseProject(await $.fs.read(`${place.tree}/${PROJECT_FILE}`).catch(() => ''), place.tree)
+const targetsIn = async ($: $, place: Place, isKnown = false): Promise<ArgonathTarget[]> => {
+  if (place.isHome) return isKnown ? read($, targets) : setUp($)
+
+  const own = parseProject(await $.fs.read(`${place.tree}/${PROJECT_FILE}`).catch(() => ''), place.tree)
+
+  return parseProject(await $.fs.read(`${await homeOf($)}/${PROJECT_FILE}`).catch(() => ''), place.tree).map(target => ({ ...target, requests: own.find(one => one.label === target.label)?.requests ?? target.requests }))
+}
 
 /** Every mark in the files a target names as tests: what git tracks there, and what it neither tracks nor ignores. */
 const marksIn = async ($: $, cwd: string, target: ArgonathTarget): Promise<{ line: string; test: string }[]> => {
@@ -234,11 +240,15 @@ const marksIn = async ($: $, cwd: string, target: ArgonathTarget): Promise<{ lin
 // What a handler found, and for a service with a live stage, what that stage found in a line
 type Found = Changed & { live?: string }
 
-/** A CLI's handler: anduril plays its kept runs on both builds, and says what changed. */
+/**
+ * A CLI's handler: anduril plays its kept runs on both builds, and says what changed. It is asked as the mods ask one
+ * another, through MCP: a tool call would be put to the session's permission check, which a proof no one is at the
+ * prompt for cannot answer.
+ */
 const cliChanged = async ($: $, target: ArgonathTarget, against: string, place: Place): Promise<Changed | string> => {
   try {
-    const answered = (await $.tool.call({ tool: ANDURIL_DIFF, target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) } as never)) as unknown as { result?: unknown; text?: unknown }
-    const said = typeof answered.result === 'string' ? answered.result : typeof answered.text === 'string' ? answered.text : ''
+    const answered = await $.mcp.call(ANDURIL, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
+    const said = answered.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n')
 
     // What anduril says in place of a comparison is why there is no radius
     return parseDiffText(said) ?? (said !== '' ? said : 'anduril answered nothing to read.')
@@ -503,6 +513,7 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: rea
       .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
+    if (started.agentId !== undefined) statuesSent.add(started.agentId)
     seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
   }
 
@@ -515,6 +526,12 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   return made
 }
+
+// The statues sent, by agent id, kept where no `$` call is needed to read it: their guard is asked of a call raised
+// beneath one of the mod's own, where it can make none, and judges theirs alike
+const statuesSent = new Set<string>()
+
+const STATUE_READS = 'A statue of the Argonath judges the change and changes nothing: run only commands that read.'
 
 /** The statues have judged: the person is shown the verdict, and a Claude whose turn convened them is told it. */
 const rise = async ($: $, made: ArgonathJudgement): Promise<void> => {
@@ -807,13 +824,14 @@ export const register: Register = on => {
     return started
   }).catch((_$, e, next) => next(e))
 
-  // A statue judges and changes nothing: a command that would change the tree or the machine is refused it
+  // A statue judges and changes nothing: a command that would change the tree or the machine is refused it. Where the
+  // guard could not look (it failed, or was asked beneath a call of the mod's own), a statue it sent is refused alike
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (e.agentId === undefined || (await sittingFor($, e.agentId)) === undefined) return next(e)
-    if (isChanging(e.command)) return { deny: 'A statue of the Argonath judges the change and changes nothing: run only commands that read.' }
+    if (e.agentId === undefined || (!statuesSent.has(e.agentId) && (await sittingFor($, e.agentId)) === undefined)) return next(e)
+    if (isChanging(e.command)) return { deny: STATUE_READS }
 
     return next(e)
-  }).catch((_$, e, next) => next(e))
+  }).catch((_$, e, next) => (next.called || e.agentId === undefined || !statuesSent.has(e.agentId) || !isChanging(e.command) ? next(e) : { deny: STATUE_READS }))
 
   // A statue's turn has ended: its answer is its findings. The session's own turn has ended: what it edited is looked at
   on('turn.complete', async ($, e, next) => {

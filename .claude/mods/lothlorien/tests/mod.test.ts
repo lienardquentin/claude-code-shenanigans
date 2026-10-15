@@ -238,6 +238,10 @@ describe('the Mirror, for a mod', () => {
 
     await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 2: quench.', ref: 'github:beacons/gondor#12', weight: 'standard', tree })
     expect(world.spawned[0]).toMatchObject({ cwd: tree })
+    // She writes her tests in the worktree alone: a test file of the person's checkout, or one climbed to, is not hers
+    expect(await edit($, 'galadriel-1', FILE, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The Mirror is in .*12-quench/) })
+    expect(await edit($, 'galadriel-1', `${tree}/../../../beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The Mirror is in/) })
+    expect(await edit($, 'galadriel-1', `${tree}/beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ result: 'done' })
     await ends($, 'galadriel-1', SHOWN)
     expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true, tree }))).toMatchObject({ state: 'shown', isLocked: true })
     expect(await call($, 'mcp__lothlorien__mirror')).toMatch(/shows nothing yet/)

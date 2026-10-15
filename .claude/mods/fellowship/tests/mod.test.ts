@@ -220,6 +220,10 @@ describe('a member', () => {
     expect(isOutside(TREE, `${CWD}/beacons/gondor/app.py`)).toBe(true)
     expect(isOutside(TREE, `${TREE}/beacons/gondor/app.py`)).toBe(false)
     expect(isOutside(TREE, 'beacons/gondor/app.py')).toBe(false)
+    // A path climbs out of the worktree as well as it names a place outside it
+    expect(isOutside(TREE, `${TREE}/../../../beacons/gondor/app.py`)).toBe(true)
+    expect(isOutside(TREE, '../../../beacons/gondor/app.py')).toBe(true)
+    expect(isOutside(TREE, 'beacons/../narsil/./src/main.rs')).toBe(false)
     // A shell command reaches the person's checkout by naming it: Gimli once built an errand there with cd
     for (const command of [`cd ${CWD}/narsil && cargo test`, `cd ${CWD}`, `sed -n 1,9p '${CWD}/narsil/src/main.rs'`, `cargo test --manifest-path ${CWD}/narsil/Cargo.toml`]) expect(reachesOut(CWD, TREE, command)).toBe(true)
     for (const command of [`cd ${TREE}/narsil && cargo test`, 'cd narsil && cargo test', `ls ${CWD}-old/narsil`, `git -C ${TREE} diff`]) expect(reachesOut(CWD, TREE, command)).toBe(false)
@@ -643,7 +647,18 @@ describe('fellowship', () => {
     expect(await edit('frodo-1', `${CWD}/beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
     expect(await edit('frodo-1', `${TREE}/.elrond/plans/x.json`)).toMatchObject({ deny: expect.stringMatching(/belongs to a mod/) })
     expect(await edit('frodo-1', `${TREE}/beacons/gondor/app.py`)).toMatchObject({ result: 'edited' })
+    // A path that climbs out of the worktree is outside it, and so is a folder searched there
+    expect(await edit('frodo-1', `${TREE}/../../../beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
+    expect(await $.tool.call({ tool: 'Grep', pattern: 'lit', path: CWD, agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
     expect(world.spawned).toHaveLength(1)
+  })
+
+  test('sends its members under the session\'s own permission mode, as every agent a mod sends', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    expect(world.registered.length).toBeGreaterThan(0)
+    for (const spec of world.registered) expect(spec).not.toHaveProperty('permissionMode')
   })
 
   test('is abandoned at the person\'s word: its worktree removed, its branch deleted, its tasks reopened, and set out on afresh', async ($, on) => {

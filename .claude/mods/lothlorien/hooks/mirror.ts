@@ -148,6 +148,18 @@ export const isChanging = (command: string): boolean =>
   /(^|[;&|(]\s*|\s)(rm|mv|cp|touch|mkdir|chmod|chown|tee|truncate|dd|(npm|pnpm|yarn)\s+(install|i|add|remove|update)|pip3?\s+install|uv\s+(add|remove|sync|lock|pip)|cargo\s+(add|install|update)|sed\s+-i|perl\s+-i|curl|wget)\b/.test(command) ||
   /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(command)
 
+/** A path as the folder it is named from resolves it, its `.` and `..` gone: `a/../../b` from a worktree is beside it. */
+export const resolvedFrom = (cwd: string, path: string): string => {
+  const parts: string[] = []
+
+  for (const part of (/^([A-Za-z]:)?\//.test(path) ? path : `${cwd}/${path}`).split('/')) {
+    if (part === '..') parts.pop()
+    else if (part !== '.' && part !== '') parts.push(part)
+  }
+
+  return `/${parts.join('/')}`
+}
+
 /** The vision in full, for Claude. */
 export const visionText = (vision: LothlorienVision, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
   [

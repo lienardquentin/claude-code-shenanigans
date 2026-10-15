@@ -290,7 +290,7 @@ describe('elrond', () => {
     expect(await call($, 'mcp__elrond__plan')).toMatch(/\(0\/2 done\)[\s\S]*Is an unlit beacon 0 or null/)
   })
 
-  test('gives the council Write for its plan file, and no other way to change a file', async ($, on) => {
+  test('gives the council Write for its plan file, no other way to change a file, and the session\'s own permission mode', async ($, on) => {
     const world = machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
@@ -298,7 +298,8 @@ describe('elrond', () => {
     expect(spec.tools).toContain('Write')
     expect(spec.disallowedTools ?? []).not.toContain('Write')
     expect(spec.disallowedTools).toEqual(expect.arrayContaining(['Edit', 'NotebookEdit']))
-    expect(spec.permissionMode).toBe('dontAsk')
+    // No mode of its own: the guards hold it to its plan file and to commands that read, under whatever the session runs
+    expect(spec).not.toHaveProperty('permissionMode')
   })
 
   test('holds the council to its plan file: any other write is refused, and another agent\'s is none of its business', async ($, on) => {

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { LothlorienState, LothlorienVision } from '../types'
-import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYSTEM, HOW_TO, blocksOf, gazePrompt, isChanging, isTestPath, lockedIn, missingFrom, parseGaze, takenBy, tamperedWith, visionJson, visionText } from './mirror'
+import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYSTEM, HOW_TO, blocksOf, gazePrompt, isChanging, isTestPath, lockedIn, missingFrom, parseGaze, resolvedFrom, takenBy, tamperedWith, visionJson, visionText } from './mirror'
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
@@ -130,6 +130,25 @@ const git = async ($: $, place: Place, args: readonly string[]): Promise<{ ok: b
 /** A path as its folder names it: from the project's folder, or from the quest's worktree it is in. */
 const within = (place: Place, path: string): string => (path.startsWith(`${place.tree}/`) ? path.slice(place.tree.length + 1) : path.replace(/^\.\//, ''))
 
+// Galadriel as she was sent, by agent id, and the place she gazes in, kept where no `$` call is needed to read it: her
+// guard is asked of a call raised beneath one of the mod's own, where it can make none, and holds her alike
+const gazers = new Map<string, Place>()
+
+/** Why a call of Galadriel's is refused; nothing when she writes a test in her place, or runs what tests or reads. */
+const barred = (place: Place, e: unknown): string | undefined => {
+  const given = e as { tool?: unknown; command?: unknown; file_path?: unknown }
+
+  if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return 'Galadriel writes her tests with Write and Edit, and runs only what tests or reads.'
+  if ((given.tool !== 'Edit' && given.tool !== 'Write') || typeof given.file_path !== 'string') return undefined
+
+  const whole = resolvedFrom(place.tree, given.file_path)
+
+  if (whole !== place.tree && !whole.startsWith(`${place.tree}/`)) return `The Mirror is in ${place.tree}: write your tests there alone.`
+  if (!isTestPath(within(place, whole))) return 'The Mirror shows what is to come as tests: write only in test files, and leave the source for whoever builds it.'
+
+  return undefined
+}
+
 /** Whether her tests are still locked: shown, and not committed yet, HEAD where it was when she gazed. */
 const isLocked = async ($: $, place: Place, held: LothlorienVision | null): Promise<boolean> => held !== null && held.state === 'shown' && (await git($, place, ['rev-parse', 'HEAD'])).out === held.head
 
@@ -148,6 +167,7 @@ const gaze = async ($: $, purpose: string, by: LothlorienVision['by'], place: Pl
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) return `Galadriel could not be sent: ${started.deny}`
+  if (started.agentId !== undefined && started.agentId !== '') gazers.set(started.agentId, place)
 
   await setVision($, place, (): LothlorienVision => ({ purpose: purpose.trim(), ...(ref !== '' ? { ref } : {}), by, agentId: started.agentId ?? '', state: 'gazing', head, tests: [], red: '', why: '', blocks: [], amendments: [], at: Date.now(), ...(place.isHome ? {} : { tree: place.tree }) }))
   await update($, note, () => '')
@@ -276,7 +296,8 @@ export const register: Register = on => {
           description: 'Galadriel: writes the failing tests of a behaviour before it is built, and only tests. Sent by the Lothlórien mod alone.',
           prompt: GALADRIEL_SYSTEM,
           tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'],
-          permissionMode: 'acceptEdits',
+          // No permission mode of her own: she gazes under the session's, as every agent a mod sends does. What she may
+          // write (tests, in the place she gazes in) and run (what tests or reads) is the mod's own guard
           disallowedTools: ['Agent', 'NotebookEdit'],
           model,
           effort: GALADRIEL_EFFORT,
@@ -317,16 +338,16 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // She writes tests and nothing else; anyone else leaves her tests as they are, unless they say why
+  // She writes tests, in the place she gazes in, and nothing else; anyone else leaves her tests as they are, unless they
+  // say why. Where the guard could not look (it failed, or was asked beneath a call of the mod's own), she is held alike
   on('tool.call', async ($, e, next) => {
     const given = e as unknown as { tool: string; agentId?: string; command?: unknown; file_path?: unknown; old_string?: unknown; new_string?: unknown; content?: unknown }
-    const gazing = given.agentId === undefined ? undefined : await gazingFor($, given.agentId)
+    const gazing = given.agentId === undefined ? undefined : (gazers.get(given.agentId) ?? (await gazingFor($, given.agentId))?.place)
 
     if (gazing !== undefined) {
-      if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return { deny: 'Galadriel writes her tests with Write and Edit, and runs only what tests or reads.' }
-      if ((given.tool === 'Edit' || given.tool === 'Write') && typeof given.file_path === 'string' && !isTestPath(within(gazing.place, given.file_path))) return { deny: 'The Mirror shows what is to come as tests: write only in test files, and leave the source for whoever builds it.' }
+      const why = barred(gazing, e)
 
-      return next(e)
+      return why === undefined ? next(e) : { deny: why }
     }
 
     if (typeof given.file_path !== 'string' || (given.tool !== 'Edit' && given.tool !== 'Write')) return next(e)
@@ -339,7 +360,13 @@ export const register: Register = on => {
           : ''
 
     return why === '' ? next(e) : { deny: why }
-  }).catch((_$, e, next) => next(e))
+  }).catch((_$, e, next) => {
+    const agentId = (e as unknown as { agentId?: string }).agentId
+    const gazing = next.called || agentId === undefined ? undefined : gazers.get(agentId)
+    const why = gazing === undefined ? undefined : barred(gazing, e)
+
+    return why === undefined ? next(e) : { deny: why }
+  })
 
   // Claude is told her tests are locked while they are: those of the project's own folder, which it works in
   on('prompt.compose', async ($, e, next) => {
