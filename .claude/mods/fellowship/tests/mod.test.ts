@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reviewTasks, statuesFor, treePathOf, triesOf, unsettledOf } from '../hooks/quest'
+import { branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reachesOut, reviewTasks, statuesFor, treePathOf, triesOf, unsettledOf } from '../hooks/quest'
 import type { QuestOf } from '../hooks/quest'
 import type { FellowshipPlan, FellowshipQuest } from '../types'
 import { MEMBERS } from '../hooks/quest'
@@ -220,6 +220,9 @@ describe('a member', () => {
     expect(isOutside(TREE, `${CWD}/beacons/gondor/app.py`)).toBe(true)
     expect(isOutside(TREE, `${TREE}/beacons/gondor/app.py`)).toBe(false)
     expect(isOutside(TREE, 'beacons/gondor/app.py')).toBe(false)
+    // A shell command reaches the person's checkout by naming it: Gimli once built an errand there with cd
+    for (const command of [`cd ${CWD}/narsil && cargo test`, `cd ${CWD}`, `sed -n 1,9p '${CWD}/narsil/src/main.rs'`, `cargo test --manifest-path ${CWD}/narsil/Cargo.toml`]) expect(reachesOut(CWD, TREE, command)).toBe(true)
+    for (const command of [`cd ${TREE}/narsil && cargo test`, 'cd narsil && cargo test', `ls ${CWD}-old/narsil`, `git -C ${TREE} diff`]) expect(reachesOut(CWD, TREE, command)).toBe(false)
     // A fix to a mod is not the quest's, unless the task is about the mod: it would ride into its pull request
     const task = { files: ['beacons/gondor/app.py'] }
 
@@ -856,6 +859,22 @@ describe('an errand', () => {
     expect(world.proved).toEqual([])
     expect(await call($, 'mcp__fellowship__quest', { ref: ISSUE.ref })).toMatch(/: stuck/)
     expect(world.toasts.some(text => /Gimli hands github:.*#21 back: it asks whether/.test(text))).toBe(true)
+  })
+
+  test('does not arrive when its member left no change in the worktree', async ($, on) => {
+    const world = machine(on)
+    world.judgements = [JUDGED.pass]
+    await $.session.start({} as never)
+    await call($, 'mcp__fellowship__errand', { issue: '#21' })
+    await settle(world)
+
+    // It built in the person's checkout instead: the worktree is clean
+    world.dirty = ''
+    await ends($, 'gimli-1', 'Quench answers 404 now; test_quench_unknown proves it.')
+    await settle(world)
+
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
+    expect(await call($, 'mcp__fellowship__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
   })
 })
 

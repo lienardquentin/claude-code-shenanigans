@@ -24,6 +24,7 @@ import {
   purposeOf,
   questLine,
   questText,
+  reachesOut,
   reviewTasks,
   statueModelFor,
   statuesFor,
@@ -680,6 +681,15 @@ const commitNow = async ($: $, ref: string, minor: readonly string[]): Promise<s
   const dirty = await git($, ['status', '--porcelain'], held.tree)
   let sha = ''
 
+  // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
+  if (dirty.out === '' && held.kind === 'errand') {
+    const why = `${by} left no change in ${held.tree} for ${ref}: it is not done. Look at what it says it built, then send it again.`
+
+    await stop($, held, why)
+
+    return why
+  }
+
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
     const added = await git($, ['add', '-A'], held.tree)
@@ -1044,6 +1054,8 @@ export const register: Register = on => {
     const given = e as unknown as { tool: string; command?: unknown; file_path?: unknown; notebook_path?: unknown }
 
     if (given.tool === 'Bash' && typeof given.command === 'string' && isForbiddenGit(given.command)) return { deny: 'The Fellowship commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.' }
+    // A cd into the person's checkout would build the quest there, and move where the mods look with it
+    if (given.tool === 'Bash' && typeof given.command === 'string' && reachesOut(await rootOf($), held.tree, given.command)) return { deny: `You work in the quest's worktree, ${held.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.` }
 
     const path = typeof given.file_path === 'string' ? given.file_path : typeof given.notebook_path === 'string' ? given.notebook_path : undefined
 

@@ -279,6 +279,25 @@ export const isModSource = (root: string, path: string, task: Pick<FellowshipTas
 /** Whether a path is outside the folder a member works in: the quest's worktree. */
 export const isOutside = (tree: string, path: string): boolean => /^([A-Za-z]:)?\//.test(path) && path !== tree && !path.startsWith(`${tree}/`)
 
+/**
+ * Whether a shell command names the person's checkout outside the quest's worktree: a `cd` there, or a file of it
+ * named whole. Each place the checkout's path is named must go on into the worktree.
+ */
+export const reachesOut = (root: string, tree: string, command: string): boolean => {
+  if (root === '' || root === tree) return false
+
+  for (let at = command.indexOf(root); at !== -1; at = command.indexOf(root, at + 1)) {
+    const named = command.slice(at)
+    const next = named.charAt(root.length)
+
+    // Another folder that only begins like the checkout, such as /work/project-old, is not it
+    if (next !== '' && !/[/\s'";&|)]/.test(next)) continue
+    if (!(named.startsWith(tree) && /^($|[/\s'";&|)])/.test(named.slice(tree.length)))) return true
+  }
+
+  return false
+}
+
 const taskBlock = (task: FellowshipTask): string[] => [
   `Task ${task.id}: ${task.title}`,
   ...(task.why !== '' ? [`Why: ${task.why}`] : []),

@@ -494,11 +494,13 @@ const convene = async ($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   const seats: ArgonathSeat[] = []
   const brief = await briefOf($, against, place)
+  // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
+  const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
 
   for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
     // A statue judging a quest's change reads it in the quest's worktree
     const started = await $.agent
-      .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(model !== undefined ? { model } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
+      .spawn({ subagentType: `argonath:${seat.name}`, description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
     seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
