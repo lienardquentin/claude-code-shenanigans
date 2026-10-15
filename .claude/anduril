@@ -13,6 +13,7 @@ narsil.mask=thread '[^']*' \(\d+\)
 $ narsil ls
 $ narsil ls --format json
 $ narsil ls --since 3019-03-12
+$ narsil ls --until 3019-03-10
 $ narsil show 3
 $ narsil show 999
 $ narsil tally --by keeper

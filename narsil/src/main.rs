@@ -36,6 +36,9 @@ enum Command {
         /// Only the lightings from this date on, as 3019-03-08 or 3019-03-08T06:00:00Z
         #[arg(long, value_name = "DATE")]
         since: Option<String>,
+        /// Only the lightings up to this date, as 3019-03-08 or 3019-03-08T06:00:00Z; a bare date takes in its day
+        #[arg(long, value_name = "DATE")]
+        until: Option<String>,
     },
     /// Show one lighting
     Show {
@@ -139,11 +142,21 @@ fn refuse_to_overwrite(dst: &Path, force: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn ls(lightings: Vec<Lighting>, format: Format, since: Option<String>) {
-    let lightings: Vec<Lighting> = match since {
-        Some(since) => lightings.into_iter().filter(|l| l.lit_at >= since).collect(),
-        None => lightings,
-    };
+/// The date a flag of `ls` was given, in the chronicle's form, or the refusal of it.
+fn date(flag: &str, text: Option<String>, end_of_day: bool) -> Result<Option<String>, String> {
+    text.map(|text| {
+        time::parse(&text, end_of_day)
+            .ok_or_else(|| format!("{flag} {text:?} is not a date; write 3019-03-08 or 3019-03-08T06:00:00Z"))
+    })
+    .transpose()
+}
+
+fn ls(lightings: Vec<Lighting>, format: Format, since: Option<String>, until: Option<String>) {
+    let lightings: Vec<Lighting> = lightings
+        .into_iter()
+        .filter(|l| since.as_ref().is_none_or(|since| l.lit_at >= *since))
+        .filter(|l| until.as_ref().is_none_or(|until| l.lit_at <= *until))
+        .collect();
     match format {
         Format::Table => table::print(&lightings),
         Format::Json => json(&lightings),
@@ -370,7 +383,11 @@ fn run(cli: Cli) -> Result<(), String> {
         .or(config.chronicle)
         .unwrap_or_else(|| PathBuf::from("chronicle.jsonl"));
     match cli.command {
-        Command::Ls { format, since } => ls(chronicle::read(&path)?, format, since),
+        Command::Ls { format, since, until } => {
+            let since = date("--since", since, false)?;
+            let until = date("--until", until, true)?;
+            ls(chronicle::read(&path)?, format, since, until)
+        }
         Command::Show { id, format } => show(&chronicle::read(&path)?, id, format)?,
         Command::Tally { by, format } => tally(&chronicle::read(&path)?, by, format),
         Command::Copy { src, dst, force } => copy(&src, &dst, force)?,

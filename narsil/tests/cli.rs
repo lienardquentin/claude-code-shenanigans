@@ -91,6 +91,101 @@ fn ls_since_a_date_leaves_the_earlier_ones_out() {
     assert!(lightings.iter().all(|l| l["lit_at"].as_str().unwrap() >= "3019-03-09"));
 }
 
+// sting: narsil ls --until 3019-03-10
+#[test]
+fn ls_until_a_date_leaves_the_later_ones_out_and_keeps_the_whole_day() {
+    let home = forged("ls-until", "25");
+    let output = run(&home, &["ls", "--format", "json", "--until", "3019-03-10"]);
+    assert!(output.status.success());
+    let lightings: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    let lightings = lightings.as_array().unwrap();
+    assert!(!lightings.is_empty() && lightings.len() < 25);
+    assert!(lightings.iter().all(|l| l["lit_at"].as_str().unwrap() < "3019-03-11"));
+    let all = run(&home, &["ls", "--format", "json"]);
+    let all: serde_json::Value = serde_json::from_str(&stdout(&all)).unwrap();
+    let on_the_day = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| l["lit_at"].as_str().unwrap().starts_with("3019-03-10"))
+        .count();
+    assert_eq!(
+        lightings
+            .iter()
+            .filter(|l| l["lit_at"].as_str().unwrap().starts_with("3019-03-10"))
+            .count(),
+        on_the_day
+    );
+}
+
+#[test]
+fn ls_until_a_time_stops_at_that_second() {
+    let home = forged("ls-until-time", "25");
+    let output = run(&home, &["ls", "--format", "json", "--until", "3019-03-10T06:00:00Z"]);
+    let lightings: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert!(
+        lightings
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|l| l["lit_at"].as_str().unwrap() <= "3019-03-10T06:00:00Z")
+    );
+}
+
+#[test]
+fn ls_since_and_until_bound_the_lightings_from_both_sides() {
+    let home = forged("ls-between", "25");
+    let output = run(
+        &home,
+        &[
+            "ls",
+            "--format",
+            "json",
+            "--since",
+            "3019-03-09",
+            "--until",
+            "3019-03-10",
+        ],
+    );
+    let lightings: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    let lightings = lightings.as_array().unwrap();
+    assert!(!lightings.is_empty());
+    assert!(lightings.iter().all(|l| {
+        let at = l["lit_at"].as_str().unwrap();
+        at >= "3019-03-09" && at < "3019-03-11"
+    }));
+    let output = run(
+        &home,
+        &[
+            "ls",
+            "--format",
+            "json",
+            "--since",
+            "3019-03-12",
+            "--until",
+            "3019-03-10",
+        ],
+    );
+    assert!(output.status.success());
+    assert_eq!(stdout(&output).trim(), "[]");
+}
+
+#[test]
+fn a_date_that_is_not_one_is_refused_for_since_and_until() {
+    let home = forged("ls-bad-date", "5");
+    for flag in ["--since", "--until"] {
+        for bad in ["garbage", "3019-02-30"] {
+            let output = run(&home, &["ls", flag, bad]);
+            assert_eq!(output.status.code(), Some(1));
+            assert_eq!(stdout(&output), "");
+            assert_eq!(
+                stderr(&output),
+                format!("narsil: {flag} \"{bad}\" is not a date; write 3019-03-08 or 3019-03-08T06:00:00Z\n")
+            );
+        }
+    }
+}
+
 // sting: narsil show 999
 #[test]
 fn a_lighting_that_is_not_there_is_said_on_stderr() {
