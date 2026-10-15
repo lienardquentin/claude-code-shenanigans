@@ -1,5 +1,0 @@
-{
-  "name": "mountdoom-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "mountdoom", "source": "./" }]
-}

@@ -5,7 +5,7 @@ Personal Claude Code mods and experiments.
 ## Mods
 
 Claude sees nothing of a pane by itself, so every mod that opens one also serves it as a tool, `mcp__<mod>__pane`
-(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__http-log__pane`, `mcp__renovate-desk__pane`, `mcp__anduril__pane`). It answers
+(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__renovate-desk__pane`, `mcp__anduril__pane`). It answers
 whether the pane is open, then its latest drawing as text: the tree you see, so your selection, page and filter are
 in it. Ask Claude about "the pane" and it can read it.
 
@@ -161,48 +161,6 @@ claude plugin marketplace add <path to this clone>/.claude/mods/timeline-view
 claude plugin install timeline-view@timeline-view-mods
 ```
 
-### `http-log`
-
-A pane that logs the HTTP calls a Claude Code session makes. It lives in
-[`.claude/mods/http-log`](.claude/mods/http-log).
-
-- A table of every request: time, method, URL, agent, status, duration, and a rate-limit action per row.
-- Rate limits by URL regex (calls per minute); a rule that refuses a call denies it with a reason.
-- Search, and time-range filters (`10m`, `30m`, `1h` by default; set with the `timeRanges` option).
-- Details for the selected call: query parameters, request body, response, the command that made it, each with a
-  Copy button; JSON is formatted.
-- Sees `WebFetch`, and `curl` / `Invoke-RestMethod` / `Invoke-WebRequest` run from `PowerShell` or `Bash`, including
-  requests a script builds itself: a PowerShell wrapper logs the cmdlets in full, and a local logging proxy
-  (Python 3, standard library only) sees what other programs send. HTTPS made by those programs is visible as
-  host, bytes and duration only.
-- Calls older than the `retention` option (an hour by default) are cleaned.
-
-Install it from a clone:
-
-```
-claude plugin marketplace add <path to this clone>/.claude/mods/http-log
-claude plugin install http-log@http-log-mods
-```
-
-Then open the pane with `/http-log`.
-
-#### How it touches your commands
-
-For a shell command that may reach the network, the mod puts one line before it (it loads the wrapper and points
-proxy-aware programs at the local proxy). That rewritten command is what Claude Code's permission prompt shows and
-what your allow and deny rules are matched against. Commands that cannot reach the network run untouched. Request
-and response bodies are written to your temp folder (in a folder private to your user) and to the plugin's store.
-
-#### Development
-
-```
-claude plugin validate .claude/mods/http-log
-claude plugin test .claude/mods/http-log
-```
-
-The proxy and the wrapper are in `tap/`; `hooks/tap.ts` builds the line put before a command and merges what the
-taps saw into the call list.
-
 ### `renovate-desk`
 
 A pane that looks after your open Renovate pull requests on GitHub, or merge requests on GitLab. It lives in
@@ -235,21 +193,34 @@ Then open the pane with `/renovate`.
 ### Middle-earth
 
 The Lord of the Rings mods are one marketplace, `middle-earth`, kept in
-[`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json):
-`elrond`, `fellowship`, `lothlorien`, `argonath`, `anduril`, `palantir`, `bombadil`, `blackgate` and `mountdoom`.
-They lean on one another (Fellowship builds Elrond's plan, Argonath proves each change through Anduril, Bombadil and
-the Black Gate send their builders through both), so install them together from a clone:
+[`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json), of three plugins:
+
+- `middle-earth` ([`.claude/mods/middle-earth`](.claude/mods/middle-earth)) takes an issue, or a pull request's
+  review, to committed and reviewed work. Its parts each have a folder under `hooks/`: Elrond plans (`/elrond`), the
+  Fellowship builds (`/fellowship`), Lothlórien writes tests first (`/mirror`), the Argonath prove and judge each
+  change (`/argonath`), the Black Gate reads review (`/blackgate`) and Mount Doom clears what is merged
+  (`/mountdoom`). Its tools are `mcp__middle-earth__*`; `mcp__middle-earth__pane` reads any of its panes by name.
+- `anduril` and `palantir`, each useful alone, watch what the code does. The Argonath reads Andúril's diff for a
+  command-line tool.
+
+Install them from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods
-for mod in elrond fellowship lothlorien argonath anduril palantir bombadil blackgate mountdoom; do
+for mod in middle-earth anduril palantir; do
   claude plugin install "$mod@middle-earth"
 done
 ```
 
-Each still has a marketplace of its own (`<mod>@<mod>-mods`) for installing it alone. A mod's kept state belongs to
-the marketplace it was installed from, so one moved from its own marketplace to `middle-earth` starts with an empty
-store.
+The parts were six plugins of their own until [ADR 0005](docs/adr/0005-the-workflow-mods-are-one-plugin.md). A plugin's
+kept state belongs to its id, so on its first start `middle-earth` carries the plans and quests the old `elrond` and
+`fellowship` plugins kept into its own store. Uninstall the six old ones
+(`elrond`, `fellowship`, `lothlorien`, `argonath`, `blackgate`, `mountdoom`) once it is installed.
+
+```
+claude plugin validate .claude/mods/middle-earth
+claude plugin test .claude/mods/middle-earth
+```
 
 ### `anduril`
 

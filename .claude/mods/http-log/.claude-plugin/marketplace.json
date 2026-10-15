@@ -1,5 +1,0 @@
-﻿{
-  "name": "http-log-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "http-log", "source": "./" }]
-}

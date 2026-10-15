@@ -1,5 +1,0 @@
-{
-  "name": "fellowship-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "fellowship", "source": "./" }]
-}
