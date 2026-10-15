@@ -137,6 +137,8 @@ declare module 'claude-code' {
       diffing: string
       /** The commit the pane compares the working tree with. */
       against: string
+      /** The folder each agent a mod sent works in, by its id: a quest's worktree, whose own build its runs launch. */
+      trees: Record<string, string>
     }
   }
 }

@@ -5,6 +5,7 @@ import type { MountdoomRelic } from '../types'
 import { HOW_TO, KEEPERS, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
+import { ask, errorText, isMergedFrom, rootOf } from './kit/flow'
 
 type $ = EngineInterface
 
@@ -19,6 +20,10 @@ const FORGE_TIMEOUT_MS = 60_000
 const relics = atom({ plugin: 'mountdoom', key: 'relics' } as const, [] as MountdoomRelic[])
 const told = atom({ plugin: 'mountdoom', key: 'told' } as const, [] as string[])
 const note = atom({ plugin: 'mountdoom', key: 'note' } as const, '')
+const wanted = atom({ plugin: 'mountdoom', key: 'wanted' } as const, '')
+
+// How often the clock looks for what a command asked of it
+const TICK_MS = 500
 const working = atom({ plugin: 'mountdoom', key: 'working' } as const, '')
 
 const view = paneView({ id: PANE, title: TITLE, command: '/mountdoom' })
@@ -26,48 +31,29 @@ const view = paneView({ id: PANE, title: TITLE, command: '/mountdoom' })
 const TOOLS = [
   {
     name: 'relics',
-    description: "What Mount Doom watches: each branch the Fellowship, Bombadil or the Black Gate keeps work of, its pull request, and whether it is merged and ready for the fire. Casting it is the person's: /mountdoom cast.",
+    description: "The work the mods keep that is cleaned up once merged: each branch the Fellowship or the Black Gate keeps, its worktree, its pull request, and whether the forge says it is merged. Cleaning up deletes branches and worktrees, so it is the person's: /mountdoom cast.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const
 
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+/** Has a mod forget what it keeps of a relic, and says whether it did, as the mod answers it in JSON. */
+const forgets = async ($: $, keeper: string, args: Record<string, unknown>): Promise<boolean> => {
+  const got = await ask($, keeper, 'forget', { ...args, json: true })
 
-const ask = async ($: $, server: string, tool: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
   try {
-    const got = await $.mcp.call(server, tool, args)
-
-    return { text: got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n'), isError: got.isError }
-  } catch (error) {
-    return { text: `${server} did not answer ${tool}: ${errorText(error)}`, isError: true }
+    return !got.isError && (JSON.parse(got.text) as { forgotten?: unknown }).forgotten === true
+  } catch {
+    return false
   }
 }
 
 const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> => {
-  const ran = await $.process.run(argv, { cwd: await $.session.cwd(), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+  const ran = await $.process.run(argv, { cwd: await rootOf($), timeoutMs: FORGE_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
 }
 
 const git = ($: $, args: readonly string[]) => run($, ['git', ...args])
-
-/** Whether the forge says a pull request is merged from a branch. */
-const isMergedFrom = async ($: $, url: string, branch: string): Promise<boolean> => {
-  if (!/^https?:\/\//.test(url)) return false
-
-  const isGithub = /\/\/github\.com\//.test(url)
-  const got = await run($, isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'])
-
-  if (!got.ok) return false
-
-  try {
-    const held = JSON.parse(got.out) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (isGithub ? held.headRefName : held.source_branch) === branch
-  } catch {
-    return false
-  }
-}
 
 /** Looks at what the mods keep, and asks the forge whether each is merged; tells the person of each newly merged once. */
 const watch = async ($: $): Promise<MountdoomRelic[]> => {
@@ -116,6 +102,17 @@ const burn = async ($: $, relic: MountdoomRelic): Promise<string> => {
   if (!(await isMergedFrom($, relic.pr, relic.branch))) return `${relic.ref || relic.branch}: ${relic.pr || 'no pull request'} is not merged from ${relic.branch}, and nothing is cast.`
 
   const said: string[] = []
+  const root = await rootOf($)
+
+  // The worktree the Fellowship built it in goes first: its branch can be deleted only once no worktree holds it
+  if (relic.tree !== '' && relic.tree !== root) {
+    if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain'])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
+
+    const removed = await git($, ['worktree', 'remove', relic.tree])
+
+    said.push(removed.ok ? 'its worktree removed' : `its worktree could not be removed: ${removed.out}`)
+  }
+
   const current = (await git($, ['rev-parse', '--abbrev-ref', 'HEAD'])).out
 
   if (current === relic.branch) {
@@ -141,15 +138,11 @@ const burn = async ($: $, relic: MountdoomRelic): Promise<string> => {
 
   const forgotten: string[] = []
 
-  for (const keeper of relic.keepers) {
-    const got = await ask($, keeper, 'forget', { ref: relic.ref, pr: relic.pr })
+  for (const keeper of relic.keepers) if (await forgets($, keeper, { ref: relic.ref, pr: relic.pr })) forgotten.push(keeper)
 
-    if (!got.isError && /forgotten|closed/.test(got.text)) forgotten.push(keeper)
-  }
-
-  // The plan of the issue, and what the Mirror showed of it
-  if (isIssueRef(relic.ref) && /forgotten/.test((await ask($, 'elrond', 'forget', { ref: relic.ref, pr: relic.pr })).text)) forgotten.push('elrond')
-  if (relic.keepers.includes('fellowship') && /still/.test((await ask($, 'lothlorien', 'forget')).text)) forgotten.push('lothlorien')
+  // The plan of the issue, and what the Mirror showed of it: of this issue alone
+  if (isIssueRef(relic.ref) && (await forgets($, 'elrond', { ref: relic.ref, pr: relic.pr }))) forgotten.push('elrond')
+  if (relic.keepers.includes('fellowship') && (await forgets($, 'lothlorien', { ref: relic.ref }))) forgotten.push('lothlorien')
 
   return `${relic.ref || relic.branch} is cast into the fire: ${[...said, forgotten.length > 0 ? `forgotten by ${forgotten.join(', ')}` : ''].filter(one => one !== '').join(', ')}.`
 }
@@ -181,6 +174,29 @@ const cast = async ($: $, named: string): Promise<string> => {
   }
 }
 
+let isBusy = false
+
+/** Looks or casts as /mountdoom asked, outside its hooks: what came of it is told as well as kept in the pane. */
+const tick = async ($: $): Promise<void> => {
+  const asked = await read($, wanted)
+
+  if (isBusy || asked === '') return
+
+  isBusy = true
+  await update($, wanted, () => '')
+
+  try {
+    const said = asked === 'look' ? relicsText(await watch($)) : await cast($, asked.replace(/^cast\s*/, ''))
+
+    $.ui.toast(`Mount Doom: ${said.split('\n')[0] ?? ''}`)
+    await update($, note, () => said)
+  } catch (error) {
+    await update($, note, () => `Mount Doom stumbled: ${errorText(error)}`)
+  } finally {
+    isBusy = false
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'mountdoom', description: 'Throw what is kept of a merged pull request into the fire: /mountdoom shows what is watched; /mountdoom cast [branch or pr] casts' })
@@ -189,6 +205,7 @@ export const register: Register = on => {
 
     $.clock.after(FIRST_LOOK_MS, () => void watch($).catch(() => undefined))
     $.clock.every(WATCH_MS, () => void watch($).catch(() => undefined))
+    $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
     $.ui.invalidate('ui.render')
 
     return next(e)
@@ -204,10 +221,12 @@ export const register: Register = on => {
 
     await $.ui.open({ id: PANE, title: TITLE })
 
-    if (words[0] === 'cast') return { text: await cast($, words.slice(1).join(' ')) }
-    if (words.length > 0) return { text: `/mountdoom knows cast; not ${words[0] ?? ''}.` }
+    if (words.length > 0 && words[0] !== 'cast') return { text: `/mountdoom knows cast; not ${words[0] ?? ''}.` }
 
-    return { text: relicsText(await watch($)) }
+    // Looking and casting ask the other mods, whose hooks answer no call made beneath a command's: the clock does both
+    await update($, wanted, () => (words[0] === 'cast' ? `cast ${words.slice(1).join(' ')}`.trim() : 'look'))
+
+    return { text: words[0] === 'cast' ? 'Mount Doom casts what is merged: the pane says what went into the fire.' : `${relicsText(await read($, relics))}\n\nLooking again: the pane says what the forge answers.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

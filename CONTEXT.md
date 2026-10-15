@@ -87,3 +87,81 @@ _Avoid_: Status bar, footer, prompt line
 **Context fill**:
 How much of the current session's context window is used. A measure, where a context budget is a limit a run sets.
 _Avoid_: Session usage, context usage, tokens left
+
+## Middle-earth
+
+The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
+committed and reviewed work. Elrond plans, the Fellowship builds, Lothlórien writes tests first, the Argonath check and
+review, Andúril and the palantír watch what the code does, the Black Gate reads review, and Mount Doom cleans up.
+
+**Quest**:
+One piece of work the Fellowship takes to a pull request, or to a push: a plan, an errand or a review. Several quests run
+at once, one an issue or pull request.
+_Avoid_: Run, job, flow
+
+**Plan**:
+Elrond's split of one issue into tasks, with the questions the person answers and the risks they decide before a quest
+on it may start.
+_Avoid_: Spec, ticket list
+
+**Errand**:
+A quest on an issue small enough for one change, built with no plan; its builder hands it back when it is not.
+_Avoid_: Quick fix, small quest
+
+**Review quest**:
+A quest the Black Gate hands over: the review comments of an open pull request that ask for a change, each a task
+answered on the pull request's own branch, and pushed there, never opened as a new pull request.
+_Avoid_: Gate run, review run
+
+**Task**:
+One step of a quest, built in one change and committed alone: a plan's task, an errand's whole issue, or one review
+comment.
+_Avoid_: Ticket, step, job
+
+**Quest worktree**:
+The git worktree a quest is built in, under `.fellowship/trees/`; the person's own checkout is never switched by a
+quest. A review whose branch is already checked out somewhere is built there instead.
+_Avoid_: Sandbox, clone, workspace
+
+**Builder**:
+The subagent that builds one task in the quest worktree (a member of the Fellowship, chosen by the task's weight and
+target, a rung up on each try, Gandalf last).
+_Avoid_: Implementer, worker, companion
+
+**Hand back**:
+A builder's ending its turn with `Handed back:` and why, building nothing more: a plan that must be revised (Gandalf
+alone), an issue that is no errand, a review comment only the person can answer.
+_Avoid_: Refuse, give up, bail
+
+**Kept run**:
+A command-line run (`$` line of `.claude/anduril`) or a service request (`$` line of `.claude/argonath`) the project keeps,
+played on HEAD's build and the working tree's to see what a change altered.
+_Avoid_: Fixture, golden, snapshot
+
+**Radius**:
+The kept runs whose answer a change altered, each `bare` or `marked` by a test.
+_Avoid_: Blast radius (that is ship-flow's), diff, impact
+
+**Pinned**:
+A changed run whose test fails on HEAD's source and passes on the working tree. A change is settled once every changed
+run is pinned and no test it can break is broken.
+_Avoid_: Covered, tested, green
+
+**Proof**:
+The Argonath's check of a change: its radius afresh, then the tests on both sides, settled or not.
+_Avoid_: CI, test run, validation
+
+**Statues**:
+The Argonath's two reviewers, sent on a settled change: Isildur for correctness, Anárion for security. A blocking
+finding sends the change back to its builder.
+_Avoid_: Judges, reviewers' bots, checks
+
+**Tests first**:
+The failing tests Galadriel writes for a plan's task that is not light, before its builder starts; locked until committed,
+changed only with a reason the statues are shown.
+_Avoid_: Spec tests, red tests, TDD tests
+
+**Relic**:
+What a mod keeps of a quest (its branch, worktree, plan, tests first), which Mount Doom clears once its pull request is
+merged.
+_Avoid_: Leftovers, cache, artefact

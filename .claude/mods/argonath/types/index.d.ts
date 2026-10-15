@@ -24,6 +24,22 @@ export type ArgonathTarget = {
   requests: string[]
   /** Where a service is deployed, to play its requests on both builds against its real dependencies; none when not said. */
   live: ArgonathLive | null
+  /** A service's database: each build of the fast stage plays against one of its own, in a warm container; none when not said. */
+  db: ArgonathDb | null
+  /** The request a service is asked before it is played, until it answers 2xx with a body `match` finds; none when not said. */
+  ready: { request: string; match: string } | null
+  /** The command that runs the tests a change of the target can break, from the project's folder; empty when none is named. */
+  affected: string
+}
+
+/** A service's database for the fast stage: a Postgres image, the variable its address is set in, and how it is made ready. */
+export type ArgonathDb = {
+  /** A Postgres image, `postgres:18-alpine`: one container of it is started for the project and kept warm. */
+  image: string
+  /** The variable the build's database address is set in, `DATABASE_URL`. */
+  env: string
+  /** A command run in the build's folder before it plays, its address set: a migration. Empty when the app makes its own tables. */
+  setup: string
 }
 
 /** A service's live stage: its deployed workload, what to forward to it, and how to leave its database as it was. */
@@ -42,6 +58,12 @@ export type ArgonathLive = {
   cleanup: string[]
   /** Run after each build: what `before` read, put back. */
   restore: string
+  /**
+   * The variable that holds the database's address, `DATABASE_URL`: each build then plays against a copy of the
+   * database of its own, made in `db`'s pod and dropped after, its schema migrated by that build alone. The shared
+   * database is only read; `before`, `cleanup` and `restore` are not run. Empty to play against the shared one.
+   */
+  scratch: string
 }
 
 /** How a test ended on one side of a proof; `none` when that side did not run it. */
@@ -94,6 +116,14 @@ export type ArgonathRadius = {
   isStale: boolean
   /** What the live stage found or why it did not run, in a line; empty for a target with none. */
   live: string
+  /** Of the lines the change touched, the statements no kept request ran, as spans by file; empty when all ran or none was measured. */
+  unreached?: Record<string, string>
+  /** The tests the affected command found broken by the change: failing on the working tree, not on the commit. */
+  regressions?: string[]
+  /** The tests the affected command found failing on both sides: broken before the change, and not owed by it. */
+  preexisting?: string[]
+  /** The tests the caller requires to pass on the working tree (written before the change, as Galadriel does), and how each ended. */
+  required?: ArgonathTest[]
 }
 
 /** One of the two statues of the Argonath, which judge a settled change. */
@@ -128,7 +158,24 @@ export type ArgonathJudgement = {
   /** Who convened it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
   by: 'turn' | 'tool'
   seats: ArgonathSeat[]
+  /** What the change was taken against: its merge base with HEAD is diffed. HEAD when left out. */
+  against?: string
+  /** Whether there was no change to judge, and so no statue sat. */
+  isEmpty?: boolean
 }
+
+/**
+ * Where one target stands in a proof, for a mod that reads it as JSON:
+ * - `pinned`: every changed run is pinned, and no test turned
+ * - `unchanged`: no kept run changed, and the change did not reach its folders
+ * - `unreached`: the change reached its folders, but no kept run answers otherwise: a refactor, or behaviour no kept
+ *   run reaches, which only the statues are left to tell apart
+ * - `unsettled`: a changed run is not pinned yet, or a test turned
+ * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, anduril did not answer)
+ * - `unhandled`: the change reached its folders, and Argonath has no handler for its kind: nothing is proved of it
+ * - `untouched`: the change did not reach its folders, and its handler could not look either
+ */
+export type ArgonathProofState = 'pinned' | 'unchanged' | 'unreached' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -154,6 +201,10 @@ declare module 'claude-code' {
       reviewed: string
       /** The statues' judgement of the last settled change; null before any. */
       judgement: ArgonathJudgement | null
+      /** The folder each agent a mod sent works in, by its id: a quest's worktree, where what it asks is looked at. */
+      trees: Record<string, string>
+      /** The statues' judgement of the last change in each quest's worktree, by its folder. */
+      treeJudgements: Record<string, ArgonathJudgement>
     }
   }
 }

@@ -10,19 +10,19 @@ const CWD = '/proj'
 const REF = 'github:lienardquentin/claude-code-shenanigans#34'
 const BRANCH = 'fellowship/34-gondor-quench-a-single-beacon'
 const PR = 'https://github.com/lienardquentin/claude-code-shenanigans/pull/40'
+const TREE = `${CWD}/.fellowship/trees/fellowship-34-gondor-quench-a-single-beacon`
 
 describe('the relics', () => {
-  test('are one a branch: a quest and the gate open on its pull request are one, kept by the issue\'s ref', () => {
+  test('are one a branch: a quest and the gate open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
     const relics = gathered([
-      { keeper: 'fellowship', text: JSON.stringify([{ ref: REF, branch: BRANCH, base: 'main', pr: '', phase: 'sailed' }]) },
-      { keeper: 'bombadil', text: JSON.stringify([{ ref: 'github:o/r#35', branch: 'bombadil/35-x', base: 'main', pr: '', phase: 'home' }]) },
-      { keeper: 'blackgate', text: JSON.stringify([{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR, phase: 'done' }]) },
+      { keeper: 'blackgate', text: JSON.stringify([{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR, phase: 'handed' }]) },
+      { keeper: 'fellowship', text: JSON.stringify([{ ref: REF, kind: 'plan', branch: BRANCH, base: 'main', tree: TREE, pr: '', phase: 'sailed' }, { ref: 'github:o/r#35', kind: 'errand', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', phase: 'arrived' }]) },
       { keeper: 'fellowship', text: 'not json' },
     ])
 
     expect(relics).toEqual([
-      { ref: REF, branch: BRANCH, base: 'main', pr: PR, keepers: ['fellowship', 'blackgate'], isMerged: false },
-      { ref: 'github:o/r#35', branch: 'bombadil/35-x', base: 'main', pr: '', keepers: ['bombadil'], isMerged: false },
+      { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['blackgate', 'fellowship'], isMerged: false },
+      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['fellowship'], isMerged: false },
     ])
   })
 
@@ -39,11 +39,14 @@ const machine = (on: On) => {
     tools: [] as string[],
     ran: [] as string[],
     forgot: [] as string[],
+    keepsNothing: [] as string[],
     branch: BRANCH,
     dirty: '',
+    // What the quest's worktree holds uncommitted
+    treeDirty: '',
     state: 'OPEN',
     toasts: [] as string[],
-    kept: { fellowship: [{ ref: REF, branch: BRANCH, base: 'main', pr: '', phase: 'sailed' }], bombadil: [], blackgate: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR, phase: 'done' }] } as Record<string, unknown[]>,
+    kept: { fellowship: [{ ref: REF, branch: BRANCH, base: 'main', tree: '', pr: '', phase: 'sailed' }], blackgate: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR, phase: 'handed' }] } as Record<string, unknown[]>,
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
 
@@ -58,6 +61,7 @@ const machine = (on: On) => {
     if (line.startsWith('gh pr list')) return answer('[]')
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${world.branch}\n`)
     if (line === 'git status --porcelain') return answer(world.dirty)
+    if (line === `git -C ${TREE} status --porcelain`) return answer(world.treeDirty)
     if (line.startsWith('git switch ')) {
       world.branch = e.argv.at(-1) ?? ''
 
@@ -74,8 +78,10 @@ const machine = (on: On) => {
     if (e.tool === 'forget') {
       world.forgot.push(`${e.server} ${String(e.args.ref ?? '')} ${String(e.args.pr ?? '')}`.trim())
       world.kept[e.server] = []
+      // A mod that keeps nothing of the relic says so, and is not counted
+      const forgotten = !world.keepsNothing.includes(e.server)
 
-      return text(e.server === 'blackgate' ? 'The gate is closed.' : e.server === 'lothlorien' ? 'The Mirror is still.' : 'It is forgotten.')
+      return text(e.args.json === true ? JSON.stringify({ forgotten, text: forgotten ? 'It is forgotten.' : 'Nothing is kept.' }) : 'It is forgotten.')
     }
 
     return { value: { content: [], isError: true } } as never
@@ -100,6 +106,14 @@ const machine = (on: On) => {
 
 const call = async ($: Engine, tool: string) => String((await $.tool.call({ tool } as never)).result)
 
+/** Casts as the person types it: the command answers at once, and the clock casts, telling what came of it. */
+const casting = async ($: Engine, world: ReturnType<typeof machine>, args = 'cast'): Promise<string> => {
+  expect((await $.command.run({ command: 'mountdoom', args } as never)).text).toMatch(/the pane says/)
+  await world.clock.advance(600)
+
+  return (world.toasts.at(-1) ?? '').replace(/^Mount Doom: /, '')
+}
+
 describe('mountdoom', () => {
   test('watches what the mods keep, tells the person once when it is merged, and offers Claude no way to cast it', async ($, on) => {
     const world = machine(on)
@@ -120,7 +134,7 @@ describe('mountdoom', () => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/^Nothing kept is merged yet\./)
+    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
     expect(world.forgot).toEqual([])
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
@@ -130,13 +144,46 @@ describe('mountdoom', () => {
     world.state = 'MERGED'
     await $.session.start({} as never)
 
-    const said = (await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text
+    // Nothing is asked of the other mods beneath the command's hooks
+    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/the pane says/)
+    expect(world.forgot).toEqual([])
+
+    await world.clock.advance(600)
+
+    const said = (world.toasts.at(-1) ?? '').replace(/^Mount Doom: /, '')
 
     expect(world.ran).toContain('git switch main')
     expect(world.ran).toContain('git pull --ff-only origin main')
     expect(world.ran).toContain(`git branch -D ${BRANCH}`)
-    expect(world.forgot).toEqual([`fellowship ${REF} ${PR}`, `blackgate ${REF} ${PR}`, `elrond ${REF} ${PR}`, 'lothlorien'])
+    // The Mirror is asked to forget the vision of this issue alone
+    expect(world.forgot).toEqual([`fellowship ${REF} ${PR}`, `blackgate ${REF} ${PR}`, `elrond ${REF} ${PR}`, `lothlorien ${REF}`])
     expect(said).toBe(`${REF} is cast into the fire: back on main, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, blackgate, elrond, lothlorien.`)
+  })
+
+  test('removes the worktree a quest was built in before its branch, and leaves one with uncommitted work in it as it is', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    // The person's checkout is elsewhere: the quest was built in its worktree
+    world.branch = 'main'
+    world.kept.fellowship = [{ ref: REF, kind: 'plan', branch: BRANCH, base: 'main', tree: TREE, pr: '', phase: 'sailed' }]
+    world.treeDirty = ' M beacons/gondor/app.py\n'
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(new RegExp(`${TREE} holds uncommitted changes`))
+    expect(world.ran.some(line => line.startsWith('git worktree remove') || line.startsWith('git branch -D'))).toBe(false)
+
+    world.treeDirty = ''
+    expect(await casting($, world)).toBe(`${REF} is cast into the fire: its worktree removed, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, blackgate, elrond, lothlorien.`)
+    expect(world.ran.indexOf(`git worktree remove ${TREE}`)).toBeLessThan(world.ran.indexOf(`git branch -D ${BRANCH}`))
+  })
+
+  test('counts as forgetting only a mod that says, as JSON, it forgot', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    world.keepsNothing = ['lothlorien', 'blackgate']
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(/forgotten by fellowship, elrond\.$/)
   })
 
   test('leaves a checked-out branch with uncommitted changes as it is', async ($, on) => {
@@ -145,7 +192,7 @@ describe('mountdoom', () => {
     world.dirty = ' M beacons/gondor/app.py\n'
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'mountdoom', args: 'cast' } as never)).text).toMatch(/is checked out with uncommitted changes/)
+    expect(await casting($, world)).toMatch(/is checked out with uncommitted changes/)
     expect(world.forgot).toEqual([])
   })
 })

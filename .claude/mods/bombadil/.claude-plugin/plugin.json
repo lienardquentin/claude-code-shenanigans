@@ -1,6 +1,0 @@
-{
-  "name": "bombadil",
-  "version": "0.1.0",
-  "description": "Tom Bombadil runs an errand too small for the quest: one issue, one builder, proven by Argonath and judged by Isildur, one commit, and the pull request once you say go",
-  "types": "./types/index.d.ts"
-}

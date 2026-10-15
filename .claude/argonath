@@ -1,5 +1,6 @@
 # What the Argonath mod knows this project builds: label=kind@root, the root the folder whose edits are edits of it.
 # An edit there owes the target a look once the turn ends: what changed in what it does, and whether a test pins it.
+# A target whose folders the change did not reach is not played at all.
 
 # Once a proof finds every changed run pinned, the statues judge the change, once a change, the reviews dealt to them in
 # turn: Isildur its bugs at medium effort, Anárion its security.
@@ -11,18 +12,29 @@ narsil=cli@narsil
 narsil.tests=narsil/tests
 # {tests} is filled with the tests marked on what changed, and only those run
 narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli -- --exact {tests}
+# What a change of narsil can break: its every test, a couple of seconds once built. Run on the working tree, and on
+# HEAD's source only when one fails, to tell what the change broke from what was broken before it
+narsil.affected=cargo test --manifest-path narsil/Cargo.toml
 
-# Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, standing
-# alone (no database, no broker, a Rohan that never answers).
+# Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, with no
+# broker and a Rohan that never answers.
 gondor=service:gondor.app:app@beacons/gondor
 gondor.python=beacons
-gondor.env=DATABASE_URL=
 gondor.env=KAFKA_BROKERS=
 gondor.env=ROHAN_URL=http://127.0.0.1:9
+# Each build plays against an empty Postgres of its own, made in a container kept warm between proofs (started on the
+# first, stopped when the session ends): what the archive writes and reads is real SQL, compared value for value
+gondor.db=postgres:18-alpine
+gondor.db.env=DATABASE_URL
+# Gondor puts up its tables in the background once the database answers: it is played once /health counts what burns
+gondor.ready=GET /health
+gondor.ready.match="lit": \d
 # When a request was answered: the two builds are played seconds apart, so a time in an answer is not a change of it
 gondor.mask=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:?\d\d)?
 gondor.tests=beacons/tests
-gondor.test=uv run --quiet --project beacons pytest -v beacons/tests -k "{tests: or }"
+gondor.test=uv run --quiet --project beacons pytest -v -p no:cacheprovider beacons/tests -k "{tests: or }"
+# What a change of Gondor can break: the beacons' tests, failures named in pytest's summary
+gondor.affected=uv run --quiet --project beacons pytest -q -rfE -p no:cacheprovider beacons/tests
 
 # Live: where Gondor is deployed. While it runs there, both builds are played again here against its real Postgres and
 # Rohan, reached by port-forward, with the deployed workload's own variables (a secret read from its secret). A context
@@ -30,19 +42,10 @@ gondor.test=uv run --quiet --project beacons pytest -v beacons/tests -k "{tests:
 gondor.live=k3d-beacons/beacons/deployment/gondor
 gondor.live.forward=postgres:5432,rohan:8102
 gondor.live.env=KAFKA_BROKERS=
+# Each build plays against a copy of the deployed database of its own, both copies made from one dump so they start
+# from the same rows, and both dropped after: the shared database is only read, and answers are compared by value
 gondor.live.db=deployment/postgres
-# An Argonath that reads live.scratch (main, from 914aecc) plays each build against a copy of the database of its
-# own, made in Postgres's pod from a dump and dropped after: a build's migrations run on its copy alone, and the shared
-# database is only read. One that does not read it drops the line, and plays against the shared database with the
-# lines below: what the requests write is filed under the run's own request id, and taken out after each build; the
-# fires a quench put out are lit again as they were, the riders' among them. A build that migrates then migrates it.
 gondor.live.scratch=DATABASE_URL
-# psql answers each row as one line, its columns split on '|', and a NULL as nothing: the keeper is free text and may
-# be NULL, so each fire is read as one hex word of its JSON, which holds no '|' and no newline, and keeps a NULL null.
-gondor.live.before=SELECT encode(convert_to(json_build_object('beacon', beacon, 'rid', rid, 'keeper', keeper, 'since', since)::text, 'UTF8'), 'hex') FROM burning
-gondor.live.cleanup=DELETE FROM lightings WHERE rid LIKE '{rid}%'
-gondor.live.cleanup=DELETE FROM burning WHERE rid LIKE '{rid}%'
-gondor.live.restore=INSERT INTO burning (beacon, rid, keeper, since) SELECT f->>'beacon', f->>'rid', f->>'keeper', (f->>'since')::timestamptz FROM (SELECT convert_from(decode(fire, 'hex'), 'UTF8')::json AS f FROM (VALUES {rows}) AS v(fire)) AS fires ON CONFLICT (beacon) DO NOTHING
 
 # The requests played, in order, against one app: what one does to it, the next sees. A request may carry a JSON body
 # as one quoted word after its path: $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'

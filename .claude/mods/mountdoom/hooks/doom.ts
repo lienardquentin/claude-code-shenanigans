@@ -1,11 +1,11 @@
 import type { MountdoomKeeper, MountdoomRelic } from '../types'
 
-export const HOW_TO = 'Nothing is kept of any quest. Mount Doom watches what the Fellowship, Bombadil and the Black Gate keep, and once a pull request is merged, /mountdoom cast throws all of it into the fire.'
+export const HOW_TO = 'Nothing is kept of any quest. Mount Doom watches what the Fellowship and the Black Gate keep, and once a pull request is merged, /mountdoom cast throws all of it into the fire: its worktree, its branch, and what every mod remembers of it.'
 
-export const KEEPERS: readonly MountdoomKeeper[] = ['fellowship', 'bombadil', 'blackgate']
+export const KEEPERS: readonly MountdoomKeeper[] = ['fellowship', 'blackgate']
 
 /** What a mod answers of what it keeps. */
-type Kept = { ref?: unknown; branch?: unknown; base?: unknown; pr?: unknown }
+type Kept = { ref?: unknown; branch?: unknown; base?: unknown; pr?: unknown; tree?: unknown }
 
 /** What the mods keep, one relic a branch: a quest and the gate open on its pull request are one. */
 export const gathered = (answers: readonly { keeper: MountdoomKeeper; text: string }[]): MountdoomRelic[] => {
@@ -29,16 +29,18 @@ export const gathered = (answers: readonly { keeper: MountdoomKeeper; text: stri
 
       const was = relics.find(relic => relic.branch === branch)
       const pr = typeof one.pr === 'string' ? one.pr : ''
+      const tree = typeof one.tree === 'string' ? one.tree : ''
 
       if (was !== undefined) {
         if (!was.keepers.includes(keeper)) was.keepers.push(keeper)
         if (was.pr === '') was.pr = pr
+        if (was.tree === '') was.tree = tree
         // The issue's ref, as Elrond writes it, is the one a plan is kept by: it wins over a gate's own
         if (keeper !== 'blackgate' && typeof one.ref === 'string') was.ref = one.ref
         continue
       }
 
-      relics.push({ ref: typeof one.ref === 'string' ? one.ref : '', branch, base: typeof one.base === 'string' ? one.base : '', pr, keepers: [keeper], isMerged: false })
+      relics.push({ ref: typeof one.ref === 'string' ? one.ref : '', branch, base: typeof one.base === 'string' ? one.base : '', tree, pr, keepers: [keeper], isMerged: false })
     }
   }
 

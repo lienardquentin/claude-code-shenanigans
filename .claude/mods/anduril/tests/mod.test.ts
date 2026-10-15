@@ -430,6 +430,34 @@ describe('anduril', () => {
     expect(await call($, 'mcp__anduril__diff', { target: 'quill' })).toMatch(/watches no tool named quill/)
   })
 
+  test("plays a quest's worktree, and launches its build, for an agent sent to work there or a mod that names it", async ($, on) => {
+    const tree = `${CWD}/.fellowship/trees/12-burned`
+    const world = machine(on, { [`${CWD}/.claude/anduril`]: KEPT, [`${tree}/.claude/anduril`]: KEPT, [BINARY]: 'ELF' })
+    const commands: string[] = []
+    world.replay.answer = JSON.stringify(ANSWER)
+    on('agent.spawn', () => ({ model: 'sonnet', agentId: 'gimli-1' }) as never)
+    on('tool.call', { tool: 'Bash' }, (_, e) => {
+      commands.push(e.command)
+
+      return { result: { stdout: '', stderr: '' } } as never
+    })
+    const pane = await mountPane($)
+    await pane.press({ key: 'refresh' })
+
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree } as never)
+    await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'narsil ls', agentId: 'gimli-1' } as never)
+
+    expect(world.replay.jobs[0]).toMatchObject({ home: tree, binary: `${tree}/narsil/target/debug/narsil`, root: `${tree}/narsil` })
+    expect(world.files[`${tree}/.anduril/bin/narsil`]).toContain(`--binary '${tree}/narsil/target/debug/narsil'`)
+    expect(commands).toEqual([`${prelude(tree)}narsil ls`])
+
+    // A mod names the worktree outright; a folder that is no quest's is never played
+    await call($, 'mcp__anduril__diff', { tree })
+    await call($, 'mcp__anduril__diff', { tree: '/etc' })
+    expect(world.replay.jobs.map(job => job.home)).toEqual([tree, tree, CWD])
+  })
+
   test('says how to keep a run where none is kept, and plays nothing', async ($, on) => {
     const world = watching(on)
 

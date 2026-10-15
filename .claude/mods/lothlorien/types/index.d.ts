@@ -19,6 +19,8 @@ export type LothlorienAmendment = { file: string; why: string; by: string; at: n
 /** One gaze into the Mirror: the tests a purpose asks for, written before what they test. */
 export type LothlorienVision = {
   purpose: string
+  /** The issue it was gazed for, as the mod that asked names it (`github:owner/repo#12`); none from /mirror. */
+  ref?: string
   /** Who asked: a mod through the tool, or the person through /mirror, whose Claude is told what she showed. */
   by: 'tool' | 'command'
   /** The id her spawn answered; empty where it answered none, and she is known by her type. */
@@ -35,12 +37,19 @@ export type LothlorienVision = {
   blocks: LothlorienBlock[]
   amendments: LothlorienAmendment[]
   at: number
+  /** The quest's worktree she gazed in, absolute; none for the project's own folder. */
+  tree?: string
 }
 
 declare module 'claude-code' {
   interface PluginState {
     lothlorien: {
+      /** What the Mirror shows of the project's own folder. */
       vision: LothlorienVision | null
+      /** What it shows of each quest's worktree, by its folder. */
+      visions: Record<string, LothlorienVision>
+      /** The folder each agent a mod sent works in, by its id: a builder in a quest's worktree changes the tests there. */
+      trees: Record<string, string>
       note: string
     }
   }

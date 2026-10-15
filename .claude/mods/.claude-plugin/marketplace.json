@@ -1,0 +1,15 @@
+{
+  "name": "middle-earth",
+  "description": "The Lord of the Rings mods, together: Elrond plans the quest, the Fellowship builds it (a plan, a small errand, or a pull request's review) in a worktree of its own, Galadriel's Mirror writes its tests first, the Argonath prove and judge each change, Andúril and the palantír watch what the code does, the Black Gate reads review, and Mount Doom clears what is done",
+  "owner": { "name": "quent" },
+  "plugins": [
+    { "name": "elrond", "source": "./elrond" },
+    { "name": "fellowship", "source": "./fellowship" },
+    { "name": "lothlorien", "source": "./lothlorien" },
+    { "name": "argonath", "source": "./argonath" },
+    { "name": "anduril", "source": "./anduril" },
+    { "name": "palantir", "source": "./palantir" },
+    { "name": "blackgate", "source": "./blackgate" },
+    { "name": "mountdoom", "source": "./mountdoom" }
+  ]
+}
