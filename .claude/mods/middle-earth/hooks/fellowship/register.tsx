@@ -31,7 +31,7 @@ import {
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
-import { errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt } from '../flow'
+import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -639,7 +639,8 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   const by = MEMBERS[out.member].title
   const unproven = held.unproven ?? []
-  const dirty = await git($, ['status', '--porcelain'], held.tree)
+  // What the mods keep in the tree (Andúril's builds, the Argonath's trees) is none of the change
+  const dirty = await git($, ['status', '--porcelain', ...UNMODDED], held.tree)
   let sha = ''
 
   // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
@@ -653,7 +654,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
-    const added = await git($, ['add', '-A'], held.tree)
+    const added = await git($, ['add', '-A', ...UNMODDED], held.tree)
     const done = added.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : added
 
     if (!done.ok) {
@@ -667,7 +668,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   await mark($, held, task.id, 'done')
 
-  const after = await keep($, ref, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer }] }))
+  const after = await keep($, ref, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: was.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) }] }))
   const left = after === null ? made : await workOf($, after)
   const isArrived = typeof left !== 'string' && isAllDone(left)
   const said = `Task ${task.id} of ${ref}, "${task.title}", built by ${by}, passed the Argonath and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
@@ -685,7 +686,7 @@ async function resubmit($: $, ref: string): Promise<string> {
   if (held === null) return HOW_TO
   if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest on ${ref} is ${held.phase}.`
 
-  await keep($, ref, was => ({ ...was, phase: 'proving' }))
+  await keep($, ref, was => ({ ...was, phase: 'proving', march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
   await want($, ref, 'prove')
 
   return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
@@ -996,7 +997,7 @@ export async function endedFellowship($: $, e: TurnEnded): Promise<void> {
     await say($, held.ref, `${title} on task ${out.taskId} ${e.isAborted ? 'was interrupted' : e.reason === 'refusal' ? 'refused' : 'ended on an API error'}: send it again from the pane.`)
   } else if (handed !== undefined && held.kind === 'review') {
     // A comment that asks something only the person can answer is theirs, and the quest goes on to the next
-    const isClean = (await git($, ['status', '--porcelain'], held.tree)).out === ''
+    const isClean = (await git($, ['status', '--porcelain', ...UNMODDED], held.tree)).out === ''
 
     await keep($, held.ref, was => ({ ...was, phase: isClean ? 'ready' : 'stuck', march: isClean ? null : out }))
     await mark($, held, out.taskId, isClean ? 'asked' : 'doing', handed)

@@ -200,6 +200,8 @@ export type FellowshipMarch = {
   head?: string
   /** Whether this try's member was already sent back once with its proof, rather than a member a rung up. */
   isResumed?: boolean
+  /** Whether the person put this try's change before the Argonath, after its member was back: its account came first. */
+  isPutBefore?: boolean
 }
 
 /** A task the Fellowship committed. */
@@ -215,6 +217,10 @@ export type FellowshipCommit = {
   unproven?: string[]
   /** What its builder said of it: an errand's pull request opens on it. */
   answer?: string
+  /** The Argonath's proof of it, in a line. */
+  proof?: string
+  /** Whether the person put it before the Argonath after its builder was back: the builder's account came before the proof. */
+  isPutBefore?: boolean
 }
 
 /** A quest:its work taken to a pull request (or a push), one committed task at a time, in a git worktree of its own. */

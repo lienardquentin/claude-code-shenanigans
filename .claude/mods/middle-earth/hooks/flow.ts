@@ -173,8 +173,14 @@ export const isForbiddenGit = (command: string): boolean => /(^|[;&|(]\s*|\s)git
 
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 
+// The folders the mods keep for themselves in a tree: a builder leaves them alone, and a commit takes nothing of them
+const MOD_FOLDERS = ['elrond', 'argonath', 'anduril', 'fellowship', 'lothlorien', 'blackgate'] as const
+
 /** A path in the folders the mods keep for themselves, which a builder leaves alone. */
-export const isModPath = (root: string, path: string): boolean => /^\.(elrond|argonath|anduril|fellowship|lothlorien|blackgate)(\/|$)/.test(withinOf(root, path))
+export const isModPath = (root: string, path: string): boolean => new RegExp(`^\\.(${MOD_FOLDERS.join('|')})(/|$)`).test(withinOf(root, path))
+
+/** The pathspec of a tree's own files, the mods' folders left out: what a commit stages, and what a change is looked for in. */
+export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder => `:(exclude).${folder}`)]
 
 /** The issue a ref is of, from Elrond's short spelling: `github:owner/repo#12`, `gitlab:git.corp.io/g/p#3`. */
 export const issueOf = (ref: string): { forge: 'github' | 'gitlab'; server: string; repo: string; number: number } | undefined => {

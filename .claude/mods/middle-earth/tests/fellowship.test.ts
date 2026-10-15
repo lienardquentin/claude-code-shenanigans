@@ -431,7 +431,7 @@ const machine = (on: On) => {
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${cwd === CWD ? world.branch : (world.worktrees.find(one => one.path === cwd)?.branch ?? '')}\n`)
-    if (line === 'git status --porcelain') return answer(cwd === CWD ? world.mine : world.dirty)
+    if (line === 'git status --porcelain' || line.startsWith('git status --porcelain -- ')) return answer(cwd === CWD ? world.mine : world.dirty)
     if (line === 'git worktree list --porcelain') return answer(world.worktrees.map(one => `worktree ${one.path}\nHEAD ${world.head}\nbranch refs/heads/${one.branch}\n`).join('\n'))
     if (line.startsWith('git worktree add')) {
       const isNew = e.argv[3] === '-b'
@@ -1006,6 +1006,8 @@ describe('an errand', () => {
     expect(world.statues[0]).toEqual(['isildur'])
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
     expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Gimli/)
+    // What the mods keep in the worktree (Andúril's builds, the Argonath's trees) is none of the change
+    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).elrond :(exclude).argonath :(exclude).anduril :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: arrived/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
@@ -1013,7 +1015,8 @@ describe('an errand', () => {
     await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.judged).toHaveLength(1)
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The Argonath's proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).not.toMatch(/was written before/)
   })
 
   test('is handed back when it is no errand, for the council to plan', async ($, on) => {
@@ -1058,6 +1061,28 @@ describe('an errand', () => {
 
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
+  })
+
+  test('put before the Argonath by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    await start($, world)
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await settle($, world)
+
+    // It built in the person's checkout: stuck, and its account says so
+    world.dirty = ''
+    await ends($, 'gimli-1', 'The proof could not be made: the tools were unreachable.', world)
+    await settle($, world)
+
+    // The person brings the change into the worktree and puts it before the Argonath
+    world.dirty = ' M beacons/gondor/app.py\n'
+    await $.command.run({ command: 'fellowship', args: `commit ${ISSUE.ref}` } as never)
+    await settle($, world)
+    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await settle($, world)
+
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nGimli's account above was written before its change was proven: the person put it before the Argonath, whose proof says: every changed run is pinned\./)
   })
 })
 
