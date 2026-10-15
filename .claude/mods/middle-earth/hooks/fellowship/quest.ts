@@ -508,7 +508,8 @@ export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null): 
   [
     `The Fellowship's quest on ${questLine(quest, plan)}.`,
     `It is built in ${quest.tree}.`,
-    ...(quest.march !== null ? [`${MEMBERS[quest.march.member].title} is on task ${quest.march.taskId}, "${quest.march.title}" (try ${quest.march.attempt}).`] : []),
+    // A stuck quest keeps its march, to be sent again, but its member is out no more
+    ...(quest.march !== null ? [`${MEMBERS[quest.march.member].title} ${quest.phase === 'stuck' ? 'is back from' : 'is on'} task ${quest.march.taskId}, "${quest.march.title}" (try ${quest.march.attempt}).`] : []),
     ...(quest.phase === 'gazing' ? [`Galadriel gazes on task ${quest.gazed ?? ''}: its tests are written first.`] : []),
     ...(quest.vision !== undefined && quest.vision !== null && quest.vision.tests.length > 0 ? [`The Mirror showed ${quest.vision.tests.length} red ${quest.vision.tests.length === 1 ? 'test' : 'tests'} for task ${quest.vision.taskId}: ${quest.vision.tests.map(test => test.name).join(', ')}.`] : []),
     ...(quest.proofLine !== '' ? [`Last proof: ${quest.proofLine}.`] : []),

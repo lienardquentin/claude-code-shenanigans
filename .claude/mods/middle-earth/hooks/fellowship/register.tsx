@@ -263,8 +263,14 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
   // sends it again, or sails again
   const was = resumed?.phase
   const phase: FellowshipPhase = was === undefined ? 'ready' : was === 'gazing' || was === 'marching' || was === 'proving' || was === 'judging' ? 'stuck' : was === 'warding' ? 'arrived' : was
-  // A review handed over again brings the comments that came since: those already taken up keep where they stand
-  const tasks = spec.kind === 'plan' ? undefined : [...(resumed?.tasks ?? []), ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url))].map((task, at) => ({ ...task, id: at + 1 }))
+  // A review handed over again brings the comments that came since: those already taken up keep where they stand. An
+  // errand taken up again is the one task it was
+  const tasks =
+    spec.kind === 'plan'
+      ? undefined
+      : spec.kind === 'errand' && resumed?.tasks !== undefined && resumed.tasks.length > 0
+        ? resumed.tasks
+        : [...(resumed?.tasks ?? []), ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url))].map((task, at) => ({ ...task, id: at + 1 }))
   const work = tasks === undefined ? made : { ...made, tasks }
   const quest: FellowshipQuest = {
     kind: spec.kind,
@@ -1173,7 +1179,7 @@ export function registerFellowship(on: On): void {
         {held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {out !== null && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
-            <Text bold>{`${MEMBERS[out.member].title} on task ${out.taskId}: ${out.title}`}</Text>
+            <Text bold>{`${MEMBERS[out.member].title} ${held.phase === 'stuck' ? 'back from' : 'on'} task ${out.taskId}: ${out.title}`}</Text>
             <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${new Date(out.at).toLocaleTimeString()}`}</Text>
             {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`Argonath's proof: ${held.proofLine}`}</Text>}
             {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
