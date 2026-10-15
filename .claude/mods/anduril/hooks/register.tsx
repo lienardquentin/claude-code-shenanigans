@@ -4,6 +4,8 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AndurilDiff, AndurilRun, AndurilTarget } from '../types'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
+import { treeOf, withTree } from './kit/trees'
+import type { Trees } from './kit/trees'
 import { table } from './kit/table'
 import type { TableCell } from './kit/table'
 import {
@@ -62,6 +64,7 @@ const corpus = atom({ plugin: 'anduril', key: 'corpus' } as const, [] as string[
 const diff = atom({ plugin: 'anduril', key: 'diff' } as const, null as AndurilDiff | null)
 const diffing = atom({ plugin: 'anduril', key: 'diffing' } as const, '')
 const against = atom({ plugin: 'anduril', key: 'against' } as const, 'HEAD')
+const trees = atom({ plugin: 'anduril', key: 'trees' } as const, {} as Trees)
 
 /**
  * The folder the session started in: where the project's file is looked for and the records are kept. The session's
@@ -120,6 +123,7 @@ const TOOLS = [
         target: { type: 'string', description: 'The tool, by the name it is run by; the first watched tool when left out.' },
         from: { type: 'string', description: 'The build compared against: a commit by any name git resolves (HEAD, a tag, a branch), or `work` for the working tree. HEAD when left out.' },
         to: { type: 'string', description: 'The build whose changes are said: a commit, or `work` for the working tree. `work` when left out.' },
+        tree: { type: 'string', description: "From a mod: the quest's worktree whose working tree is played, in place of the project's." },
         mergeBase: { type: 'boolean', description: 'True to compare `to` with the commit where it left `from`, in place of where `from` now stands: what a branch alone changed since it left main.' },
       },
     },
@@ -142,25 +146,11 @@ const sectionText = (list: readonly AndurilTarget[]): string => {
 }
 
 /**
- * Reads what the project watches and puts a launcher in place for each: a file named as the tool, which hands a
- * run to the shim. A launcher that already says the same is left alone.
+ * Puts a launcher in place in a folder for each tool it watches: a file named as the tool, which hands a run to the
+ * shim. A launcher that already says the same is left alone. Answers what stood in the way.
  */
-const setUp = async ($: $): Promise<AndurilTarget[]> => {
-  const cwd = await homeOf($)
-  const project = parseProject(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
-  const list = project.targets
+const launch = async ($: $, cwd: string, list: readonly AndurilTarget[]): Promise<string[]> => {
   const problems: string[] = []
-
-  watched = list
-  await update($, targets, () => list)
-  await update($, corpus, () => project.corpus)
-
-  if (list.length === 0) {
-    await update($, note, () => '')
-
-    return list
-  }
-
   const shim = `${tidy($.plugin.root)}/shim/anduril_shim.py`
   // Nothing under the folder is the repo's: it says so itself, and the project's own ignore file is left alone
   const ignore = `${cwd}/${HOME}/.gitignore`
@@ -183,10 +173,29 @@ const setUp = async ($: $): Promise<AndurilTarget[]> => {
     if (!(await $.fs.exists(target.binary).catch(() => false))) problems.push(`${target.label} is not built: ${target.binary} is not there.`)
   }
 
+  return problems
+}
+
+/** What a folder's own project file watches and keeps, its paths in that folder. */
+const projectIn = async ($: $, cwd: string): Promise<ReturnType<typeof parseProject>> => parseProject(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
+
+/** Reads what the project watches, and puts a launcher in place for each. */
+const setUp = async ($: $): Promise<AndurilTarget[]> => {
+  const cwd = await homeOf($)
+  const project = await projectIn($, cwd)
+  const list = project.targets
+  const problems = list.length === 0 ? [] : await launch($, cwd, list)
+
+  watched = list
+  await update($, targets, () => list)
+  await update($, corpus, () => project.corpus)
   await update($, note, () => problems.join(' '))
 
   return list
 }
+
+/** The folder a call works in: a quest's worktree the agent was sent to or a mod names, else the project's. */
+const workIn = async ($: $, agentId: string | undefined, named?: unknown): Promise<string> => treeOf(await homeOf($), await read($, trees), agentId, named)
 
 // The files that held no record when read, by name: a file half written reads on the next look, and is asked once more
 const unread = new Map<string, number>()
@@ -226,21 +235,24 @@ const pull = ($: $): Promise<void> => {
  * Plays the kept runs of a tool on two builds and keeps what differs. Answers the comparison, or a sentence saying
  * why none was made.
  */
-const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean }): Promise<AndurilDiff | string> => {
-  // The project's file is read again: a run kept a moment ago is played
-  const list = await setUp($)
+const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean; tree: string }): Promise<AndurilDiff | string> => {
+  // The project's file is read again: a run kept a moment ago is played. A quest's worktree is played by its own file,
+  // and what it finds is not the pane's
+  const isHome = asked.tree === (await homeOf($))
+  const project = isHome ? undefined : await projectIn($, asked.tree)
+  const list = project === undefined ? await setUp($) : project.targets
   const target = asked.target === undefined ? list[0] : list.find(({ label }) => label === asked.target)
 
   if (list.length === 0) return HOW_TO_WATCH
   if (target === undefined) return `anduril watches no tool named ${asked.target ?? ''}. It watches ${list.map(({ label }) => label).join(', ')}.`
 
-  const kept = corpusOf(await read($, corpus), target.label)
+  const kept = corpusOf(project === undefined ? await read($, corpus) : project.corpus, target.label)
 
   if (kept.length === 0) return `No run of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}, as it is typed after a dollar sign: $ ${target.label} --help`
 
-  const job = { home: await homeOf($), label: target.label, binary: target.binary, root: target.roots[0] ?? '', build: target.build, masks: target.masks, corpus: kept, from: asked.from, to: asked.to, mergeBase: asked.mergeBase }
+  const job = { home: asked.tree, label: target.label, binary: target.binary, root: target.roots[0] ?? '', build: target.build, masks: target.masks, corpus: kept, from: asked.from, to: asked.to, mergeBase: asked.mergeBase }
 
-  await update($, diffing, () => target.label)
+  if (isHome) await update($, diffing, () => target.label)
 
   try {
     const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/shim/anduril_replay.py`], { stdin: JSON.stringify(job), timeoutMs: DIFF_TIMEOUT_MS })
@@ -248,13 +260,13 @@ const compare = async ($: $, asked: { target?: string; from: string; to: string;
 
     if (made === undefined) return `The comparison could not be made: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the replay script exited with ${ran.exitCode} and said nothing`}`
 
-    await update($, diff, () => made)
+    if (isHome) await update($, diff, () => made)
 
     return made
   } catch (error) {
     return `The comparison was not finished: ${error instanceof Error ? error.message : String(error)}`
   } finally {
-    await update($, diffing, () => '')
+    if (isHome) await update($, diffing, () => '')
   }
 }
 
@@ -290,11 +302,27 @@ export const register: Register = (on, options) => {
     return watched.length === 0 ? composed : { sections: [...composed.sections, { id: 'anduril:watch', text: sectionText(watched), scope: 'session' as const }] }
   })
 
-  // A command of Claude's that names a watched tool finds its launcher first on the PATH
+  // A quest's agents work in its worktree: each is learnt as it is sent, so a run of theirs launches that worktree's build
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    const agentId = started.agentId
+    const cwd = e.cwd
+
+    if (cwd !== undefined && agentId !== undefined) await update($, trees, was => withTree(was, agentId, cwd))
+
+    return started
+  }).catch((_$, e, next) => next(e))
+
+  // A command of Claude's that names a watched tool finds its launcher first on the PATH; one of a quest's agent, the
+  // launcher of the quest's worktree
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (!names(e.command, watched)) return next(e)
 
-    const ran = await next({ ...e, command: `${prelude(await homeOf($))}${e.command}` })
+    const cwd = await workIn($, e.agentId)
+
+    if (cwd !== (await homeOf($))) await launch($, cwd, (await projectIn($, cwd)).targets)
+
+    const ran = await next({ ...e, command: `${prelude(cwd)}${e.command}` })
     await pull($).catch(() => undefined)
 
     return ran
@@ -337,8 +365,8 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: 'mcp__anduril__diff' }, async ($, e) => {
-    const asked = e as unknown as { target?: unknown; from?: unknown; to?: unknown; mergeBase?: unknown }
-    const made = await compare($, { target: typeof asked.target === 'string' ? asked.target : undefined, from: refOf(asked.from, 'HEAD'), to: refOf(asked.to, 'work'), mergeBase: asked.mergeBase === true })
+    const asked = e as unknown as { target?: unknown; from?: unknown; to?: unknown; mergeBase?: unknown; tree?: unknown }
+    const made = await compare($, { target: typeof asked.target === 'string' ? asked.target : undefined, from: refOf(asked.from, 'HEAD'), to: refOf(asked.to, 'work'), mergeBase: asked.mergeBase === true, tree: await workIn($, e.agentId, asked.tree) })
 
     return { result: typeof made === 'string' ? made : diffText(made) }
   })
@@ -493,7 +521,7 @@ export const register: Register = (on, options) => {
               hotkey="d"
               variant="primary"
               onPress={async () => {
-                const answered = await compare($, { from: base, to: 'work', mergeBase: false })
+                const answered = await compare($, { from: base, to: 'work', mergeBase: false, tree: await homeOf($) })
 
                 if (typeof answered === 'string') await update($, note, () => answered)
               }}

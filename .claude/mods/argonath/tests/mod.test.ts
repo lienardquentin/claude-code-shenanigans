@@ -102,11 +102,11 @@ const machine = (on: On, given: Record<string, string> = {}) => {
     else if (script.endsWith('service.py')) {
       world.jobs.service.push(job())
       stdout = world.service
-    } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`) && (e.argv[2] ?? '').includes('git status')) {
+    } else if (e.argv[0] === 'sh' && e.argv.some(arg => arg.endsWith('/beacons/gondor')) && (e.argv[2] ?? '').includes('git status')) {
       // Where the targets' folders stand, as git status says it around a shell command
       world.fingerprints += 1
       stdout = world.standing
-    } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`)) {
+    } else if (e.argv[0] === 'sh' && e.argv.some(arg => arg.endsWith('/beacons/gondor'))) {
       // What git says of the targets' folders against HEAD
       stdout = world.fingerprint
     } else if (script.endsWith('live.py')) {
@@ -119,9 +119,10 @@ const machine = (on: On, given: Record<string, string> = {}) => {
       world.jobs.affected.push(job())
       stdout = world.affected
     } else {
-      // git listing a target's test files
+      // git listing a target's test files, from the folder it runs in: the project's, or a quest's worktree
       const folders = e.argv.slice(e.argv.indexOf('--') + 1).map(whole)
-      stdout = Object.keys(files).filter(path => folders.some(folder => path.startsWith(`${folder}/`))).map(path => path.slice(CWD.length + 1)).join('\n')
+      const at = whole((e as unknown as { cwd?: string; init?: { cwd?: string } }).cwd ?? (e as unknown as { init?: { cwd?: string } }).init?.cwd ?? CWD)
+      stdout = Object.keys(files).filter(path => folders.some(folder => path.startsWith(`${folder}/`))).map(path => path.slice(at.length + 1)).join('\n')
     }
 
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
@@ -143,15 +144,20 @@ const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ a
 /** A statue's answer: its account, then its findings as the json block it ends with. */
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
-/** Stands for the engine that sends the statues, and for the Claude they report to. */
-const statues = (on: On) => {
+/**
+ * Stands for the engine that sends the statues, and for the Claude they report to. `isMinting` has the spawn answer
+ * an id, `<type>-1`, as core does for an agent another mod sends.
+ */
+const statues = (on: On, isMinting = false) => {
   const spawned: Record<string, unknown>[] = []
   const submitted: string[] = []
 
   on('agent.spawn', (_, e) => {
-    spawned.push(e as unknown as Record<string, unknown>)
+    const given = e as unknown as Record<string, unknown> & { subagentType?: string; subagent_type?: string }
 
-    return { model: 'opus' } as never
+    spawned.push(given)
+
+    return { model: 'opus', ...(isMinting ? { agentId: `${String(given.subagentType ?? given.subagent_type ?? '').split(':')[1] ?? ''}-1` } : {}) } as never
   })
   // Core alone mints an agent's id: a statue is known by the type it runs as
   on('agent.list', () => ({
@@ -564,6 +570,31 @@ describe('argonath', () => {
     await world.clock.advance(2_500)
 
     expect(spawned).toEqual([])
+  })
+
+  test("proves and judges a quest's worktree for the agents sent to work in it, and leaves the project's own as it was", async ($, on) => {
+    const tree = `${CWD}/.fellowship/trees/12-burned`
+    const world = machine(on, { [`${tree}/.claude/argonath`]: PROJECT, [`${tree}/beacons/tests/test_gondor.py`]: TESTS })
+    const { spawned } = statues(on, true)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    // The Fellowship sends its member into the quest's worktree: what it asks of the Argonath is looked at there
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree })
+    expect(await call($, 'mcp__argonath__prove', { target: 'gondor', agentId: 'gimli-1' })).toContain('pinned: gondor GET /health')
+    expect(world.jobs.service[0]).toMatchObject({ home: tree, project: CWD })
+    expect(world.jobs.prove[0]).toMatchObject({ home: tree, tests: [`${tree}/beacons/tests`] })
+
+    // Its mod convenes the statues there, by naming the worktree: they read the change in it
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { convene: true, json: true, tree, statues: ['isildur'] })).verdict).toBe('sitting')
+    expect(spawned.at(-1)).toMatchObject({ cwd: tree })
+    await ends($, 'isildur-1', FOUND([]))
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { json: true, tree })).verdict).toBe('pass')
+
+    // The project's own folder was neither looked at nor judged, and a folder that is no quest's is never taken
+    expect(JSON.parse(await call($, 'mcp__argonath__judgement', { json: true })).verdict).toBe('none')
+    await call($, 'mcp__argonath__radius', { target: 'gondor', tree: '/etc' })
+    expect(world.jobs.service.at(-1)).toMatchObject({ home: CWD })
+    expect(world.jobs.service.at(-1)).not.toHaveProperty('project')
   })
 
   test('sends no statue on a change a changed run of which is not pinned', async ($, on) => {

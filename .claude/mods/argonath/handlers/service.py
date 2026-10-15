@@ -19,7 +19,10 @@ What is compared, request by request: the status, and the body, each mask applie
 Reads one JSON job on stdin and writes one JSON answer on stdout:
 
     {"home", "label", "app", "python", "env": {...}, "masks": [...], "requests": [...], "from", "roots": [...],
-     "db": {"image", "env", "setup"} | null, "ready": {"request", "match"} | null}
+     "db": {"image", "env", "setup"} | null, "ready": {"request", "match"} | null, "project"}
+
+`home` is the working tree played: the project's own, or a quest's worktree. `project`, the project's own folder, names
+the warm container, so every worktree of one project plays against the same one; `home` when left out.
 
 The answer: {"label", "from": {"ref", "sha", "error"}, "to": {...}, "error", "cases": [{"line", "isChanged",
 "evidence"}], "unreached": {"path from home": "12-13, 40"}, "measured": bool}
@@ -172,7 +175,7 @@ def main():
     container, databases = "", {}
     if not answer["error"] and job.get("db"):
         try:
-            container, port = warm.warm(home, job["db"]["image"])
+            container, port = warm.warm(job.get("project") or home, job["db"]["image"])
             databases = warm.fresh(container, port, ["from", "to"])
         except warm.Cold as cold:
             answer["error"] = "its database could not be had: %s" % cold

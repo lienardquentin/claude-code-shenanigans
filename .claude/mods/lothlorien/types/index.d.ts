@@ -37,12 +37,19 @@ export type LothlorienVision = {
   blocks: LothlorienBlock[]
   amendments: LothlorienAmendment[]
   at: number
+  /** The quest's worktree she gazed in, absolute; none for the project's own folder. */
+  tree?: string
 }
 
 declare module 'claude-code' {
   interface PluginState {
     lothlorien: {
+      /** What the Mirror shows of the project's own folder. */
       vision: LothlorienVision | null
+      /** What it shows of each quest's worktree, by its folder. */
+      visions: Record<string, LothlorienVision>
+      /** The folder each agent a mod sent works in, by its id: a builder in a quest's worktree changes the tests there. */
+      trees: Record<string, string>
       note: string
     }
   }

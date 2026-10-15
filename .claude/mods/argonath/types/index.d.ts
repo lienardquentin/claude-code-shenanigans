@@ -201,6 +201,10 @@ declare module 'claude-code' {
       reviewed: string
       /** The statues' judgement of the last settled change; null before any. */
       judgement: ArgonathJudgement | null
+      /** The folder each agent a mod sent works in, by its id: a quest's worktree, where what it asks is looked at. */
+      trees: Record<string, string>
+      /** The statues' judgement of the last change in each quest's worktree, by its folder. */
+      treeJudgements: Record<string, ArgonathJudgement>
     }
   }
 }

@@ -62,13 +62,14 @@ describe('the Mirror', () => {
 
 /** Stands for the machine and the engine beneath the mod. */
 const machine = (on: On) => {
-  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, files: {} as Record<string, string>, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  // `tops`: the folders git runs at the top of, the project's and any quest's worktree
+  const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, tops: [CWD], files: {} as Record<string, string>, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   // The session's directory may wander into a subfolder; git's top stays the project's
   on('session.cwd', () => ({ value: world.cwd }) as never)
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
-    const isAtTop = e.init?.cwd === CWD
+    const isAtTop = world.tops.includes(e.init?.cwd ?? '')
     // A diff is of the paths named, from where it runs, as git answers it: a path misread from the status, or one
     // named from a subfolder, has none
     const stdout =
@@ -78,9 +79,12 @@ const machine = (on: On) => {
   })
   on('fs.read', (_, e) => ({ value: world.files[e.path] ?? '' }) as never)
   on('agent.spawn', (_, e) => {
-    world.spawned.push(e as unknown as Record<string, unknown>)
+    const given = e as unknown as Record<string, unknown> & { subagent_type?: string; subagentType?: string }
 
-    return { model: 'opus' } as never
+    world.spawned.push(given)
+
+    // A member another mod sends is answered its id; Galadriel is known by her type
+    return { model: 'opus', ...(/^fellowship:/.test(String(given.subagent_type ?? given.subagentType ?? '')) ? { agentId: 'gimli-1' } : {}) } as never
   })
   // Core alone mints an agent's id: she is known by the type she runs as
   on('agent.list', () => ({ value: [{ id: 'galadriel-1', description: 'x', type: 'lothlorien:galadriel', status: 'running' }, { id: 'gimli-1', description: 'x', type: 'fellowship:gimli', status: 'running' }] }) as never)
@@ -224,6 +228,36 @@ describe('the Mirror, for a mod', () => {
 
     world.files[FILE] = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
     expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true })).tampered).toEqual([{ file: 'beacons/tests/test_gondor.py', lines: [TEST_LINES[2]] }])
+  })
+
+  test("gazes in a quest's worktree, and holds a builder sent there to her tests in it, leaving the project's own folder be", async ($, on) => {
+    const tree = `${CWD}/.fellowship/trees/12-quench`
+    const world = machine(on)
+    world.tops.push(tree)
+    await $.session.start({} as never)
+
+    await call($, 'mcp__lothlorien__gaze', { purpose: 'Task 2: quench.', ref: 'github:beacons/gondor#12', weight: 'standard', tree })
+    expect(world.spawned[0]).toMatchObject({ cwd: tree })
+    await ends($, 'galadriel-1', SHOWN)
+    expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true, tree }))).toMatchObject({ state: 'shown', isLocked: true })
+    expect(await call($, 'mcp__lothlorien__mirror')).toMatch(/shows nothing yet/)
+
+    // The Fellowship sends its member into the worktree: her tests there are locked to it, the project's own file is not
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree })
+    const before = TEST_LINES.join('\n')
+    const weakened = before.replace('== 200', 'in (200, 404)')
+
+    expect(await edit($, 'gimli-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/Her tests are locked/) })
+    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
+
+    // Its reason is kept with her tests in the worktree, however it names the file
+    expect(await call($, 'mcp__lothlorien__amend', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
+    expect(JSON.parse(await call($, 'mcp__lothlorien__mirror', { json: true, tree })).amendments).toEqual([{ file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', by: 'fellowship:gimli' }])
+
+    // Committed there, and forgotten by its issue once merged
+    world.head = 'bbb222'
+    expect(JSON.parse(await call($, 'mcp__lothlorien__forget', { ref: 'github:beacons/gondor#12', json: true }))).toMatchObject({ forgotten: true })
+    expect(await call($, 'mcp__lothlorien__mirror', { tree })).toMatch(/shows nothing yet/)
   })
 
   test('forgets only the vision of the issue it is asked about, and says so as JSON', async ($, on) => {

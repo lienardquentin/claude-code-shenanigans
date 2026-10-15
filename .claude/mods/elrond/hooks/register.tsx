@@ -122,7 +122,13 @@ const TOOLS = [
   {
     name: 'plan',
     description: 'The plan in the Elrond pane, whole: the issue, the approach, each task with its steps, files, dependencies, acceptance and state, the open questions and the risks. Read it before working on a planned issue.',
-    inputSchema: { type: 'object', properties: { json: { type: 'boolean', description: 'Answer the plan as JSON, for a mod that works from it; `null` when none is in force.' } } },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        json: { type: 'boolean', description: 'Answer the plan as JSON, for a mod that works from it; `null` when none is in force.' },
+        ref: { type: 'string', description: 'The plan of this issue, as Elrond spells it (`github:owner/repo#12`), in force or kept; the plan in force when left out.' },
+      },
+    },
   },
   {
     name: 'task',
@@ -132,6 +138,7 @@ const TOOLS = [
       properties: {
         id: { type: 'number', description: 'The task, by its id in the plan.' },
         state: { type: 'string', enum: ['todo', 'doing', 'done'] },
+        ref: { type: 'string', description: "From a mod: the plan of this issue, in force or kept; the plan in force when left out." },
       },
       required: ['id', 'state'],
     },
@@ -321,17 +328,33 @@ const adjourn = async ($: $, sitting: ElrondCouncil, answer: string, ended: stri
 const isCouncil = async ($: $, sitting: ElrondCouncil, agentId: string): Promise<boolean> =>
   sitting.agentId !== '' ? agentId === sitting.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && one.type === AGENT_TYPE)
 
-/** Marks a task, keeps the plan, and says where the quest stands. */
-const mark = async ($: $, id: number, state: ElrondTaskState): Promise<string> => {
+/**
+ * The plan of an issue: the one in force when it is of that issue, else the one kept across sessions. The plan in force
+ * when none is named. Quests built side by side each work from their own.
+ */
+const planFor = async ($: $, ref = ''): Promise<ElrondPlan | null> => {
   const held = await current($)
 
-  if (held === null) return 'No plan is in force: convene the council on an issue first.'
+  return ref === '' || held?.ref === ref ? held : ((await kept($, ref)) ?? null)
+}
+
+/** Keeps a plan: in force, and shown, when it is the plan in force; across sessions alone when it is another issue's. */
+const keepPlan = async ($: $, made: ElrondPlan): Promise<void> => {
+  if ((await current($))?.ref === made.ref) await keep($, made)
+  else await $.store.set(STORE_KEY(made.ref), made).catch(() => undefined)
+}
+
+/** Marks a task of a plan, the one in force when none is named, keeps it, and says where the quest stands. */
+const mark = async ($: $, id: number, state: ElrondTaskState, ref = ''): Promise<string> => {
+  const held = await planFor($, ref)
+
+  if (held === null) return ref === '' ? 'No plan is in force: convene the council on an issue first.' : `No plan of ${ref} is kept.`
 
   const next = marked(held, id, state)
 
   if (typeof next === 'string') return next
 
-  await keep($, next)
+  await keepPlan($, next)
 
   const open = ready(next).filter(task => task.state === 'todo')
   const task = next.tasks.find(one => one.id === id)
@@ -418,11 +441,12 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__elrond__plan' }, async ($, e) => {
-    const held = await current($)
+    const given = e as unknown as { json?: unknown; ref?: unknown }
+    const held = await planFor($, typeof given.ref === 'string' ? given.ref : '')
     const sitting = await read($, council)
 
     // A mod that works from the plan reads it whole, as it is kept
-    if ((e as unknown as { json?: unknown }).json === true) return { result: JSON.stringify(held) }
+    if (given.json === true) return { result: JSON.stringify(held) }
 
     return { result: held !== null ? planText(held) : sitting !== null ? `The council still sits on ${sitting.ref}: no plan yet.` : `No plan is in force. ${HOW_TO}` }
   })
@@ -449,10 +473,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'mcp__elrond__task' }, async ($, e) => {
-    const given = e as unknown as { id?: unknown; state?: unknown }
+    const given = e as unknown as { id?: unknown; state?: unknown; ref?: unknown }
     const state = given.state === 'todo' || given.state === 'doing' || given.state === 'done' ? given.state : undefined
 
-    return { result: state === undefined ? 'state is one of todo, doing, done.' : await mark($, Number(given.id), state) }
+    return { result: state === undefined ? 'state is one of todo, doing, done.' : await mark($, Number(given.id), state, typeof given.ref === 'string' ? given.ref : '') }
   })
 
   on('command.run', { command: 'elrond' }, async ($, e) => {

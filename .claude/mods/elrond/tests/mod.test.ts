@@ -346,6 +346,23 @@ describe('elrond', () => {
     expect(world.spawned).toHaveLength(1)
   })
 
+  test("reads and ticks off the kept plan of an issue a mod names, leaving the plan in force as it is", async ($, on) => {
+    const world = machine(on)
+    await call($, 'mcp__elrond__convene', { issue: '#12' })
+    await ends($, 'council-1', PLAN)
+    const twelve = 'github:lienardquentin/claude-code-shenanigans#12'
+    const thirteen = 'github:lienardquentin/claude-code-shenanigans#13'
+    // Another quest's plan, kept from an earlier council and built beside this one
+    world.store[`plan:${thirteen}`] = { ...(JSON.parse(await call($, 'mcp__elrond__plan', { json: true })) as Record<string, unknown>), ref: thirteen, title: 'Beacons answer who lit them' }
+
+    expect(JSON.parse(await call($, 'mcp__elrond__plan', { json: true, ref: thirteen }))).toMatchObject({ ref: thirteen, title: 'Beacons answer who lit them' })
+    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done', ref: thirteen })).toMatch(/Ready next: 2\./)
+
+    expect(world.store[`plan:${thirteen}`]).toMatchObject({ tasks: [{ id: 1, state: 'done' }, { id: 2, state: 'todo' }] })
+    expect(JSON.parse(await call($, 'mcp__elrond__plan', { json: true }))).toMatchObject({ ref: twelve, tasks: [{ id: 1, state: 'todo' }, { id: 2, state: 'todo' }] })
+    expect(await call($, 'mcp__elrond__task', { id: 1, state: 'done', ref: 'github:lienardquentin/claude-code-shenanigans#99' })).toMatch(/No plan of .*#99 is kept/)
+  })
+
   test('sorts risks by severity, ties them to the tasks they threaten, and carries what the person chose of them into the next revision', async ($, on) => {
     const world = machine(on)
     const RISKY = {
