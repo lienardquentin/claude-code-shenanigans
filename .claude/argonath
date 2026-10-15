@@ -53,7 +53,9 @@ gondor.live.scratch=DATABASE_URL
 # as one quoted word after its path: $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
 $ gondor GET /health
 $ gondor GET /beacons
+$ gondor GET /beacons/amon-din
 $ gondor POST /beacons/amon-din/light
+$ gondor GET /beacons/amon-din
 $ gondor GET /beacons
 $ gondor POST /beacons/mount-doom/light
 $ gondor POST /beacons/quench

@@ -68,6 +68,7 @@ the release away, and `devspace run cluster-down` the cluster.
 | Endpoint | What it does |
 | --- | --- |
 | `GET /beacons` | The seven beacons, Amon Dîn to Halifirien, and which are lit |
+| `GET /beacons/{name}` | One beacon and whether it is lit |
 | `POST /beacons/{name}/light` | Lights one, and says which beacon its watchers look to next |
 | `POST /beacons/quench` | Puts them all out |
 | `GET /palantiri` | The seeing-stones Gondor knows of |

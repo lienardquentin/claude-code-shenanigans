@@ -83,6 +83,14 @@ async def beacons():
     return [{"beacon": name, "lit": name in burning} for name in realm.BEACONS]
 
 
+@app.get("/beacons/{name}")
+async def beacon(name: str):
+    if name not in realm.BEACONS:
+        raise HTTPException(404, f"no beacon is named {name}")
+
+    return {"beacon": name, "lit": name in await archive.burning()}
+
+
 @app.post("/beacons/{name}/light")
 async def light(name: str):
     if name not in realm.BEACONS:
