@@ -73,7 +73,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
   // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
   // status says of them, read around each shell command and counted in `fingerprints`
-  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }) }
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }) }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -130,6 +130,8 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   // Anduril is asked as the mods ask one another, through MCP, never through a tool call the permission check sees
   on('mcp.call', (_, e) => {
     if (e.server !== 'anduril' || e.tool !== 'diff') throw new Error(`no ${e.server} ${e.tool}`)
+    // A session that never loaded Andúril answers as the engine does
+    if (world.isAndurilGone) return { deny: 'no connected MCP tool "diff" on a server named "anduril"' } as never
     world.asked.push(e.args)
 
     return { value: { content: [{ type: 'text', text: world.cli }], isError: false } } as never
@@ -369,6 +371,13 @@ describe('the statues', () => {
 })
 
 describe('argonath', () => {
+  test('says Andúril is not loaded in the session, and that a restart brings it, when its diff is not there to call', async ($, on) => {
+    const world = machine(on)
+    world.isAndurilGone = true
+
+    expect(await call($, 'mcp__middle-earth__radius', { target: 'narsil' })).toMatch(/Andúril is not loaded in this session \(no tool of its is connected\): restart Claude Code, and prove again\./)
+  })
+
   test('says how to name targets to a Claude that asks where none are', async ($, on) => {
     machine(on, { [`${CWD}/.claude/argonath`]: '' })
 

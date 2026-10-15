@@ -10,6 +10,7 @@ import {
   commitMessage,
   companionPrompt,
   errandTask,
+  forgeOf,
   handBackOf,
   isAllDone,
   memberFor,
@@ -25,6 +26,7 @@ import {
   statueModelFor,
   statuesFor,
   tally,
+  threadArgv,
   treePathOf,
   triesOf,
   unsettledOf,
@@ -268,7 +270,11 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
       ? undefined
       : spec.kind === 'errand' && resumed?.tasks !== undefined && resumed.tasks.length > 0
         ? resumed.tasks
-        : [...(resumed?.tasks ?? []), ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url))].map((task, at) => ({ ...task, id: at + 1 }))
+        : [
+            // A comment taken up already keeps where it stands, and gains the thread it was handed over without
+            ...(resumed?.tasks ?? []).map(task => ({ ...task, ...(task.thread === undefined ? { thread: (spec.tasks ?? []).find(one => one.url !== undefined && one.url === task.url)?.thread } : {}) })),
+            ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url)),
+          ].map((task, at) => ({ ...task, id: at + 1 }))
   const work = tasks === undefined ? made : { ...made, tasks }
   const quest: FellowshipQuest = {
     kind: spec.kind,
@@ -750,6 +756,51 @@ async function abandon($: $, ref: string): Promise<string> {
   return said.join(' ')
 }
 
+/**
+ * A commit as its branch holds it: the one recorded, while the branch holds it, else, where it was rewritten since (an
+ * amended commit lives on outside its branch), the one that names its comment.
+ */
+async function landedSha($: $, tree: string, sha: string, task: FellowshipTask): Promise<string> {
+  if (sha !== '' && (await git($, ['merge-base', '--is-ancestor', sha, 'HEAD'], tree)).ok) return sha
+  if (task.url === undefined || task.url === '') return sha
+
+  const found = (await git($, ['log', '-n', '1', '--format=%H', '--fixed-strings', `--grep=${task.url}`], tree)).out.split('\n')[0] ?? ''
+
+  return found !== '' ? found : sha
+}
+
+/**
+ * Answers each review thread whose comment the quest took up, once its answers are pushed: one built is told its commit
+ * and resolved; one handed back is told why, and left open for the person. A thread is answered once. Says what was done.
+ */
+async function answerThreads($: $, ref: string): Promise<string> {
+  const held = await questOf($, ref)
+  const number = Number(/#(\d+)$/.exec(ref)?.[1] ?? NaN)
+
+  if (held === null || !Number.isFinite(number)) return ''
+
+  const forge = forgeOf(held.pr !== '' ? held.pr : held.url)
+  let answered = 0
+  let resolved = 0
+
+  for (const task of (held.tasks ?? []).filter(one => one.thread !== undefined && one.thread !== '' && one.isAnswered !== true)) {
+    const commit = held.commits.find(one => one.taskId === task.id && one.sha !== '')
+    const reply = commit !== undefined ? `Answered in ${(await landedSha($, held.tree, commit.sha, task)).slice(0, 7)} by ${commit.by}.` : task.state === 'asked' ? `Handed back to the author: ${task.note ?? ''}` : undefined
+
+    if (reply === undefined) continue
+
+    const argv = threadArgv(forge, number, task.thread ?? '', reply)
+
+    if (!(await run($, argv.reply, undefined, held.tree)).ok) continue
+
+    answered += 1
+    if (commit !== undefined && (await run($, argv.resolve, undefined, held.tree)).ok) resolved += 1
+    await keep($, ref, was => ({ ...was, tasks: (was.tasks ?? []).map(one => (one.id === task.id ? { ...one, isAnswered: true } : one)) }))
+  }
+
+  return answered === 0 ? '' : ` ${answered} ${answered === 1 ? 'thread is' : 'threads are'} answered on the pull request, ${resolved} resolved.`
+}
+
 /** Pushes the branch and opens the pull request that closes the issue; a review's answers are pushed onto its pull request. */
 async function sail($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
@@ -772,7 +823,9 @@ async function sail($: $, ref: string): Promise<string> {
 
     await keep($, ref, was => ({ ...was, phase: was.phase === 'arrived' ? 'sailed' : was.phase }))
 
-    return `${held.branch} is pushed: ${held.commits.length} answered ${held.commits.length === 1 ? 'comment is' : 'comments are'} on ${held.pr}.`
+    const told = await answerThreads($, ref)
+
+    return `${held.branch} is pushed: ${held.commits.length} answered ${held.commits.length === 1 ? 'comment is' : 'comments are'} on ${held.pr}.${told}`
   }
 
   // Each task of a plan was judged alone: both statues judge what the tasks do and let in together, once, before the
@@ -979,7 +1032,31 @@ export async function startFellowship($: $): Promise<void> {
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
 
+  await recallQuests($).catch(() => undefined)
+
   $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+}
+
+/**
+ * The quests kept across sessions, back as they stood: what was out when the session ended (a member, the proof, the
+ * statues, the Mirror) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
+ * the session holds already (a reload keeps them) is left as it is.
+ */
+async function recallQuests($: $): Promise<void> {
+  const held = await read($, quests)
+
+  for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('quest:'))) {
+    const kept = (await $.store.get(key).catch(() => undefined)) as FellowshipQuest | undefined
+
+    if (kept === undefined || kept === null || typeof kept.ref !== 'string' || held[kept.ref] !== undefined) continue
+
+    const was = kept.phase
+    const phase: FellowshipPhase = was === 'gazing' || was === 'marching' || was === 'proving' || was === 'judging' ? 'stuck' : was === 'warding' ? 'arrived' : was
+    const quest: FellowshipQuest = { ...kept, kind: kept.kind ?? 'plan', phase }
+
+    await update($, quests, all => ({ ...all, [quest.ref]: quest }))
+    await workOf($, quest).catch(() => undefined)
+  }
 }
 
 /** A turn has ended: what a member built is proven, outside the hook; a task it hands back goes to the person. */
@@ -1075,7 +1152,14 @@ export function registerFellowship(on: On): void {
   on('tool.call', { tool: 'mcp__middle-earth__commit' }, async ($, e) => {
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
 
-    return { result: held === null ? 'Name the quest, by its ref: more than one is under way, or none.' : await resubmit($, held.ref) }
+    if (held === null) return { result: 'Name the quest, by its ref: more than one is under way, or none.' }
+
+    const said = await resubmit($, held.ref)
+
+    // The proof, and the statues it leads to, are done here, where the statues are held
+    await pumpFellowship($, held.ref)
+
+    return { result: said }
   })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with

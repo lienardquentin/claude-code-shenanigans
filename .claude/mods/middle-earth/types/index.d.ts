@@ -142,6 +142,9 @@ export type FellowshipTask = {
   url?: string
   /** Why it was handed back to the person; empty otherwise. */
   note?: string
+  /** A review comment's thread on the forge, answered once the answers are pushed; and whether it was. */
+  thread?: string
+  isAnswered?: boolean
 }
 
 /** The work of a quest as one plan: Elrond's for a plan, and one the quest makes of its own tasks for any other. */
@@ -504,6 +507,8 @@ export type BlackgateComment = {
   /** What it says, its replies after it, as data. */
   body: string
   url: string
+  /** Its thread (a GitHub review thread, a GitLab discussion), which can be answered and resolved; none for a review's own words. */
+  thread?: string
   weight: BlackgateWeight
   /** Whether it asks for a change, which the Fellowship builds, or asks a question only the person can answer. */
   kind: 'change' | 'question'
@@ -553,6 +558,8 @@ export type MountdoomRelic = {
   /** The pull request's URL: kept by a mod, or found on the forge by its branch; empty when none is known. */
   pr: string
   keepers: MountdoomKeeper[]
+  /** Every quest the Fellowship keeps on the branch, by its ref: an errand and the review of its pull request share one. */
+  quests?: string[]
   /** Whether the forge says it is merged, when last looked. */
   isMerged: boolean
 }

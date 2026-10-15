@@ -5,7 +5,7 @@ import type { MountdoomRelic } from '../../types'
 import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { errorText, isMergedFrom, rootOf } from '../flow'
+import { UNMODDED, errorText, isMergedFrom, rootOf } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questRelics } from '../fellowship/register'
@@ -106,11 +106,26 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
   const said: string[] = []
   const root = await rootOf($)
 
-  // The worktree the Fellowship built it in goes first: its branch can be deleted only once no worktree holds it
-  if (relic.tree !== '' && relic.tree !== root) {
-    if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain'])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
+  // A worktree an earlier cast removed already is gone: what git still says of it is pruned
+  const isTreeGone = relic.tree !== '' && relic.tree !== root && !(await $.fs.exists(relic.tree).catch(() => true))
 
-    const removed = await git($, ['worktree', 'remove', relic.tree])
+  if (isTreeGone) await git($, ['worktree', 'prune'])
+
+  // The worktree the Fellowship built it in goes first: its branch can be deleted only once no worktree holds it
+  if (relic.tree !== '' && relic.tree !== root && !isTreeGone) {
+    // What the mods keep there (Andúril's builds, the Argonath's trees) is none of the quest's work
+    if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain', ...UNMODDED])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
+
+    // The worktrees the mods keep inside it go first, then it, with what they left there
+    const nested = (await git($, ['worktree', 'list', '--porcelain'])).out
+      .split('\n')
+      .filter(line => line.startsWith('worktree '))
+      .map(line => line.slice('worktree '.length))
+      .filter(path => path.startsWith(`${relic.tree}/`))
+
+    for (const path of nested) await git($, ['worktree', 'remove', '--force', path])
+
+    const removed = await git($, ['worktree', 'remove', '--force', relic.tree])
 
     said.push(removed.ok ? 'its worktree removed' : `its worktree could not be removed: ${removed.out}`)
   }
@@ -140,7 +155,13 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
 
   const forgotten: string[] = []
 
-  for (const keeper of relic.keepers) if (await forgets($, keeper, relic)) forgotten.push(keeper)
+  for (const keeper of relic.keepers) {
+    // Every quest on the branch is forgotten: an errand and the review of its pull request alike
+    const refs = keeper === 'fellowship' ? (relic.quests ?? [relic.ref]) : [relic.ref]
+    const forgot = await Promise.all(refs.map(ref => forgets($, keeper, { ...relic, ref })))
+
+    if (forgot.some(one => one)) forgotten.push(keeper)
+  }
 
   // The plan of the issue, and what the Mirror showed of it: of this issue alone
   if (isIssueRef(relic.ref) && (await forgets($, 'elrond', relic))) forgotten.push('elrond')

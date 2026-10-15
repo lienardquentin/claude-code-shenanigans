@@ -210,6 +210,9 @@ describe('a member', () => {
     expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/^The issue: github:.*#21, "Quench answers 404 for an unknown beacon"[\s\S]*<issue>\nIt answers 500 today\.\n\n--- faramir:\nSeen on amon-din too\.\n<\/issue>[\s\S]*You may hand it back if it is not one/)
     expect(handBackOf('I looked.\nHanded back: it needs a decision on 410.')).toBe('it needs a decision on 410.')
     expect(handBackOf('Done.')).toBeUndefined()
+    // A builder that says it hands nothing back hands nothing back
+    for (const none of ['Handed back: none.', 'Handed back: none. The request was a plain rename.', 'Handed back: Nothing.', 'Handed back: n/a', 'Handed back: no.', 'Handed back:']) expect(handBackOf(`Renamed it.\n${none}`)).toBeUndefined()
+    expect(handBackOf('Handed back: no test can show this without a live beacon.')).toBe('no test can show this without a live beacon.')
   })
 
   test('commits nothing, moves no branch, stays in its worktree, and leaves the mods\' folders alone', () => {
@@ -378,6 +381,8 @@ const machine = (on: On) => {
     dirty: '',
     head: 'c0ffee1aaaa',
     commits: 0,
+    // Commits rewritten since they were recorded (amended), each with the sha its branch holds now
+    rewritten: {} as Record<string, string>,
     // What the Fellowship sent a member back with, by its id
     sent: [] as { agentId: string; text: string }[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
@@ -461,6 +466,8 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
+    if (line.startsWith('git merge-base --is-ancestor ')) return answer('', (e.argv[3] ?? '') in world.rewritten ? 1 : 0)
+    if (line.startsWith('git log -n 1 --format=%H --fixed-strings --grep=')) return answer(`${Object.values(world.rewritten)[0] ?? ''}\n`)
 
     // The forge
     if (e.argv[0] === 'gh' && e.argv[1] === 'issue') return answer(JSON.stringify({ number: 21, title: world.issue.title, body: world.issue.body, url: world.issue.url, state: 'OPEN', labels: [], comments: world.issue.comments.map(one => ({ author: { login: one.author }, body: one.body })) }))
@@ -984,6 +991,21 @@ describe('an agent the Fellowship sends', () => {
   })
 })
 
+describe('a quest kept across sessions', () => {
+  test('is back after a restart as it stood, stuck where it was out on a task, and nothing is sent', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = { kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'fellowship/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'doing' }], isAuto: false, phase: 'marching', march: { taskId: 1, title: ISSUE.title, member: 'gimli', agentId: 'gimli-0', attempt: 1, at: 1, answer: '' }, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 }
+    await start($, world)
+
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/#21 \(errand\), "Quench answers 404 for an unknown beacon" \(0\/1 done\): stuck/)
+    // A bare /fellowship lists it, and sets nothing out
+    expect((await $.command.run({ command: 'fellowship', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
+    expect(world.spawned).toEqual([])
+  })
+})
+
 describe('an errand', () => {
   test('builds a small issue in one change in its worktree, and waits for the person\'s go to open its pull request', async ($, on) => {
     const world = machine(on)
@@ -1063,6 +1085,26 @@ describe('an errand', () => {
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
   })
 
+  test('put before the Argonath through the commit tool, is proved and judged in that call, where the statues are held', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    await start($, world)
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await settle($, world)
+    world.dirty = ''
+    await ends($, 'gimli-1', 'It built nothing here.', world)
+    await settle($, world)
+
+    // The person mends the change by hand in the worktree
+    const sent = world.judged.length
+    world.dirty = ' M beacons/gondor/app.py\n'
+    world.edits += 1
+    expect(await call($, 'mcp__middle-earth__commit', { ref: ISSUE.ref })).toMatch(/goes before the Argonath/)
+
+    // No clock moved: the proof ran and the statues were sent within the call
+    expect(world.judged).toHaveLength(sent + 1)
+  })
+
   test('put before the Argonath by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
     const world = machine(on)
     world.plan = null
@@ -1121,11 +1163,46 @@ describe('a review handed over by the Black Gate', () => {
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*\? 2\. Why answer seconds and not the timestamp itself\?.*whether to answer seconds or a timestamp/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
+    // The first answer was amended by hand since it was committed: its reply names the commit its branch holds
+    world.rewritten = { c0ffee2aaaa: 'feedbee1234567' }
+
     await $.command.run({ command: 'fellowship', args: 'sail' } as never)
     await settle($, world)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(false)
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: sailed/)
+
+    // Once pushed, each thread is answered on the pull request: the comment built is told its commit and resolved; the
+    // one handed back is told why, and left open for the person
+    const threads = world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))
+    expect(threads).toEqual([
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in feedbee by Frodo\.$/),
+      expect.stringMatching(/resolveReviewThread.* -f id=r1$/),
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r2 -f body=Handed back to the author: whether to answer seconds or a timestamp is the author's call\.$/),
+    ])
+
+    // Sailed again, no thread is answered twice
+    await $.command.run({ command: 'fellowship', args: `sail review:${REVIEW.ref}` } as never)
+    await settle($, world)
+    expect(world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))).toHaveLength(3)
+  })
+
+  test('handed over again, gives the comments it took up before their threads, and takes up none twice', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    // A review taken up before its comments carried their threads
+    const ref = `review:${REVIEW.ref}`
+    world.store[`quest:${ref}`] = { kind: 'review', ref, url: REVIEW.url, title: REVIEW.title, branch: BRANCH, base: 'main', tree: TREE, tasks: reviewTasks(REVIEW.comments), isAuto: false, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: REVIEW.url, at: 1 }
+    world.worktrees.push({ path: TREE, branch: BRANCH })
+    await start($, world)
+
+    await handOver($)
+
+    const kept = world.store[`quest:${ref}`] as { tasks: { url?: string; thread?: string }[] }
+    expect(kept.tasks.map(task => [task.url, task.thread])).toEqual([
+      ['https://github.com/x/pull/13#r1', 'r1'],
+      ['https://github.com/x/pull/13#r2', 'r2'],
+    ])
   })
 
   test('is built where the pull request\'s branch is checked out already, and its branch is never deleted', async ($, on) => {

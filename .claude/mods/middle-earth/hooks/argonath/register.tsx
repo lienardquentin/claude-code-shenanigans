@@ -246,7 +246,12 @@ async function cliChanged($: $, target: ArgonathTarget, against: string, place: 
     // What anduril says in place of a comparison is why there is no radius
     return parseDiffText(said) ?? (said !== '' ? said : 'anduril answered nothing to read.')
   } catch (error) {
-    return `A CLI's radius is read from anduril's diff, which could not be called: ${error instanceof Error ? error.message : String(error)}`
+    const why = error instanceof Error ? error.message : String(error)
+
+    // A session can run without Andúril loaded, though it is enabled (#48): no builder mends that, a restart does
+    if (/no connected MCP tool/.test(why)) return 'Andúril is not loaded in this session (no tool of its is connected): restart Claude Code, and prove again.'
+
+    return `A CLI's radius is read from anduril's diff, which could not be called: ${why}`
   }
 }
 

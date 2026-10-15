@@ -101,7 +101,10 @@ async function open($: $, input: string): Promise<string> {
   await update($, working, () => `The Mouth of Sauron weighs ${parsed.comments.length} ${parsed.comments.length === 1 ? 'comment' : 'comments'}…`)
 
   const weighed = parsed.comments.length === 0 ? new Map() : await $.model.complete({ model: WEIGHER_MODEL, prompt: weighPrompt(parsed.comments) }).then(said => (said.isAnswered ? parseWeights(said.text) : new Map())).catch(() => new Map())
-  const comments: BlackgateComment[] = parsed.comments.map(one => ({ ...one, ...(weighed.get(one.id) ?? { weight: 'standard' as const, kind: 'change' as const }) }))
+  const all = parsed.comments.map(one => ({ ...one, ...(weighed.get(one.id) ?? { weight: 'standard' as const, kind: 'change' as const }) }))
+  // What asks nothing more (a question answered against the change, a review's summary, a comment taken back) is left out
+  const comments: BlackgateComment[] = all.flatMap(one => (one.kind === 'settled' ? [] : [{ ...one, kind: one.kind }]))
+  const settled = all.length - comments.length
 
   await keep($, was => ({ ...was, comments, phase: 'ready' }))
   await update($, note, () => '')
@@ -110,7 +113,7 @@ async function open($: $, input: string): Promise<string> {
   const changes = comments.filter(one => one.kind === 'change').length
   const questions = comments.length - changes
 
-  return `The Black Gate opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person. /blackgate march hands them to the Fellowship.`}`
+  return `The Black Gate opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /blackgate march hands them to the Fellowship.`}`
 }
 
 /** Hands the comments that ask for a change to the Fellowship, which builds them on the pull request's branch. */

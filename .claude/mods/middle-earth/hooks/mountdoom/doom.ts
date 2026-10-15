@@ -19,8 +19,11 @@ export const gathered = (answers: readonly { keeper: MountdoomKeeper; kept: read
       const pr = typeof one.pr === 'string' ? one.pr : ''
       const tree = typeof one.tree === 'string' ? one.tree : ''
 
+      const quests = keeper === 'fellowship' && typeof one.ref === 'string' && one.ref !== '' ? [one.ref] : []
+
       if (was !== undefined) {
         if (!was.keepers.includes(keeper)) was.keepers.push(keeper)
+        for (const ref of quests) if (!(was.quests ?? []).includes(ref)) was.quests = [...(was.quests ?? []), ref]
         if (was.pr === '') was.pr = pr
         if (was.tree === '') was.tree = tree
         // The issue's ref, as Elrond writes it, is the one a plan is kept by: it wins over a gate's own
@@ -28,7 +31,7 @@ export const gathered = (answers: readonly { keeper: MountdoomKeeper; kept: read
         continue
       }
 
-      relics.push({ ref: typeof one.ref === 'string' ? one.ref : '', branch, base: typeof one.base === 'string' ? one.base : '', tree, pr, keepers: [keeper], isMerged: false })
+      relics.push({ ref: typeof one.ref === 'string' ? one.ref : '', branch, base: typeof one.base === 'string' ? one.base : '', tree, pr, keepers: [keeper], ...(quests.length > 0 ? { quests } : {}), isMerged: false })
     }
   }
 
