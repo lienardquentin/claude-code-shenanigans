@@ -584,9 +584,9 @@ const askedOf = (e: unknown, isProving: boolean): Asked => {
 
 /**
  * The agent types other mods send to change the tree, each of which has its mod prove the change and convene the
- * statues itself: the Fellowship's members (the Black Gate sends them too), Galadriel's tests, Bombadil.
+ * statues itself: the Fellowship's members, and Galadriel's tests.
  */
-const SENT_BY_A_MOD = /^(fellowship|lothlorien|bombadil):/
+const SENT_BY_A_MOD = /^(fellowship|lothlorien):/
 
 /** The agent types that only read: the council that plans, and the statues. A command of theirs is not looked at for edits. */
 const READ_ONLY = /^(elrond|argonath):/

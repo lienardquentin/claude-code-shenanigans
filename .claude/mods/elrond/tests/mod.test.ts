@@ -181,7 +181,7 @@ const machine = (on: On) => {
   on('command.run', { command: 'fellowship' }, (_, e) => {
     world.asked.push({ tool: 'fellowship', args: { args: e.args } })
 
-    return { text: `The Fellowship sets out on github:lienardquentin/claude-code-shenanigans#12, ${e.args === '--auto' ? 'going on by itself' : 'stopping after each commit for you'}.` } as never
+    return { text: `The Fellowship sets out on github:lienardquentin/claude-code-shenanigans#12, ${e.args.endsWith('--auto') ? 'going on by itself' : 'stopping after each commit for you'}.` } as never
   })
   on('process.run', (_, e) => {
     world.ran.push(e.argv.join(' '))
@@ -429,12 +429,13 @@ describe('elrond', () => {
 
       await pane.press({ key: 'set-out-auto' })
       await world.clock.advance(600)
-      expect(world.asked).toContainEqual({ tool: 'fellowship', args: { args: '--auto' } })
+      // The plan in force is named: quests on other issues may be under way beside it
+      expect(world.asked).toContainEqual({ tool: 'fellowship', args: { args: 'set out github:lienardquentin/claude-code-shenanigans#12 --auto' } })
       expect(await call($, 'mcp__elrond__pane')).toContain('The Fellowship sets out on github:lienardquentin/claude-code-shenanigans#12, going on by itself.')
 
       await pane.press({ key: 'set-out' })
       await world.clock.advance(600)
-      expect(world.asked).toContainEqual({ tool: 'fellowship', args: { args: '' } })
+      expect(world.asked).toContainEqual({ tool: 'fellowship', args: { args: 'set out github:lienardquentin/claude-code-shenanigans#12' } })
       // Setting out sends no prompt: the Fellowship's members build, not this session
       expect(world.submitted.filter(text => text.startsWith('Implement task'))).toEqual([])
     })

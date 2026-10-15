@@ -31,7 +31,7 @@ const view = paneView({ id: PANE, title: TITLE, command: '/mountdoom' })
 const TOOLS = [
   {
     name: 'relics',
-    description: "What Mount Doom watches: each branch the Fellowship, Bombadil or the Black Gate keeps work of, its pull request, and whether it is merged and ready for the fire. Casting it is the person's: /mountdoom cast.",
+    description: "What Mount Doom watches: each branch the Fellowship or the Black Gate keeps work of, its worktree, its pull request, and whether it is merged and ready for the fire. Casting it is the person's: /mountdoom cast.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const
@@ -102,6 +102,17 @@ const burn = async ($: $, relic: MountdoomRelic): Promise<string> => {
   if (!(await isMergedFrom($, relic.pr, relic.branch))) return `${relic.ref || relic.branch}: ${relic.pr || 'no pull request'} is not merged from ${relic.branch}, and nothing is cast.`
 
   const said: string[] = []
+  const root = await rootOf($)
+
+  // The worktree the Fellowship built it in goes first: its branch can be deleted only once no worktree holds it
+  if (relic.tree !== '' && relic.tree !== root) {
+    if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain'])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
+
+    const removed = await git($, ['worktree', 'remove', relic.tree])
+
+    said.push(removed.ok ? 'its worktree removed' : `its worktree could not be removed: ${removed.out}`)
+  }
+
   const current = (await git($, ['rev-parse', '--abbrev-ref', 'HEAD'])).out
 
   if (current === relic.branch) {

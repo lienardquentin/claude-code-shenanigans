@@ -579,7 +579,7 @@ describe('argonath', () => {
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     // The Fellowship sends its member into the quest's worktree: what it asks of the Argonath is looked at there
-    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree })
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree } as never)
     expect(await call($, 'mcp__argonath__prove', { target: 'gondor', agentId: 'gimli-1' })).toContain('pinned: gondor GET /health')
     expect(world.jobs.service[0]).toMatchObject({ home: tree, project: CWD })
     expect(world.jobs.prove[0]).toMatchObject({ home: tree, tests: [`${tree}/beacons/tests`] })

@@ -243,7 +243,7 @@ describe('the Mirror, for a mod', () => {
     expect(await call($, 'mcp__lothlorien__mirror')).toMatch(/shows nothing yet/)
 
     // The Fellowship sends its member into the worktree: her tests there are locked to it, the project's own file is not
-    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree })
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree } as never)
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 

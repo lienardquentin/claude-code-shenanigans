@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
-// What the mods that build a change share: Fellowship, Bombadil and the Black Gate each send a builder, have Argonath
-// prove and judge its change, commit it, and open or push the pull request. This file is the same in each of them.
+// What the Middle-earth mods share: the project's folder, git and the forge, a call into another mod, and how the
+// Fellowship reads Argonath's proof and judgement of a builder's change. This file is the same in each of them.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
@@ -44,15 +44,18 @@ export async function rootOf($: $): Promise<string> {
   return found !== '' ? found : cwd
 }
 
-/** A command run in the project's folder: whether it ended well, and what it said (its error when it did not). */
-export async function run($: $, argv: readonly string[], timeoutMs?: number): Promise<{ ok: boolean; out: string }> {
-  const ran = await $.process.run([...argv], { cwd: await rootOf($), ...(timeoutMs !== undefined ? { timeoutMs } : {}) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+/**
+ * A command run in a folder, the project's when none is named (a quest's commands run in its worktree): whether it
+ * ended well, and what it said (its error when it did not).
+ */
+export async function run($: $, argv: readonly string[], timeoutMs?: number, cwd?: string): Promise<{ ok: boolean; out: string }> {
+  const ran = await $.process.run([...argv], { cwd: cwd ?? (await rootOf($)), ...(timeoutMs !== undefined ? { timeoutMs } : {}) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trim() }
 }
 
-export async function git($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> {
-  return run($, ['git', ...args])
+export async function git($: $, args: readonly string[], cwd?: string): Promise<{ ok: boolean; out: string }> {
+  return run($, ['git', ...args], undefined, cwd)
 }
 
 /**
@@ -153,7 +156,7 @@ export const isForbiddenGit = (command: string): boolean => /(^|[;&|(]\s*|\s)git
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 
 /** A path in the folders the mods keep for themselves, which a builder leaves alone. */
-export const isModPath = (root: string, path: string): boolean => /^\.(elrond|argonath|anduril|fellowship|lothlorien|bombadil|blackgate)(\/|$)/.test(withinOf(root, path))
+export const isModPath = (root: string, path: string): boolean => /^\.(elrond|argonath|anduril|fellowship|lothlorien|blackgate)(\/|$)/.test(withinOf(root, path))
 
 /** The issue a ref is of, from Elrond's short spelling: `github:owner/repo#12`, `gitlab:git.corp.io/g/p#3`. */
 export const issueOf = (ref: string): { forge: 'github' | 'gitlab'; server: string; repo: string; number: number } | undefined => {
@@ -177,16 +180,21 @@ export const requestArgv = ({ forge, branch, base, title, body }: { forge: 'gith
     : ['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes']
 
 /** Pushes a branch and opens a pull request from it with the forge's CLI: its URL, or why it could not be. */
-export async function openRequest($: $, branch: string, argv: readonly string[]): Promise<{ url: string } | string> {
-  const pushed = await run($, ['git', 'push', '-u', 'origin', branch], FORGE_TIMEOUT_MS)
+export async function openRequest($: $, branch: string, argv: readonly string[], cwd?: string): Promise<{ url: string } | string> {
+  const pushed = await push($, branch, cwd)
 
   if (!pushed.ok) return `${branch} could not be pushed: ${pushed.out || 'git failed'}`
 
-  const opened = await run($, argv, FORGE_TIMEOUT_MS)
+  const opened = await run($, argv, FORGE_TIMEOUT_MS, cwd)
 
   if (!opened.ok) return `The pull request could not be opened: ${argv[0] ?? ''} said ${opened.out || 'nothing'}`
 
   return { url: [...opened.out.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? '' }
+}
+
+/** Pushes a branch to origin, tracking it, from a folder it is checked out in. */
+export async function push($: $, branch: string, cwd?: string): Promise<{ ok: boolean; out: string }> {
+  return run($, ['git', 'push', '-u', 'origin', branch], FORGE_TIMEOUT_MS, cwd)
 }
 
 /**

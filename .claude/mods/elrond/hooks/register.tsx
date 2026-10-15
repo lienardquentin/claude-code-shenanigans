@@ -56,7 +56,9 @@ const sendFellowship = async ($: $): Promise<void> => {
 
   await update($, setOut, () => '')
 
-  const ran = await $.command.run({ command: 'fellowship', args: how === 'auto' ? '--auto' : '' }).catch((error: unknown) => ({ text: `The Fellowship could not be set out: ${error instanceof Error ? error.message : String(error)}` }))
+  // The plan in force, by its issue: quests on other issues may be under way beside it
+  const ref = (await current($))?.ref ?? ''
+  const ran = await $.command.run({ command: 'fellowship', args: `set out ${ref}${how === 'auto' ? ' --auto' : ''}`.trim() }).catch((error: unknown) => ({ text: `The Fellowship could not be set out: ${error instanceof Error ? error.message : String(error)}` }))
 
   await update($, note, () => ran.text ?? '')
 }

@@ -444,7 +444,7 @@ describe('anduril', () => {
     const pane = await mountPane($)
     await pane.press({ key: 'refresh' })
 
-    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree })
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'fellowship:gimli', cwd: tree } as never)
     await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
     await $.tool.call({ tool: 'Bash', command: 'narsil ls', agentId: 'gimli-1' } as never)
 

@@ -1,5 +1,0 @@
-{
-  "name": "bombadil-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "bombadil", "source": "./" }]
-}
