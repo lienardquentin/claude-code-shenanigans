@@ -558,6 +558,8 @@ export type MountdoomRelic = {
   /** The pull request's URL: kept by a mod, or found on the forge by its branch; empty when none is known. */
   pr: string
   keepers: MountdoomKeeper[]
+  /** Every quest the Fellowship keeps on the branch, by its ref: an errand and the review of its pull request share one. */
+  quests?: string[]
   /** Whether the forge says it is merged, when last looked. */
   isMerged: boolean
 }

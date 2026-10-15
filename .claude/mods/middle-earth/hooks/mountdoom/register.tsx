@@ -106,8 +106,13 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
   const said: string[] = []
   const root = await rootOf($)
 
+  // A worktree an earlier cast removed already is gone: what git still says of it is pruned
+  const isTreeGone = relic.tree !== '' && relic.tree !== root && !(await $.fs.exists(relic.tree).catch(() => true))
+
+  if (isTreeGone) await git($, ['worktree', 'prune'])
+
   // The worktree the Fellowship built it in goes first: its branch can be deleted only once no worktree holds it
-  if (relic.tree !== '' && relic.tree !== root) {
+  if (relic.tree !== '' && relic.tree !== root && !isTreeGone) {
     // What the mods keep there (Andúril's builds, the Argonath's trees) is none of the quest's work
     if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain', ...UNMODDED])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
 
@@ -150,7 +155,13 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
 
   const forgotten: string[] = []
 
-  for (const keeper of relic.keepers) if (await forgets($, keeper, relic)) forgotten.push(keeper)
+  for (const keeper of relic.keepers) {
+    // Every quest on the branch is forgotten: an errand and the review of its pull request alike
+    const refs = keeper === 'fellowship' ? (relic.quests ?? [relic.ref]) : [relic.ref]
+    const forgot = await Promise.all(refs.map(ref => forgets($, keeper, { ...relic, ref })))
+
+    if (forgot.some(one => one)) forgotten.push(keeper)
+  }
 
   // The plan of the issue, and what the Mirror showed of it: of this issue alone
   if (isIssueRef(relic.ref) && (await forgets($, 'elrond', relic))) forgotten.push('elrond')

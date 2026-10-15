@@ -11,6 +11,7 @@ const REF = 'github:lienardquentin/claude-code-shenanigans#34'
 const BRANCH = 'fellowship/34-gondor-quench-a-single-beacon'
 const PR = 'https://github.com/lienardquentin/claude-code-shenanigans/pull/40'
 const TREE = `${CWD}/.fellowship/trees/fellowship-34-gondor-quench-a-single-beacon`
+const REVIEW_REF = 'review:lienardquentin/claude-code-shenanigans#40'
 
 describe('the relics', () => {
   test('are one a branch: a quest and the gate open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
@@ -21,8 +22,8 @@ describe('the relics', () => {
     ])
 
     expect(relics).toEqual([
-      { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['blackgate', 'fellowship'], isMerged: false },
-      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['fellowship'], isMerged: false },
+      { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['blackgate', 'fellowship'], quests: [REF], isMerged: false },
+      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['fellowship'], quests: ['github:o/r#35'], isMerged: false },
     ])
   })
 
@@ -40,7 +41,7 @@ const quest = (tree: string, pr = PR) => ({ kind: 'plan', ref: REF, url: '', tit
 const PLAN = { ref: REF, url: '', title: 'Quench a single beacon', summary: '', approach: '', tasks: [], questions: [], decided: [], risks: [], accepted: [], at: 0 }
 
 /** Stands for the machine and the forge beneath the mod, and the store the Fellowship and Elrond keep their work in. */
-const machine = (on: On, kept: { tree?: string; isPlanned?: boolean } = {}) => {
+const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?: boolean } = {}) => {
   const world = {
     tools: [] as string[],
     ran: [] as string[],
@@ -50,12 +51,17 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean } = {}) => {
     dirty: '',
     // What the quest's worktree holds uncommitted
     treeDirty: '',
+    isTreeGone: false,
     state: 'OPEN',
     toasts: [] as string[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
 
-  mock.store(on, { [`quest:${REF}`]: quest(kept.tree ?? ''), ...(kept.isPlanned !== false ? { [`plan:${REF}`]: PLAN } : {}) })
+  // A review of the same pull request, answered by the Fellowship on the same branch
+  const review = { ...quest(kept.tree ?? ''), kind: 'review', ref: REVIEW_REF }
+  mock.store(on, { [`quest:${REF}`]: quest(kept.tree ?? ''), ...(kept.isReviewed === true ? { [`quest:${REVIEW_REF}`]: review } : {}), ...(kept.isPlanned !== false ? { [`plan:${REF}`]: PLAN } : {}) })
+  // Whether the quest's worktree is gone already, removed by an earlier cast
+  on('fs.exists', (_, e) => ({ value: !(world.isTreeGone && (e as unknown as { path: string }).path === TREE) }) as never)
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
@@ -188,6 +194,21 @@ describe('mountdoom', () => {
     expect(await casting($, world)).toMatch(/is cast into the fire: its worktree removed/)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeGreaterThan(-1)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeLessThan(world.ran.indexOf(`git worktree remove --force ${TREE}`))
+  })
+
+  test('casts every quest kept on the branch, and takes a worktree already gone for removed', async ($, on) => {
+    const world = machine(on, { tree: TREE, isReviewed: true })
+    world.state = 'MERGED'
+    world.branch = 'main'
+    world.isTreeGone = true
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(/is cast into the fire/)
+    expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
+    // Neither quest on the branch is kept any more
+    const kept = String((await $.tool.call({ tool: 'mcp__middle-earth__relics' } as never)).result)
+    expect(kept).not.toContain(REF)
+    expect(kept).not.toContain(REVIEW_REF)
   })
 
   test('counts as forgetting only a part that kept something of it', async ($, on) => {
