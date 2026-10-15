@@ -93,7 +93,8 @@ describe('the gate', () => {
 
 /** Stands for the machine, the forge, the Mouth of Sauron and the engine beneath the mod; `kept` is what the store holds at the start. */
 const machine = (on: On, kept: Record<string, unknown> = {}) => {
-  const world = { tools: [] as string[], ran: [] as string[], toasts: [] as string[], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  // What the Mouth of Sauron answers, and each prompt it was sent
+  const world = { tools: [] as string[], ran: [] as string[], toasts: [] as string[], weights: WEIGHTS, weighed: [] as string[], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   mock.store(on, kept)
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -109,7 +110,11 @@ const machine = (on: On, kept: Record<string, unknown> = {}) => {
 
     return answer('')
   })
-  on('model.complete', () => ({ value: { isAnswered: true, text: WEIGHTS, usage: { input_tokens: 1, output_tokens: 1 } } }) as never)
+  on('model.complete', (_, e) => {
+    world.weighed.push(String((e as unknown as { prompt?: unknown }).prompt ?? ''))
+
+    return { value: { isAnswered: true, text: world.weights, usage: { input_tokens: 1, output_tokens: 1 } } } as never
+  })
   on('command.register', () => ({ value: undefined }) as never)
   on('tool.register', (_, e) => {
     world.tools.push(String((e as unknown as { name: string }).name))
@@ -144,6 +149,18 @@ describe('blackgate', () => {
     // Nothing that reaches the forge is offered to Claude
     expect(world.tools).toEqual(expect.arrayContaining(['open', 'march', 'gate']))
     expect(world.tools.some(tool => /push|sail|forget/.test(tool))).toBe(false)
+  })
+
+  test('leaves out a comment that asks nothing more: a question answered with no, a review\'s summary, a comment taken back', async ($, on) => {
+    const world = machine(on)
+    // The Mouth of Sauron finds Eowyn's comment settled: nothing is left to do of it
+    world.weights = WEIGHTS.replace('{ "id": "R2", "weight": "standard", "kind": "change" }', '{ "id": "R2", "weight": "light", "kind": "settled" }')
+    await $.session.start({} as never)
+
+    expect(await call($, 'mcp__middle-earth__open', { pr: '#40' })).toMatch(/: 1 comment asks for a change, 1 is a question for the person, 1 is settled\./)
+    expect(await call($, 'mcp__middle-earth__gate')).not.toContain('Please log the 409 too.')
+    // It is told how a thread's replies settle what its first comment asked
+    expect(world.weighed[0]).toMatch(/thread's replies[\s\S]*a question someone answers by deciding for the change[\s\S]*one answered against it[\s\S]*is settled/)
   })
 
   test('hands the comments that ask for a change to the Fellowship as a review, and keeps the questions for the person', async ($, on) => {
