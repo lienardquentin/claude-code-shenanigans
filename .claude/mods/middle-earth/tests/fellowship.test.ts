@@ -210,6 +210,9 @@ describe('a member', () => {
     expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/^The issue: github:.*#21, "Quench answers 404 for an unknown beacon"[\s\S]*<issue>\nIt answers 500 today\.\n\n--- faramir:\nSeen on amon-din too\.\n<\/issue>[\s\S]*You may hand it back if it is not one/)
     expect(handBackOf('I looked.\nHanded back: it needs a decision on 410.')).toBe('it needs a decision on 410.')
     expect(handBackOf('Done.')).toBeUndefined()
+    // A builder that says it hands nothing back hands nothing back
+    for (const none of ['Handed back: none.', 'Handed back: none. The request was a plain rename.', 'Handed back: Nothing.', 'Handed back: n/a', 'Handed back: no.', 'Handed back:']) expect(handBackOf(`Renamed it.\n${none}`)).toBeUndefined()
+    expect(handBackOf('Handed back: no test can show this without a live beacon.')).toBe('no test can show this without a live beacon.')
   })
 
   test('commits nothing, moves no branch, stays in its worktree, and leaves the mods\' folders alone', () => {

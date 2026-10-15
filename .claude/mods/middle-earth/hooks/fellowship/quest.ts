@@ -47,8 +47,10 @@ export const HAND_BACK = 'Handed back:'
 /** The line of an answer that hands its task back, without its marker; nothing when it does not. */
 export const handBackOf = (answer: string): string | undefined => {
   const line = answer.split('\n').find(one => one.trim().startsWith(HAND_BACK))
+  const why = line?.trim().slice(HAND_BACK.length).trim()
 
-  return line === undefined ? undefined : line.trim().slice(HAND_BACK.length).trim()
+  // A member that says it hands nothing back ("Handed back: none.") hands nothing back
+  return why === undefined || why === '' || /^(none|nothing|n\/a)\b|^no[.!]?$/i.test(why) ? undefined : why
 }
 
 const WEIGHT_RUNG: Record<FellowshipWeight, number> = { light: 0, standard: 1, heavy: 2 }
