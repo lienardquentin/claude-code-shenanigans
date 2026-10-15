@@ -381,6 +381,8 @@ const machine = (on: On) => {
     dirty: '',
     head: 'c0ffee1aaaa',
     commits: 0,
+    // Commits rewritten since they were recorded (amended), each with the sha its branch holds now
+    rewritten: {} as Record<string, string>,
     // What the Fellowship sent a member back with, by its id
     sent: [] as { agentId: string; text: string }[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
@@ -464,6 +466,8 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
+    if (line.startsWith('git merge-base --is-ancestor ')) return answer('', (e.argv[3] ?? '') in world.rewritten ? 1 : 0)
+    if (line.startsWith('git log -n 1 --format=%H --fixed-strings --grep=')) return answer(`${Object.values(world.rewritten)[0] ?? ''}\n`)
 
     // The forge
     if (e.argv[0] === 'gh' && e.argv[1] === 'issue') return answer(JSON.stringify({ number: 21, title: world.issue.title, body: world.issue.body, url: world.issue.url, state: 'OPEN', labels: [], comments: world.issue.comments.map(one => ({ author: { login: one.author }, body: one.body })) }))
@@ -1159,6 +1163,9 @@ describe('a review handed over by the Black Gate', () => {
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*\? 2\. Why answer seconds and not the timestamp itself\?.*whether to answer seconds or a timestamp/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
+    // The first answer was amended by hand since it was committed: its reply names the commit its branch holds
+    world.rewritten = { c0ffee2aaaa: 'feedbee1234567' }
+
     await $.command.run({ command: 'fellowship', args: 'sail' } as never)
     await settle($, world)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
@@ -1169,7 +1176,7 @@ describe('a review handed over by the Black Gate', () => {
     // one handed back is told why, and left open for the person
     const threads = world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))
     expect(threads).toEqual([
-      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in c0ffee2 by Frodo\.$/),
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in feedbee by Frodo\.$/),
       expect.stringMatching(/resolveReviewThread.* -f id=r1$/),
       expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r2 -f body=Handed back to the author: whether to answer seconds or a timestamp is the author's call\.$/),
     ])

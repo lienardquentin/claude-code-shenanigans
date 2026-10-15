@@ -756,9 +756,12 @@ async function abandon($: $, ref: string): Promise<string> {
   return said.join(' ')
 }
 
-/** A commit as its branch holds it: the one recorded, else, where it was rewritten since, the one that names its comment. */
+/**
+ * A commit as its branch holds it: the one recorded, while the branch holds it, else, where it was rewritten since (an
+ * amended commit lives on outside its branch), the one that names its comment.
+ */
 async function landedSha($: $, tree: string, sha: string, task: FellowshipTask): Promise<string> {
-  if (sha !== '' && (await git($, ['cat-file', '-e', `${sha}^{commit}`], tree)).ok) return sha
+  if (sha !== '' && (await git($, ['merge-base', '--is-ancestor', sha, 'HEAD'], tree)).ok) return sha
   if (task.url === undefined || task.url === '') return sha
 
   const found = (await git($, ['log', '-n', '1', '--format=%H', '--fixed-strings', `--grep=${task.url}`], tree)).out.split('\n')[0] ?? ''
