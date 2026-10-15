@@ -5,21 +5,10 @@ import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskSt
 import { HOW_TO, MARK, isChanging, acceptRisk, askRisk, isPlanPath, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, COUNCIL_SYSTEM, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
 import type { Issue, Origin } from './council'
 import { badge } from './kit/badge'
+import { isMergedFrom, rootOf } from './kit/flow'
 import { paneView } from './kit/pane-text'
 
 type $ = EngineInterface
-
-/**
- * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself.
- */
-const rootOf = async ($: $): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
-  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
-  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
-
-  return found !== '' ? found : cwd
-}
 
 const PANE = 'elrond'
 const TITLE = 'Elrond'
@@ -184,28 +173,6 @@ const current = async ($: $): Promise<ElrondPlan | null> => {
   const held = await read($, plan)
 
   return held === null ? null : tidyPlan(held)
-}
-
-/**
- * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
- * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
- */
-const isMergedFrom = async ($: $, url: string, branch?: string): Promise<boolean> => {
-  if (!/^https?:\/\//.test(url)) return false
-
-  const isGithub = /\/\/github\.com\//.test(url)
-  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
-
-  if (ran === undefined || ran.exitCode !== 0) return false
-
-  try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-    const from = isGithub ? held.headRefName : held.source_branch
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
-  } catch {
-    return false
-  }
 }
 
 /** Forgets the plan of an issue whose pull request is merged: kept across sessions, its file, and the plan in force. */

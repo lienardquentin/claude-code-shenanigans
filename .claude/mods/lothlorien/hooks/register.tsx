@@ -6,6 +6,7 @@ import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYS
 import { badge } from './kit/badge'
 import type { Tone } from './kit/badge'
 import { paneView } from './kit/pane-text'
+import { errorText, rootOf } from './kit/flow'
 
 type $ = EngineInterface
 
@@ -66,20 +67,6 @@ const TOOLS = [
 ] as const
 
 const STATE_TONE: Record<LothlorienState, Tone> = { gazing: 'info', shown: 'success', empty: 'neutral', clouded: 'danger' }
-
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-/**
- * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it, and a status names paths from the top while a diff and a read take them from where they run).
- */
-const rootOf = async ($: $): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
-  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
-  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
-
-  return found !== '' ? found : cwd
-}
 
 const git = async ($: $, args: readonly string[]): Promise<{ ok: boolean; out: string }> => {
   const ran = await $.process.run(['git', ...args], { cwd: await rootOf($) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))

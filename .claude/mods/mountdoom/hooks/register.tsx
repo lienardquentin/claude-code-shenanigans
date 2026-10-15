@@ -5,20 +5,9 @@ import type { MountdoomRelic } from '../types'
 import { HOW_TO, KEEPERS, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
+import { ask, errorText, isMergedFrom, rootOf } from './kit/flow'
 
 type $ = EngineInterface
-
-/**
- * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself.
- */
-const rootOf = async ($: $): Promise<string> => {
-  const cwd = (await $.session.cwd()).replace(/\/+$/, '')
-  const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
-  const found = top?.exitCode === 0 ? top.stdout.trim() : ''
-
-  return found !== '' ? found : cwd
-}
 
 const PANE = 'mountdoom'
 const TITLE = 'Mount Doom'
@@ -47,18 +36,6 @@ const TOOLS = [
   },
 ] as const
 
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-const ask = async ($: $, server: string, tool: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
-  try {
-    const got = await $.mcp.call(server, tool, args)
-
-    return { text: got.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n'), isError: got.isError }
-  } catch (error) {
-    return { text: `${server} did not answer ${tool}: ${errorText(error)}`, isError: true }
-  }
-}
-
 /** Has a mod forget what it keeps of a relic, and says whether it did, as the mod answers it in JSON. */
 const forgets = async ($: $, keeper: string, args: Record<string, unknown>): Promise<boolean> => {
   const got = await ask($, keeper, 'forget', { ...args, json: true })
@@ -77,24 +54,6 @@ const run = async ($: $, argv: readonly string[]): Promise<{ ok: boolean; out: s
 }
 
 const git = ($: $, args: readonly string[]) => run($, ['git', ...args])
-
-/** Whether the forge says a pull request is merged from a branch. */
-const isMergedFrom = async ($: $, url: string, branch: string): Promise<boolean> => {
-  if (!/^https?:\/\//.test(url)) return false
-
-  const isGithub = /\/\/github\.com\//.test(url)
-  const got = await run($, isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'])
-
-  if (!got.ok) return false
-
-  try {
-    const held = JSON.parse(got.out) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (isGithub ? held.headRefName : held.source_branch) === branch
-  } catch {
-    return false
-  }
-}
 
 /** Looks at what the mods keep, and asks the forge whether each is merged; tells the person of each newly merged once. */
 const watch = async ($: $): Promise<MountdoomRelic[]> => {
