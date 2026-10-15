@@ -44,6 +44,39 @@ def test_lighting_a_beacon_names_the_next_and_shows_in_the_list(client):
     assert {b["beacon"] for b in client.get("/beacons").json() if b["lit"]} == {"amon-din"}
 
 
+# sting: gondor GET /beacons/amon-din
+def test_one_beacon_answers_its_own_state_lit_or_not(client):
+    assert client.get("/beacons/amon-din").json() == {"beacon": "amon-din", "lit": False}
+
+    client.post("/beacons/amon-din/light")
+
+    assert client.get("/beacons/amon-din").json() == {"beacon": "amon-din", "lit": True}
+    assert client.get("/beacons/eilenach").json() == {"beacon": "eilenach", "lit": False}
+
+    client.post("/beacons/quench")
+
+    assert client.get("/beacons/amon-din").json() == {"beacon": "amon-din", "lit": False}
+
+
+def test_asking_after_an_unknown_beacon_is_a_404(client):
+    answer = client.get("/beacons/mount-doom")
+
+    assert answer.status_code == 404
+    assert "mount-doom" in answer.json()["detail"]
+
+
+def test_asking_after_one_beacon_with_the_archives_shut_is_a_503(client, monkeypatch):
+    async def shut() -> set[str]:
+        raise archive.Shut("the archives are shut, and none can say what burns")
+
+    monkeypatch.setattr(archive, "burning", shut)
+
+    answer = client.get("/beacons/amon-din")
+
+    assert answer.status_code == 503
+    assert answer.json() == {"detail": "the archives are shut, and none can say what burns"}
+
+
 def test_every_beacon_but_the_last_hands_on_to_the_next():
     chain = realm.BEACONS
 
