@@ -10,7 +10,7 @@ import { paneView } from '../kit/pane-text'
 import { errorText, rootOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
-import { GALADRIEL, GALADRIEL_SWIFT, agentOf, remember, treesOf, typeOf } from '../agents'
+import { GALADRIEL, GALADRIEL_SWIFT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -133,8 +133,7 @@ async function gaze($: $, purpose: string, by: LothlorienVision['by'], place: Pl
 
   const head = (await git($, place, ['rev-parse', 'HEAD'])).out
   // In a quest's worktree she writes her tests there
-  const started = await $.agent
-    .spawn({ subagentType: weight === 'heavy' ? AGENT_TYPE : SWIFT_TYPE, description: 'Galadriel gazes into the Mirror', prompt: gazePrompt(purpose), ...(place.isHome ? {} : { cwd: place.tree }) })
+  const started = await spawnIn($, { subagentType: weight === 'heavy' ? AGENT_TYPE : SWIFT_TYPE, description: 'Galadriel gazes into the Mirror', prompt: gazePrompt(purpose), ...(place.isHome ? {} : { cwd: place.tree }) })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) return `Galadriel could not be sent: ${started.deny}`

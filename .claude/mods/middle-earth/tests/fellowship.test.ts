@@ -902,15 +902,13 @@ describe('fellowship', () => {
     expect(world.spawned).toHaveLength(1)
   })
 
-  test('sets out from /fellowship --auto through the clock, which reads the plan outside the command\'s hooks', async ($, on) => {
+  test('sets out from /fellowship --auto in the command, where the member it sends is held', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    const before = world.ran.length
-
     expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the Elrond plan, going on by itself/)
-    expect(world.ran).toHaveLength(before)
-    await settle($, world)
+    // The member is out before the command answers: no clock sent it
+    expect(world.spawned).toHaveLength(1)
 
     expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(/sets out on github:.*#12/)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo' })
@@ -960,6 +958,29 @@ describe('fellowship', () => {
     expect((await $.command.run({ command: 'fellowship', args: `halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
     expect((await $.command.run({ command: 'fellowship', args: 'halt #99' } as never)).text).toMatch(/No quest on #99 is under way/)
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/#12 \(plan\)[\s\S]*―――[\s\S]*#14 \(plan\)/)
+  })
+})
+
+describe('an agent the Fellowship sends', () => {
+  // The engine holds an agent to the mod's hooks only when it is sent from one: from the clock, or a press, it would
+  // run unheld, in the person's checkout. A press asks; Claude is asked to call for it; the member goes out held
+  test('is sent from a hook alone: a press waits, Claude is asked once to call for it, and the member goes out held in its worktree', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'fellowship' })
+
+    await pane.press({ key: 'set-out' })
+    for (let at = 0; at < 4; at += 1) await world.clock.advance(600)
+
+    expect(world.spawned).toEqual([])
+    expect(world.submitted.filter(text => text.includes('call mcp__middle-earth__pump'))).toEqual([expect.stringMatching(/a Fellowship quest waits to send its next agent/)])
+
+    await call($, 'mcp__middle-earth__pump')
+
+    expect(world.spawned).toHaveLength(1)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', cwd: TREE })
+    expect(await $.tool.call({ tool: 'Bash', command: 'git commit -am done', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/Fellowship commits/) })
+    expect(await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
   })
 })
 

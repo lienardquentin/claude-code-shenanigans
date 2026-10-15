@@ -214,11 +214,8 @@ export function registerBlackgate(on: On): void {
 
     await $.ui.open({ id: PANE, title: TITLE })
 
-    if (verb === 'march') {
-      await update($, wanted, () => ({ what: words.includes('--auto') ? ('hand auto' as const) : ('hand' as const) }))
-
-      return { text: 'The comments are handed to the Fellowship: the pane says how it went.' }
-    }
+    // Handed over here, where the member the Fellowship sends on the first comment is held
+    if (verb === 'march') return { text: await alone($, () => hand($, words.includes('--auto'))) }
 
     if (verb === 'close') {
       if (held?.phase === 'weighing') return { text: 'The gate weighs the comments: close it once it settles.' }

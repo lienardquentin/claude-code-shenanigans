@@ -211,6 +211,88 @@ export async function registerAgents($: $): Promise<void> {
   }
 }
 
+// The engine holds an agent the mod sends to the mod's hooks (the guard, its tools, its turn's end) only when it is
+// spawned inside one of them, awaited, and from none the agent needs: one spawned from the clock, or after its hook
+// returned, runs with every hook of the mod skipped. And it drops the `cwd` a spawn names: the mod's own `agent.spawn`
+// hook sets it again. So the mod asks, before it sends one, whether it stands in a hook: its own tool, called through
+// the engine, is answered from one, and is not from the clock.
+
+/** The tool the mod asks itself through, to know whether it stands in a hook. */
+export const FRAME_TOOL = {
+  name: 'frame',
+  description: 'Internal to the Middle-earth mod: answers whether a call stands in one of its hooks. Never call it.',
+  inputSchema: { type: 'object', properties: {} },
+} as const
+
+/** What the frame tool answers from a hook. */
+export const FRAMED = 'framed'
+
+/** Whether the mod stands in one of its hooks now, where an agent it sends is held. */
+export async function inFrame($: $): Promise<boolean> {
+  const answered = await $.tool.call({ tool: toolOf(FRAME_TOOL.name) } as never).catch(() => undefined)
+
+  return (answered as { result?: unknown } | undefined)?.result === FRAMED
+}
+
+/** The tool Claude is asked to call when the mod has work it can do in a hook alone, and no hook comes by itself. */
+export const PUMP_TOOL = {
+  name: 'pump',
+  description: 'Does what the Middle-earth mod was asked to do outside its hooks (a pane press, a clock), where the agents it sends are held. Call it when the mod asks you to.',
+  inputSchema: { type: 'object', properties: {} },
+} as const
+
+// Whether Claude was asked to call the pump tool, and has not yet: asked once, however often the clock looks
+let isAskedToPump = false
+
+/**
+ * Asks Claude, once until it is done, to call the pump tool: what was asked outside a hook (a press, the clock) waits
+ * for one, and none may come by itself while no agent is out.
+ */
+export async function askToPump($: $, what: string): Promise<void> {
+  if (isAskedToPump) return
+
+  isAskedToPump = true
+  await $.prompt.submit({ text: `The Middle-earth mod: ${what} It is done where the agents it sends are held: call ${toolOf(PUMP_TOOL.name)}.` }).catch(() => {
+    isAskedToPump = false
+  })
+}
+
+/** The mod has pumped in a hook: what was waiting is done, and Claude may be asked again. */
+export const pumped = (): void => {
+  isAskedToPump = false
+}
+
+// The folder each spawn asked to run in, by its prompt, until the mod's `agent.spawn` hook sets it
+const cwds = new Map<string, string>()
+
+/** The folder a spawn the mod made asked to run in, taken once; nothing for one it named none for. */
+export const cwdOf = (prompt: string): string | undefined => {
+  const cwd = cwds.get(prompt)
+
+  cwds.delete(prompt)
+
+  return cwd
+}
+
+type Spawn = Parameters<$['agent']['spawn']>[0]
+type Spawned = Awaited<ReturnType<$['agent']['spawn']>>
+
+/**
+ * Sends an agent of the mod's, in a folder of its own when one is named; refused, and nothing sent, where the mod stands
+ * in none of its hooks, as such an agent would run unheld.
+ */
+export async function spawnIn($: $, spawn: Spawn): Promise<Spawned> {
+  if (!(await inFrame($))) return { deny: 'the mod stands in none of its hooks, where the agent would run unheld: it is sent from the next one' } as Spawned
+
+  if (spawn.cwd !== undefined) cwds.set(spawn.prompt, spawn.cwd)
+
+  try {
+    return await $.agent.spawn(spawn)
+  } finally {
+    cwds.delete(spawn.prompt)
+  }
+}
+
 /** The record as the state carries it across a reload: the module's own copy starts empty. */
 export async function recall($: $): Promise<void> {
   for (const [id, agent] of Object.entries(await read($, agents))) if (!known.has(id)) known.set(id, agent)
@@ -218,10 +300,11 @@ export async function recall($: $): Promise<void> {
 
 /**
  * An agent spawned in a folder of its own (a quest's worktree) is about that folder: what it asks of the mod is
- * answered there. One the mod sent is kept as it was sent, which this never overwrites.
+ * answered there, and one of the mod's types is held to its role from its first call, before its part keeps it as
+ * sent (a spawn may answer its sender no id). One the mod sent is kept as it was sent, which this never overwrites.
  */
-export async function spawned($: $, agentId: string | undefined, cwd: string | undefined): Promise<void> {
-  if (cwd !== undefined && agentId !== undefined && agentId !== '' && known.get(agentId) === undefined) await remember($, agentId, { role: 'other', root: await rootOf($), tree: cwd })
+export async function spawned($: $, agentId: string | undefined, cwd: string | undefined, type = ''): Promise<void> {
+  if (cwd !== undefined && agentId !== undefined && agentId !== '' && known.get(agentId) === undefined) await remember($, agentId, { role: roleOfType(type) ?? 'other', root: await rootOf($), tree: cwd })
 }
 
 /** The role of an agent: as the record holds it, else by the type the session lists it as; nothing for one not the mod's. */

@@ -403,6 +403,7 @@ describe('elrond', () => {
 
     await pane.press({ key: 'revise' })
     await world.clock.advance(600)
+    await call($, 'mcp__middle-earth__pump')
     const prompt = String(world.spawned[1]?.prompt)
     expect(prompt).toContain('<accepted-risks>\n- A log message has a typo\n- An old plain risk\n</accepted-risks>')
     expect(prompt).toContain('<risks-to-cover>\n- [high] Two quenches race in Postgres (mitigation offered: Use the DELETE rowcount)\n</risks-to-cover>')
@@ -451,10 +452,12 @@ describe('elrond', () => {
       expect(await call($, 'mcp__middle-earth__plan')).toContain('- Is an unlit beacon 0 or null?\n  → null\n- Which log level?\n  → info, as quench logs')
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/● 2 of 2 answered[\s\S]*✓ Q1  Is an unlit beacon 0 or null\?\s*→ null\s+\[change\][\s\S]*\[Revise the plan\]\*\s+the council plans again with 2 answers/)
 
-      // The press only asks: the session's clock convenes the council, outside the press
+      // The press only asks: outside a hook, where the council would sit unheld, Claude is asked to call for it, once
       await pane.press({ key: 'revise' })
-      expect(world.spawned).toHaveLength(1)
       await world.clock.advance(600)
+      expect(world.spawned).toHaveLength(1)
+      expect(world.submitted.filter(text => text.includes('call mcp__middle-earth__pump'))).toEqual([expect.stringMatching(/the council waits to sit on/)])
+      await call($, 'mcp__middle-earth__pump')
 
       expect(world.spawned).toHaveLength(2)
       expect(String(world.spawned[1]?.prompt)).toMatch(/<answers>\nQ: Is an unlit beacon 0 or null\?\nA: null\nQ: Which log level\?\nA: info, as quench logs\n<\/answers>$/)
@@ -474,6 +477,7 @@ describe('elrond', () => {
       await pane.input({ key: 'own-0', text: 'seconds' })
       await pane.press({ key: 'revise' })
       await world.clock.advance(600)
+      await call($, 'mcp__middle-earth__pump')
       expect(String(world.spawned[2]?.prompt)).toMatch(/<answers>\nQ: Is an unlit beacon 0 or null\?\nA: null\nQ: Which log level\?\nA: info, as quench logs\nQ: Seconds or minutes\?\nA: seconds\n<\/answers>$/)
 
       // A decision taken back is a question again, its answer offered first

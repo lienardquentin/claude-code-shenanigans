@@ -164,16 +164,15 @@ describe('blackgate', () => {
     expect(await call($, 'mcp__middle-earth__gate')).toMatch(/: handed\.\n2 comments ask for a change, handed to the Fellowship as review:.*#40[\s\S]*1 is a question for the person/)
   })
 
-  test('hands over from /blackgate march through the clock, and says when the Fellowship would not', async ($, on) => {
+  test('hands over from /blackgate march in the command, where the member sent is held, and says when the Fellowship would not', async ($, on) => {
     // The Fellowship is on that pull request already, as another kind of quest
     const world = machine(on, { [`quest:review:${REPO}#40`]: { kind: 'plan', ref: `review:${REPO}#40`, url: '', title: '', branch: 'fellowship/34-gondor-quench-a-single-beacon', base: 'main', tree: '', isAuto: false, phase: 'stuck', march: null, proof: '', proofLine: '', verdictLine: '', commits: [], pr: '', at: 0 } })
     await $.session.start({} as never)
     await call($, 'mcp__middle-earth__open')
 
-    expect((await $.command.run({ command: 'blackgate', args: 'march' } as never)).text).toMatch(/handed to the Fellowship: the pane says/)
+    expect((await $.command.run({ command: 'blackgate', args: 'march' } as never)).text).toMatch(/^The Fellowship did not take the comments up: The Fellowship is on review:.*#40 already, as a plan \(stuck\)/)
     await settle(world)
 
-    expect(world.toasts.at(-1)).toMatch(/^Black Gate: The Fellowship did not take the comments up: The Fellowship is on review:.*#40 already, as a plan \(stuck\)/)
     expect(await call($, 'mcp__middle-earth__gate')).toMatch(/: ready/)
   })
 })

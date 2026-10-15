@@ -8,7 +8,7 @@ import { badge } from '../kit/badge'
 import { isMergedFrom, rootOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
-import { COUNCIL, remember, typeOf } from '../agents'
+import { COUNCIL, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -48,6 +48,8 @@ async function tick($: $): Promise<void> {
   const ref = await read($, wanted)
 
   if (ref === '' || (await read($, council)) !== null) return
+  // The council is sent from a hook alone, where it is held: outside one, Claude is asked to call for it
+  if (!(await inFrame($))) return askToPump($, `the council waits to sit on ${ref}.`)
 
   await update($, wanted, () => '')
 
@@ -55,6 +57,11 @@ async function tick($: $): Promise<void> {
 
   // What it says in place of sitting is said in the pane
   if (!said.text.startsWith('The council sits')) await update($, note, () => said.text)
+}
+
+/** The council a press asked for, convened in the hook that calls it. */
+export async function pumpElrond($: $): Promise<void> {
+  await tick($)
 }
 
 // How often the clock looks for a council a press asked for
@@ -218,7 +225,7 @@ async function convene($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
     return { text: issue }
   }
 
-  const started = await $.agent.spawn({ subagentType: AGENT_TYPE, description: `Plan ${key}`, prompt: councilPrompt(key, issue, decided, planPath, { accepted, covered }) }).catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
+  const started = await spawnIn($, { subagentType: AGENT_TYPE, description: `Plan ${key}`, prompt: councilPrompt(key, issue, decided, planPath, { accepted, covered }) }).catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
   if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'council', root: cwd, tree: cwd, files: [planPath] })
 
@@ -455,8 +462,8 @@ export function registerElrond(on: On): void {
     const open = held.tasks.find(task => task.id === openId)
     const setState = (id: number, state: ElrondTaskState) => markTask($, id, state).then(() => undefined)
     const answer = (index: number, value: string) => keep($, answered(held, index, value))
-    // The council sits again with every answer and risk choice so far; the clock convenes it, outside the press
-    const revise = () => update($, wanted, () => held.ref)
+    // A press asks the council to sit again, convened here where it stands in a hook, else at the next
+    const revise = () => update($, wanted, () => held.ref).then(() => pumpElrond($))
     const carried = [
       ...(decidedOf(held).length > 0 ? [`${decidedOf(held).length} ${decidedOf(held).length === 1 ? 'answer' : 'answers'}`] : []),
       ...(held.accepted.length > 0 ? [`${held.accepted.length} accepted ${held.accepted.length === 1 ? 'risk' : 'risks'}`] : []),
