@@ -31,12 +31,12 @@ import {
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
-import { errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt } from '../flow'
+import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { remember, typeOf } from '../agents'
+import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
 import { gazeFor, mirrorIn } from '../lothlorien/register'
 import { judgementFor, proveFor, targetsKnown } from '../argonath/register'
@@ -46,8 +46,6 @@ type On = Parameters<Register>[0]
 
 const PANE = 'fellowship'
 const TITLE = 'Fellowship'
-// How many ticks of the clock pass between two looks at what a quest waits on: the statues, or the Mirror
-const LOOK_EVERY = 6
 // How often the clock looks for what a press, a command or a turn asked for
 const TICK_MS = 500
 // What is said while the statues judge a plan's whole branch
@@ -349,8 +347,12 @@ export async function takeReview($: $, given: unknown, isAuto: boolean): Promise
 
   const ref = pr.ref.startsWith('review:') ? pr.ref : `review:${pr.ref}`
   const spec: Spec = { kind: 'review', ref, url: typeof pr.url === 'string' ? pr.url : '', title: typeof pr.title === 'string' ? pr.title : '', branch: pr.branch, base: typeof pr.base === 'string' && pr.base !== '' ? pr.base : undefined, isAuto, tasks, pr: typeof pr.url === 'string' ? pr.url : '' }
+  const said = await begin($, spec, ownPlan(spec))
 
-  return begin($, spec, ownPlan(spec))
+  // The first comment's member is sent here when the Black Gate hands it over from a hook; from the clock, at the next
+  await pumpFellowship($, ref)
+
+  return said
 }
 
 /** Sends a member on a task: marked doing, chosen by the try and the task, and spawned in the quest's worktree. */
@@ -362,8 +364,7 @@ async function march($: $, held: FellowshipQuest, made: FellowshipPlan, task: Fe
 
   await mark($, held, task.id, 'doing')
 
-  const started = await $.agent
-    .spawn({ subagentType: typeOf(member), description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(held, made, task, member, retry, held.vision), cwd: held.tree })
+  const started = await spawnIn($, { subagentType: typeOf(member), description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(held, made, task, member, retry, held.vision), cwd: held.tree })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) {
@@ -638,7 +639,8 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   const by = MEMBERS[out.member].title
   const unproven = held.unproven ?? []
-  const dirty = await git($, ['status', '--porcelain'], held.tree)
+  // What the mods keep in the tree (Andúril's builds, the Argonath's trees) is none of the change
+  const dirty = await git($, ['status', '--porcelain', ...UNMODDED], held.tree)
   let sha = ''
 
   // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
@@ -652,7 +654,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
-    const added = await git($, ['add', '-A'], held.tree)
+    const added = await git($, ['add', '-A', ...UNMODDED], held.tree)
     const done = added.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : added
 
     if (!done.ok) {
@@ -666,7 +668,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   await mark($, held, task.id, 'done')
 
-  const after = await keep($, ref, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer }] }))
+  const after = await keep($, ref, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: was.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) }] }))
   const left = after === null ? made : await workOf($, after)
   const isArrived = typeof left !== 'string' && isAllDone(left)
   const said = `Task ${task.id} of ${ref}, "${task.title}", built by ${by}, passed the Argonath and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
@@ -684,7 +686,7 @@ async function resubmit($: $, ref: string): Promise<string> {
   if (held === null) return HOW_TO
   if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest on ${ref} is ${held.phase}.`
 
-  await keep($, ref, was => ({ ...was, phase: 'proving' }))
+  await keep($, ref, was => ({ ...was, phase: 'proving', march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
   await want($, ref, 'prove')
 
   return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
@@ -839,8 +841,6 @@ async function watchWard($: $, ref: string): Promise<void> {
 // The quests the clock is doing something for now: a proof takes minutes, and that quest's next ask waits for it while
 // the others go on. '' stands for setting a new quest out
 const busy = new Set<string>()
-// Ticks since what a quest waits on was last looked at
-let ticks = 0
 
 /** Does one thing asked of a quest, alone for that quest: what came of it is told as well as kept in the pane. */
 async function act($: $, asked: { ref: string; what: FellowshipWanted | 'look'; arg?: string }): Promise<void> {
@@ -878,27 +878,56 @@ async function act($: $, asked: { ref: string; what: FellowshipWanted | 'look'; 
   }
 }
 
-/** Does what a press, a command or a turn asked for, a quest at a time; and while a quest waits on the statues or the Mirror, looks now and then. */
-async function tick($: $): Promise<void> {
+// What may be done where the mod stands in none of its hooks (the clock): what sends no agent. Setting out places the
+// worktree and asks for the first task, which waits for a hook
+const UNHELD: readonly FellowshipWanted[] = ['set out', 'set out auto', 'errand', 'errand auto', 'abandon']
+
+/**
+ * Does what was asked of the quests, the first ask of each at a time, and answers how many it took: in a hook every
+ * one, as an agent sent there is held; from the clock only what sends none. `only` keeps to one quest's asks (and to
+ * setting out); `isLooking` also looks at each quest waiting on the statues or the Mirror, whose answer is in.
+ */
+async function drain($: $, isFramed: boolean, only?: string, isLooking = false): Promise<number> {
   // A press of Elrond's pane asks to set out on the plan it shows
   const fromElrond = await takeSetOut($)
 
   if (fromElrond !== undefined) await want($, '', fromElrond.isAuto ? 'set out auto' : 'set out', fromElrond.ref)
 
   const queue = await read($, wanted)
-  // The first ask of each quest the clock is not already busy with; the rest wait their turn
-  const taken = queue.filter((one, at) => !busy.has(one.ref) && queue.findIndex(other => other.ref === one.ref) === at)
+  const firsts = queue.filter((one, at) => queue.findIndex(other => other.ref === one.ref) === at)
+  const taken = firsts.filter(one => !busy.has(one.ref) && (isFramed || UNHELD.includes(one.what)) && (only === undefined || one.ref === only || one.ref === ''))
   const isSame = (one: (typeof queue)[number], other: (typeof queue)[number]) => one.ref === other.ref && one.what === other.what && one.arg === other.arg
 
   if (taken.length > 0) await update($, wanted, was => was.filter((one, at) => !taken.some(other => isSame(one, other) && was.findIndex(first => isSame(first, other)) === at)))
-  for (const one of taken) void act($, one)
 
-  ticks += 1
-  if (ticks % LOOK_EVERY !== 0) return
+  const looked = isFramed && isLooking ? Object.values(await read($, quests)).filter(held => !busy.has(held.ref) && (only === undefined || held.ref === only) && (held.phase === 'judging' || held.phase === 'gazing' || held.phase === 'warding')) : []
 
-  for (const held of Object.values(await read($, quests))) {
-    if (!busy.has(held.ref) && (held.phase === 'judging' || held.phase === 'gazing' || held.phase === 'warding')) void act($, { ref: held.ref, what: 'look' })
+  await Promise.all([...taken.map(one => act($, one)), ...looked.map(held => act($, { ref: held.ref, what: 'look' }))])
+
+  return taken.length
+}
+
+/** The clock does what sends no agent: the rest waits for a hook. */
+async function tick($: $): Promise<void> {
+  await drain($, false)
+
+  if ((await read($, wanted)).length > 0) await askToPump($, 'a Fellowship quest waits to send its next agent.')
+}
+
+/**
+ * Does what was asked of the quests, in the hook that calls it: where it stands in one, a member, the statues or the
+ * Mirror it sends are held. Each ask may ask the next (setting out asks for the first task, a commit for the next), so
+ * it goes on until none is left; a quest waiting on the statues or the Mirror is looked at first.
+ */
+export async function pumpFellowship($: $, only?: string): Promise<void> {
+  const isFramed = await inFrame($)
+
+  for (let round = 0; round < 8; round += 1) {
+    if ((await drain($, isFramed, only, round === 0)) === 0 && round > 0) break
   }
+
+  // Outside a hook (a press, the clock), what would send an agent waits: Claude is asked to call for it
+  if (!isFramed && (await read($, wanted)).length > 0) await askToPump($, 'a Fellowship quest waits to send its next agent.')
 }
 
 /** Runs a call that is not the clock's for a quest, holding the clock off that quest. */
@@ -968,7 +997,7 @@ export async function endedFellowship($: $, e: TurnEnded): Promise<void> {
     await say($, held.ref, `${title} on task ${out.taskId} ${e.isAborted ? 'was interrupted' : e.reason === 'refusal' ? 'refused' : 'ended on an API error'}: send it again from the pane.`)
   } else if (handed !== undefined && held.kind === 'review') {
     // A comment that asks something only the person can answer is theirs, and the quest goes on to the next
-    const isClean = (await git($, ['status', '--porcelain'], held.tree)).out === ''
+    const isClean = (await git($, ['status', '--porcelain', ...UNMODDED], held.tree)).out === ''
 
     await keep($, held.ref, was => ({ ...was, phase: isClean ? 'ready' : 'stuck', march: isClean ? null : out }))
     await mark($, held, out.taskId, isClean ? 'asked' : 'doing', handed)
@@ -1007,13 +1036,23 @@ export function registerFellowship(on: On): void {
   on('tool.call', { tool: 'mcp__middle-earth__set_out' }, async ($, e) => {
     const given = e as unknown as { auto?: unknown; ref?: unknown }
 
-    return { result: await alone($, '', () => setOut($, given.auto === true, typeof given.ref === 'string' ? given.ref : '')) }
+    const said = await alone($, '', () => setOut($, given.auto === true, typeof given.ref === 'string' ? given.ref : ''))
+
+    // The first task is sent here, where its member is held
+    await pumpFellowship($)
+
+    return { result: said }
   })
 
   on('tool.call', { tool: 'mcp__middle-earth__errand' }, async ($, e) => {
     const given = e as unknown as { issue?: unknown; auto?: unknown }
 
-    return { result: await alone($, '', () => errand($, String(given.issue ?? ''), given.auto === true)) }
+    const said = await alone($, '', () => errand($, String(given.issue ?? ''), given.auto === true))
+
+    // The errand's member is sent here, where it is held
+    await pumpFellowship($)
+
+    return { result: said }
   })
 
   on('tool.call', { tool: 'mcp__middle-earth__quest' }, async ($, e) => {
@@ -1040,8 +1079,8 @@ export function registerFellowship(on: On): void {
   })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
-  // /fellowship sail or the pane, or opted into it up front with --auto. Setting out, sailing and abandoning take a while:
-  // the command answers at once, and the clock makes them
+  // /fellowship sail or the pane, or opted into it up front with --auto. What sends an agent is done in the command,
+  // where the agent is held: it answers once the agent is out (sailing, once the pull request is open)
   on('command.run', { command: 'fellowship' }, async ($, e) => {
     const words = e.args.trim().split(/\s+/).filter(word => word !== '')
     // `auto` is taken as --auto: no issue is named so, and /fellowship set out auto once set out on an issue "auto"
@@ -1055,6 +1094,7 @@ export function registerFellowship(on: On): void {
     if (verb === 'errand') {
       if (named === '') return { text: 'Name the issue: /fellowship errand <issue> (--auto opens its pull request by itself).' }
       await want($, '', isAuto ? 'errand auto' : 'errand', plain.slice(1).join(' '))
+      await pumpFellowship($)
 
       return { text: `The Fellowship sets out on ${named} as an errand: the pane says how it went.` }
     }
@@ -1067,6 +1107,7 @@ export function registerFellowship(on: On): void {
       if (all.length > 0 && !isAuto && verb === '') return { text: all.map(held => questLine(held, shown[held.ref] ?? null)).join('\n') }
 
       await want($, '', isAuto ? 'set out auto' : 'set out', verb === 'set' ? (plain[2] ?? '') : '')
+      await pumpFellowship($)
 
       return { text: `The Fellowship sets out on the Elrond plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
     }
@@ -1093,13 +1134,22 @@ export function registerFellowship(on: On): void {
     if (verb === 'next') {
       if (held.phase !== 'ready' && held.phase !== 'stuck') return { text: `The quest on ${held.ref} is ${held.phase}: no task is sent now.` }
       await want($, held.ref, 'next')
+      await pumpFellowship($, held.ref)
 
       return { text: `A member is sent on the next task of ${held.ref}.` }
     }
 
-    if (verb === 'commit') return { text: await resubmit($, held.ref) }
+    if (verb === 'commit') {
+      const said = await resubmit($, held.ref)
+
+      await pumpFellowship($, held.ref)
+
+      return { text: said }
+    }
+
     if (verb === 'sail') {
       await want($, held.ref, 'sail')
+      await pumpFellowship($, held.ref)
 
       return { text: `The quest on ${held.ref} makes ready to sail: the pane says how it went.` }
     }
@@ -1115,7 +1165,11 @@ export function registerFellowship(on: On): void {
     const said = await read($, notes)
     const doing = await read($, working)
     const queue = await read($, wanted)
-    const press = (ref: string, what: FellowshipWanted) => want($, ref, what)
+    // A press asks, then does it where it stands in a hook: where it does not, Claude is asked to call for it
+    const press = async (ref: string, what: FellowshipWanted) => {
+      await want($, ref, what)
+      await pumpFellowship($, ref === '' ? undefined : ref)
+    }
     const general = said[''] ?? ''
 
     if (held === null) {
@@ -1193,7 +1247,7 @@ export function registerFellowship(on: On): void {
             </Button>
           )}
           {held.phase === 'stuck' && out !== null && (
-            <Button key="commit" hotkey="c" onPress={() => resubmit($, held.ref).then(text => say($, held.ref, text))}>
+            <Button key="commit" hotkey="c" onPress={() => resubmit($, held.ref).then(text => say($, held.ref, text)).then(() => pumpFellowship($, held.ref))}>
               Put it before the Argonath
             </Button>
           )}

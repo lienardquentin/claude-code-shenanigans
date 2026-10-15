@@ -431,7 +431,7 @@ const machine = (on: On) => {
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${cwd === CWD ? world.branch : (world.worktrees.find(one => one.path === cwd)?.branch ?? '')}\n`)
-    if (line === 'git status --porcelain') return answer(cwd === CWD ? world.mine : world.dirty)
+    if (line === 'git status --porcelain' || line.startsWith('git status --porcelain -- ')) return answer(cwd === CWD ? world.mine : world.dirty)
     if (line === 'git worktree list --porcelain') return answer(world.worktrees.map(one => `worktree ${one.path}\nHEAD ${world.head}\nbranch refs/heads/${one.branch}\n`).join('\n'))
     if (line.startsWith('git worktree add')) {
       const isNew = e.argv[3] === '-b'
@@ -902,15 +902,13 @@ describe('fellowship', () => {
     expect(world.spawned).toHaveLength(1)
   })
 
-  test('sets out from /fellowship --auto through the clock, which reads the plan outside the command\'s hooks', async ($, on) => {
+  test('sets out from /fellowship --auto in the command, where the member it sends is held', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    const before = world.ran.length
-
     expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the Elrond plan, going on by itself/)
-    expect(world.ran).toHaveLength(before)
-    await settle($, world)
+    // The member is out before the command answers: no clock sent it
+    expect(world.spawned).toHaveLength(1)
 
     expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(/sets out on github:.*#12/)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo' })
@@ -963,6 +961,29 @@ describe('fellowship', () => {
   })
 })
 
+describe('an agent the Fellowship sends', () => {
+  // The engine holds an agent to the mod's hooks only when it is sent from one: from the clock, or a press, it would
+  // run unheld, in the person's checkout. A press asks; Claude is asked to call for it; the member goes out held
+  test('is sent from a hook alone: a press waits, Claude is asked once to call for it, and the member goes out held in its worktree', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'fellowship' })
+
+    await pane.press({ key: 'set-out' })
+    for (let at = 0; at < 4; at += 1) await world.clock.advance(600)
+
+    expect(world.spawned).toEqual([])
+    expect(world.submitted.filter(text => text.includes('call mcp__middle-earth__pump'))).toEqual([expect.stringMatching(/a Fellowship quest waits to send its next agent/)])
+
+    await call($, 'mcp__middle-earth__pump')
+
+    expect(world.spawned).toHaveLength(1)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', cwd: TREE })
+    expect(await $.tool.call({ tool: 'Bash', command: 'git commit -am done', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/Fellowship commits/) })
+    expect(await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
+  })
+})
+
 describe('an errand', () => {
   test('builds a small issue in one change in its worktree, and waits for the person\'s go to open its pull request', async ($, on) => {
     const world = machine(on)
@@ -985,6 +1006,8 @@ describe('an errand', () => {
     expect(world.statues[0]).toEqual(['isildur'])
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
     expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Gimli/)
+    // What the mods keep in the worktree (Andúril's builds, the Argonath's trees) is none of the change
+    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).elrond :(exclude).argonath :(exclude).anduril :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: arrived/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
@@ -992,7 +1015,8 @@ describe('an errand', () => {
     await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.judged).toHaveLength(1)
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The Argonath's proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).not.toMatch(/was written before/)
   })
 
   test('is handed back when it is no errand, for the council to plan', async ($, on) => {
@@ -1037,6 +1061,28 @@ describe('an errand', () => {
 
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
+  })
+
+  test('put before the Argonath by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    await start($, world)
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await settle($, world)
+
+    // It built in the person's checkout: stuck, and its account says so
+    world.dirty = ''
+    await ends($, 'gimli-1', 'The proof could not be made: the tools were unreachable.', world)
+    await settle($, world)
+
+    // The person brings the change into the worktree and puts it before the Argonath
+    world.dirty = ' M beacons/gondor/app.py\n'
+    await $.command.run({ command: 'fellowship', args: `commit ${ISSUE.ref}` } as never)
+    await settle($, world)
+    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await settle($, world)
+
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nGimli's account above was written before its change was proven: the person put it before the Argonath, whose proof says: every changed run is pinned\./)
   })
 })
 

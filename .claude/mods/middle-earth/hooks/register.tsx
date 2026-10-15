@@ -1,12 +1,12 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { MiddleEarthAgent } from '../types'
-import { agentOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, spawned } from './agents'
+import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
 import { rootOf } from './flow'
-import { argonathView, endedArgonath, registerArgonath, sectionOfArgonath, startArgonath } from './argonath/register'
+import { argonathView, endedArgonath, pumpArgonath, registerArgonath, sectionOfArgonath, startArgonath } from './argonath/register'
 import { blackgateView, registerBlackgate, startBlackgate } from './blackgate/register'
-import { councilFound, elrondView, endedElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
-import { endedFellowship, fellowshipView, memberFound, registerFellowship, sectionOfFellowship, startFellowship } from './fellowship/register'
+import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
+import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, startFellowship } from './fellowship/register'
 import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerLothlorien, sectionOfLothlorien, startLothlorien } from './lothlorien/register'
 import { mountdoomView, registerMountdoom, startMountdoom } from './mountdoom/register'
 import { carryStores } from './stores'
@@ -51,6 +51,17 @@ async function lost($: EngineInterface, agentId: string): Promise<MiddleEarthAge
   return agent
 }
 
+/**
+ * Does what the parts were asked to do that may send an agent, in the hook that calls it: Elrond's council a press
+ * asked for, the Fellowship's quests, the statues the session's own change is owed.
+ */
+async function pump($: EngineInterface): Promise<void> {
+  pumped()
+  await pumpElrond($).catch(() => undefined)
+  await pumpFellowship($).catch(() => undefined)
+  await pumpArgonath($).catch(() => undefined)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     // The record of the agents sent before a reload, then their types: a reload loads the module afresh
@@ -59,6 +70,8 @@ export const register: Register = on => {
     await carryStores($).catch(() => undefined)
     // A host that registers no tools still starts the session
     await $.tool.register(PANE_TOOL).catch(() => undefined)
+    await $.tool.register(FRAME_TOOL).catch(() => undefined)
+    await $.tool.register(PUMP_TOOL).catch(() => undefined)
 
     await startElrond($)
     await startLothlorien($)
@@ -83,6 +96,17 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A turn has ended: what it leads to is done here, where an agent sent is held. The hook that sends one is skipped for
+  // that agent's own events, so two take turns: the one that did not send it carries on from its end. The session's
+  // own turn sends only the statues its change is owed: a quest's proof takes minutes, not kept from the person
+  for (const reason of [/./, /[^]/]) {
+    on('turn.complete', { reason }, async ($, e, next) => {
+      await (e.agentId === undefined ? pumpArgonath($) : pump($)).catch(() => undefined)
+
+      return next(e)
+    }).catch((_$, e, next) => next(e))
+  }
+
   // Claude is told what each part holds that bears on its work
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
@@ -96,10 +120,13 @@ export const register: Register = on => {
     return added.length === 0 ? composed : { sections: [...composed.sections, ...added.map(one => ({ ...one, scope: 'session' as const }))] }
   })
 
+  // The engine drops the folder a spawn names: one the mod sent asked for it, and is given it here
   on('agent.spawn', async ($, e, next) => {
-    const started = await next(e)
+    const cwd = e.cwd ?? cwdOf(e.prompt)
+    const started = await next(cwd === undefined ? e : { ...e, cwd })
 
-    await spawned($, started.agentId, e.cwd)
+    // The engine names the type `subagentType`; a classic hook's shape, `subagent_type`
+    await spawned($, started.agentId, cwd, e.subagentType ?? (e as unknown as { subagent_type?: string }).subagent_type)
 
     return started
   }).catch((_$, e, next) => next(e))
@@ -124,6 +151,16 @@ export const register: Register = on => {
   registerFellowship(on)
   registerBlackgate(on)
   registerMountdoom(on)
+
+  // Answered only from a hook: the clock calls it unanswered
+  on('tool.call', { tool: 'mcp__middle-earth__frame' }, () => ({ result: FRAMED }))
+
+  // Claude was asked to: what waited outside a hook is done here
+  on('tool.call', { tool: 'mcp__middle-earth__pump' }, async $ => {
+    await pump($)
+
+    return { result: 'Done: the panes say how it went.' }
+  })
 
   on('tool.call', { tool: 'mcp__middle-earth__pane' }, async ($, e) => {
     const named = String((e as unknown as { pane?: unknown }).pane ?? '')

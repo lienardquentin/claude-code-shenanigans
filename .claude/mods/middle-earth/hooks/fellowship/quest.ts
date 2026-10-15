@@ -472,10 +472,25 @@ export const closingLine = (ref: string): string => {
   return issue === undefined ? '' : `Closes ${issue.repo}#${issue.number}`
 }
 
+/**
+ * How an errand's pull request opens: its builder's account, then the Argonath's proof. Where the person put the change
+ * before the Argonath after the builder was back, the account came before the proof, and may tell of a failure since
+ * mended: it is said so.
+ */
+const errandOpening = (last: FellowshipQuest['commits'][number] | undefined): string[] => {
+  const answer = (last?.answer ?? '').trim()
+  const proof = (last?.proof ?? '').trim()
+
+  if (last === undefined) return []
+  if (last.isPutBefore === true) return [...(answer !== '' ? [answer, ''] : []), `${last.by}'s account above was written before its change was proven: the person put it before the Argonath, whose proof says: ${proof !== '' ? proof : 'nothing'}.`, '']
+
+  return [...(answer !== '' ? [answer, ''] : []), ...(proof !== '' ? [`The Argonath's proof: ${proof}.`, ''] : [])]
+}
+
 export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>, plan: FellowshipPlan): string =>
   [
-    // An errand's pull request opens on what its builder said of the change
-    ...(quest.kind === 'errand' && (quest.commits.at(-1)?.answer ?? '').trim() !== '' ? [(quest.commits.at(-1)?.answer ?? '').trim(), ''] : []),
+    // An errand's pull request opens on what its builder said of the change, and on what the Argonath proved of it
+    ...(quest.kind === 'errand' ? errandOpening(quest.commits.at(-1)) : []),
     ...(plan.summary !== '' ? [plan.summary, ''] : []),
     ...(plan.approach !== '' ? [plan.approach, ''] : []),
     ...(quest.kind === 'plan' ? ['## Tasks', '', ...quest.commits.map(one => `- ${one.sha === '' ? 'no change' : one.sha.slice(0, 7)} ${one.taskId}. ${one.title} (${one.by})`)] : []),

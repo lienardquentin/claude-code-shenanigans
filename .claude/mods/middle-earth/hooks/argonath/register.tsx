@@ -10,7 +10,7 @@ import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
 import type { Section, Target, TurnEnded } from '../flow'
-import { remember, roleOf, treesOf, typeOf } from '../agents'
+import { askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Changed, Review } from './proof'
 import {
   CHANGE_SCRIPT,
@@ -522,8 +522,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
     // A statue judging a quest's change reads it in the quest's worktree
-    const started = await $.agent
-      .spawn({ subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
+    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
     if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })
@@ -582,14 +581,22 @@ async function sittingFor($: $, agentId: string): Promise<{ place: Place; held: 
 async function review($: $): Promise<void> {
   const due = reviewDue
 
-  reviewDue = ''
-  if (due === '' || due === (await read($, reviewed))) return
+  if (due === '' || due === (await read($, reviewed))) return void (reviewDue = '')
   // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
-  if ((await wholeFingerprint($)) !== due) return
+  if ((await wholeFingerprint($)) !== due) return void (reviewDue = '')
   // And a change committed whole leaves nothing to judge
-  if (isNoChange(await changeText($))) return
+  if (isNoChange(await changeText($))) return void (reviewDue = '')
 
+  // The statues are sent from a hook alone, where they are held: from the clock, Claude is asked to call for them
+  if (!(await inFrame($))) return askToPump($, 'every changed run of the change is pinned, and the statues wait to review it.')
+
+  reviewDue = ''
   await convene($, 'turn')
+}
+
+/** The statues the session's own change is owed, sent from the hook that calls it. */
+export async function pumpArgonath($: $): Promise<void> {
+  await review($)
 }
 
 const foundText = (looked: readonly Looked[]): string => looked.map(({ found }) => (typeof found === 'string' ? found : radiusText(found))).join('\n\n―――\n\n')

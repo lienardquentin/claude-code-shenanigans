@@ -250,12 +250,14 @@ describe('the Mirror, for a quest', () => {
     expect(await call($, 'mcp__middle-earth__mirror', { agentId: 'gimli-1' })).toMatch(/^The Mirror shows what is to come: 1 test, red, locked/)
     expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/shows nothing yet/)
 
-    // Her tests there are locked to the builder, the project's own file is not
+    // Her tests there are locked to the builder, the project's own file is not; and the builder, sent into the worktree,
+    // is held to it from its first call
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 
     expect(await edit($, 'gimli-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/Her tests are locked/) })
-    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
+    expect(await edit($, undefined, FILE, before, weakened)).toMatchObject({ result: 'done' })
+    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
 
     // Its reason is kept with her tests in the worktree, however it names the file
     expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
