@@ -44,6 +44,18 @@ pub fn now() -> String {
     iso(secs)
 }
 
+/// How many days `month` (1 to 12) has in `year`. February has 29 in a leap year: one divisible by 4, except a
+/// century year not divisible by 400.
+fn days_in_month(year: i64, month: i64) -> i64 {
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
 /// A date as `ls` is asked for one, `3019-03-08` or `3019-03-08T06:00:00Z`, in the chronicle's own form. A bare
 /// date is the start of its day, or its last second when `end_of_day`, so that it takes in the whole day.
 pub fn parse(text: &str, end_of_day: bool) -> Option<String> {
@@ -52,15 +64,7 @@ pub fn parse(text: &str, end_of_day: bool) -> Option<String> {
         None => (text, None),
     };
     let [year, month, day] = fields::<3>(date, '-', &[4, 2, 2])?;
-    if !(1..=12).contains(&month) || day < 1 {
-        return None;
-    }
-    let next = if month == 12 {
-        days_from_civil(year + 1, 1, 1)
-    } else {
-        days_from_civil(year, month + 1, 1)
-    };
-    if days_from_civil(year, month, 1) + day - 1 >= next {
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
         return None;
     }
     let [hour, minute, second] = match time {
@@ -105,6 +109,8 @@ mod tests {
             "",
             "garbage",
             "3019-02-30",
+            "2100-02-29",
+            "3019-04-31",
             "3019-13-01",
             "3019-00-10",
             "3019-03-00",
