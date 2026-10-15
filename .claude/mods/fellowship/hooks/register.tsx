@@ -1130,8 +1130,9 @@ export const register: Register = on => {
   // mods, whose hooks answer no call made beneath a command's: the clock makes them
   on('command.run', { command: 'fellowship' }, async ($, e) => {
     const words = e.args.trim().split(/\s+/).filter(word => word !== '')
-    const isAuto = words.includes('--auto')
-    const plain = words.filter(word => !word.startsWith('--'))
+    // `auto` is taken as --auto: no issue is named so, and /fellowship set out auto once set out on an issue "auto"
+    const isAuto = words.includes('--auto') || words.includes('auto')
+    const plain = words.filter(word => !word.startsWith('--') && word !== 'auto')
     const verb = plain[0] ?? ''
     const named = plain[1] ?? ''
 
