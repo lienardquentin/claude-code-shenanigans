@@ -1081,6 +1081,26 @@ describe('an errand', () => {
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
   })
 
+  test('put before the Argonath through the commit tool, is proved and judged in that call, where the statues are held', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    await start($, world)
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await settle($, world)
+    world.dirty = ''
+    await ends($, 'gimli-1', 'It built nothing here.', world)
+    await settle($, world)
+
+    // The person mends the change by hand in the worktree
+    const sent = world.judged.length
+    world.dirty = ' M beacons/gondor/app.py\n'
+    world.edits += 1
+    expect(await call($, 'mcp__middle-earth__commit', { ref: ISSUE.ref })).toMatch(/goes before the Argonath/)
+
+    // No clock moved: the proof ran and the statues were sent within the call
+    expect(world.judged).toHaveLength(sent + 1)
+  })
+
   test('put before the Argonath by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
     const world = machine(on)
     world.plan = null

@@ -1099,7 +1099,14 @@ export function registerFellowship(on: On): void {
   on('tool.call', { tool: 'mcp__middle-earth__commit' }, async ($, e) => {
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
 
-    return { result: held === null ? 'Name the quest, by its ref: more than one is under way, or none.' : await resubmit($, held.ref) }
+    if (held === null) return { result: 'Name the quest, by its ref: more than one is under way, or none.' }
+
+    const said = await resubmit($, held.ref)
+
+    // The proof, and the statues it leads to, are done here, where the statues are held
+    await pumpFellowship($, held.ref)
+
+    return { result: said }
   })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
