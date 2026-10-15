@@ -1,12 +1,20 @@
 import asyncio
+import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rohan import app as rohan_module
+from rohan import watchers
 from rohan.app import EOREDS, RED_ARROW, SPEARS, Logfmt, app
 
 ARROW = {"Authorization": f"Bearer {RED_ARROW}"}
+
+
+def record_of(tidings: dict, rid: str = "abc123", offset: int = 7):
+    # A record as the broker hands it over: its headers, its value and its offset
+    return SimpleNamespace(headers=[("rid", rid.encode())], value=json.dumps(tidings).encode(), offset=offset)
 
 
 @pytest.fixture
@@ -76,6 +84,26 @@ def test_the_kings_doubt_delays_but_does_not_refuse(monkeypatch):
 
     assert answer.status_code == 200
     assert len(slept) == 1 and 0.4 <= slept[0] <= 0.9
+
+
+def test_a_record_with_a_keeper_is_seen_with_it():
+    said = []
+
+    watchers.see(record_of({"beacon": "amon-din", "watch_next": "eilenach", "keeper": "Hirgon"}), lambda *args, **fields: said.append((args, fields)))
+
+    assert len(said) == 1
+    (level, msg), fields = said[0]
+    assert msg == "the watchers see a beacon burning"
+    assert fields == {"rid": "abc123", "beacon": "amon-din", "next": "eilenach", "keeper": "Hirgon", "offset": 7}
+
+
+def test_an_old_record_without_a_keeper_is_seen_with_none():
+    said = []
+
+    watchers.see(record_of({"beacon": "amon-din", "watch_next": "eilenach", "at": "2026-10-14T09:12:03.481+00:00"}), lambda *args, **fields: said.append(fields))
+
+    assert said[0]["keeper"] is None
+    assert said[0]["beacon"] == "amon-din"
 
 
 def test_logfmt_quotes_values_with_spaces():

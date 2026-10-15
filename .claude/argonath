@@ -53,6 +53,9 @@ $ gondor GET /health
 $ gondor GET /beacons
 $ gondor POST /beacons/amon-din/light
 $ gondor GET /beacons
+$ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
+$ gondor POST /beacons/erelas/light '{"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."}'
+$ gondor GET /lightings
 $ gondor POST /beacons/mount-doom/light
 $ gondor POST /beacons/quench
 $ gondor GET /palantiri

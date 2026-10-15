@@ -43,6 +43,9 @@ _narsil() {
             narsil,show)
                 cmd="narsil__subcmd__show"
                 ;;
+            narsil,sync)
+                cmd="narsil__subcmd__sync"
+                ;;
             narsil,tally)
                 cmd="narsil__subcmd__tally"
                 ;;
@@ -85,6 +88,9 @@ _narsil() {
             narsil__subcmd__help,show)
                 cmd="narsil__subcmd__help__subcmd__show"
                 ;;
+            narsil__subcmd__help,sync)
+                cmd="narsil__subcmd__help__subcmd__sync"
+                ;;
             narsil__subcmd__help,tally)
                 cmd="narsil__subcmd__help__subcmd__tally"
                 ;;
@@ -98,7 +104,7 @@ _narsil() {
 
     case "${cmd}" in
         narsil)
-            opts="-h -V --chronicle --help --version ls show tally copy seal scribe archive forge completions help"
+            opts="-h -V --chronicle --help --version ls show tally copy seal scribe archive forge sync completions help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -260,7 +266,7 @@ _narsil() {
             return 0
             ;;
         narsil__subcmd__help)
-            opts="ls show tally copy seal scribe archive forge completions help"
+            opts="ls show tally copy seal scribe archive forge sync completions help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -413,6 +419,20 @@ _narsil() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        narsil__subcmd__help__subcmd__sync)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         narsil__subcmd__help__subcmd__tally)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -498,6 +518,28 @@ _narsil() {
             case "${prev}" in
                 --format)
                     COMPREPLY=($(compgen -W "table json" -- "${cur}"))
+                    return 0
+                    ;;
+                --chronicle)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        narsil__subcmd__sync)
+            opts="-h --from --dry-run --chronicle --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --chronicle)

@@ -5,7 +5,8 @@ and breaks, for the `anduril` mod to watch. Nothing here is meant to be useful; 
 thing the mod does. So far the mod records each run; the rest is still to be written, against this.
 
 The chronicle is a file of lightings, one JSON object to a line. [`chronicle.jsonl`](chronicle.jsonl) holds forty of
-them, and one line a scribe wrote in haste that is no JSON at all.
+them, and one line a scribe wrote in haste that is no JSON at all. A lighting's `keeper` is the name of who lit it, or
+`null` for a lighting with no keeper; a missing or blank keeper reads as `null` too.
 
 ## Build it
 
@@ -26,12 +27,13 @@ put under a profiler, which says little of a debug build.
 | --- | --- | --- |
 | `narsil ls [--format table\|json]` | The lightings, as a table as wide as the terminal, or as JSON | A diff of what is printed; the same run at several widths, in colour and piped |
 | `narsil show <id> [--format …]` | One lighting, and where it stands in the chronicle. Exits 1 when there is none | Exit codes, and what goes to stderr |
-| `narsil tally [--by beacon\|keeper\|realm] [--format …]` | The lightings and their watchers, counted | Where the time goes, on a large chronicle |
+| `narsil tally [--by beacon\|keeper\|realm] [--format …]` | The lightings and their watchers, counted; a lighting with no keeper is counted as `(no keeper)` | Where the time goes, on a large chronicle |
 | `narsil copy <src> <dst> [--force]` | Copies a file, with a bar of how far it got | A bar that is drawn where it should not be |
 | `narsil seal <file> [--check]` | Writes the file's checksum beside it as `<file>.seal`, or compares the two | Which files a run read and wrote |
 | `narsil scribe` | Asks for a lighting, a question at a time, and writes it at the end of the chronicle | A run that is a conversation, kept and played again |
 | `narsil archive prune --before <date> [--dry-run]` | Takes the lightings before a date out | A command under a command, for the tree of them |
 | `narsil forge <dst> [--count n] [--seed n] [--force]` | A chronicle of made-up lightings, the same ones for the same seed | What the timings are run on |
+| `narsil sync --from <url> [--dry-run]` | Appends the lightings Gondor has and the chronicle does not, under fresh ids | Two runs of one answer, and a dry run that writes nothing |
 | `narsil completions <shell>` | The completions of a shell | [`completions/narsil.bash`](completions/narsil.bash) is kept in the repo, to go stale |
 
 Every command takes `--chronicle <file>`. Without it the chronicle is the one `NARSIL_CHRONICLE` names, else the one
@@ -42,6 +44,51 @@ the file to work on, and `keeper` the name `scribe` offers when it asks who lit 
 whatever the command.
 
 The checksum is FNV-1a over 64 bits: it tells that a file changed, and proves nothing of who changed it.
+
+## Keeper-less lightings
+
+A lighting with no keeper has `"keeper": null` in the chronicle. `ls` and `show` print `(no keeper)` where the keeper
+goes, and `tally --by keeper` counts all of them on one row of that name, which `--format json` gives as `"name": null`:
+
+```
+NAME         LIGHTINGS  WATCHERS
+(no keeper)          1         2
+Hirgon               1         5
+Mablung              1         3
+ALL                  3        10
+```
+
+## Gondor's lightings
+
+`narsil sync --from http://127.0.0.1:8101` asks Gondor for every lighting it knows, its `GET /lightings`, and appends
+to the chronicle each one the chronicle does not hold. Gondor is local or reached by a port-forward, so only plain
+`http://` is spoken: an `https://` address is refused before anything is asked, and nothing is written when Gondor
+does not answer, answers with an error, or answers with what is not a list of lightings. Nor is anything written when
+one of its lightings has a `lit_at` that is not a time, or a field holding a control character that would reach the
+terminal when the chronicle is shown. Gondor's answer is read up to 64 MiB.
+
+A lighting is known when the chronicle holds one with the same beacon, `lit_at` and keeper, whatever id either side
+gave it. The realm is not of it: a lighting that differs from one the chronicle holds only by its realm is known. `lit_at` is compared as its text, so it must be spelt as Gondor spells it: UTC to the millisecond, with `Z`
+(`3019-03-12T21:04:09.481Z`). A line that spells the same moment another way, without milliseconds or with `+00:00`,
+is not known: the first sync appends Gondor's copy beside it, as a lighting of its own, and the copy is known after that.
+
+A lighting that is not known is appended under a fresh id: the largest id in the chronicle plus one, then the next.
+Gondor numbers its own lightings from 1 again when it wakes with no database, so an id Gondor gives may be taken in
+the chronicle already, by another lighting. Each such renumbering is said, as `Gondor's lighting 1 is written as 41`.
+A chronicle that is not there yet is started by the sync.
+
+`--dry-run` says what would be appended, in the words with `would`, and writes nothing. A second sync after the first
+appends nothing:
+
+```
+Gondor's lighting 1 would be written as 41
+would append lighting 41: Calenhad lit at 3019-03-12T21:04:09.481Z by Hirgon
+Gondor's lighting 2 would be written as 42
+would append lighting 42: Nardol lit at 3019-03-12T21:04:09.482Z by (no keeper)
+would append 2 lightings from http://127.0.0.1:8101 to shipped.jsonl
+```
+
+The tests run the sync against a Gondor of their own, on 127.0.0.1, that answers what they say.
 
 ## What is wrong with it, on purpose
 
@@ -65,8 +112,9 @@ The checksum is FNV-1a over 64 bits: it tells that a file changed, and proves no
 
 ## What to run
 
-Ten runs that between them touch every part, for `anduril` to keep and to play again on another build.
-[`.claude/anduril`](../.claude/anduril) keeps them, with the forging of the large chronicle the last one reads:
+Eleven runs that between them touch every part, for `anduril` to keep and to play again on another build.
+[`.claude/anduril`](../.claude/anduril) keeps them in this order, with the forging of the large chronicle the tally
+after it reads:
 
 ```
 narsil ls
@@ -79,6 +127,8 @@ narsil tally --by realm --format json
 narsil archive prune --before 3019-03-10 --dry-run
 narsil seal chronicle.jsonl
 narsil --chronicle big.jsonl tally
+narsil sync --from http://127.0.0.1:9 --dry-run
 ```
 
-The last is for the timings, on a chronicle forged for it: `narsil forge big.jsonl --count 200000`.
+The big tally is for the timings, on a chronicle forged for it: `narsil forge big.jsonl --count 20000`. The sync is
+pointed at a port nothing listens on, so it is refused at once, and writes nothing.

@@ -11,6 +11,7 @@ clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 terminal_size = "0.4"
+ureq = { version = "3", default-features = false, features = ["json"] }
 
 # A release build that keeps its symbols, so a profiler can name the frames: cargo build --profile profiling
 [profile.profiling]

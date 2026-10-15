@@ -57,8 +57,8 @@ def lost(rid: str, beacon: str, failure: BaseException) -> None:
     log.error("the tidings of %s were lost on the road: %s", beacon, type(failure).__name__, extra={"rid": rid})
 
 
-def send(beacon: str, watch_next: str) -> None:
-    """Tells the broker a beacon is lit, under the id of the request that lit it. A lighting never fails for it."""
+def send(beacon: str, watch_next: str, keeper: str | None) -> None:
+    """Tells the broker a beacon is lit, and who lit it, under the id of the request that lit it. A lighting never fails for it."""
     if not BROKERS:
         return
 
@@ -69,7 +69,7 @@ def send(beacon: str, watch_next: str) -> None:
 
         return
 
-    tidings = {"beacon": beacon, "watch_next": watch_next, "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
+    tidings = {"beacon": beacon, "watch_next": watch_next, "keeper": keeper, "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
 
     try:
         sent = herald.send(TOPIC, key=beacon.encode(), value=json.dumps(tidings).encode(), headers=[("rid", rid.encode())])

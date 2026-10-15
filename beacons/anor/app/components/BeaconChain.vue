@@ -1,5 +1,15 @@
 <script setup lang="ts">
 const { beacons, error, refresh, light, quench } = useBeacons()
+const askKeeper = useKeeperPrompt()
+
+// A beacon is lit once someone says who lights it; called off, it stays dark
+const kindle = async (beacon: string) => {
+  const keeper = await askKeeper(beacon)
+
+  if (keeper !== undefined) await light(beacon, keeper)
+}
+
+const sinceOf = (since: string | null) => (since ? `Burning since ${new Date(since).toLocaleString('en-GB')}` : undefined)
 
 const litCount = computed(() => beacons.value.filter(({ lit }) => lit).length)
 
@@ -27,7 +37,7 @@ onBeforeUnmount(() => clearInterval(watch))
     <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-triangle-alert" title="Gondor does not answer" class="mb-4" />
 
     <ol class="grid grid-cols-7 gap-1">
-      <li v-for="{ beacon, lit } in beacons" :key="beacon">
+      <li v-for="{ beacon, lit, keeper, since } in beacons" :key="beacon" class="flex flex-col items-center gap-0.5" :title="sinceOf(since)">
         <UButton
           color="neutral"
           variant="ghost"
@@ -36,12 +46,13 @@ onBeforeUnmount(() => clearInterval(watch))
           :aria-label="`Light ${named(beacon)}`"
           class="flex-col gap-1 px-0"
           :class="{ lit }"
-          @click="light(beacon)"
+          @click="kindle(beacon)"
         >
           <span class="fire size-3.5 rounded-full" aria-hidden="true" />
           <span class="peak w-full h-9 sm:h-12" aria-hidden="true" />
           <span class="text-[0.62rem] sm:text-xs wrap-anywhere" :class="lit ? 'text-primary' : 'text-muted'">{{ named(beacon) }}</span>
         </UButton>
+        <span v-if="lit && keeper" class="text-[0.6rem] sm:text-[0.68rem] italic text-muted wrap-anywhere text-center">{{ keeper }}</span>
       </li>
     </ol>
 

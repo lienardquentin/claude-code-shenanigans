@@ -1,8 +1,10 @@
+import re
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gondor import archive, realm
+from gondor import archive, realm, tidings
 from gondor.app import app as gondor
 from rohan.app import app as rohan
 
@@ -10,8 +12,14 @@ from rohan.app import app as rohan
 @pytest.fixture(autouse=True)
 def beacons_dark():
     realm.lit.clear()
+    getattr(realm, "lightings", []).clear()
     yield
     realm.lit.clear()
+    getattr(realm, "lightings", []).clear()
+
+
+# A UTC time to the millisecond, with Z: 2026-10-14T09:12:03.481Z
+MS_Z = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z")
 
 
 def road_to(handler) -> httpx.AsyncClient:
@@ -36,18 +44,19 @@ def test_beacons_start_dark_and_come_in_chain_order(client):
     assert not any(b["lit"] for b in beacons)
 
 
+# sting: gondor POST /beacons/amon-din/light
 def test_lighting_a_beacon_names_the_next_and_shows_in_the_list(client):
     answer = client.post("/beacons/amon-din/light")
 
     assert answer.status_code == 200
-    assert answer.json() == {"beacon": "amon-din", "lit": True, "watch_next": "eilenach"}
+    assert answer.json() == {"beacon": "amon-din", "lit": True, "watch_next": "eilenach", "keeper": None}
     assert {b["beacon"] for b in client.get("/beacons").json() if b["lit"]} == {"amon-din"}
 
 
 def test_every_beacon_but_the_last_hands_on_to_the_next():
     chain = realm.BEACONS
 
-    assert [realm.light(name)["watch_next"] for name in chain[:-1]] == chain[1:]
+    assert [realm.light(name, None)["watch_next"] for name in chain[:-1]] == chain[1:]
 
 
 def test_an_unknown_beacon_is_a_404(client):
@@ -78,11 +87,14 @@ def test_with_no_database_what_burns_is_kept_in_memory(client):
 
     client.post("/beacons/nardol/light")
 
-    assert realm.lit == {"nardol"}
+    assert set(realm.lit) == {"nardol"}
+    assert realm.lit["nardol"]["keeper"] is None
+    assert MS_Z.fullmatch(realm.lit["nardol"]["since"])
+    assert [lighting["beacon"] for lighting in realm.lightings] == ["nardol"]
 
 
 def test_the_archives_shut_is_a_503_the_realm_survives(client, monkeypatch):
-    async def shut() -> set[str]:
+    async def shut() -> dict:
         raise archive.Shut("the archives are shut, and none can say what burns")
 
     monkeypatch.setattr(archive, "burning", shut)
@@ -97,7 +109,7 @@ def test_the_archives_shut_is_a_503_the_realm_survives(client, monkeypatch):
 def test_a_lighting_is_written_before_the_next_beacon_is_named(client, monkeypatch):
     kept = []
 
-    async def keep(beacon: str) -> None:
+    async def keep(beacon: str, keeper: str | None) -> None:
         kept.append(beacon)
 
     monkeypatch.setattr(archive, "keep", keep)
@@ -109,6 +121,180 @@ def test_a_lighting_is_written_before_the_next_beacon_is_named(client, monkeypat
     client.post("/beacons/amon-din/light")
 
     assert kept == ["halifirien", "amon-din"]
+
+
+# sting: gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
+def test_lighting_with_a_keeper_answers_who_lit_it(client):
+    answer = client.post("/beacons/eilenach/light", json={"keeper": "Hirgon"})
+
+    assert answer.status_code == 200
+    assert answer.json() == {"beacon": "eilenach", "lit": True, "watch_next": "nardol", "keeper": "Hirgon"}
+    assert realm.lit["eilenach"]["keeper"] == "Hirgon"
+
+
+def test_lighting_with_no_body_or_a_null_keeper_has_no_keeper(client):
+    assert client.post("/beacons/amon-din/light").json()["keeper"] is None
+    assert client.post("/beacons/eilenach/light", json={}).json()["keeper"] is None
+    assert client.post("/beacons/nardol/light", json={"keeper": None}).json()["keeper"] is None
+
+
+def test_a_blank_keeper_reads_as_none(client):
+    assert client.post("/beacons/amon-din/light", json={"keeper": "   "}).json()["keeper"] is None
+    assert client.post("/beacons/eilenach/light", json={"keeper": ""}).json()["keeper"] is None
+    assert realm.lit["amon-din"]["keeper"] is None
+
+
+def test_a_keeper_is_stripped_and_named_as_given(client):
+    answer = client.post("/beacons/amon-din/light", json={"keeper": "  Hirgon of Minas Tirith "})
+
+    assert answer.json()["keeper"] == "Hirgon of Minas Tirith"
+    assert client.post("/beacons/eilenach/light", json={"keeper": "x" * 64}).json()["keeper"] == "x" * 64
+    # A non-breaking space and an emoji's joiner are a name's own
+    assert client.post("/beacons/nardol/light", json={"keeper": "Hirgon 🧙‍♂️"}).json()["keeper"] == "Hirgon 🧙‍♂️"
+
+
+# sting: gondor POST /beacons/erelas/light '{"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."}'
+def test_a_keeper_longer_than_64_characters_is_refused_and_nothing_burns(client):
+    # 65 characters
+    answer = client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert answer.status_code == 422
+    assert "64 characters" in str(answer.json()["detail"])
+    assert realm.lit == {}
+    assert client.get("/lightings").json() == []
+
+
+# sting: gondor GET /lightings
+def test_a_refused_lighting_is_not_among_the_lightings(client):
+    client.post("/beacons/eilenach/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert [(lighting["beacon"], lighting["keeper"]) for lighting in client.get("/lightings").json()] == [("Eilenach", "Hirgon")]
+
+
+# sting: gondor POST /beacons/quench
+def test_a_refused_lighting_lights_nothing_for_a_quench_to_put_out(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/eilenach/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/erelas/light", json={"keeper": "Hirgon, errand-rider of Gondor, who bore the Red Arrow to Edoras."})
+
+    assert client.post("/beacons/quench").json() == {"quenched": 2}
+
+
+def test_a_keeper_with_a_line_break_or_an_escape_is_refused(client):
+    for keeper in ["Hirgon\nts=forged level=error", "Hirgon\x1b[31m", "Hir\tgon", "Hirgon‮nogriH", "Hirgon Beregond"]:
+        answer = client.post("/beacons/amon-din/light", json={"keeper": keeper})
+
+        assert answer.status_code == 422
+        assert "control characters" in str(answer.json()["detail"])
+
+    assert realm.lit == {}
+
+
+# sting: gondor GET /beacons
+def test_beacons_name_the_first_keeper_and_since_of_what_burns(client):
+    dark = {b["beacon"]: b for b in client.get("/beacons").json()}
+
+    assert dark["amon-din"] == {"beacon": "amon-din", "lit": False, "keeper": None, "since": None}
+
+    client.post("/beacons/amon-din/light", json={"keeper": "Hirgon"})
+    first = {b["beacon"]: b for b in client.get("/beacons").json()}["amon-din"]
+
+    client.post("/beacons/amon-din/light", json={"keeper": "Beregond"})
+    client.post("/beacons/eilenach/light")
+    beacons = client.get("/beacons").json()
+    by_name = {b["beacon"]: b for b in beacons}
+
+    assert [b["beacon"] for b in beacons] == realm.BEACONS
+    assert all(set(b) == {"beacon", "lit", "keeper", "since"} for b in beacons)
+    assert by_name["amon-din"]["lit"] is True
+    assert by_name["amon-din"]["keeper"] == "Hirgon"
+    assert MS_Z.fullmatch(by_name["amon-din"]["since"])
+    assert by_name["amon-din"]["since"] == first["since"]
+    # A fire with no keeper burns all the same, its keeper unknown
+    assert by_name["eilenach"]["lit"] is True
+    assert by_name["eilenach"]["keeper"] is None
+    assert MS_Z.fullmatch(by_name["eilenach"]["since"])
+    assert by_name["nardol"] == {"beacon": "nardol", "lit": False, "keeper": None, "since": None}
+
+
+def test_relighting_a_burning_beacon_keeps_its_first_keeper_and_since():
+    realm.light("amon-din", "Hirgon")
+    first = dict(realm.lit["amon-din"])
+    realm.light("amon-din", "Beregond")
+
+    assert realm.lit["amon-din"] == first
+    assert first["keeper"] == "Hirgon"
+    assert [lighting["keeper"] for lighting in realm.lightings] == ["Hirgon", "Beregond"]
+
+
+def test_the_beacons_are_named_as_the_chronicle_spells_them():
+    assert realm.NAMES == {
+        "amon-din": "Amon Dîn",
+        "eilenach": "Eilenach",
+        "nardol": "Nardol",
+        "erelas": "Erelas",
+        "min-rimmon": "Min-Rimmon",
+        "calenhad": "Calenhad",
+        "halifirien": "Halifirien",
+    }
+
+
+def test_there_are_no_lightings_before_any_fire(client):
+    assert client.get("/lightings").json() == []
+
+
+# sting: gondor GET /lightings
+def test_lightings_are_answered_newest_last_as_narsil_spells_them(client):
+    client.post("/beacons/amon-din/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/min-rimmon/light")
+    client.post("/beacons/amon-din/light", json={"keeper": "Beregond"})
+
+    answer = client.get("/lightings")
+
+    assert answer.status_code == 200
+
+    lightings = answer.json()
+
+    assert all(set(lighting) == {"id", "beacon", "realm", "lit_at", "keeper", "watchers", "note"} for lighting in lightings)
+    assert [(lighting["beacon"], lighting["keeper"]) for lighting in lightings] == [
+        ("Amon Dîn", "Hirgon"),
+        ("Min-Rimmon", None),
+        ("Amon Dîn", "Beregond"),
+    ]
+    assert all(lighting["realm"] == "Gondor" for lighting in lightings)
+    assert all(lighting["watchers"] == 0 for lighting in lightings)
+    assert all(lighting["note"] == "" for lighting in lightings)
+    assert all(MS_Z.fullmatch(lighting["lit_at"]) for lighting in lightings)
+    assert [lighting["lit_at"] for lighting in lightings] == sorted(lighting["lit_at"] for lighting in lightings)
+
+    ids = [lighting["id"] for lighting in lightings]
+
+    assert all(isinstance(i, int) for i in ids)
+    assert ids == sorted(set(ids))
+
+
+def test_quench_puts_out_the_fires_but_the_lightings_stay(client):
+    client.post("/beacons/amon-din/light", json={"keeper": "Hirgon"})
+
+    assert client.post("/beacons/quench").json() == {"quenched": 1}
+    assert client.get("/health").json()["lit"] == 0
+    assert {b["beacon"]: b for b in client.get("/beacons").json()}["amon-din"]["keeper"] is None
+    assert [lighting["keeper"] for lighting in client.get("/lightings").json()] == ["Hirgon"]
+
+
+def test_the_keeper_goes_out_with_the_tidings(client, monkeypatch):
+    sent = []
+
+    def send(beacon: str, watch_next: str, keeper: str | None) -> None:
+        sent.append((beacon, watch_next, keeper))
+
+    monkeypatch.setattr(tidings, "send", send)
+
+    client.post("/beacons/amon-din/light", json={"keeper": "Hirgon"})
+    client.post("/beacons/eilenach/light")
+
+    assert sent == [("amon-din", "eilenach", "Hirgon"), ("eilenach", "nardol", None)]
 
 
 def test_palantiri_are_listed_sorted(client):

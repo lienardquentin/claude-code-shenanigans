@@ -21,3 +21,4 @@ $ narsil archive prune --before 3019-03-10 --dry-run
 $ narsil seal chronicle.jsonl
 $ narsil forge big.jsonl --count 20000
 $ narsil --chronicle big.jsonl tally
+$ narsil sync --from http://127.0.0.1:9 --dry-run

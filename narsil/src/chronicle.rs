@@ -38,11 +38,21 @@ pub struct Lighting {
     pub beacon: String,
     pub realm: String,
     pub lit_at: String,
-    pub keeper: String,
+    #[serde(default, deserialize_with = "keeper_or_none")]
+    pub keeper: Option<String>,
     pub watchers: u32,
     #[serde(default)]
     pub note: String,
 }
+
+/// A missing, null or blank keeper is no keeper.
+fn keeper_or_none<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    let keeper = Option::<String>::deserialize(deserializer)?;
+    Ok(keeper.filter(|keeper| !keeper.trim().is_empty()))
+}
+
+/// How a lighting with no keeper is spelt where a keeper is expected.
+pub const NO_KEEPER: &str = "(no keeper)";
 
 fn said(path: &Path, error: impl std::fmt::Display) -> String {
     format!("{}: {error}", path.display())
@@ -112,7 +122,7 @@ pub fn forge(count: u64, seed: u64) -> Vec<Lighting> {
                 beacon: BEACONS[next(7) as usize].to_string(),
                 realm: if next(4) == 0 { "Rohan" } else { "Gondor" }.to_string(),
                 lit_at: time::iso(at),
-                keeper: KEEPERS[next(8) as usize].to_string(),
+                keeper: Some(KEEPERS[next(8) as usize].to_string()),
                 watchers: 4 + next(20) as u32,
                 note: NOTES[next(6) as usize].to_string(),
             }

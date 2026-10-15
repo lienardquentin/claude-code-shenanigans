@@ -22,14 +22,19 @@ SHELVES = """
 CREATE TABLE IF NOT EXISTS burning (
     beacon text PRIMARY KEY,
     rid text NOT NULL,
+    keeper text,
     since timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS lightings (
     id bigserial PRIMARY KEY,
     beacon text NOT NULL,
     rid text NOT NULL,
+    keeper text,
     at timestamptz NOT NULL DEFAULT now()
 );
+-- An archive shelved before the keeper was written gains the column; its old rows keep no keeper
+ALTER TABLE burning ADD COLUMN IF NOT EXISTS keeper text;
+ALTER TABLE lightings ADD COLUMN IF NOT EXISTS keeper text;
 """
 
 log = scribe()
@@ -93,22 +98,39 @@ def shut(doing: str, failure: BaseException) -> Shut:
     return Shut(f"the archives are shut, {doing}")
 
 
-async def burning() -> set[str]:
-    """The beacons that burn now."""
+async def burning() -> dict[str, tuple[str | None, str]]:
+    """The beacons that burn now, each with its first keeper and since when it burns."""
     if archivists is None:
-        return set(realm.lit)
+        return {beacon: (fire["keeper"], fire["since"]) for beacon, fire in realm.lit.items()}
 
     try:
         async with archivists.connection() as desk:
-            found = await desk.execute("SELECT beacon FROM burning")
+            found = await desk.execute("SELECT beacon, keeper, since FROM burning")
 
-            return {beacon for (beacon,) in await found.fetchall()}
+            return {beacon: (keeper, realm.stamp(since)) for beacon, keeper, since in await found.fetchall()}
     except (Error, PoolTimeout) as failure:
         raise shut("and none can say what burns", failure) from failure
 
 
-async def keep(beacon: str) -> None:
-    """Writes that a beacon burns, and the lighting itself, under the id of the request that lit it."""
+async def lightings() -> list[dict[str, object]]:
+    """Every lighting there was, oldest first: id, beacon, lit_at, keeper."""
+    if archivists is None:
+        return list(realm.lightings)
+
+    try:
+        async with archivists.connection() as desk:
+            found = await desk.execute("SELECT id, beacon, at, keeper FROM lightings ORDER BY id")
+
+            return [{"id": id, "beacon": beacon, "lit_at": realm.stamp(at), "keeper": keeper} for id, beacon, at, keeper in await found.fetchall()]
+    except (Error, PoolTimeout) as failure:
+        raise shut("and none can say what was lit", failure) from failure
+
+
+async def keep(beacon: str, keeper: str | None) -> None:
+    """Writes that a beacon burns, and the lighting itself, with its keeper, under the id of the request that lit it.
+
+    A beacon that already burns keeps its first keeper: only the lighting is written.
+    """
     if archivists is None:
         return
 
@@ -117,8 +139,10 @@ async def keep(beacon: str) -> None:
     try:
         # One errand: both are written, or neither
         async with archivists.connection() as desk:
-            await desk.execute("INSERT INTO lightings (beacon, rid) VALUES (%s, %s)", (beacon, rid))
-            await desk.execute("INSERT INTO burning (beacon, rid) VALUES (%s, %s) ON CONFLICT (beacon) DO NOTHING", (beacon, rid))
+            await desk.execute("INSERT INTO lightings (beacon, rid, keeper) VALUES (%s, %s, %s)", (beacon, rid, keeper))
+            await desk.execute(
+                "INSERT INTO burning (beacon, rid, keeper) VALUES (%s, %s, %s) ON CONFLICT (beacon) DO NOTHING", (beacon, rid, keeper)
+            )
     except (Error, PoolTimeout) as failure:
         raise shut(f"and the lighting of {beacon} is not written", failure) from failure
 

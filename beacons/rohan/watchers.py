@@ -27,9 +27,11 @@ def see(record, say: Say) -> None:
     """Reads one record. Tidings that do not read are an error, and stay the next to be read."""
     rid = next((value.decode() for key, value in record.headers if key == "rid"), "")
     tidings = json.loads(record.value)
+    # Tidings sent before the keeper was named have none
+    keeper = tidings.get("keeper")
 
     time.sleep(PACE)
-    say(INFO, "the watchers see a beacon burning", rid=rid, beacon=tidings["beacon"], next=tidings["watch_next"], offset=record.offset)
+    say(INFO, "the watchers see a beacon burning", rid=rid, beacon=tidings["beacon"], next=tidings["watch_next"], keeper=keeper, offset=record.offset)
 
 
 def watch(say: Say, halt: threading.Event) -> None:
