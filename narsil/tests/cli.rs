@@ -133,6 +133,15 @@ fn ls_until_a_time_stops_at_that_second() {
 }
 
 #[test]
+fn ls_until_a_time_without_seconds_is_the_same_as_with_them() {
+    let home = forged("ls-until-minutes", "25");
+    let short = run(&home, &["ls", "--format", "json", "--until", "3019-03-10T06:00Z"]);
+    let long = run(&home, &["ls", "--format", "json", "--until", "3019-03-10T06:00:00Z"]);
+    assert!(short.status.success());
+    assert_eq!(stdout(&short), stdout(&long));
+}
+
+#[test]
 fn ls_since_and_until_bound_the_lightings_from_both_sides() {
     let home = forged("ls-between", "25");
     let output = run(
@@ -180,7 +189,7 @@ fn a_date_that_is_not_one_is_refused_for_since_and_until() {
             assert_eq!(stdout(&output), "");
             assert_eq!(
                 stderr(&output),
-                format!("narsil: {flag} \"{bad}\" is not a date; write 3019-03-08 or 3019-03-08T06:00:00Z\n")
+                format!("narsil: {flag} \"{bad}\" is not a date; write 3019-03-08, 3019-03-08T06:00Z or 3019-03-08T06:00:00Z\n")
             );
         }
     }

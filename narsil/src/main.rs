@@ -33,10 +33,10 @@ enum Command {
     Ls {
         #[arg(long, value_enum, default_value_t = Format::Table)]
         format: Format,
-        /// Only the lightings from this date on, as 3019-03-08 or 3019-03-08T06:00:00Z
+        /// Only the lightings from this date on, as 3019-03-08, 3019-03-08T06:00Z or 3019-03-08T06:00:00Z
         #[arg(long, value_name = "DATE")]
         since: Option<String>,
-        /// Only the lightings up to this date, as 3019-03-08 or 3019-03-08T06:00:00Z; a bare date takes in its day
+        /// Only the lightings up to this date, as 3019-03-08, 3019-03-08T06:00Z or 3019-03-08T06:00:00Z; a bare date takes in its day
         #[arg(long, value_name = "DATE")]
         until: Option<String>,
     },
@@ -95,7 +95,7 @@ enum Command {
 enum Archive {
     /// Take the lightings before a date out of the chronicle
     Prune {
-        /// As 3019-03-08 or 3019-03-08T06:00:00Z
+        /// As 3019-03-08, 3019-03-08T06:00Z or 3019-03-08T06:00:00Z
         #[arg(long, value_name = "DATE")]
         before: String,
         /// Say what would go and write nothing
@@ -146,7 +146,7 @@ fn refuse_to_overwrite(dst: &Path, force: bool) -> Result<(), String> {
 fn flag_date(flag: &str, text: Option<String>, end_of_day: bool) -> Result<Option<String>, String> {
     text.map(|text| {
         time::parse(&text, end_of_day)
-            .ok_or_else(|| format!("{flag} {text:?} is not a date; write 3019-03-08 or 3019-03-08T06:00:00Z"))
+            .ok_or_else(|| format!("{flag} {text:?} is not a date; write 3019-03-08, 3019-03-08T06:00Z or 3019-03-08T06:00:00Z"))
     })
     .transpose()
 }
