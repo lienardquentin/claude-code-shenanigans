@@ -1006,8 +1006,21 @@ describe('an errand', () => {
     await settle($, world)
 
     expect(world.jobs.service).toEqual([])
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/: stuck[\s\S]*Gimli is back from task 1/)
     expect(world.toasts.some(text => /Gimli hands github:.*#21 back: it asks whether/.test(text))).toBe(true)
+  })
+
+  test('taken up again is still the one task, the whole issue', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    await start($, world)
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await settle($, world)
+    await ends($, 'gimli-1', 'Handed back: it asks whether an unknown beacon is 404 or 410, which the person decides.')
+    await settle($, world)
+
+    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/takes up its quest on github:.*#21 \(0\/1 done/)
+    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).not.toMatch(/2\. /)
   })
 
   test('does not arrive when its member left no change in the worktree', async ($, on) => {
