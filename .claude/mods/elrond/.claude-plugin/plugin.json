@@ -1,6 +1,0 @@
-{
-  "name": "elrond",
-  "version": "0.1.0",
-  "description": "The council that plans the quest: takes a GitHub or GitLab issue, has a read-only planner study it against the codebase, and lays the implementation plan out as tasks in a pane, which Claude reads and ticks off as it works",
-  "types": "./types/index.d.ts"
-}

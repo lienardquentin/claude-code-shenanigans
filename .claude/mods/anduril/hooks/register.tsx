@@ -31,6 +31,7 @@ import {
   parseProject,
   parseRun,
   prelude,
+  projectInTree,
   remarks,
   runText,
   runsText,
@@ -179,6 +180,16 @@ const launch = async ($: $, cwd: string, list: readonly AndurilTarget[]): Promis
 /** What a folder's own project file watches and keeps, its paths in that folder. */
 const projectIn = async ($: $, cwd: string): Promise<ReturnType<typeof parseProject>> => parseProject(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
 
+/**
+ * What a quest's worktree is launched and played by: the tools and their builds as the project's folder says them,
+ * moved into the worktree, and the runs its own file keeps. A build is run unasked: it is never read from a branch.
+ */
+const projectOfTree = async ($: $, tree: string): Promise<ReturnType<typeof parseProject>> => {
+  const home = await homeOf($)
+
+  return projectInTree({ text: await $.fs.read(`${home}/${PROJECT_FILE}`).catch(() => ''), cwd: home }, { text: await $.fs.read(`${tree}/${PROJECT_FILE}`).catch(() => ''), cwd: tree })
+}
+
 /** Reads what the project watches, and puts a launcher in place for each. */
 const setUp = async ($: $): Promise<AndurilTarget[]> => {
   const cwd = await homeOf($)
@@ -236,10 +247,10 @@ const pull = ($: $): Promise<void> => {
  * why none was made.
  */
 const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean; tree: string }): Promise<AndurilDiff | string> => {
-  // The project's file is read again: a run kept a moment ago is played. A quest's worktree is played by its own file,
-  // and what it finds is not the pane's
+  // The project's file is read again: a run kept a moment ago is played. A quest's worktree plays the runs its own file
+  // keeps, built as the project's folder says, and what it finds is not the pane's
   const isHome = asked.tree === (await homeOf($))
-  const project = isHome ? undefined : await projectIn($, asked.tree)
+  const project = isHome ? undefined : await projectOfTree($, asked.tree)
   const list = project === undefined ? await setUp($) : project.targets
   const target = asked.target === undefined ? list[0] : list.find(({ label }) => label === asked.target)
 
@@ -320,7 +331,7 @@ export const register: Register = (on, options) => {
 
     const cwd = await workIn($, e.agentId)
 
-    if (cwd !== (await homeOf($))) await launch($, cwd, (await projectIn($, cwd)).targets)
+    if (cwd !== (await homeOf($))) await launch($, cwd, (await projectOfTree($, cwd)).targets)
 
     const ran = await next({ ...e, command: `${prelude(cwd)}${e.command}` })
     await pull($).catch(() => undefined)

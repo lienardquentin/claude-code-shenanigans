@@ -1,5 +1,0 @@
-{
-  "name": "lothlorien-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "lothlorien", "source": "./" }]
-}

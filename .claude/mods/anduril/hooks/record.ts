@@ -77,6 +77,18 @@ export const parseProject = (text: string, cwd: string): { targets: AndurilTarge
 /** Every tool a project's file names. */
 export const parseTargets = (text: string, cwd: string): AndurilTarget[] => parseProject(text, cwd).targets
 
+/** A path of the project's folder as the same path in a quest's worktree; any other path as it is. */
+const moved = (home: string, tree: string, path: string): string => (path === tidy(home) ? tidy(tree) : path.startsWith(`${tidy(home)}/`) ? `${tidy(tree)}${path.slice(tidy(home).length)}` : path)
+
+/**
+ * What a quest's worktree is played by: the tools, their builds and binaries as the project's own file says them (a
+ * command run on the machine is never read from a branch), moved into the worktree; the runs to play, its own.
+ */
+export const projectInTree = (home: { text: string; cwd: string }, tree: { text: string; cwd: string }): { targets: AndurilTarget[]; corpus: string[] } => ({
+  targets: parseProject(home.text, home.cwd).targets.map(target => ({ ...target, binary: moved(home.cwd, tree.cwd, target.binary), roots: target.roots.map(root => moved(home.cwd, tree.cwd, root)) })),
+  corpus: parseProject(tree.text, tree.cwd).corpus,
+})
+
 /** The kept runs that are runs of one tool. */
 export const corpusOf = (corpus: readonly string[], label: string): string[] => corpus.filter(line => line.split(/\s+/)[0] === label)
 
