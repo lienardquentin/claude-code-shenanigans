@@ -10,6 +10,7 @@ import {
   commitMessage,
   companionPrompt,
   errandTask,
+  forgeOf,
   handBackOf,
   isAllDone,
   memberFor,
@@ -25,6 +26,7 @@ import {
   statueModelFor,
   statuesFor,
   tally,
+  threadArgv,
   treePathOf,
   triesOf,
   unsettledOf,
@@ -268,7 +270,11 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
       ? undefined
       : spec.kind === 'errand' && resumed?.tasks !== undefined && resumed.tasks.length > 0
         ? resumed.tasks
-        : [...(resumed?.tasks ?? []), ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url))].map((task, at) => ({ ...task, id: at + 1 }))
+        : [
+            // A comment taken up already keeps where it stands, and gains the thread it was handed over without
+            ...(resumed?.tasks ?? []).map(task => ({ ...task, ...(task.thread === undefined ? { thread: (spec.tasks ?? []).find(one => one.url !== undefined && one.url === task.url)?.thread } : {}) })),
+            ...(spec.tasks ?? []).filter(task => !(resumed?.tasks ?? []).some(one => one.url !== undefined && one.url === task.url)),
+          ].map((task, at) => ({ ...task, id: at + 1 }))
   const work = tasks === undefined ? made : { ...made, tasks }
   const quest: FellowshipQuest = {
     kind: spec.kind,
@@ -750,6 +756,48 @@ async function abandon($: $, ref: string): Promise<string> {
   return said.join(' ')
 }
 
+/** A commit as its branch holds it: the one recorded, else, where it was rewritten since, the one that names its comment. */
+async function landedSha($: $, tree: string, sha: string, task: FellowshipTask): Promise<string> {
+  if (sha !== '' && (await git($, ['cat-file', '-e', `${sha}^{commit}`], tree)).ok) return sha
+  if (task.url === undefined || task.url === '') return sha
+
+  const found = (await git($, ['log', '-n', '1', '--format=%H', '--fixed-strings', `--grep=${task.url}`], tree)).out.split('\n')[0] ?? ''
+
+  return found !== '' ? found : sha
+}
+
+/**
+ * Answers each review thread whose comment the quest took up, once its answers are pushed: one built is told its commit
+ * and resolved; one handed back is told why, and left open for the person. A thread is answered once. Says what was done.
+ */
+async function answerThreads($: $, ref: string): Promise<string> {
+  const held = await questOf($, ref)
+  const number = Number(/#(\d+)$/.exec(ref)?.[1] ?? NaN)
+
+  if (held === null || !Number.isFinite(number)) return ''
+
+  const forge = forgeOf(held.pr !== '' ? held.pr : held.url)
+  let answered = 0
+  let resolved = 0
+
+  for (const task of (held.tasks ?? []).filter(one => one.thread !== undefined && one.thread !== '' && one.isAnswered !== true)) {
+    const commit = held.commits.find(one => one.taskId === task.id && one.sha !== '')
+    const reply = commit !== undefined ? `Answered in ${(await landedSha($, held.tree, commit.sha, task)).slice(0, 7)} by ${commit.by}.` : task.state === 'asked' ? `Handed back to the author: ${task.note ?? ''}` : undefined
+
+    if (reply === undefined) continue
+
+    const argv = threadArgv(forge, number, task.thread ?? '', reply)
+
+    if (!(await run($, argv.reply, undefined, held.tree)).ok) continue
+
+    answered += 1
+    if (commit !== undefined && (await run($, argv.resolve, undefined, held.tree)).ok) resolved += 1
+    await keep($, ref, was => ({ ...was, tasks: (was.tasks ?? []).map(one => (one.id === task.id ? { ...one, isAnswered: true } : one)) }))
+  }
+
+  return answered === 0 ? '' : ` ${answered} ${answered === 1 ? 'thread is' : 'threads are'} answered on the pull request, ${resolved} resolved.`
+}
+
 /** Pushes the branch and opens the pull request that closes the issue; a review's answers are pushed onto its pull request. */
 async function sail($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
@@ -772,7 +820,9 @@ async function sail($: $, ref: string): Promise<string> {
 
     await keep($, ref, was => ({ ...was, phase: was.phase === 'arrived' ? 'sailed' : was.phase }))
 
-    return `${held.branch} is pushed: ${held.commits.length} answered ${held.commits.length === 1 ? 'comment is' : 'comments are'} on ${held.pr}.`
+    const told = await answerThreads($, ref)
+
+    return `${held.branch} is pushed: ${held.commits.length} answered ${held.commits.length === 1 ? 'comment is' : 'comments are'} on ${held.pr}.${told}`
   }
 
   // Each task of a plan was judged alone: both statues judge what the tasks do and let in together, once, before the

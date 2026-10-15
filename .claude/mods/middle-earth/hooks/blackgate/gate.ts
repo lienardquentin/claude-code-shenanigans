@@ -95,6 +95,7 @@ export const parseGithub = (answer: string, repo: string, number: number): { pr:
             line: typeof thread.line === 'number' ? thread.line : 0,
             body: notes.map((note, at) => (at === 0 ? text(note.body) : `--- ${text(note.author?.login)}:\n${text(note.body)}`)).join('\n\n'),
             url: text(notes[0]?.url),
+            thread: text(thread.id),
           }
         }),
       // A review's own words, when it asked for changes or said something: an approval's are not a request
@@ -127,6 +128,7 @@ export const parseGitlab = (request: string, discussions: string, repo: string, 
         line: typeof notes[0]?.position?.new_line === 'number' ? notes[0].position.new_line : 0,
         body: notes.map((note, at) => (at === 0 ? text(note.body) : `--- ${text(note.author?.username)}:\n${text(note.body)}`)).join('\n\n'),
         url: `${text(mr.web_url)}#note_${id}`,
+        thread: id,
       }))
 
     return { pr: { forge: 'gitlab', repo, number, url: text(mr.web_url), title: text(mr.title), branch: text(mr.source_branch), base: text(mr.target_branch) }, comments }
@@ -191,7 +193,7 @@ export const handedOf = (gate: BlackgateGate): { ref: string; url: string; title
   base: gate.pr.base,
   comments: gate.comments
     .filter(one => one.kind === 'change')
-    .map(one => ({ title: firstLine(one.body), brief: one.body, author: one.author, where: one.path === '' ? '' : `${one.path}:${one.line}`, url: one.url, weight: one.weight, files: one.path === '' ? [] : [one.path] })),
+    .map(one => ({ title: firstLine(one.body), brief: one.body, author: one.author, where: one.path === '' ? '' : `${one.path}:${one.line}`, url: one.url, weight: one.weight, files: one.path === '' ? [] : [one.path], ...(one.thread !== undefined && one.thread !== '' ? { thread: one.thread } : {}) })),
 })
 
 /** One comment in a line. */

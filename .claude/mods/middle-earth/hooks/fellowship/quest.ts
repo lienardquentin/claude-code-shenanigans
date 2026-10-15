@@ -114,6 +114,7 @@ const taskOf = (task: Record<string, unknown>): FellowshipTask => ({
   ...(typeof task.author === 'string' ? { author: task.author } : {}),
   ...(typeof task.where === 'string' ? { where: task.where } : {}),
   ...(typeof task.url === 'string' ? { url: task.url } : {}),
+  ...(typeof task.thread === 'string' && task.thread !== '' ? { thread: task.thread } : {}),
 })
 
 /** The plan Elrond keeps, or as JSON text: `null` when none is in force, a sentence when the answer is not a plan. */
@@ -509,6 +510,24 @@ export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>,
     '',
     PR_TRAILER,
   ].join('\n')
+
+/** The forge a review's pull request is on, by its URL. */
+export const forgeOf = (url: string): 'github' | 'gitlab' => (/\/\/github\.com\//.test(url) ? 'github' : 'gitlab')
+
+/**
+ * The forge's CLI that answers a review thread with a reply, and the one that resolves it: a GitHub review thread by
+ * its node id, a GitLab discussion by its id on the merge request (`number`), in the repository the command runs in.
+ */
+export const threadArgv = (forge: 'github' | 'gitlab', number: number, thread: string, reply: string): { reply: string[]; resolve: string[] } =>
+  forge === 'github'
+    ? {
+        reply: ['gh', 'api', 'graphql', '-f', 'query=mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } } }', '-f', `id=${thread}`, '-f', `body=${reply}`],
+        resolve: ['gh', 'api', 'graphql', '-f', 'query=mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { isResolved } } }', '-f', `id=${thread}`],
+      }
+    : {
+        reply: ['glab', 'api', '-X', 'POST', `projects/:id/merge_requests/${number}/discussions/${thread}/notes`, '-f', `body=${reply}`],
+        resolve: ['glab', 'api', '-X', 'PUT', `projects/:id/merge_requests/${number}/discussions/${thread}`, '-f', 'resolved=true'],
+      }
 
 /** The forge's CLI that opens the pull request (a merge request on GitLab) from the quest's branch. */
 export const prArgv = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: FellowshipPlan): string[] =>

@@ -1164,6 +1164,38 @@ describe('a review handed over by the Black Gate', () => {
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(false)
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: sailed/)
+
+    // Once pushed, each thread is answered on the pull request: the comment built is told its commit and resolved; the
+    // one handed back is told why, and left open for the person
+    const threads = world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))
+    expect(threads).toEqual([
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in c0ffee2 by Frodo\.$/),
+      expect.stringMatching(/resolveReviewThread.* -f id=r1$/),
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r2 -f body=Handed back to the author: whether to answer seconds or a timestamp is the author's call\.$/),
+    ])
+
+    // Sailed again, no thread is answered twice
+    await $.command.run({ command: 'fellowship', args: `sail review:${REVIEW.ref}` } as never)
+    await settle($, world)
+    expect(world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))).toHaveLength(3)
+  })
+
+  test('handed over again, gives the comments it took up before their threads, and takes up none twice', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    // A review taken up before its comments carried their threads
+    const ref = `review:${REVIEW.ref}`
+    world.store[`quest:${ref}`] = { kind: 'review', ref, url: REVIEW.url, title: REVIEW.title, branch: BRANCH, base: 'main', tree: TREE, tasks: reviewTasks(REVIEW.comments), isAuto: false, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: REVIEW.url, at: 1 }
+    world.worktrees.push({ path: TREE, branch: BRANCH })
+    await start($, world)
+
+    await handOver($)
+
+    const kept = world.store[`quest:${ref}`] as { tasks: { url?: string; thread?: string }[] }
+    expect(kept.tasks.map(task => [task.url, task.thread])).toEqual([
+      ['https://github.com/x/pull/13#r1', 'r1'],
+      ['https://github.com/x/pull/13#r2', 'r2'],
+    ])
   })
 
   test('is built where the pull request\'s branch is checked out already, and its branch is never deleted', async ($, on) => {
