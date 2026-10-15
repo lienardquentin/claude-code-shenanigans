@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { UNTRACKED, changesByTarget, isProd, narrowed, owed, parseProject, parseReviews, parseServiceAnswer, proofAnswer, targetsOf, withLive } from '../hooks/proof'
+import { UNTRACKED, changesByTarget, isProd, narrowed, owed, parseProject, parseReviews, parseServiceAnswer, proofAnswer, requiredOf, standingByTarget, targetsOf, withLive } from '../hooks/proof'
 import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, isChanging, parseFindings } from '../hooks/statues'
 
@@ -71,7 +71,9 @@ const PROOF = {
 /** Stands for the machine beneath the mod and for anduril beside it. */
 const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
-  const world = { files, ran: [] as string[], fingerprint: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[] } }
+  // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
+  // status says of them, read around each shell command and counted in `fingerprints`
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }) }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -100,9 +102,12 @@ const machine = (on: On, given: Record<string, string> = {}) => {
     else if (script.endsWith('service.py')) {
       world.jobs.service.push(job())
       stdout = world.service
-    } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`)) {
-      // What git says of gondor's folder against HEAD
+    } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`) && (e.argv[2] ?? '').includes('git status')) {
+      // Where the targets' folders stand, as git status says it around a shell command
       world.fingerprints += 1
+      stdout = world.standing
+    } else if (e.argv[0] === 'sh' && e.argv.includes(`${CWD}/beacons/gondor`)) {
+      // What git says of the targets' folders against HEAD
       stdout = world.fingerprint
     } else if (script.endsWith('live.py')) {
       world.jobs.live.push(job())
@@ -110,6 +115,9 @@ const machine = (on: On, given: Record<string, string> = {}) => {
     } else if (script.endsWith('prove.py')) {
       world.jobs.prove.push(job())
       stdout = world.proof
+    } else if (script.endsWith('affected.py')) {
+      world.jobs.affected.push(job())
+      stdout = world.affected
     } else {
       // git listing a target's test files
       const folders = e.argv.slice(e.argv.indexOf('--') + 1).map(whole)
@@ -273,8 +281,8 @@ describe('the live stage', () => {
     const fast = { ...live, line: 'gondor GET /health', evidence: '+  "lit": 0,\nlive, with the real dependencies:\n- 200 {}' }
 
     expect(owed(live)).toContain('only with the real dependencies, so no test that runs without them can pin it. If that is not meant, it is a regression: fix the code.')
-    expect(owed(fast)).toContain('If the change is meant, write one that makes this run')
-    expect(owed(fast)).toContain('if not, it is a regression: fix the code.')
+    expect(owed(fast)).toContain('Meant: write one that makes this run')
+    expect(owed(fast)).toContain('Not meant: a regression, fix the code.')
   })
 
   test('is never started for a context that names prod', async ($, on) => {
@@ -428,9 +436,9 @@ describe('argonath', () => {
   test('counts a shell command that changed a target\'s folders as an edit of it, and one that did not as none', async ($, on) => {
     const world = machine(on)
     // The shell command reverts gondor's archive: what git says of gondor's folder is not the same after it
-    world.fingerprint = 'diff --git a/beacons/gondor/archive.py'
+    world.standing = ' M beacons/gondor/archive.py\nbeacons/gondor/archive.py\t812 1800000000.000000001'
     on('tool.call', { tool: 'Bash' }, () => {
-      world.fingerprint = ''
+      world.standing = ''
 
       return { result: 'done' } as never
     })
@@ -695,6 +703,125 @@ describe('a proof read as JSON', () => {
 
     expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; no kept run reaches what changed in narsil', unreached: ['narsil'], unhandled: [] })
     expect(answer.targets.map(one => one.state)).toEqual(['unreached', 'pinned'])
+  })
+})
+
+// What the project says of gondor's database, its readiness and the tests a change of it can break
+const DB = ['gondor.db=postgres:18-alpine', 'gondor.db.env=DATABASE_URL', 'gondor.ready=GET /health', 'gondor.ready.match="lit": \\d', 'gondor.affected=pytest -q -rfE beacons/tests'].join('\n')
+
+describe('a database, a readiness and the tests a change can break', () => {
+  test('are read from the project, and sent with the requests to play', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}` })
+    const [, gondor] = parseProject(`${PROJECT}\n${DB}`, CWD)
+
+    expect(gondor).toMatchObject({ db: { image: 'postgres:18-alpine', env: 'DATABASE_URL', setup: '' }, ready: { request: 'GET /health', match: '"lit": \\d' }, affected: 'pytest -q -rfE beacons/tests' })
+    expect(parseProject(PROJECT, CWD)[1]).toMatchObject({ db: null, ready: null, affected: '' })
+
+    await call($, 'mcp__argonath__radius', { target: 'gondor' })
+    expect(world.jobs.service[0]).toMatchObject({ db: { image: 'postgres:18-alpine' }, ready: { request: 'GET /health' }, roots: [`${CWD}/beacons/gondor`] })
+  })
+
+  test('a target the change did not reach is not played at all', async ($, on) => {
+    const world = machine(on)
+    world.fingerprint = 'diff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\n'
+
+    const said = await call($, 'mcp__argonath__radius')
+
+    expect(world.jobs.service).toHaveLength(0)
+    expect(world.asked).toHaveLength(1)
+    expect(said).toContain('gondor: the change does not reach its folders.')
+  })
+
+  test('says the changed lines no kept request ran, to the builder, to a mod and to the statues', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    world.service = JSON.stringify({ ...SERVICE, cases: SERVICE.cases.map(one => ({ ...one, isChanged: false, evidence: '' })), unreached: { 'beacons/gondor/archive.py': '93, 120-121' }, measured: true })
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    const proof = JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true }))
+
+    expect(proof).toMatchObject({ verdict: 'settled', unreached: ['gondor'], line: 'no kept run changed: nothing to pin; no kept run reaches what changed in gondor (beacons/gondor/archive.py 93, 120-121)' })
+    expect(proof.text).toContain('Changed lines no kept request ran: beacons/gondor/archive.py 93, 120-121.')
+    // What did not change is a count, not a list
+    expect(proof.text).toContain('2 other kept requests answered as before.')
+
+    await call($, 'mcp__argonath__judgement', { convene: true })
+    expect(String(spawned[0]?.prompt)).toContain('- gondor: changed lines no kept run ran, so no integration test checks them: beacons/gondor/archive.py 93, 120-121.')
+  })
+
+  test('settles nothing the change broke, and lets pass what was broken before it', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}` })
+    const failing = (names: string[]) => names.map(name => `FAILED beacons/tests/test_gondor.py::${name} - AssertionError`).join('\n')
+    world.affected = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: failing(['test_beacons', 'test_flaky']) }, from: { error: '', exitCode: 1, output: failing(['test_flaky']) } })
+
+    const broken = JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true }))
+
+    expect(world.jobs.affected[0]).toMatchObject({ command: 'pytest -q -rfE beacons/tests', from: 'HEAD' })
+    expect(broken).toMatchObject({ verdict: 'unsettled', line: 'the change breaks a test: beacons/tests/test_gondor.py::test_beacons' })
+    expect(broken.text).toContain('Failing before the change too, and not owed by it: beacons/tests/test_gondor.py::test_flaky.')
+
+    world.affected = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: failing(['test_flaky']) }, from: { error: '', exitCode: 1, output: failing(['test_flaky']) } })
+    world.whole = 'abc124\n'
+    expect(JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true })).verdict).toBe('settled')
+
+    // A run that failed and named no test settles nothing
+    world.affected = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 2, output: 'ImportError while loading conftest' }, from: null })
+    world.whole = 'abc125\n'
+    expect(JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true })).verdict).toBe('unsettled')
+  })
+
+  test('does not run them for a target the change did not reach', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}` })
+    world.fingerprint = 'diff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\n'
+
+    await call($, 'mcp__argonath__prove', { target: 'gondor' })
+
+    expect(world.jobs.affected).toHaveLength(0)
+  })
+})
+
+describe('tests written before the change', () => {
+  test('are run with the proof and must pass on the working tree for it to settle', async ($, on) => {
+    const world = machine(on)
+    const written = [{ file: 'beacons/tests/test_gondor.py', name: 'beacons/tests/test_gondor.py::test_burned_for' }]
+    world.proof = JSON.stringify({ ...PROOF, to: { ...PROOF.to, output: `${PROOF.to.output}\n${pytest({ test_burned_for: false })}` } })
+
+    const failing = JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true, mustPass: written }))
+
+    expect(world.jobs.prove[0]?.test).toContain('-k "test_health_counts_what_burns or test_burned_for"')
+    expect(failing).toMatchObject({ verdict: 'unsettled', line: 'a test written before the change does not pass yet: test_burned_for' })
+
+    world.proof = JSON.stringify({ ...PROOF, to: { ...PROOF.to, output: `${PROOF.to.output}\n${pytest({ test_burned_for: true })}` } })
+    world.whole = 'abc124\n'
+    expect(JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true, mustPass: written })).verdict).toBe('settled')
+  })
+
+  test('are run for their target even where no kept run of it changed', async ($, on) => {
+    const world = machine(on)
+    world.service = JSON.stringify({ ...SERVICE, cases: SERVICE.cases.map(one => ({ ...one, isChanged: false, evidence: '' })) })
+    world.proof = JSON.stringify({ ...PROOF, to: { ...PROOF.to, output: pytest({ test_burned_for: false }) } })
+
+    const said = JSON.parse(await call($, 'mcp__argonath__prove', { target: 'gondor', json: true, mustPass: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }] }))
+
+    expect(world.jobs.prove).toHaveLength(1)
+    expect(said.verdict).toBe('unsettled')
+  })
+
+  test('of another target than theirs are not asked of this one', () => {
+    const [narsil] = parseProject(PROJECT, CWD)
+
+    expect(requiredOf(narsil!, CWD, [{ file: 'beacons/tests/test_gondor.py', name: 'test_x' }, { file: 'narsil/tests/cli.rs', name: 'cli::show_unknown' }])).toEqual(['show_unknown'])
+  })
+})
+
+describe('where the targets\' folders stand', () => {
+  test('is read by file from git status and each file\'s size and time, by target', () => {
+    const output = [' M beacons/gondor/app.py', '?? narsil/src/new.rs', 'R  beacons/gondor/old.py -> beacons/gondor/new.py', 'beacons/gondor/app.py\t812 1800000000.1', 'narsil/src/new.rs\t40 1800000000.2'].join('\n')
+    const held = standingByTarget(output, [{ label: 'gondor', roots: [`${CWD}/beacons/gondor`] }, { label: 'narsil', roots: [`${CWD}/narsil`] }, { label: 'anor', roots: [`${CWD}/beacons/anor`] }], CWD)
+
+    expect(held.get('gondor')).toBe([' M beacons/gondor/app.py', 'R  beacons/gondor/old.py -> beacons/gondor/new.py', 'beacons/gondor/app.py\t812 1800000000.1'].join('\n'))
+    expect(held.get('narsil')).toBe(['?? narsil/src/new.rs', 'narsil/src/new.rs\t40 1800000000.2'].join('\n'))
+    expect(held.get('anor')).toBe('')
   })
 })
 

@@ -24,6 +24,22 @@ export type ArgonathTarget = {
   requests: string[]
   /** Where a service is deployed, to play its requests on both builds against its real dependencies; none when not said. */
   live: ArgonathLive | null
+  /** A service's database: each build of the fast stage plays against one of its own, in a warm container; none when not said. */
+  db: ArgonathDb | null
+  /** The request a service is asked before it is played, until it answers 2xx with a body `match` finds; none when not said. */
+  ready: { request: string; match: string } | null
+  /** The command that runs the tests a change of the target can break, from the project's folder; empty when none is named. */
+  affected: string
+}
+
+/** A service's database for the fast stage: a Postgres image, the variable its address is set in, and how it is made ready. */
+export type ArgonathDb = {
+  /** A Postgres image, `postgres:18-alpine`: one container of it is started for the project and kept warm. */
+  image: string
+  /** The variable the build's database address is set in, `DATABASE_URL`. */
+  env: string
+  /** A command run in the build's folder before it plays, its address set: a migration. Empty when the app makes its own tables. */
+  setup: string
 }
 
 /** A service's live stage: its deployed workload, what to forward to it, and how to leave its database as it was. */
@@ -100,6 +116,14 @@ export type ArgonathRadius = {
   isStale: boolean
   /** What the live stage found or why it did not run, in a line; empty for a target with none. */
   live: string
+  /** Of the lines the change touched, the statements no kept request ran, as spans by file; empty when all ran or none was measured. */
+  unreached?: Record<string, string>
+  /** The tests the affected command found broken by the change: failing on the working tree, not on the commit. */
+  regressions?: string[]
+  /** The tests the affected command found failing on both sides: broken before the change, and not owed by it. */
+  preexisting?: string[]
+  /** The tests the caller requires to pass on the working tree (written before the change, as Galadriel does), and how each ended. */
+  required?: ArgonathTest[]
 }
 
 /** One of the two statues of the Argonath, which judge a settled change. */

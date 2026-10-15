@@ -8,9 +8,11 @@ and each service named in `forward` reached through a `kubectl port-forward` of 
 put to the forwarded one. What the project sets in `env` is laid over that.
 
 Nothing is left behind. With `scratch`, the variable that holds the database's address, each build plays against a
-copy of the database of its own: made in the database's pod from a dump of it, the variable pointed at the copy, and
-the copy dropped once the build has played. A build's migrations (a column its schema adds) then run on its copy
-alone, and the shared database is only read. Without it, every request carries an id of the run's own
+copy of the database of its own: one copy made in the database's pod from a dump of it, a second made from the first
+(so both builds start from the very same rows, whatever the shared database does meanwhile), the variable pointed at
+each, and both dropped once played. A build's migrations (a column its schema adds) then run on its copy alone, and
+the shared database is only read. Both builds then answer from the same data, so their answers are compared value
+for value, the project's masks applied, as the fast stage compares them. Without it, every request carries an id of the run's own
 (`argonath-<time>-<build>-<n>`) for the service to file what it writes under: before the first build plays, `before`
 reads what the database holds that a request may undo; after each build, every `cleanup` statement is run with that id,
 and `restore` puts back what `before` read. Both run in the database's own pod, through its own tools, which let them in
@@ -18,8 +20,8 @@ with no password. The port forwards are ended last, whatever happened.
 
 A context whose name holds "prod" is never touched: nothing is read from it, and nothing is run in it.
 
-Builds are compared by their answers' status and shape (each object's keys and each value's type), not their values:
-the real dependencies change while the run lasts, by others' doing.
+Without `scratch`, builds are compared by their answers' status and shape (each object's keys and each value's type),
+not their values: the shared database changes while the run lasts, by others' doing.
 
 Reads one JSON job on stdin and writes one JSON answer on stdout:
 
@@ -30,6 +32,7 @@ The answer: {"label", "where", "skipped", "error", "cases": [{"line", "isChanged
 """
 
 import base64
+import difflib
 import json
 import os
 import re
@@ -52,6 +55,8 @@ COPY = (
     'pg_dump -U "$user" -d "${POSTGRES_DB:-$user}" --no-owner --no-privileges | psql -X -q -v ON_ERROR_STOP=1 -U "$user" -d "$0" >/dev/null'
 )
 DROP = 'exec dropdb -U "${POSTGRES_USER:-postgres}" --if-exists --force "$0"'
+# A second copy made from the first, row for row, named $0 from $1
+TWIN = 'exec createdb -U "${POSTGRES_USER:-postgres}" -T "$1" "$0"'
 
 
 def kubectl(context, namespace, *args, stdin=None, seconds=60):
@@ -104,6 +109,11 @@ def copied(context, namespace, db, name):
     kubectl(context, namespace, "exec", db, "--", "sh", "-c", COPY, name, seconds=COPY_SECONDS)
 
 
+def twinned(context, namespace, db, name, source):
+    """A copy of a copy, nobody connected to the first: both start from the same rows."""
+    kubectl(context, namespace, "exec", db, "--", "sh", "-c", TWIN, name, source, seconds=COPY_SECONDS)
+
+
 def dropped(context, namespace, db, name):
     """The copy taken away, whoever is still connected to it."""
     kubectl(context, namespace, "exec", db, "--", "sh", "-c", DROP, name)
@@ -146,6 +156,22 @@ def described(answer):
     return "%s %s" % (answer["status"], body)
 
 
+def valued(answer, masks):
+    """An answer as it is, its status and its body, each mask applied."""
+    if answer["error"]:
+        return answer["error"]
+    body = answer["body"]
+    for mask in masks:
+        body = mask.sub("<masked>", body)
+    return "%s\n%s" % (answer["status"], body)
+
+
+def changes(was, now, most=30):
+    """How one answer became another, as the lines that differ."""
+    lines = [line for line in difflib.unified_diff(was.splitlines(), now.splitlines(), "from", "to", lineterm="", n=1)]
+    return "\n".join(lines[:most] + (["… %d more lines differ" % (len(lines) - most)] if len(lines) > most else []))
+
+
 def play(job, folder, env, rid):
     python = os.path.join(folder, job["python"]) if job["python"] else folder
     uv = shutil.which("uv")
@@ -160,8 +186,8 @@ def play(job, folder, env, rid):
     except subprocess.TimeoutExpired:
         raise Stop("its requests were ended after %d seconds" % SIDE_SECONDS)
     try:
-        return json.loads(done.stdout)
-    except ValueError:
+        return json.loads(done.stdout)["answers"]
+    except (ValueError, KeyError, TypeError):
         raise Stop("its app did not answer (exit %d): %s" % (done.returncode, tail(done.stderr, 4)))
 
 
@@ -210,23 +236,30 @@ def main():
             raise Stop("git knows no commit by the name %s" % job["from"])
 
         played = []
-        for side, folder in (("from", checkout(job["home"], job["label"], sha)), ("to", job["home"])):
-            if scratch:
-                copy = "%s_%s" % (rid.replace("-", "_"), side)
-                copied(context, namespace, live["db"], copy)
-                try:
-                    played.append(play(job, folder, {**env, scratch: pointed_at(env[scratch], copy)}, "%s-%s" % (rid, side)))
-                finally:
-                    dropped(context, namespace, live["db"], copy)
-                continue
+        sides = (("from", checkout(job["home"], job["label"], sha)), ("to", job["home"]))
+        if scratch:
+            # One dump of the shared database, then a twin of it: both builds start from the same rows
+            copies = {side: "%s_%s" % (rid.replace("-", "_"), side) for side, _ in sides}
             try:
-                played.append(play(job, folder, env, "%s-%s" % (rid, side)))
+                copied(context, namespace, live["db"], copies["from"])
+                twinned(context, namespace, live["db"], copies["to"], copies["from"])
+                for side, folder in sides:
+                    played.append(play(job, folder, {**env, scratch: pointed_at(env[scratch], copies[side])}, "%s-%s" % (rid, side)))
             finally:
-                clean(context, namespace, live, rid, snapshot)
+                for copy in copies.values():
+                    dropped(context, namespace, live["db"], copy)
+        else:
+            for side, folder in sides:
+                try:
+                    played.append(play(job, folder, env, "%s-%s" % (rid, side)))
+                finally:
+                    clean(context, namespace, live, rid, snapshot)
 
+        masks = [re.compile(source) for source in job.get("masks") or []]
         for line, before, after in zip(job["requests"], played[0], played[1]):
-            was, now = described(before), described(after)
-            answer["cases"].append({"line": line, "isChanged": was != now, "evidence": "" if was == now else "live, with the real dependencies:\n- %s\n+ %s" % (was, now)})
+            # Each build on the same rows: what they answered is compared as it is, masks applied; else its shape
+            was, now = (valued(before, masks), valued(after, masks)) if scratch else (described(before), described(after))
+            answer["cases"].append({"line": line, "isChanged": was != now, "evidence": "" if was == now else "live, with the real dependencies:\n%s" % changes(was, now)})
     except Stop as stop:
         answer["error"] = str(stop)
     except subprocess.TimeoutExpired:

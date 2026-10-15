@@ -401,8 +401,10 @@ const prove = async ($: $): Promise<void> => {
 
   await update($, working, () => `Argonath proves task ${out.taskId}…`)
 
-  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end
-  const proof = await ask($, 'argonath', 'prove', { owe: false, json: true })
+  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end. Galadriel's
+  // tests, written from the task before it was built, must pass for the proof to settle
+  const written = held.vision?.taskId === out.taskId ? (held.vision?.tests ?? []) : []
+  const proof = await ask($, 'argonath', 'prove', { owe: false, json: true, ...(written.length > 0 ? { mustPass: written } : {}) })
   const verdict = proof.isError ? { isSettled: false, isUnlooked: true, line: proof.text, unhandled: [] as string[], text: proof.text } : proofVerdict(proof.text)
 
   await keep($, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))

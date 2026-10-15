@@ -221,6 +221,8 @@ const machine = (on: On) => {
     statues: [] as unknown[],
     against: [] as unknown[],
     models: [] as unknown[],
+    // What each proof was asked with
+    proved: [] as Record<string, unknown>[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
 
@@ -269,7 +271,11 @@ const machine = (on: On) => {
 
       return text('marked')
     }
-    if (e.server === 'argonath' && e.tool === 'prove') return text(world.proofs.length > 1 ? (world.proofs.shift() ?? '') : (world.proofs[0] ?? ''))
+    if (e.server === 'argonath' && e.tool === 'prove') {
+      world.proved.push(e.args)
+
+      return text(world.proofs.length > 1 ? (world.proofs.shift() ?? '') : (world.proofs[0] ?? ''))
+    }
     if (e.server === 'argonath' && e.tool === 'targets') return text(JSON.stringify(TARGETS))
     if (e.server === 'lothlorien' && world.mirror.length > 0) {
       if (e.tool === 'gaze') {
@@ -567,6 +573,8 @@ describe('fellowship', () => {
     await ends($, 'gimli-1', 'Made them pass.')
     await settle(world)
 
+    // Her tests are owed a pass on the working tree before the proof settles
+    expect(world.proved[0]).toMatchObject({ owe: false, mustPass: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }] })
     // The statues are told what was changed of her tests, and why
     expect(world.about[0]).toContain("the builder changed some, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by fellowship:gimli: It asserted seconds as a string.")
     expect(world.ran.some(line => line.startsWith('git commit -m #12: Answer the seconds burned'))).toBe(true)
@@ -590,6 +598,8 @@ describe('fellowship', () => {
     expect(world.gazed).toHaveLength(1)
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'fellowship:gimli' })
     expect(String(world.spawned[1]?.prompt)).not.toContain("Galadriel's tests")
+    // With none of hers, no test is owed a pass beyond the proof's own
+    expect(world.proved[0]).not.toHaveProperty('mustPass')
   })
 
   test('stops for the person when the Mirror is clouded, and gazes anew when the task is sent again', async ($, on) => {
