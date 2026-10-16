@@ -98,6 +98,12 @@ const TOOLS = [
     description: "Checks and reviews the uncommitted change of a stuck task again, and commits it once the review passes it. Call it when the person has finished a stuck task by hand, in the quest's worktree, and asks to commit it.",
     inputSchema: { type: 'object', properties: { ref: REF } },
   },
+  {
+    name: 'next',
+    description:
+      "Sends a builder on the quest's next task, or on its stuck task again, from its first rung and on what its worktree holds, as /fellowship next does. Only for a quest that is ready or stuck. Call it when the person asks to go on with a quest, or to try a stuck task again.",
+    inputSchema: { type: 'object', properties: { ref: REF } },
+  },
 ] as const
 
 const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', gazing: 'info', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', warding: 'info', sailed: 'success' }
@@ -1169,6 +1175,19 @@ export function registerFellowship(on: On): void {
     await pumpFellowship($, held.ref)
 
     return { result: said }
+  })
+
+  on('tool.call', { tool: 'mcp__middle-earth__next' }, async ($, e) => {
+    const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
+
+    if (held === null) return { result: 'Name the quest, by its ref: more than one is under way, or none.' }
+    if (held.phase !== 'ready' && held.phase !== 'stuck') return { result: `The quest on ${held.ref} is ${held.phase}: no task is sent now.` }
+
+    await want($, held.ref, 'next')
+    // The member is sent here, inside the tool's own hook, where it is held
+    await pumpFellowship($, held.ref)
+
+    return { result: `A member is sent on the next task of ${held.ref}: mcp__middle-earth__quest says how it goes.` }
   })
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with

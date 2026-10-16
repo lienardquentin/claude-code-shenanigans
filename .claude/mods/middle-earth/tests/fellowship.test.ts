@@ -654,7 +654,7 @@ describe('fellowship', () => {
     const world = machine(on)
     await start($, world)
 
-    expect(world.tools).toEqual(expect.arrayContaining(['set_out', 'errand', 'quest', 'commit']))
+    expect(world.tools).toEqual(expect.arrayContaining(['set_out', 'errand', 'quest', 'commit', 'next']))
     expect(world.tools.some(tool => /sail|push|pull/.test(tool))).toBe(false)
   })
 
@@ -1012,6 +1012,12 @@ describe('a quest kept across sessions', () => {
     // A bare /fellowship lists it, and sets nothing out
     expect((await $.command.run({ command: 'fellowship', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
     expect(world.spawned).toEqual([])
+
+    // Claude sends the stuck task again itself, with no /fellowship next typed: in its worktree, from the tool's hook
+    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/A member is sent on the next task of github:.*#21/)
+    await settle($, world)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
+    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/is marching: no task is sent now/)
   })
 })
 
