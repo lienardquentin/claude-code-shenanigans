@@ -100,6 +100,17 @@ def test_a_quenched_beacon_shows_dark_in_the_chain(client):
     assert {b["beacon"]: b["lit"] for b in client.get("/beacons").json()}["amon-din"] is False
 
 
+def test_health_counts_a_single_quench_at_once(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/eilenach/light")
+
+    assert client.get("/health").json()["lit"] == 2
+
+    client.post("/beacons/amon-din/quench")
+
+    assert client.get("/health").json()["lit"] == 1
+
+
 # sting: gondor POST /beacons/quench
 def test_quenching_all_leaves_out_a_beacon_already_quenched(client):
     client.post("/beacons/amon-din/light")
@@ -119,6 +130,31 @@ def test_quenching_a_dark_beacon_is_a_409(client):
 
 # sting: gondor POST /beacons/mount-doom/quench
 def test_quenching_an_unknown_beacon_is_a_404(client):
+    answer = client.post("/beacons/mount-doom/quench")
+
+    assert answer.status_code == 404
+    assert "mount-doom" in answer.json()["detail"]
+
+
+def test_quenching_one_beacon_with_the_archives_shut_is_a_503(client, monkeypatch):
+    async def douse(beacon: str) -> bool:
+        raise archive.Shut("the archives are shut, and amon-din burns on")
+
+    monkeypatch.setattr(archive, "douse", douse)
+
+    answer = client.post("/beacons/amon-din/quench")
+
+    assert answer.status_code == 503
+    assert answer.json() == {"detail": "the archives are shut, and amon-din burns on"}
+    assert client.get("/health").status_code == 200
+
+
+def test_an_unknown_beacon_is_a_404_even_with_the_archives_shut(client, monkeypatch):
+    async def douse(beacon: str) -> bool:
+        raise archive.Shut("the archives are shut, and amon-din burns on")
+
+    monkeypatch.setattr(archive, "douse", douse)
+
     answer = client.post("/beacons/mount-doom/quench")
 
     assert answer.status_code == 404
