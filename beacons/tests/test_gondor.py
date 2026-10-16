@@ -1,10 +1,11 @@
 import asyncio
+import logging
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from gondor import archive, realm
+from gondor import archive, realm, tidings
 from gondor.app import app as gondor
 from rohan.app import app as rohan
 
@@ -77,6 +78,69 @@ def test_asking_after_one_beacon_with_the_archives_shut_is_a_503(client, monkeyp
 
     assert answer.status_code == 503
     assert answer.json() == {"detail": "the archives are shut, and none can say what burns"}
+
+
+# sting: gondor POST /beacons/amon-din/quench
+def test_quenching_one_beacon_puts_out_only_that_one(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/eilenach/light")
+
+    answer = client.post("/beacons/amon-din/quench")
+
+    assert answer.status_code == 200
+    assert answer.json() == {"beacon": "amon-din", "quenched": True}
+    assert {b["beacon"] for b in client.get("/beacons").json() if b["lit"]} == {"eilenach"}
+
+
+# sting: gondor GET /beacons
+def test_a_quenched_beacon_shows_dark_in_the_chain(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/amon-din/quench")
+
+    assert {b["beacon"]: b["lit"] for b in client.get("/beacons").json()}["amon-din"] is False
+
+
+# sting: gondor POST /beacons/quench
+def test_quenching_all_leaves_out_a_beacon_already_quenched(client):
+    client.post("/beacons/amon-din/light")
+    client.post("/beacons/eilenach/light")
+    client.post("/beacons/amon-din/quench")
+
+    assert client.post("/beacons/quench").json() == {"quenched": 1}
+
+
+# sting: gondor POST /beacons/amon-din/quench
+def test_quenching_a_dark_beacon_is_a_409(client):
+    answer = client.post("/beacons/amon-din/quench")
+
+    assert answer.status_code == 409
+    assert "does not burn" in answer.json()["detail"]
+
+
+# sting: gondor POST /beacons/mount-doom/quench
+def test_quenching_an_unknown_beacon_is_a_404(client):
+    answer = client.post("/beacons/mount-doom/quench")
+
+    assert answer.status_code == 404
+    assert "mount-doom" in answer.json()["detail"]
+
+
+def test_a_single_quench_is_logged_and_sends_no_tidings(client, caplog, monkeypatch):
+    sent = []
+    monkeypatch.setattr(tidings, "send", lambda *args, **kwargs: sent.append(args))
+    client.post("/beacons/amon-din/light")
+    sent.clear()
+
+    gondor_log = logging.getLogger("gondor")
+    gondor_log.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="gondor"):
+            assert client.post("/beacons/amon-din/quench").status_code == 200
+    finally:
+        gondor_log.removeHandler(caplog.handler)
+
+    assert any("amon-din" in record.getMessage() and "quenched" in record.getMessage() for record in caplog.records)
+    assert sent == []
 
 
 def test_every_beacon_but_the_last_hands_on_to_the_next():

@@ -106,6 +106,24 @@ async def light(name: str):
     return lit
 
 
+@app.post("/beacons/{name}/quench")
+async def quench_one(name: str):
+    if name not in realm.BEACONS:
+        raise HTTPException(404, f"no beacon is named {name}")
+
+    burned = await archive.douse(name)
+
+    # The archive decides what burns: this replica's memory is made to agree with it
+    realm.lit.discard(name)
+
+    if not burned:
+        raise HTTPException(409, f"{name} does not burn")
+
+    log.info("the beacon %s is quenched", name)
+
+    return {"beacon": name, "quenched": True}
+
+
 @app.post("/beacons/quench")
 async def quench():
     count = await archive.quench()
