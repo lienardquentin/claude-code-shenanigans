@@ -11,6 +11,7 @@ import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerL
 import { mountdoomView, registerMountdoom, startMountdoom } from './mountdoom/register'
 import { registerRings, ringsView, startRings } from './rings/register'
 import { carryStores } from './stores'
+import { sectionOfLag, startLag } from './lag'
 
 // The Middle-earth mod: one plugin, each of its parts a folder of its own (the Rings list the issues, Elrond plans, the
 // Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the Black Gate reads review, Mount Doom
@@ -82,6 +83,8 @@ export const register: Register = on => {
     await startBlackgate($)
     await startMountdoom($)
     await startRings($)
+    // A plugin of the marketplace that lags its folder is said, to the person and to Claude
+    await startLag($).catch(() => undefined)
 
     // A reload loads the module afresh: a pane drawn by the copy before it is drawn again, so its buttons press this one
     $.ui.invalidate('ui.render')
@@ -118,6 +121,7 @@ export const register: Register = on => {
       await sectionOfFellowship($).catch(() => undefined),
       await sectionOfLothlorien($).catch(() => undefined),
       await sectionOfArgonath($).catch(() => undefined),
+      sectionOfLag(),
     ].filter(one => one !== undefined)
 
     return added.length === 0 ? composed : { sections: [...composed.sections, ...added.map(one => ({ ...one, scope: 'session' as const }))] }
