@@ -564,6 +564,8 @@ export type MountdoomRelic = {
   quests?: string[]
   /** Whether the forge says it is merged, when last looked. */
   isMerged: boolean
+  /** Whether the forge says its pull request, still open, is in conflict with its base, when last looked. */
+  isConflicting?: boolean
 }
 
 // --- The plugin as a whole --------------------------------------------------------------------------------------------

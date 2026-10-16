@@ -74,6 +74,25 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
  * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
  * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
  */
+/** Whether the forge says an open pull request can no longer merge into its base as it stands: it is in conflict. */
+export async function isConflictingAt($: $, url: string): Promise<boolean> {
+  if (!/^https?:\/\//.test(url)) return false
+
+  const isGithub = /\/\/github\.com\//.test(url)
+  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,mergeable'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+
+  if (ran === undefined || ran.exitCode !== 0) return false
+
+  try {
+    const held = JSON.parse(ran.stdout) as { state?: unknown; mergeable?: unknown; has_conflicts?: unknown }
+
+    // GitHub answers UNKNOWN while it works the answer out: that is no conflict yet
+    return isGithub ? held.state === 'OPEN' && held.mergeable === 'CONFLICTING' : held.state === 'opened' && held.has_conflicts === true
+  } catch {
+    return false
+  }
+}
+
 export async function isMergedFrom($: $, url: string, branch?: string): Promise<boolean> {
   if (!/^https?:\/\//.test(url)) return false
 

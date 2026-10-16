@@ -53,6 +53,8 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     treeDirty: '',
     isTreeGone: false,
     state: 'OPEN',
+    // Whether the forge can merge the open pull request into its base as it stands
+    mergeable: 'MERGEABLE',
     toasts: [] as string[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
@@ -69,7 +71,7 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     const answer = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: exitCode === 0 ? '' : 'no', isStdoutTruncated: false, isStderrTruncated: false } }) as never
 
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
-    if (line.startsWith('gh pr view')) return answer(JSON.stringify({ state: world.state, headRefName: world.mergedFrom }))
+    if (line.startsWith('gh pr view')) return answer(JSON.stringify({ state: world.state, headRefName: world.mergedFrom, mergeable: world.mergeable }))
     if (line.startsWith('gh pr list')) return answer('[]')
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${world.branch}\n`)
@@ -132,6 +134,28 @@ describe('mountdoom', () => {
     expect(world.toasts.filter(toast => toast.startsWith('Mount Doom'))).toHaveLength(1)
     expect(await call($, 'mcp__middle-earth__relics')).toMatch(/1 merged, ready for the fire[\s\S]*🔥[\s\S]*merged\n\nThe person casts them with \/mountdoom cast/)
     expect(world.toasts.filter(toast => toast.startsWith('Mount Doom'))).toHaveLength(1)
+  })
+
+  test('tells the person once that a pull request still open fell into conflict with its base, and again only after it eased', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+
+    // #36 went CONFLICTING when main reworked .claude/argonath under it, and nothing said so
+    world.mergeable = 'CONFLICTING'
+    await world.clock.advance(31_000)
+    const told = () => world.toasts.filter(toast => /in conflict with its base/.test(toast))
+
+    expect(told()).toEqual(['Mount Doom: github:lienardquentin/claude-code-shenanigans#34 is in conflict with its base: merge it in, then push'])
+    // Each look through the tool asks the forge afresh: still in conflict, it is shown and not told again
+    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/\/pull\/40 · in conflict with its base$/)
+    expect(told()).toHaveLength(1)
+
+    // Merged in by hand, it is level again; a later conflict is told anew
+    world.mergeable = 'MERGEABLE'
+    expect(await call($, 'mcp__middle-earth__relics')).not.toMatch(/in conflict/)
+    world.mergeable = 'CONFLICTING'
+    await call($, 'mcp__middle-earth__relics')
+    expect(told()).toHaveLength(2)
   })
 
   test('casts nothing that is not merged', async ($, on) => {
