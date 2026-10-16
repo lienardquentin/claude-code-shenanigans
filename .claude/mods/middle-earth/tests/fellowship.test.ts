@@ -217,6 +217,8 @@ describe('a member', () => {
     const task = errandTask(ISSUE)
 
     expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/^The issue: github:.*#21, "Quench answers 404 for an unknown beacon"[\s\S]*<issue>\nIt answers 500 today\.\n\n--- faramir:\nSeen on amon-din too\.\n<\/issue>[\s\S]*You may hand it back if it is not one/)
+    // #37 took "refuse it the way --since does" for true, and --since refused nothing: the builder made it strict unasked
+    expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/change no behaviour it does not name\. Where the issue takes for true something the code does not do[\s\S]*hand it back, saying what the issue assumes, what the code does instead/)
     expect(handBackOf('I looked.\nHanded back: it needs a decision on 410.')).toBe('it needs a decision on 410.')
     expect(handBackOf('Done.')).toBeUndefined()
     // A builder that says it hands nothing back hands nothing back

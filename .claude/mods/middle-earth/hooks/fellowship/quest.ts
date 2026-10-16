@@ -356,6 +356,8 @@ const questHead = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, m
       '</issue>',
       '',
       `It was sent as an errand: one change that needs no decision from anyone. You may hand it back if it is not one: if it leaves open something the person must decide, crosses several parts of the project, or would take more than one coherent change, it goes to the council (/elrond) to be planned instead.`,
+      '',
+      "Build what the issue names, and change no behaviour it does not name. Where the issue takes for true something the code does not do (\"as X already does\"), and building it would change how X behaves, that is a decision for the person, not yours: hand it back, saying what the issue assumes, what the code does instead, and the two ways it could go.",
     ]
   }
 
