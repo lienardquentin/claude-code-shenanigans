@@ -247,8 +247,45 @@ async function placeTree($: $, branch: string, base: string | undefined, isFetch
   return added.ok ? { tree, base: from } : `The worktree of ${branch} could not be made at ${tree}: ${added.out}`
 }
 
+/**
+ * Takes in what its base gained since the quest left it, so the tasks still to come are built on it and its pull
+ * request does not fall into conflict. A worktree with work in it is only said to be behind; a merge that conflicts is
+ * taken back. Answers what stops the quest, or undefined when it may go on.
+ */
+async function followBase($: $, held: FellowshipQuest): Promise<string | undefined> {
+  // A review is built on the pull request's own branch, which its author keeps
+  if (held.kind === 'review' || held.base === '') return undefined
+
+  const fetched = await run($, ['git', 'fetch', 'origin', held.base], FETCH_TIMEOUT_MS, held.tree)
+  const upstream = fetched.ok ? `origin/${held.base}` : held.base
+
+  if ((await git($, ['merge-base', '--is-ancestor', upstream, 'HEAD'], held.tree)).ok) return undefined
+
+  if ((await git($, ['status', '--porcelain'], held.tree)).out !== '') {
+    await say($, held.ref, `${held.branch} is behind ${upstream}, but its worktree holds a change: it is taken in once the change is committed.`)
+
+    return undefined
+  }
+
+  const merged = await git($, ['merge', '--no-edit', upstream], held.tree)
+
+  if (merged.ok) {
+    // The merge is no member's commit: a task sent again after it is judged against HEAD as it now stands
+    await keep($, held.ref, was => ({ ...was, march: was.march === null ? null : { ...was.march, head: '' } }))
+    await say($, held.ref, `${held.branch} took in what ${upstream} gained since it left it.`)
+
+    return undefined
+  }
+
+  const conflicted = (await git($, ['diff', '--name-only', '--diff-filter=U'], held.tree)).out.split('\n').filter(line => line !== '')
+
+  await git($, ['merge', '--abort'], held.tree)
+
+  return `${held.branch} cannot take in ${upstream}: it conflicts in ${conflicted.join(', ') || 'the tree'}. Merge it in ${held.tree} by hand, then go on.`
+}
+
 /** What a quest is set out on: what it is, and the branch it is built on. */
-type Spec = { kind: FellowshipKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: FellowshipTask[]; pr?: string }
+type Spec ={ kind: FellowshipKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: FellowshipTask[]; pr?: string }
 
 /**
  * Sets a quest out, or takes it up where it was left: in its worktree, its first task sent by the clock, outside the
@@ -312,10 +349,20 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
   await say($, spec.ref, '')
   await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
 
+  // A quest taken up again first takes in what its base gained meanwhile: the tasks still to come are built on it
+  const behind = resumed !== undefined ? await followBase($, quest) : undefined
+
+  if (behind !== undefined) {
+    await keep($, spec.ref, was => ({ ...was, phase: 'stuck' }))
+    await say($, spec.ref, behind)
+
+    return `The Fellowship takes up its quest on ${spec.ref}, but stops: ${behind}`
+  }
+
   if (quest.phase === 'ready') await want($, spec.ref, 'next')
   if (quest.phase === 'arrived' && quest.isAuto && quest.kind !== 'review') await want($, spec.ref, 'sail')
 
-  const how = spec.isAuto ? 'going on by itself' : 'stopping after each commit for you'
+  const how =spec.isAuto ? 'going on by itself' : 'stopping after each commit for you'
   const where = placed.tree === (await rootOf($)) ? 'in your own checkout, where its branch is' : `in its worktree ${placed.tree}`
 
   return resumed !== undefined
@@ -841,6 +888,14 @@ async function sail($: $, ref: string): Promise<string> {
     const told = await answerThreads($, ref)
 
     return `${held.branch} is pushed: ${held.commits.length} answered ${held.commits.length === 1 ? 'comment is' : 'comments are'} on ${held.pr}.${told}`
+  }
+
+  // What the base gained since is taken in before the branch is judged whole and leaves the machine, so its pull request
+  // does not open in conflict. A conflict leaves the quest arrived: once it is merged by hand, it sails again
+  if (held.isWarded !== true) {
+    const behind = await followBase($, held)
+
+    if (behind !== undefined) return behind
   }
 
   // Each task of a plan was judged alone: both statues judge what the tasks do and let in together, once, before the

@@ -392,6 +392,9 @@ const machine = (on: On) => {
     commits: 0,
     // Commits rewritten since they were recorded (amended), each with the sha its branch holds now
     rewritten: {} as Record<string, string>,
+    // Whether origin/main gained commits the quest's branch lacks, and whether taking them in conflicts
+    isBehind: false,
+    isConflicting: false,
     // What the Fellowship sent a member back with, by its id
     sent: [] as { agentId: string; text: string }[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
@@ -475,6 +478,16 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
+    // The base a quest follows
+    if (line === 'git merge-base --is-ancestor origin/main HEAD') return answer('', world.isBehind ? 1 : 0)
+    if (line === 'git merge --no-edit origin/main') {
+      if (world.isConflicting) return answer('', 1)
+      world.isBehind = false
+      world.head = 'c0ffee9merge'
+
+      return answer('')
+    }
+    if (line === 'git diff --name-only --diff-filter=U') return answer('beacons/gondor/app.py\n')
     if (line.startsWith('git merge-base --is-ancestor ')) return answer('', (e.argv[3] ?? '') in world.rewritten ? 1 : 0)
     if (line.startsWith('git log -n 1 --format=%H --fixed-strings --grep=')) return answer(`${Object.values(world.rewritten)[0] ?? ''}\n`)
 
@@ -1018,6 +1031,53 @@ describe('a quest kept across sessions', () => {
     await settle($, world)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
     expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/is marching: no task is sent now/)
+  })
+})
+
+describe('a quest whose base moved on', () => {
+  const kept = (tree: string) => ({ kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'fellowship/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'todo' }], isAuto: false, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 })
+
+  test('takes in what main gained when it is taken up again, and goes on', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    world.isBehind = true
+    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = kept(tree)
+    await start($, world)
+
+    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/takes up its quest/)
+    expect(world.at).toContainEqual({ line: 'git merge --no-edit origin/main', cwd: tree })
+    await settle($, world)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
+  })
+
+  test('stops for the person when main conflicts with it, and takes the merge back', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    world.isBehind = true
+    world.isConflicting = true
+    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = kept(tree)
+    await start($, world)
+
+    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/but stops: .* cannot take in origin\/main: it conflicts in beacons\/gondor\/app\.py/)
+    expect(world.ran).toContain('git merge --abort')
+    await settle($, world)
+    expect(world.spawned).toEqual([])
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+  })
+
+  test('leaves a worktree holding a change as it is, and only says it is behind', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    world.isBehind = true
+    world.dirty = ' M beacons/gondor/app.py\n'
+    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = kept(tree)
+    await start($, world)
+
+    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    expect(world.ran.some(line => line.startsWith('git merge --no-edit'))).toBe(false)
   })
 })
 
