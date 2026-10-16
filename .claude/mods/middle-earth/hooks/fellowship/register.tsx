@@ -343,6 +343,15 @@ async function errand($: $, input: string, isAuto: boolean): Promise<string> {
   return begin($, spec, ownPlan(spec))
 }
 
+/**
+ * Sets out on an issue as an errand from a press of another part's pane: the press asks, and the clock sets it out,
+ * as setting out sends no agent; its first member waits for a hook.
+ */
+export async function askErrand($: $, issue: string): Promise<void> {
+  await want($, '', 'errand', issue)
+  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+}
+
 /** Takes up the review comments the Black Gate handed over, on the pull request's own branch. Answers what was done, in a sentence. */
 export async function takeReview($: $, given: unknown, isAuto: boolean): Promise<string> {
   const pr = (typeof given === 'object' && given !== null ? given : {}) as { ref?: unknown; url?: unknown; title?: unknown; branch?: unknown; base?: unknown; comments?: unknown }

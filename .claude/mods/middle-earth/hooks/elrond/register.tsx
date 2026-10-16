@@ -356,6 +356,37 @@ export async function readIssue($: $, input: string): Promise<({ ref: string } &
   return typeof issue === 'string' ? { error: issue } : { ref: refText(ref), ...issue }
 }
 
+/**
+ * Sends an issue to the council from a press of another part's pane. A plan kept of it is shown, never made afresh, and
+ * a council sitting already says so: neither sends an agent. Else the press asks, and the council is convened in the
+ * hook that calls for it, where it is held.
+ */
+export async function askCouncil($: $, input: string): Promise<string> {
+  const ref = parseRef(input, await originOf($))
+
+  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+
+  if (typeof ref === 'string') return ref
+  if ((await kept($, refText(ref))) !== undefined || (await read($, council)) !== null) return (await convene($, input, 'command', false)).text
+
+  await update($, wanted, () => refText(ref))
+  await pumpElrond($)
+
+  return `The council is asked to sit on ${refText(ref)}: the Elrond pane shows its plan once it is laid.`
+}
+
+/** Where an issue stands with Elrond, in a few words: in council, planned and how far, or nothing. */
+export async function planStanding($: $, ref: string): Promise<string> {
+  const sitting = await read($, council)
+
+  if (sitting !== null && sitting.ref === ref && sitting.isLaid !== true) return 'in council'
+  if ((await read($, wanted)) === ref) return 'asked of the council'
+
+  const held = await planFor($, ref)
+
+  return held === null ? '' : `planned · ${tally(held)}`
+}
+
 /** The council, where the record lost it (sent where its spawn answered no id), found by the council sitting, with its plan file. */
 export async function councilFound($: $, agentId: string): Promise<MiddleEarthAgent | undefined> {
   const sitting = await read($, council)
