@@ -5,7 +5,7 @@ import type { MountdoomRelic } from '../../types'
 import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { UNMODDED, errorText, isMergedFrom, rootOf } from '../flow'
+import { UNMODDED, errorText, isConflictingAt, isMergedFrom, rootOf } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questRelics } from '../fellowship/register'
@@ -80,11 +80,22 @@ async function watch($: $): Promise<MountdoomRelic[]> {
     }
 
     relic.isMerged = await isMergedFrom($, relic.pr, relic.branch)
+    // A pull request still open that fell into conflict with its base waits on the person, though nothing says so
+    relic.isConflicting = !relic.isMerged && relic.pr !== '' && (await isConflictingAt($, relic.pr))
   }
 
   await update($, relics, () => found)
 
   const already = await read($, told)
+  // Each is told once while it stays in conflict; once it merges cleanly again, a later conflict is told anew
+  const clashing = found.filter(relic => relic.isConflicting === true && !already.includes(`conflict:${relic.pr}`))
+  const eased = found.filter(relic => relic.isConflicting !== true && already.includes(`conflict:${relic.pr}`)).map(relic => `conflict:${relic.pr}`)
+
+  if (clashing.length > 0 || eased.length > 0) await update($, told, was => [...was.filter(one => !eased.includes(one)), ...clashing.map(relic => `conflict:${relic.pr}`)])
+  if (clashing.length > 0) {
+    $.ui.toast(`Mount Doom: ${clashing.map(relic => relic.ref || relic.branch).join(', ')} ${clashing.length === 1 ? 'is' : 'are'} in conflict with ${clashing.length === 1 ? 'its' : 'their'} base: merge it in, then push`)
+  }
+
   const fresh = found.filter(relic => relic.isMerged && !already.includes(relic.pr))
 
   if (fresh.length > 0) {
