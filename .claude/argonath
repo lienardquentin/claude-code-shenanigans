@@ -6,6 +6,8 @@
 # turn: Isildur its bugs at medium effort, Anárion its security.
 review=/code-review medium
 review=/security-review
+# What the project rejects in a change, read from this folder and handed to both statues: a quest's branch never loosens it
+standards=docs/agents/standards.md
 
 # narsil, the CLI: its runs are kept by anduril, in .claude/anduril.
 narsil=cli@narsil
@@ -51,7 +53,9 @@ gondor.live.scratch=DATABASE_URL
 # as one quoted word after its path: $ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'
 $ gondor GET /health
 $ gondor GET /beacons
+$ gondor GET /beacons/amon-din
 $ gondor POST /beacons/amon-din/light
+$ gondor GET /beacons/amon-din
 $ gondor GET /beacons
 $ gondor POST /beacons/mount-doom/light
 $ gondor POST /beacons/quench

@@ -8,6 +8,10 @@ Issues live in GitHub Issues (`lienardquentin/claude-code-shenanigans`), via the
 
 Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
+### Standards
+
+What a change must not hold, blocking and minor: `docs/agents/standards.md`. The Argonath's reviewers judge every change by it.
+
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

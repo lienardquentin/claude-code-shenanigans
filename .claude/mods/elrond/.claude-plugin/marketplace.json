@@ -1,5 +1,0 @@
-{
-  "name": "elrond-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "elrond", "source": "./" }]
-}

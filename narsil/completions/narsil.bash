@@ -428,7 +428,7 @@ _narsil() {
             return 0
             ;;
         narsil__subcmd__ls)
-            opts="-h --format --since --chronicle --help"
+            opts="-h --format --since --until --chronicle --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -439,6 +439,10 @@ _narsil() {
                     return 0
                     ;;
                 --since)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --until)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

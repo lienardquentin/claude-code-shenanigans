@@ -65,13 +65,14 @@ The checksum is FNV-1a over 64 bits: it tells that a file changed, and proves no
 
 ## What to run
 
-Ten runs that between them touch every part, for `anduril` to keep and to play again on another build.
+Eleven runs that between them touch every part, for `anduril` to keep and to play again on another build.
 [`.claude/anduril`](../.claude/anduril) keeps them, with the forging of the large chronicle the last one reads:
 
 ```
 narsil ls
 narsil ls --format json
 narsil ls --since 3019-03-12
+narsil ls --until 3019-03-10
 narsil show 3
 narsil show 999
 narsil tally --by keeper
