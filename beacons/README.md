@@ -70,7 +70,8 @@ the release away, and `devspace run cluster-down` the cluster.
 | `GET /beacons` | The seven beacons, Amon Dîn to Halifirien, and which are lit |
 | `GET /beacons/{name}` | One beacon and whether it is lit |
 | `POST /beacons/{name}/light` | Lights one, and says which beacon its watchers look to next |
-| `POST /beacons/quench` | Puts them all out |
+| `POST /beacons/{name}/quench` | Puts one out, and says so; 409 if it does not burn |
+| `POST /beacons/quench` | Puts all of them out |
 | `GET /palantiri` | The seeing-stones Gondor knows of |
 | `GET /palantiri/{stone}/gaze` | What the stone shows |
 | `POST /muster?spears=2000` | Sends the Red Arrow: asks Rohan (`POST /riders/muster`) for that many spears |
