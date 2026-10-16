@@ -460,6 +460,43 @@ const sameQuestion = (one: string, other: string): boolean => {
 export const decidedOf = (plan: ElrondPlan): ElrondDecision[] =>
   [...plan.decided, ...answersOf(plan)].reduce<ElrondDecision[]>((all, one) => [...all.filter(held => !sameQuestion(held.text, one.text)), one], [])
 
+/** A folder the project builds, as Argonath names it: what a task's files are weighed against. */
+export type Built = { label: string; roots: readonly string[] }
+
+// Where a behaviour is proved: a test file, or the runs and requests the project keeps for its targets
+const isTestFile = (file: string): boolean => /(^|\/)tests?\//.test(file) || /(^|\/)test_[^/]+\.py$|[._-]test\.[cm]?[jt]sx?$|_test\.(go|rs)$/.test(file)
+const isKeptRuns = (file: string): boolean => file === '.claude/argonath' || file === '.claude/anduril'
+
+/**
+ * The tasks the Argonath cannot prove on their own: each changes a target's source, but names neither a test nor a
+ * kept run. Split from the task that exposes what it builds, its proof settles with nothing to pin, and the behaviour
+ * goes untested until that task. Each is a risk for the person to decide, as the council's own are.
+ */
+export const unprovenRisks = (plan: ElrondPlan, built: readonly Built[]): ElrondRisk[] =>
+  plan.tasks.flatMap(task => {
+    const files = task.files.map(file => file.replace(/^\.\//, ''))
+    const reached = built.filter(target => files.some(file => !isTestFile(file) && target.roots.some(root => file === root || file.startsWith(`${root}/`))))
+
+    if (reached.length === 0 || files.some(file => isTestFile(file) || isKeptRuns(file))) return []
+
+    return [
+      {
+        text: `Task ${task.id} changes ${reached.map(target => target.label).join(' and ')} but names no test and no kept run: the Argonath cannot prove it on its own, and what it builds goes untested until a later task.`,
+        severity: 'medium' as const,
+        mitigation: `Fold it into the task that exposes what it builds, or give it its own test and kept run.`,
+        tasks: [task.id],
+        wantsTask: false,
+      },
+    ]
+  })
+
+/** A plan with the risks the council did not name of a task the Argonath cannot prove, each once. */
+export const withUnproven = (made: ElrondPlan, built: readonly Built[]): ElrondPlan => {
+  const found = unprovenRisks(made, built).filter(risk => !made.risks.some(held => sameQuestion(held.text, risk.text)))
+
+  return found.length === 0 ? made : { ...made, risks: [...made.risks, ...found] }
+}
+
 /**
  * A plan the council made, keeping what the person decided before it; a question it asks again of those is not asked.
  * A low risk is accepted as it comes, a nuisance no one need decide: the person takes it back from the pane if it is not.
