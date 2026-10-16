@@ -659,6 +659,8 @@ describe('argonath', () => {
     expect(await call($, 'mcp__middle-earth__judgement', { convene: true, about: 'Task 2: answer 409 when the beacon does not burn.' })).toMatch(/is judging the change: sitting/)
     expect(spawned).toHaveLength(2)
     expect(String(spawned[0]?.prompt)).toMatch(/<purpose>\nTask 2: answer 409 when the beacon does not burn\.\n<\/purpose>/)
+    // The verdict is asked last, after the change, where the reviews' own report shape cannot crowd it out
+    expect(String(spawned[0]?.prompt)).toMatch(/<\/change>\n\nHowever your reviews shape their report, end your answer with the fenced json block of your findings[^\n]*$/)
 
     const by = (agentId: string, command: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
     expect(await by('isildur-1', 'git commit -am fixed')).toMatchObject({ deny: expect.stringMatching(/changes nothing/) })

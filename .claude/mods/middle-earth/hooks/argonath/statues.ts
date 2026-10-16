@@ -60,8 +60,16 @@ export const statuePrompt = (reviews: readonly string[], change: string, about =
     '<change>',
     shown.trim() === '' ? '(no change git can show)' : shown.trim(),
     '</change>',
+    '',
+    // Read last, after the reviews' own report shape: two of #34's five verdicts ended without it when it was asked
+    // only in the system prompt
+    VERDICT_LAST,
   ].join('\n')
 }
+
+/** What every statue's prompt ends on: however a review shapes its report, the verdict closes it. */
+export const VERDICT_LAST =
+  'However your reviews shape their report, end your answer with the fenced json block of your findings, `{ "findings": [...] }`, and nothing after it: `{ "findings": [] }` when you found nothing. An answer without it is not counted, and you will be asked for it again.'
 
 /**
  * What a statue is asked again with when its answer held no findings that read: its own account, for the verdict
