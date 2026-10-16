@@ -460,6 +460,8 @@ export type ArgonathSeat = {
   findings: ArgonathFinding[]
   /** Why it is silent; empty otherwise. */
   why: string
+  /** Whether it was asked again for its verdict alone, its first answer holding no findings that read: once only. */
+  isAskedAgain?: boolean
 }
 
 /** The statues together: sitting, or what they found. */

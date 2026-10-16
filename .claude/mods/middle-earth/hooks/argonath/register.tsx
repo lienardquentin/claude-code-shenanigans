@@ -5,7 +5,7 @@ import type { ArgonathJudgement, ArgonathRadius, ArgonathSeat, ArgonathState, Ar
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { dealt, judgementShape, judgementText, seated, statuePrompt, verdictOf } from './statues'
+import { dealt, judgementShape, judgementText, parseFindings, seated, statuePrompt, verdictOf, verdictPrompt } from './statues'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
@@ -520,7 +520,8 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   const held = await judgementIn($, place)
 
   if (place.isHome) reviewDue = ''
-  if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against) return held
+  // A judgement a statue could not give is no judgement: the same change is judged again, or it would stay stuck
+  if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against && verdictOf(held) !== 'silent') return held
 
   if (place.isHome) await update($, reviewed, () => due)
 
@@ -802,7 +803,22 @@ export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
 
   if (found !== undefined) {
     const { place, held, seat } = found
-    const made = { ...held, seats: held.seats.map(one => (one === seat ? seated(one, e.answer ?? '', e.isAborted ? 'aborted' : e.reason) : one)) }
+    const answer = e.answer ?? ''
+
+    // A statue that judged but ended without a verdict that reads is asked once for it alone, before its seat is silent
+    if (!e.isAborted && e.reason === 'answer' && parseFindings(answer) === undefined && seat.isAskedAgain !== true) {
+      const again = await spawnIn($, { subagentType: typeOf(seat.statue), description: `${seat.title} gives its verdict`, prompt: verdictPrompt(answer), ...(place.isHome ? {} : { cwd: place.tree }) })
+        .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
+
+      if (again.deny === undefined) {
+        if (again.agentId !== undefined && again.agentId !== '') await remember($, again.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })
+        await setJudgement($, place, { ...held, seats: held.seats.map(one => (one === seat ? { ...one, agentId: again.agentId ?? '', isAskedAgain: true } : one)) })
+
+        return
+      }
+    }
+
+    const made = { ...held, seats: held.seats.map(one => (one === seat ? seated(one, answer, e.isAborted ? 'aborted' : e.reason) : one)) }
 
     await setJudgement($, place, made)
     if (verdictOf(made) !== 'sitting') await rise($, made)
