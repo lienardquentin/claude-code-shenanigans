@@ -667,9 +667,35 @@ describe('argonath', () => {
 
     await ends($, 'isildur-1', FOUND([]))
     await ends($, 'anarion-1', 'I could not decide.')
+    // Asked once more for its verdict alone, it gives none again: only then is it silent
+    expect(spawned).toHaveLength(3)
+    expect(String(spawned[2]?.prompt)).toMatch(/answer that block alone[\s\S]*<account>\nI could not decide\.\n<\/account>/)
+    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/is judging the change: sitting/)
+    await ends($, 'anarion-1', 'Still nothing to say.')
+    expect(spawned).toHaveLength(3)
     expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: silent\.[\s\S]*Isildur .*: pass[\s\S]*Anárion .*: silent, it gave no findings that read/)
     // Claude asked through the tool: it reads the verdict itself, and is not woken with it
     expect(submitted).toEqual([])
+
+    // A silent judgement is no judgement: convened again on the same change, the statues are sent again
+    expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toMatch(/is judging the change: sitting/)
+    expect(spawned).toHaveLength(5)
+  })
+
+  test('asks a statue that passed the change in prose alone for its verdict, and takes it', async ($, on) => {
+    machine(on)
+    const { spawned } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+    await call($, 'mcp__middle-earth__judgement', { convene: true })
+    await ends($, 'anarion-1', FOUND([]))
+    // Isildur on #34's task 2: a clean review, with no json block after it
+    await ends($, 'isildur-1', 'I found no problems with this change.')
+    expect(String(spawned[2]?.prompt)).toMatch(/<account>\nI found no problems with this change\.\n<\/account>/)
+
+    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'beacons/gondor/app.py:40', text: 'A docstring would help.' }]))
+    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: pass\.[\s\S]*Isildur .*: pass[\s\S]*\[minor\] beacons\/gondor\/app\.py:40: A docstring would help\./)
   })
 
   test('sends only the statues named, each with its share of the reviews', async ($, on) => {
