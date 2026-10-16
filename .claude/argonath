@@ -57,6 +57,10 @@ $ gondor GET /beacons/amon-din
 $ gondor POST /beacons/amon-din/light
 $ gondor GET /beacons/amon-din
 $ gondor GET /beacons
+$ gondor POST /beacons/amon-din/quench
+$ gondor POST /beacons/amon-din/quench
+$ gondor POST /beacons/mount-doom/quench
+$ gondor GET /beacons
 $ gondor POST /beacons/mount-doom/light
 $ gondor POST /beacons/quench
 $ gondor GET /palantiri
