@@ -676,6 +676,10 @@ describe('argonath', () => {
     expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: silent\.[\s\S]*Isildur .*: pass[\s\S]*Anárion .*: silent, it gave no findings that read/)
     // Claude asked through the tool: it reads the verdict itself, and is not woken with it
     expect(submitted).toEqual([])
+
+    // A silent judgement is no judgement: convened again on the same change, the statues are sent again
+    expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toMatch(/is judging the change: sitting/)
+    expect(spawned).toHaveLength(5)
   })
 
   test('asks a statue that passed the change in prose alone for its verdict, and takes it', async ($, on) => {

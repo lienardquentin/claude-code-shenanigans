@@ -520,7 +520,8 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   const held = await judgementIn($, place)
 
   if (place.isHome) reviewDue = ''
-  if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against) return held
+  // A judgement a statue could not give is no judgement: the same change is judged again, or it would stay stuck
+  if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against && verdictOf(held) !== 'silent') return held
 
   if (place.isHome) await update($, reviewed, () => due)
 
