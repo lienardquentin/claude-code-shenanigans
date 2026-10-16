@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { answered, answersOf, apiArgv, cliArgv, councilPrompt, isPlanPath, marked, planPathOf, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tidyPlan } from '../hooks/elrond/council'
+import { answered, answersOf, apiArgv, cliArgv, councilPrompt, isPlanPath, marked, planPathOf, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tidyPlan, unprovenRisks, withUnproven } from '../hooks/elrond/council'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -100,6 +100,40 @@ describe('the plans folder', () => {
 
 describe('a plan', () => {
   const about = { ref: 'github:o/r#12', url: 'u', title: 't', at: 1 }
+
+  test('holds a risk for each task that changes a target but names no test and no kept run', () => {
+    const built = [
+      { label: 'gondor', roots: ['beacons/gondor'] },
+      { label: 'narsil', roots: ['narsil'] },
+    ]
+    const task = (id: number, files: string[]) => ({ id, title: `t${id}`, why: '', steps: [], files, dependsOn: [], acceptance: '', weight: 'light' as const, state: 'todo' as const })
+    // #34 as Elrond first split it: the archive alone, then the route with its tests and kept requests, then docs
+    const plan = {
+      ...about,
+      summary: '',
+      approach: '',
+      tasks: [task(1, ['beacons/gondor/archive.py']), task(2, ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py', '.claude/argonath']), task(3, ['beacons/tests/test_gondor.py']), task(4, ['beacons/README.md']), task(5, ['./narsil/src/main.rs', 'narsil/tests/cli.rs'])],
+      questions: [],
+      decided: [],
+      risks: [],
+      accepted: [],
+    }
+
+    expect(unprovenRisks(plan, built)).toEqual([
+      {
+        text: 'Task 1 changes gondor but names no test and no kept run: the Argonath cannot prove it on its own, and what it builds goes untested until a later task.',
+        severity: 'medium',
+        mitigation: 'Fold it into the task that exposes what it builds, or give it its own test and kept run.',
+        tasks: [1],
+        wantsTask: false,
+      },
+    ])
+    // Once on a plan, it is not added again when the council lays a revision of it
+    const held = withUnproven(plan, built)
+    expect(withUnproven(held, built).risks).toHaveLength(1)
+    // A project with no target names none
+    expect(unprovenRisks(plan, [])).toEqual([])
+  })
 
   test('is read from the planner\'s last json block, every task to do', () => {
     const plan = parsePlan(PLAN, about)

@@ -2,10 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskState, MiddleEarthAgent } from '../../types'
-import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
+import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
 import type { Issue, Origin } from './council'
 import { badge } from '../kit/badge'
 import { isMergedFrom, rootOf } from '../flow'
+import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
 import { COUNCIL, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
@@ -248,7 +249,8 @@ async function convene($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
  * turn ends, which wakes a Claude that convened it: a prompt cannot be queued from within the council's own tool call.
  */
 async function land($: $, sitting: ElrondCouncil, laid: ElrondPlan): Promise<void> {
-  const made = withDecided(laid, sitting.decided ?? [], sitting.accepted ?? [])
+  // A task the Argonath cannot prove is a risk the person decides, and one they accepted before stays accepted
+  const made = withDecided(withUnproven(laid, await targetsKnown($).catch(() => [])), sitting.decided ?? [], sitting.accepted ?? [])
 
   await update($, council, () => ({ ...sitting, isLaid: true }))
   await keep($, made)
