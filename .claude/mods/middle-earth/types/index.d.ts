@@ -589,6 +589,22 @@ export type MiddleEarthAgent = {
   files?: string[]
 }
 
+// --- The Rings: the open issues, each to an errand or to the council ------------------------------------------------------
+
+/** An open issue as the Rings list it. */
+export type RingsIssue = {
+  /** The ref Elrond and the Fellowship know it by: `github:owner/repo#12`. */
+  ref: string
+  number: number
+  title: string
+  url: string
+  labels: string[]
+  author: string
+  updatedAt: string
+  /** Its body's start, for the pane to show of the issue it opens. */
+  body: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'middle-earth': {
@@ -652,6 +668,16 @@ declare module 'claude-code' {
       /** What a command asked the clock to do, outside its hooks: open the gate on a pull request, or hand it over. */
       blackgateWanted: { what: 'open' | 'hand' | 'hand auto'; arg?: string } | null
       blackgateWorking: string
+
+      /** The open issues as last read, the most recently updated first. */
+      ringsIssues: RingsIssue[]
+      /** The repository they were read from, `owner/repo`; empty before any read. */
+      ringsRepo: string
+      /** What came of the last read or press; empty when nothing is to say. */
+      ringsNote: string
+      ringsWorking: string
+      /** The issue the pane opens, by its number; 0 for none. */
+      ringsSelected: number
 
       mountdoomRelics: MountdoomRelic[]
       /** The pull requests the person was told are merged: each is told once. */
