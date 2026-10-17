@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { RingsIssue } from '../../types'
-import { HOW_TO, ringsOf, standingOf } from './rings'
+import type { ListedIssue } from '../../types'
+import { HOW_TO, listedOf, standingOf } from './listed'
 import { parseRemote } from '../../core/forge'
 import { askCouncil, planStanding } from '../elrond/register'
 import { askErrand, questLeftovers } from '../fellowship/register'
@@ -14,23 +14,23 @@ import { clip, keyed } from '../look'
 type $ = EngineInterface
 type On = Parameters<Register>[0]
 
-const PANE = 'rings'
-const TITLE = 'Rings'
+const PANE = 'issues'
+const TITLE = 'Issues'
 
-const issues = atom({ plugin: 'middle-earth', key: 'ringsIssues' } as const, [] as RingsIssue[])
-const repo = atom({ plugin: 'middle-earth', key: 'ringsRepo' } as const, '')
-const note = atom({ plugin: 'middle-earth', key: 'ringsNote' } as const, '')
-const working = atom({ plugin: 'middle-earth', key: 'ringsWorking' } as const, '')
-const selected = atom({ plugin: 'middle-earth', key: 'ringsSelected' } as const, 0)
+const issues = atom({ plugin: 'middle-earth', key: 'issuesIssues' } as const, [] as ListedIssue[])
+const repo = atom({ plugin: 'middle-earth', key: 'issuesRepo' } as const, '')
+const note = atom({ plugin: 'middle-earth', key: 'issuesNote' } as const, '')
+const working = atom({ plugin: 'middle-earth', key: 'issuesWorking' } as const, '')
+const selected = atom({ plugin: 'middle-earth', key: 'issuesSelected' } as const, 0)
 
-export const ringsView = paneView({ id: PANE, title: TITLE, command: '/rings' })
-const view = ringsView
+export const issuesView = paneView({ id: PANE, title: TITLE, command: '/issues' })
+const view = issuesView
 
 /** Reads the origin's open issues again, and says how it went: what the forge said in place of a list, when it said one. */
 async function refresh($: $): Promise<string> {
   const origin = parseRemote((await git($, ['remote', 'get-url', 'origin'])).out)
 
-  if (origin === undefined) return 'The origin remote could not be read: the Rings list the issues of the repository it names.'
+  if (origin === undefined) return 'The origin remote could not be read: the issues pane lists the issues of the repository it names.'
 
   await update($, working, () => `Reading the open issues of ${origin.repo}…`)
 
@@ -39,7 +39,7 @@ async function refresh($: $): Promise<string> {
 
     if (typeof got === 'string') return got
 
-    const listed = ringsOf(got, origin)
+    const listed = listedOf(got, origin)
 
     await update($, issues, () => listed)
     await update($, repo, () => origin.repo)
@@ -62,7 +62,7 @@ async function refreshed($: $): Promise<string> {
 }
 
 /** Where each listed issue stands with the Fellowship and Elrond, by its ref. */
-async function standings($: $, listed: readonly RingsIssue[]): Promise<Map<string, string>> {
+async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<string, string>> {
   const quests = await questLeftovers($).catch(() => [])
   const found = new Map<string, string>()
 
@@ -76,13 +76,13 @@ async function standings($: $, listed: readonly RingsIssue[]): Promise<Map<strin
   return found
 }
 
-/** The Rings at the session's start: their command. The issues are read once the pane is opened. */
-export async function startRings($: $): Promise<void> {
-  await $.command.register({ name: 'rings', description: 'Open the pane of the open issues: each one an errand for the Fellowship, or sent to the council to be planned' })
+/** The issues pane at the session's start: its command. The issues are read once the pane is opened. */
+export async function startIssues($: $): Promise<void> {
+  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the Fellowship, or sent to the council to be planned' })
 }
 
-export function registerRings(on: On): void {
-  on('command.run', { command: 'rings' }, async $ => {
+export function registerIssues(on: On): void {
+  on('command.run', { command: 'issues' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     return { text: await refreshed($) }
@@ -158,7 +158,7 @@ export function registerRings(on: On): void {
             <Text dimColor>{[open.author !== '' ? `by ${open.author}` : '', open.updatedAt !== '' ? `updated ${open.updatedAt.slice(0, 10)}` : ''].filter(part => part !== '').join(' · ')}</Text>
             {open.labels.length > 0 && <Text color="suggestion">{open.labels.map(label => `[${label}]`).join(' ')}</Text>}
             {open.body !== '' && (
-              // As the Rings read it, up to its first 600 characters: the rest is the forge's to show
+              // As the pane reads it, up to its first 600 characters: the rest is the forge's to show
               <Box flexDirection="column" marginTop={1}>
                 <Text>{open.body.trimEnd()}</Text>
               </Box>

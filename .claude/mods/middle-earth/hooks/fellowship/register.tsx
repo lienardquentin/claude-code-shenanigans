@@ -455,7 +455,7 @@ async function errand($: $, input: string, isAuto: boolean, isPersons: boolean):
   const issue = await readIssue($, input)
 
   if ('error' in issue) return issue.error
-  if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person sets out on it, with /fellowship errand ${issue.ref} or from the Rings.`
+  if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person sets out on it, with /fellowship errand ${issue.ref} or from the issues pane (/issues).`
 
   const task = errandTask(issue)
   const spec: Spec = { kind: 'errand', ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', branch: branchOf({ ref: issue.ref, title: issue.title ?? '' }), isAuto, tasks: [task] }

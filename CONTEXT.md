@@ -91,12 +91,12 @@ _Avoid_: Session usage, context usage, tokens left
 ## Middle-earth
 
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
-committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the Rings list the issues,
+committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the issues pane lists the issues,
 Elrond plans, the Fellowship builds, Lothlórien writes tests first, the Argonath check and review, the Black Gate reads
 review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
-One of the workflow's seven pieces inside the `middle-earth` plugin (the Rings, Elrond, the Fellowship, Lothlórien, the
+One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, Elrond, the Fellowship, Lothlórien, the
 Argonath, the Black Gate, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
@@ -110,10 +110,10 @@ One piece of work the Fellowship takes to a pull request, or to a push: a plan, 
 at once, one an issue or pull request.
 _Avoid_: Run, job, flow
 
-**Rings**:
-The pane of the origin's open issues (/rings), where the person sends one as an errand to the Fellowship or to the
+**Issues pane**:
+The pane of the origin's open issues (/issues), where the person sends one as an errand to the Fellowship or to the
 council to be planned; an issue a quest is on already is left to the Fellowship.
-_Avoid_: Backlog, issue list, inbox
+_Avoid_: Rings, backlog, inbox
 
 **Plan**:
 Elrond's split of one issue into tasks, with the questions the person answers and the risks they decide before a quest
