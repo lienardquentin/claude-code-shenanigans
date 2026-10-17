@@ -10,7 +10,7 @@ import { forgeOfHost } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
 import { errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
-import { forgetPlan } from '../elrond/register'
+import { forgetPlan } from '../planner/register'
 import { forgetQuest, questLeftovers } from '../fellowship/register'
 import { forgetTestsFirst } from '../tests-first/register'
 

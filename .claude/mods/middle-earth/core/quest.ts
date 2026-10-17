@@ -30,7 +30,7 @@ export const PR_TRAILER = '🤖 Generated with [Claude Code](https://claude.com/
 /** The model the reviewers judge a change with when it is not heavy: lighter than their own, and enough for it. */
 export const LIGHTER_REVIEWER_MODEL = 'claude-sonnet-5-5'
 
-/** What a task of each weight is, as the council weighs it and the statues weigh a change's size against it. */
+/** What a task of each weight is, as the planner weighs it and the statues weigh a change's size against it. */
 export const WEIGHT_MEANS = {
   light: 'docs, config, a rename, a typo or a test to adjust',
   standard: "one module's change and the test that proves it",
@@ -120,7 +120,7 @@ export const memberFor = (plan: Plan, task: Task, attempt: number, targets: read
 }
 
 export const HOW_TO =
-  'No quest is under way. Plan an issue with /elrond <issue>, answer its questions and decide its risks, then /fellowship sets out on it (/fellowship --auto goes on by itself). A small issue goes straight to /fellowship errand <issue>; an open pull request\'s review comments, to /follow-up.'
+  'No quest is under way. Plan an issue with /planner <issue>, answer its questions and decide its risks, then /fellowship sets out on it (/fellowship --auto goes on by itself). A small issue goes straight to /fellowship errand <issue>; an open pull request\'s review comments, to /follow-up.'
 
 export const MARK: Record<TaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
 
@@ -148,7 +148,7 @@ const taskOf = (task: Record<string, unknown>): Task => ({
   ...(typeof task.thread === 'string' && task.thread !== '' ? { thread: task.thread } : {}),
 })
 
-/** The plan Elrond keeps, or as JSON text: `null` when none is in force, a sentence when the answer is not a plan. */
+/** The plan the planner keeps, or as JSON text: `null` when none is in force, a sentence when the answer is not a plan. */
 export const parsePlan = (answer: unknown): Plan | null | string => {
   let held: unknown = answer
 
@@ -156,7 +156,7 @@ export const parsePlan = (answer: unknown): Plan | null | string => {
     try {
       held = JSON.parse(answer)
     } catch {
-      return `Elrond answered no plan Fellowship can read: ${answer.trim().slice(0, 200)}`
+      return `The planner answered no plan the Fellowship can read: ${answer.trim().slice(0, 200)}`
     }
   }
 
@@ -164,7 +164,7 @@ export const parsePlan = (answer: unknown): Plan | null | string => {
 
   const plan = held as Record<string, unknown>
 
-  if (typeof plan !== 'object' || !Array.isArray(plan.tasks) || typeof plan.ref !== 'string') return 'Elrond answered no plan Fellowship can read: it holds no tasks.'
+  if (typeof plan !== 'object' || !Array.isArray(plan.tasks) || typeof plan.ref !== 'string') return 'The planner answered no plan the Fellowship can read: it holds no tasks.'
 
   return {
     ref: plan.ref,
@@ -186,7 +186,7 @@ export const parsePlan = (answer: unknown): Plan | null | string => {
   }
 }
 
-/** The work of an errand or a review as one plan, of the tasks the quest keeps: no question, risk or decision of a council. */
+/** The work of an errand or a review as one plan, of the tasks the quest keeps: no question, risk or decision of a planner. */
 export const ownPlan = (quest: Pick<Quest, 'ref' | 'url' | 'title' | 'tasks'>): Plan => ({
   ref: quest.ref,
   url: quest.url,
@@ -200,7 +200,7 @@ export const ownPlan = (quest: Pick<Quest, 'ref' | 'url' | 'title' | 'tasks'>): 
   accepted: [],
 })
 
-/** An errand's one task: the whole issue, as Elrond read it, its thread with it, those from outside the repository left out and counted. */
+/** An errand's one task: the whole issue, as the planner read it, its thread with it, those from outside the repository left out and counted. */
 export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[]; leftOut?: number }): Task => ({
   id: 1,
   title: issue.title ?? '',
@@ -227,8 +227,8 @@ export const reviewTasks = (given: unknown): Task[] =>
     .filter(task => task.title !== '' || (task.brief ?? '') !== '')
 
 /**
- * How much of a plan the council left open, which no quest sets out with: its questions not answered, its risks to cover
- * with a task (only a revision settles those), and those not decided. Elrond's pane counts with it too.
+ * How much of a plan the planner left open, which no quest sets out with: its questions not answered, its risks to cover
+ * with a task (only a revision settles those), and those not decided. the planner's pane counts with it too.
  */
 export const settlingOf = (plan: { questions: readonly { answer: string }[]; risks: readonly { wantsTask: boolean }[] }): { unanswered: number; toCover: number; undecided: number } => ({
   unanswered: plan.questions.filter(question => question.answer.trim() === '').length,
@@ -236,7 +236,7 @@ export const settlingOf = (plan: { questions: readonly { answer: string }[]; ris
   undecided: plan.risks.filter(risk => !risk.wantsTask).length,
 })
 
-/** What the council left open, which the quest does not set out with: unanswered questions, risks not decided. */
+/** What the planner left open, which the quest does not set out with: unanswered questions, risks not decided. */
 export const unsettledOf = (plan: Plan): string[] => {
   const { unanswered, toCover, undecided } = settlingOf(plan)
 
@@ -480,7 +480,7 @@ const questHead = (quest: QuestOf, plan: Plan, task: Task, member: Builder): str
       (task.brief ?? '').trim(),
       '</issue>',
       '',
-      `It was sent as an errand: one change that needs no decision from anyone. You may hand it back if it is not one: if it leaves open something the person must decide, crosses several parts of the project, or would take more than one coherent change, it goes to the council (/elrond) to be planned instead.`,
+      `It was sent as an errand: one change that needs no decision from anyone. You may hand it back if it is not one: if it leaves open something the person must decide, crosses several parts of the project, or would take more than one coherent change, it goes to the planner (/planner) instead.`,
       '',
       "Build what the issue names, and change no behaviour it does not name. Where the issue takes for true something the code does not do (\"as X already does\"), and building it would change how X behaves, that is a decision for the person, not yours: hand it back, saying what the issue assumes, what the code does instead, and the two ways it could go.",
     ]
@@ -595,7 +595,7 @@ export const commitMessage = (quest: QuestOf, plan: Plan, task: Task, by: string
         : [
             `${number === undefined ? plan.ref : `#${number}`}: ${task.title}`,
             '',
-            `Task ${task.id} of the Elrond plan for ${plan.url !== '' ? plan.url : plan.ref}, built by ${by} of the Fellowship, proven and judged by the Argonath.`,
+            `Task ${task.id} of the plan for ${plan.url !== '' ? plan.url : plan.ref}, built by ${by} of the Fellowship, proven and judged by the Argonath.`,
             ...(task.acceptance !== '' ? ['', `Done when: ${task.acceptance}`] : []),
           ]
 
@@ -644,7 +644,7 @@ export const prBody = (quest: Pick<Quest, 'kind' | 'ref' | 'commits'>, plan: Pla
       ? ['', '## Not proven', '', 'What no integration test proves, for the Argonath has no handler for it: the statues judged it alone.', '', ...quest.commits.filter(one => (one.unproven ?? []).length > 0).map(one => `- task ${one.taskId}: ${(one.unproven ?? []).join(', ')}`)]
       : []),
     '',
-    quest.kind === 'errand' ? 'Built as an errand by the Fellowship, proven and judged by the Argonath.' : 'Planned by Elrond, built task by task by the Fellowship, each change proven and judged by the Argonath.',
+    quest.kind === 'errand' ? 'Built as an errand by the Fellowship, proven and judged by the Argonath.' : 'Planned by the planner, built task by task by the Fellowship, each change proven and judged by the Argonath.',
     '',
     closingLine(quest.ref),
     '',
@@ -664,7 +664,7 @@ export const questLine = (quest: Quest, plan: Plan | null): string =>
   `${quest.ref} (${KIND_LINE[quest.kind]}), "${quest.title}"${plan === null ? '' : ` (${tally(plan)})`}: ${quest.phase}${quest.isAuto ? ', going on by itself' : ''}, on ${quest.branch} from ${quest.base}`
 
 /**
- * The turns of the record counted to a quest: those of every agent sent for its issue (the council that planned it, an
+ * The turns of the record counted to a quest: those of every agent sent for its issue (the planner that planned it, an
  * earlier quest on it), and those of agents sent with no issue named into its worktree (the statues). An agent in the
  * project's own folder that names no issue is no quest's.
  */

@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { FellowshipMember, MiddleEarthAgent, MiddleEarthRole } from '../types'
 import { REVIEWERS, REVIEWER_EFFORT, REVIEWER_MODEL, reviewerSystem } from '../core/review'
-import { COUNCIL_SYSTEM, isPlanPath } from './elrond/council'
+import { PLANNER_SYSTEM, isPlanPath } from './planner/plan'
 import { resolvedFrom } from '../core/paths'
 import { MEMBERS, isModSource, isOutside, memberSystem, reachesOut } from '../core/quest'
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
@@ -30,7 +30,7 @@ export const typeOf = (name: string): string => `${PLUGIN}:${name}`
 /** A tool of the mod, as Claude and the agents call it. */
 export const toolOf = (name: string): string => `mcp__${PLUGIN}__${name}`
 
-export const COUNCIL = 'council'
+export const PLANNER = 'planner'
 export const TEST_WRITER = 'test-writer'
 // It gazes on Sonnet for a task that is not heavy: the same charge, a lighter model
 export const TEST_WRITER_LIGHT = 'test-writer-light'
@@ -70,7 +70,7 @@ export const roleOfType = (type: string): MiddleEarthRole | undefined => {
 
   const name = type.slice(PLUGIN.length + 1)
 
-  return name === COUNCIL ? 'council' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
+  return name === PLANNER ? 'planner' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
 }
 
 // The agents found to be none of the mod's: each is looked up once
@@ -92,7 +92,7 @@ export async function listedRole($: $, agentId: string): Promise<MiddleEarthRole
   return role
 }
 
-export const COUNCIL_READS = 'The Elrond council reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.'
+export const PLANNER_READS = 'The planner reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.'
 export const STATUE_READS = 'A statue of the Argonath judges the change and changes nothing: run only commands that read.'
 
 type Call = { tool?: unknown; command?: unknown; file_path?: unknown; notebook_path?: unknown; path?: unknown; dangerouslyDisableSandbox?: unknown }
@@ -158,9 +158,9 @@ const machineRefusal = (agent: MiddleEarthAgent, given: Call): string | undefine
 /** Why an agent the mod sent may not make a call in its role. */
 const roleRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
   switch (agent.role) {
-    case 'council':
-      if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return COUNCIL_READS
-      if (given.tool === 'Write' && typeof given.file_path === 'string' && !isPlanPath(agent.root, given.file_path)) return `The Elrond council writes its plan to ${agent.files?.[0] ?? 'its file in .elrond/plans'} and nothing else.`
+    case 'planner':
+      if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return PLANNER_READS
+      if (given.tool === 'Write' && typeof given.file_path === 'string' && !isPlanPath(agent.root, given.file_path)) return `The planner writes its plan to ${agent.files?.[0] ?? 'its file in .elrond/plans'} and nothing else.`
 
       return undefined
     case 'statue':
@@ -179,9 +179,9 @@ export async function registerAgents($: $): Promise<void> {
   // Each of them is hidden from the model by `registerOffers`, and sent by the mod alone
   await $.agent
     .register({
-      name: COUNCIL,
-      description: 'Plans a GitHub or GitLab issue against this codebase as tasks, read-only. Convened by Elrond alone.',
-      prompt: COUNCIL_SYSTEM,
+      name: PLANNER,
+      description: 'Plans a GitHub or GitLab issue against this codebase as tasks, read-only. Sent by the planner part alone.',
+      prompt: PLANNER_SYSTEM,
       // It writes one file, its plan, and runs only what reads: the guard holds it to that
       tools: ['Read', 'Grep', 'Glob', 'Bash', 'Write'],
       disallowedTools: ['Edit', 'NotebookEdit'],
@@ -347,5 +347,5 @@ export const guardRefusalNow = (e: unknown): string | undefined => {
 export function registerOffers(on: On): void {
   // Every agent type of the mod answers in a shape its part reads: Claude reaches them through the mod's tools, never
   // through the Agent tool
-  for (const name of [COUNCIL, TEST_WRITER, TEST_WRITER_LIGHT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+  for (const name of [PLANNER, TEST_WRITER, TEST_WRITER_LIGHT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 }

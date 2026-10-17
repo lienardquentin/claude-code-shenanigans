@@ -51,7 +51,7 @@ import { paneView } from '../kit/pane-text'
 import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
-import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
+import { markTask, planFor, readIssue, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../argonath/register'
 
@@ -104,19 +104,19 @@ const TOOLS = [
   {
     name: 'set_out',
     description:
-      "Implements the Elrond plan in force (or resumes it) in a git worktree of its own under .fellowship/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, Argonath checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /fellowship sail, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; quests on other issues run beside it. Call it when the person asks to implement a planned issue.",
+      "Implements the plan in force (or resumes it) in a git worktree of its own under .fellowship/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, Argonath checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /fellowship sail, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; quests on other issues run beside it. Call it when the person asks to implement a planned issue.",
     inputSchema: {
       type: 'object',
       properties: {
         auto: { type: 'boolean', description: 'Go on by itself: send each task once the one before is committed, and open the pull request at the end. Only when the person asked for it in those words.' },
-        ref: { type: 'string', description: "The plan of this issue, as Elrond spells it (`github:owner/repo#12`); the plan in force when left out." },
+        ref: { type: 'string', description: "The plan of this issue, as the planner spells it (`github:owner/repo#12`); the plan in force when left out." },
       },
     },
   },
   {
     name: 'errand',
     description:
-      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, Argonath checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /elrond to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
+      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, Argonath checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /planner to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
   },
   {
@@ -215,7 +215,7 @@ async function tell($: $, text: string): Promise<void> {
 }
 
 /**
- * The work of a quest, read afresh and kept for the pane: a plan's from Elrond, by its issue; an errand's or a review's
+ * The work of a quest, read afresh and kept for the pane: a plan's from the planner, by its issue; an errand's or a review's
  * from the tasks it keeps. A sentence when it could not be read.
  */
 async function workOf($: $, held: FellowshipQuest): Promise<FellowshipPlan | string> {
@@ -223,7 +223,7 @@ async function workOf($: $, held: FellowshipQuest): Promise<FellowshipPlan | str
 
   made = held.kind === 'plan' ? parsePlan(await planFor($, issueRefOf(held))) : ownPlan(held)
 
-  if (made === null) return `Elrond keeps no plan of ${held.ref} any more.`
+  if (made === null) return `The planner keeps no plan of ${held.ref} any more.`
   if (typeof made === 'string') return made
 
   const kept = made
@@ -233,9 +233,9 @@ async function workOf($: $, held: FellowshipQuest): Promise<FellowshipPlan | str
   return kept
 }
 
-/** Marks a task of a quest: in Elrond for a plan, in the quest itself for any other. */
+/** Marks a task of a quest: in the planner for a plan, in the quest itself for any other. */
 async function mark($: $, held: FellowshipQuest, id: number, state: FellowshipTaskState, note?: string): Promise<void> {
-  // Elrond keeps no `asked`: a plan's task is handed back as it stands
+  // The planner keeps no `asked`: a plan's task is handed back as it stands
   if (held.kind === 'plan') {
     if (state !== 'asked') await markTask($, id, state, issueRefOf(held))
 
@@ -433,7 +433,7 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
     : `The Fellowship sets out on ${spec.ref}, "${spec.title}", on ${branch} from ${placed.base}, ${where}, ${how}: the first task is sent.`
 }
 
-/** Sets out on the Elrond plan in force, or the one of the issue named. */
+/** Sets out on the plan in force, or the one of the issue named. */
 async function setOut($: $, isAuto: boolean, ref = ''): Promise<string> {
   const made = parsePlan(await planFor($, ref))
 
@@ -442,13 +442,13 @@ async function setOut($: $, isAuto: boolean, ref = ''): Promise<string> {
 
   const open = unsettledOf(made)
 
-  if (open.length > 0) return `The council's work on ${made.ref} is not settled: ${open.join('; ')}. Settle them in the Elrond pane, then set out.`
+  if (open.length > 0) return `The planner's work on ${made.ref} is not settled: ${open.join('; ')}. Settle them in the planner pane, then set out.`
 
   return begin($, { kind: 'plan', ref: made.ref, url: made.url, title: made.title, branch: branchOf(made), isAuto }, made)
 }
 
 /**
- * Sets out on an issue as an errand: one task, the whole issue, read through Elrond. One opened from outside the
+ * Sets out on an issue as an errand: one task, the whole issue, read through the planner. One opened from outside the
  * repository is built only when the person asked for it themselves (`isPersons`): Claude's call may have been steered.
  */
 async function errand($: $, input: string, isAuto: boolean, isPersons: boolean): Promise<string> {
@@ -732,7 +732,7 @@ async function prove($: $, ref: string): Promise<void> {
 
   await work($, ref, `Argonath proves task ${out.taskId}…`)
 
-  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
+  // The statues are sent here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
   // tests, written from the task before it was built, must pass for the proof to settle, all but
   // those a member has since said cannot run here
   const isSeen = held.vision?.taskId === out.taskId
@@ -753,7 +753,7 @@ async function prove($: $, ref: string): Promise<void> {
   const made = await workOf($, held)
   const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
   const about = typeof made === 'string' || task === undefined ? '' : purposeOf(held, made, task, mirror.amendments)
-  // Both statues judge every change: a task's weight is the council's guess, and what a change lets in is known only
+  // Both statues judge every change: a task's weight is the planner's guess, and what a change lets in is known only
   // once it is made. Where nothing proves what it reached, they judge with their own model; else as the task's weight
   // and risks ask, a task that is not heavy on a lighter model
   const isBlind = typeof made === 'string' || task === undefined || verdict.unhandled.length > 0
@@ -1060,7 +1060,7 @@ async function abandonWait($: $, held: FellowshipQuest): Promise<string | undefi
 
 /**
  * Gives a quest up: its worktree removed, its own branch deleted (a review's is the pull request's, and is left), a
- * plan's tasks reopened in Elrond, and the quest forgotten here and across sessions. Nothing on the forge is touched.
+ * plan's tasks reopened in the planner, and the quest forgotten here and across sessions. Nothing on the forge is touched.
  */
 async function abandon($: $, ref: string): Promise<string> {
   const held = (await questOf($, ref)) ?? ((await $.store.get(STORE_KEY(ref)).catch(() => undefined)) as FellowshipQuest | undefined) ?? null
@@ -1106,7 +1106,7 @@ async function abandon($: $, ref: string): Promise<string> {
     const reopened = typeof made === 'string' ? [] : made.tasks.filter(task => task.state !== 'todo' && (held.lane === undefined || task.id === held.lane.taskId))
 
     for (const task of reopened) await markTask($, task.id, 'todo', issueRefOf(held))
-    if (reopened.length > 0) said.push(`${reopened.length} ${reopened.length === 1 ? 'task is' : 'tasks are'} open again in the Elrond plan.`)
+    if (reopened.length > 0) said.push(`${reopened.length} ${reopened.length === 1 ? 'task is' : 'tasks are'} open again in the plan.`)
   }
 
   if (held.pr !== '' && held.kind !== 'review') said.push(`Its pull request, ${held.pr}, is left as it is on the forge.`)
@@ -1338,10 +1338,10 @@ const UNHELD: readonly FellowshipWanted[] = ['set out', 'set out auto', 'errand'
  * setting out); `isLooking` also looks at each quest waiting on the statues or the tests written first, whose answer is in.
  */
 async function drain($: $, isFramed: boolean, only?: string, isLooking = false): Promise<number> {
-  // A press of Elrond's pane asks to set out on the plan it shows
-  const fromElrond = await takeSetOut($)
+  // A press of the planner's pane asks to set out on the plan it shows
+  const fromPlanner = await takeSetOut($)
 
-  if (fromElrond !== undefined) await want($, '', fromElrond.isAuto ? 'set out auto' : 'set out', fromElrond.ref)
+  if (fromPlanner !== undefined) await want($, '', fromPlanner.isAuto ? 'set out auto' : 'set out', fromPlanner.ref)
 
   const queue = await read($, wanted)
   const firsts = queue.filter((one, at) => queue.findIndex(other => other.ref === one.ref) === at)
@@ -1464,7 +1464,7 @@ export async function spentFellowship($: $, agent: MiddleEarthAgent, e: { durati
 
 /** The Fellowship at the session's start: its command, its tools, and the clock that does what was asked of a quest. */
 export async function startFellowship($: $): Promise<void> {
-  await $.command.register({ name: 'fellowship', description: 'Build an Elrond plan, an errand or a review task by task in a worktree: /fellowship sets out (--auto goes on by itself); errand <issue>; next, commit, sail, halt, abandon [quest]' })
+  await $.command.register({ name: 'fellowship', description: 'Build a plan, an errand or a review task by task in a worktree: /fellowship sets out (--auto goes on by itself); errand <issue>; next, commit, sail, halt, abandon [quest]' })
 
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
@@ -1520,7 +1520,7 @@ export async function endedFellowship($: $, e: TurnEnded): Promise<void> {
     else await say($, held.ref, `${title} hands the comment back (${handed}), but left changes in ${held.tree}: drop them, or commit them from the pane.`)
   } else if (handed !== undefined) {
     await keep($, held.ref, was => ({ ...was, phase: 'stuck', march: out }))
-    await say($, held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is no errand. ${handed} Abandon it, then plan it with /elrond ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the Elrond pane, then send the task again.`)
+    await say($, held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is no errand. ${handed} Abandon it, then plan it with /planner ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the planner pane, then send the task again.`)
     await tell($, `${title} hands ${held.ref} back: ${handed}`)
   } else {
     await keep($, held.ref, was => ({ ...was, phase: 'proving', march: out }))
@@ -1646,7 +1646,7 @@ export function registerFellowship(on: On): void {
       await want($, '', isAuto ? 'set out auto' : 'set out', verb === 'set' ? (plain[2] ?? '') : '')
       await pumpFellowship($)
 
-      return { text: `The Fellowship sets out on the Elrond plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
+      return { text: `The Fellowship sets out on the plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
     }
 
     const held = await namedQuest($, named)
@@ -1719,7 +1719,7 @@ export function registerFellowship(on: On): void {
           {general !== '' && <Text color="warning">{general}</Text>}
           <Text dimColor>{HOW_TO}</Text>
           <Button key="set-out" hotkey="s" variant="primary" onPress={() => press('', 'set out')}>
-            {keyed('s', 'Set out on the Elrond plan')}
+            {keyed('s', 'Set out on the plan')}
           </Button>
         </Box>,
         width,
@@ -1854,7 +1854,7 @@ export function registerFellowship(on: On): void {
           )}
           {/* Quests on other issues run beside this one: the plan in force sets out from here too */}
           <Button key="set-out" hotkey="s" onPress={() => press('', 'set out')}>
-            {keyed('s', 'Set out on the Elrond plan')}
+            {keyed('s', 'Set out on the plan')}
           </Button>
         </Box>
       </Box>,
