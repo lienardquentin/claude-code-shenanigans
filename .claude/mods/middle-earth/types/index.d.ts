@@ -353,8 +353,8 @@ export type ArgonathTarget = {
   ready: { request: string; match: string } | null
   /** The command that runs the tests a change of the target can break, from the project's folder; empty when none is named. */
   affected: string
-  /** The command that runs its lint, type and format checks, which a change may not newly fail; empty when none is named. */
-  check: string
+  /** The commands that run its lint, type and format checks, each one a change may not newly fail; none when none is named. */
+  checks: string[]
   /** The command that audits its dependencies, run when a change touches a dependency manifest of it; empty when none is named. */
   audit: string
 }

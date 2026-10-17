@@ -9,6 +9,11 @@ narsil.build=cargo build --quiet --manifest-path narsil/Cargo.toml
 narsil.mask=generated at \S+
 narsil.mask=thread '[^']*' \(\d+\)
 
+# orcrist, the linter: built and compared as narsil is.
+orcrist=orcrist/target/debug/orcrist@orcrist
+orcrist.build=cargo build --quiet --manifest-path orcrist/Cargo.toml
+orcrist.mask=thread '[^']*' \(\d+\)
+
 # The runs kept to be played on two builds, in order, in a copy of narsil/: each as it is typed.
 $ narsil ls
 $ narsil ls --format json
@@ -22,3 +27,13 @@ $ narsil archive prune --before 3019-03-10 --dry-run
 $ narsil seal chronicle.jsonl
 $ narsil forge big.jsonl --count 20000
 $ narsil --chronicle big.jsonl tally
+
+# orcrist's, in a copy of orcrist/: each fixture holds the slop of one language, or none.
+$ orcrist check fixtures/restating.rs
+$ orcrist check fixtures/clean.rs
+$ orcrist check fixtures/swallowed.py
+$ orcrist check fixtures/guards.ts
+$ orcrist check fixtures/Beacon.vue
+$ orcrist check fixtures/store.rs fixtures/disk.rs
+$ orcrist check fixtures/notes.txt
+$ orcrist check fixtures/missing.rs

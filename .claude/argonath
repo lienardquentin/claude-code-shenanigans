@@ -21,6 +21,16 @@ narsil.affected=cargo test --manifest-path narsil/Cargo.toml
 # they fail on the working tree. An audit of its dependencies (narsil.audit=cargo audit ...) is run only when a change
 # touches Cargo.toml or Cargo.lock; none is named while cargo-audit is not installed
 narsil.check=cargo clippy --manifest-path narsil/Cargo.toml --all-targets --quiet -- -D warnings && cargo fmt --manifest-path narsil/Cargo.toml --check
+# And orcrist on the lines the change added since the commit it is compared with: a check of its own, so that a lint
+# that failed before the change hides none of what it finds
+narsil.check=sh scripts/orcrist.sh narsil {against}
+
+# orcrist, the linter: its runs are kept by anduril, in .claude/anduril, and it is proved and checked as narsil is.
+orcrist=cli@orcrist
+orcrist.tests=orcrist/tests
+orcrist.test=cargo test --manifest-path orcrist/Cargo.toml --test cli -- --exact {tests}
+orcrist.affected=cargo test --manifest-path orcrist/Cargo.toml
+orcrist.check=cargo clippy --manifest-path orcrist/Cargo.toml --all-targets --quiet -- -D warnings && cargo fmt --manifest-path orcrist/Cargo.toml --check
 
 # Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, with no
 # broker and a Rohan that never answers.
@@ -44,6 +54,7 @@ gondor.affected=uv run --quiet --project beacons pytest -q -rfE -p no:cacheprovi
 # Its lints and types, which a change may not newly fail, run as narsil's are: mypy reads its settings from the beacons'
 # pyproject, which it does not find from the project's folder by itself
 gondor.check=uv run --quiet --project beacons ruff check beacons/gondor && uv run --quiet --project beacons mypy --config-file beacons/pyproject.toml beacons/gondor
+gondor.check=sh scripts/orcrist.sh beacons/gondor {against}
 
 # Live: where Gondor is deployed. While it runs there, both builds are played again here against its real Postgres and
 # Rohan, reached by port-forward, with the deployed workload's own variables (a secret read from its secret). A context
@@ -81,5 +92,6 @@ $ gondor POST /muster
 anor=frontend@beacons/anor
 anor.tests=beacons/anor/tests
 anor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose
-# No check yet: its types are vue-tsc's to check (nuxi typecheck), which it does not hold, and Nuxt asks for Node 22.21
-# or later where this machine has 20
+# Its check is orcrist's alone: its types are vue-tsc's to check (nuxi typecheck), which it does not hold, and Nuxt
+# asks for Node 22.21 or later where this machine has 20
+anor.check=sh scripts/orcrist.sh beacons/anor {against}

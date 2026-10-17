@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { ArgonathRadius, ArgonathTarget } from '../../types'
 import { errorText } from '../flow'
 import type { Changed } from './proof'
-import { CHANGE_SCRIPT, UNTRACKED, affectedOf, changesByTarget, gateOf, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, sizeText, tidy, withLive } from './proof'
+import { CHANGE_SCRIPT, UNTRACKED, affectedOf, changesByTarget, gateOf, gated, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, sizeText, tidy, withLive } from './proof'
 
 // What the Argonath runs on the machine for one target, in one place: Andúril's diff of a CLI, a service's requests,
 // the tests on both sides, the affected tests, checks and audits, and what git says the change holds. Each is handed the
@@ -85,11 +85,11 @@ export async function affectedIn($: $, target: ArgonathTarget, against: string, 
  * Runs a gate command of a target (its check, or its audit) on the working tree, and on the commit's source where it
  * fails there, as the affected tests are: what the change broke of it, what was broken before, or why it is not known.
  */
-export async function gateIn($: $, target: ArgonathTarget, name: 'check' | 'audit', against: string, place: Place): Promise<ReturnType<typeof gateOf>> {
-  const job = { home: place.tree, label: target.label, tests: [], command: target[name], from: against }
+export async function gateIn($: $, target: ArgonathTarget, gate: { name: string; command: string }, against: string, place: Place): Promise<ReturnType<typeof gateOf>> {
+  const job = { home: place.tree, label: target.label, tests: [], command: gated(gate.command, against), from: against }
   const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/affected.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
-  return gateOf(ran.stdout, `${target.label}.${name}`)
+  return gateOf(ran.stdout, gate.name)
 }
 
 /** The diff of a target's tests against HEAD, the files they hold deleted with it: where a change weakens them. */
