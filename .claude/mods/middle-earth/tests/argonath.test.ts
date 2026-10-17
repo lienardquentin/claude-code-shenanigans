@@ -5,7 +5,7 @@ import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, ma
 import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, parseFindings } from '../core/review'
 import { isChanging } from '../hooks/flow'
-import { secretsIn } from '../hooks/flow'
+import { secretsIn } from '../core/change'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
