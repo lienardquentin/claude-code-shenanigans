@@ -336,12 +336,14 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
       // what it does to the target's tests, wherever they are
       if (asked.isProving) {
         const manifests = manifestsOf(changes.get(target.label) ?? '')
-        const gates = isUntouched ? [] : (['check', 'audit'] as const).filter(name => target[name] !== '' && (name === 'check' || manifests.length > 0))
+        const checks = target.checks.map((command, index) => ({ name: target.checks.length === 1 ? `${target.label}.check` : `${target.label}.check #${index + 1}`, command }))
+        const audits = target.audit !== '' && manifests.length > 0 ? [{ name: `${target.label}.audit`, command: target.audit }] : []
+        const gates = isUntouched ? [] : [...checks, ...audits]
         const found: ReturnType<typeof gateOf>[] = []
 
-        for (const name of gates) {
-          await update($, working, () => `Running ${target.label}.${name} on the working tree…`)
-          found.push(await gateIn($, target, name, asked.against, place))
+        for (const gate of gates) {
+          await update($, working, () => `Running ${gate.name} on the working tree…`)
+          found.push(await gateIn($, target, gate, asked.against, place))
         }
 
         made = {

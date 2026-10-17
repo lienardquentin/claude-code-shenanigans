@@ -34,7 +34,8 @@ const KINDS: readonly ArgonathKind[] = ['cli', 'service', 'frontend']
  * - `label.ready=METHOD /path` and `label.ready.match=regex`: asked before a service is played, until it answers;
  * - `label.affected=command`: the tests a change of the target can break, run when its folders changed;
  * - `label.check=command`: its lint, type and format checks, run when its folders changed: the change may not newly
- *   fail it;
+ *   fail it. `{against}` in it is the commit the change is compared with. Named again, each is a check of its own, run
+ *   and judged apart (`label.check #1`, `#2`), so that one failing before the change hides none the change fails;
  * - `label.audit=command`: what audits its dependencies, run when the change touches a dependency manifest in its
  *   folders: the change may not newly fail it;
  * - `$ label …`: a service's request kept to be played, `$ gondor GET /health`, with a JSON body as one quoted word
@@ -76,7 +77,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
         db: null,
         ready: null,
         affected: '',
-        check: '',
+        checks: [],
         audit: '',
       })
     }
@@ -110,7 +111,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
       if (what === 'ready') target.ready.request = value
       else target.ready.match = value
     } else if (what === 'affected') target.affected = value
-    else if (what === 'check') target.check = value
+    else if (what === 'check') target.checks.push(value)
     else if (what === 'audit') target.audit = value
     else if (what === 'tests') target.tests = value.split(',').map(path => path.trim()).filter(path => path !== '').map(path => under(cwd, path))
     else if (what === 'test') target.test = value
@@ -538,6 +539,12 @@ export const isNarrowable = (command: string): boolean => /\{tests(?::[^}]*)?\}/
  * `{tests:SEP}` their names with SEP between (`-k "{tests: or }"` for pytest).
  */
 export const narrowed = (command: string, names: readonly string[]): string => command.replace(/\{tests(?::([^}]*))?\}/g, (_, between: string | undefined) => names.join(between ?? ' '))
+
+/**
+ * A target's check or audit told the commit the change is compared with: `{against}` becomes it, as one word to the
+ * shell whatever it holds (`orcrist check --since {against}` judges only the lines the change added).
+ */
+export const gated = (command: string, against: string): string => command.replaceAll('{against}', `'${against.replaceAll("'", "'\\''")}'`)
 
 /**
  * The radius once its tests were run on both sides: each changed run by how its own tests ended, and each test the

@@ -946,6 +946,30 @@ describe('a database, a readiness and the tests a change can break', () => {
     expect(audited).not.toContain('gondor.check fails')
   })
 
+  test('run each check a target names on its own, so that one failing before the change hides none the change fails', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}\ngondor.check=ruff check beacons\ngondor.check=orcrist check --since {against}` })
+    world.gates['ruff check beacons'] = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: 'beacons/gondor/app.py:3:1: F401' }, from: { error: '', exitCode: 1, output: 'beacons/gondor/app.py:3:1: F401' } })
+    world.gates["orcrist check --since 'HEAD'"] = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: 'app.py:9 vague-name: data says nothing of what it is' }, from: { error: '', exitCode: 0, output: '' } })
+
+    const said = await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+
+    expect(world.jobs.affected.map(one => one.command)).toEqual(['pytest -q -rfE beacons/tests', 'ruff check beacons', "orcrist check --since 'HEAD'"])
+    expect(said).toContain("gondor.check #1 fails on the commit's source too, so it is not owed by the change")
+    expect(said).toContain("gondor.check #2 fails on the working tree (exit 1) and passes on the commit's source:\napp.py:9 vague-name: data says nothing of what it is")
+    expect(said).toContain('vague-name: data says nothing of what it is\nFix what it finds in the change.')
+  })
+
+  test('name the commit the change is compared with where a check asks for it, quoted for the shell', async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}\ngondor.check=ruff check beacons && orcrist check --since {against}` })
+
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+    expect(world.jobs.affected.map(one => one.command)).toContain(`ruff check beacons && orcrist check --since 'HEAD'`)
+
+    world.whole = 'abc126\n'
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor', against: `main'; touch pwned; '` })
+    expect(world.jobs.affected.map(one => one.command)).toContain(`ruff check beacons && orcrist check --since 'main'\\''; touch pwned; '\\'''`)
+  })
+
   test("are run for a frontend the change reached, which no kept run proves, and hold it", async ($, on) => {
     const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\nanor.tests=beacons/anor/tests\nanor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose` })
     world.gates['npm --prefix beacons/anor test --silent -- --reporter=verbose'] = JSON.stringify({ label: 'anor', to: { error: '', exitCode: 1, output: ' × realm > names the beacons 3ms' }, from: { error: '', exitCode: 0, output: ' ✓ realm > names the beacons 3ms' } })
