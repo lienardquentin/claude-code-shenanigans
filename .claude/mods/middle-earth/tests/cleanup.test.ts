@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { firstUrl } from '../core/forge'
-import { gathered } from '../hooks/mountdoom/doom'
+import { gathered } from '../hooks/cleanup/leftovers'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -14,17 +14,17 @@ const PR = 'https://github.com/lienardquentin/claude-code-shenanigans/pull/40'
 const TREE = `${CWD}/.fellowship/trees/fellowship-34-gondor-quench-a-single-beacon`
 const REVIEW_REF = 'review:lienardquentin/claude-code-shenanigans#40'
 
-describe('the relics', () => {
+describe('the leftovers', () => {
   test('are one a branch: a quest and the gate open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
-    const relics = gathered([
-      { keeper: 'blackgate', kept: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR }] },
-      { keeper: 'fellowship', kept: [{ ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: '' }, { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '' }] },
-      { keeper: 'fellowship', kept: [{ branch: '' }] },
+    const leftovers = gathered([
+      { keeper: 'follow-up', kept: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR }] },
+      { keeper: 'build', kept: [{ ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: '' }, { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '' }] },
+      { keeper: 'build', kept: [{ branch: '' }] },
     ])
 
-    expect(relics).toEqual([
-      { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['blackgate', 'fellowship'], quests: [REF], isMerged: false },
-      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['fellowship'], quests: ['github:o/r#35'], isMerged: false },
+    expect(leftovers).toEqual([
+      { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['follow-up', 'build'], quests: [REF], isMerged: false },
+      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['build'], quests: ['github:o/r#35'], isMerged: false },
     ])
   })
 
@@ -70,7 +70,7 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
   // A review of the same pull request, answered by the Fellowship on the same branch
   const review = { ...quest(kept.tree ?? ''), kind: 'review', ref: REVIEW_REF }
   mock.store(on, { [`quest:${REF}`]: quest(kept.tree ?? ''), ...(kept.isReviewed === true ? { [`quest:${REVIEW_REF}`]: review } : {}), ...(kept.isPlanned !== false ? { [`plan:${REF}`]: PLAN } : {}) })
-  // Whether the quest's worktree is gone already, removed by an earlier cast
+  // Whether the quest's worktree is gone already, removed by an earlier cleanup
   on('fs.exists', (_, e) => ({ value: !(world.isTreeGone && (e as unknown as { path: string }).path === TREE) }) as never)
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -120,49 +120,49 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
 
 const call = async ($: Engine, tool: string) => String((await $.tool.call({ tool } as never)).result)
 
-/** Casts as the person types it: the command answers at once, and the clock casts, telling what came of it. */
-const casting = async ($: Engine, world: ReturnType<typeof machine>, args = 'cast'): Promise<string> => {
-  expect((await $.command.run({ command: 'mountdoom', args } as never)).text).toMatch(/the pane says/)
+/** Cleans up as the person types it: the command answers at once, and the clock cleans up, telling what came of it. */
+const cleaning = async ($: Engine, world: ReturnType<typeof machine>, args = 'clean'): Promise<string> => {
+  expect((await $.command.run({ command: 'cleanup', args } as never)).text).toMatch(/the pane says/)
   await world.clock.advance(600)
 
-  return (world.toasts.at(-1) ?? '').replace(/^Mount Doom: /, '')
+  return (world.toasts.at(-1) ?? '').replace(/^Cleanup: /, '')
 }
 
-describe('mountdoom', () => {
-  test('watches what the Fellowship keeps, tells the person once when it is merged, and offers Claude no way to cast it', async ($, on) => {
+describe('cleanup', () => {
+  test('watches what the Fellowship keeps, tells the person once when it is merged, and offers Claude no way to clean it up', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect(world.tools).toContain('relics')
-    expect(world.tools.some(tool => /cast|burn|fire/.test(tool))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/watches 1 relic; 0 merged[\s\S]*· github:.*#34 on fellowship\/34-gondor-quench-a-single-beacon \(fellowship\) · https:.*\/pull\/40$/)
+    expect(world.tools).toContain('leftovers')
+    expect(world.tools.some(tool => /clean/.test(tool))).toBe(false)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/watches 1 leftover; 0 merged[\s\S]*· github:.*#34 on fellowship\/34-gondor-quench-a-single-beacon \(build\) · https:.*\/pull\/40$/)
 
     // The first look, once the session has settled, finds it merged; every look after it tells the person nothing more
     world.state = 'MERGED'
     await world.clock.advance(31_000)
 
-    expect(world.toasts.filter(toast => toast.startsWith('Mount Doom'))).toHaveLength(1)
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/1 merged, ready for the fire[\s\S]*🔥[\s\S]*merged\n\nThe person casts them with \/mountdoom cast/)
-    expect(world.toasts.filter(toast => toast.startsWith('Mount Doom'))).toHaveLength(1)
+    expect(world.toasts.filter(toast => toast.startsWith('Cleanup'))).toHaveLength(1)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/1 merged, ready to clean up[\s\S]*●[\s\S]*merged\n\nThe person cleans them up with \/cleanup clean/)
+    expect(world.toasts.filter(toast => toast.startsWith('Cleanup'))).toHaveLength(1)
   })
 
-  test('draws each relic in the pane as where it stands, then its branch and keepers, then its pull request, the merged first', async ($, on) => {
+  test('draws each leftover in the pane as where it stands, then its branch and keepers, then its pull request, the merged first', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
-    const mounted = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'mountdoom' })
+    const mounted = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'cleanup' })
     // A look asks the forge afresh; the pane is drawn again on what it found
     const pane = async () => {
-      await call($, 'mcp__middle-earth__relics')
+      await call($, 'mcp__middle-earth__leftovers')
       await mounted.redraw()
 
-      return String((await $.tool.call({ tool: 'mcp__middle-earth__pane', pane: 'mountdoom' } as never)).result)
+      return String((await $.tool.call({ tool: 'mcp__middle-earth__pane', pane: 'cleanup' } as never)).result)
     }
 
-    // Open: nothing to cast
+    // Open: nothing to clean up
     const open = await pane()
     expect(open).toMatch(/● watching 1  \[l Look again\]/)
-    expect(open).toMatch(/·\s+#34  open\n\s*fellowship\/34-gondor-quench-a-single-beacon · kept by fellowship\n\s*https:.*\/pull\/40/)
-    expect(open).not.toContain('Cast them into the fire')
+    expect(open).toMatch(/·\s+#34  open\n\s*fellowship\/34-gondor-quench-a-single-beacon · kept by build\n\s*https:.*\/pull\/40/)
+    expect(open).not.toContain('Clean them up')
 
     // The forge could not say: it is unknown, never open, and why is said under it
     world.forgeDown = 'gh: not logged in'
@@ -170,12 +170,12 @@ describe('mountdoom', () => {
     expect(unknown).toMatch(/#34  unknown\n/)
     expect(unknown).toMatch(/The forge could not say whether it is merged: /)
 
-    // Merged: said so first, and cast from the pane
+    // Merged: said so first, and cleaned up from the pane
     world.forgeDown = ''
     world.state = 'MERGED'
     const merged = await pane()
-    expect(merged).toMatch(/● 1 merged  \[l Look again\][\s\S]*🔥\s+#34  merged\n/)
-    expect(merged).toMatch(/\[c Cast them into the fire\]\*/)
+    expect(merged).toMatch(/● 1 merged  \[l Look again\][\s\S]*●\s+#34  merged\n/)
+    expect(merged).toMatch(/\[c Clean them up\]\*/)
   })
 
   test('tells the person once that a pull request still open fell into conflict with its base, and again only after it eased', async ($, on) => {
@@ -187,49 +187,49 @@ describe('mountdoom', () => {
     await world.clock.advance(31_000)
     const told = () => world.toasts.filter(toast => /in conflict with its base/.test(toast))
 
-    expect(told()).toEqual(['Mount Doom: github:lienardquentin/claude-code-shenanigans#34 is in conflict with its base: merge it in, then push'])
+    expect(told()).toEqual(['Cleanup: github:lienardquentin/claude-code-shenanigans#34 is in conflict with its base: merge it in, then push'])
     // Each look through the tool asks the forge afresh: still in conflict, it is shown and not told again
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/\/pull\/40 · in conflict with its base$/)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/\/pull\/40 · in conflict with its base$/)
     expect(told()).toHaveLength(1)
 
     // Merged in by hand, it is level again; a later conflict is told anew
     world.mergeable = 'MERGEABLE'
-    expect(await call($, 'mcp__middle-earth__relics')).not.toMatch(/in conflict/)
+    expect(await call($, 'mcp__middle-earth__leftovers')).not.toMatch(/in conflict/)
     world.mergeable = 'CONFLICTING'
-    await call($, 'mcp__middle-earth__relics')
+    await call($, 'mcp__middle-earth__leftovers')
     expect(told()).toHaveLength(2)
   })
 
-  test('casts nothing that is not merged', async ($, on) => {
+  test('cleans up nothing that is not merged', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
+    expect(await cleaning($, world)).toMatch(/^Nothing kept is merged yet\./)
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
 
-  test('casts nothing whose pull request was merged from another branch than the quest\'s, and keeps the quest', async ($, on) => {
+  test('cleans up nothing whose pull request was merged from another branch than the run\'s, and keeps the run', async ($, on) => {
     const world = machine(on)
     world.state = 'MERGED'
     world.mergedFrom = 'some-other-branch'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
+    expect(await cleaning($, world)).toMatch(/^Nothing kept is merged yet\./)
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/watches 1 relic; 0 merged/)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/watches 1 leftover; 0 merged/)
   })
 
-  test('casts a merged quest into the fire: back on its base, brought up to date, its branch deleted, and the quest and its plan forgotten', async ($, on) => {
+  test('cleans up a merged run: back on its base, brought up to date, its branch deleted, and the run and its plan forgotten', async ($, on) => {
     const world = machine(on)
     world.state = 'MERGED'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toBe(`${REF} is cast into the fire: back on main, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, elrond.`)
+    expect(await cleaning($, world)).toBe(`${REF} is cleaned up: back on main, main brought up to date, ${BRANCH} deleted, forgotten by build, planner.`)
     expect(world.ran).toContain('git switch main')
     expect(world.ran).toContain('git pull --ff-only origin main')
     expect(world.ran).toContain(`git branch -D ${BRANCH}`)
     // Nothing is kept of it any more
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/^Nothing is kept of any quest/)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/^Nothing is kept of any run/)
   })
 
   test('removes the worktree a quest was built in before its branch, and leaves one with uncommitted work in it as it is', async ($, on) => {
@@ -240,11 +240,11 @@ describe('mountdoom', () => {
     world.treeDirty = ' M beacons/gondor/app.py\n'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(new RegExp(`${TREE} holds uncommitted changes`))
+    expect(await cleaning($, world)).toMatch(new RegExp(`${TREE} holds uncommitted changes`))
     expect(world.ran.some(line => line.startsWith('git worktree remove') || line.startsWith('git branch -D'))).toBe(false)
 
     world.treeDirty = ''
-    expect(await casting($, world)).toBe(`${REF} is cast into the fire: its worktree removed, main brought up to date, ${BRANCH} deleted, forgotten by fellowship, elrond.`)
+    expect(await cleaning($, world)).toBe(`${REF} is cleaned up: its worktree removed, main brought up to date, ${BRANCH} deleted, forgotten by build, planner.`)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}`)).toBeGreaterThan(-1)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}`)).toBeLessThan(world.ran.indexOf(`git branch -D ${BRANCH}`))
   })
@@ -257,22 +257,22 @@ describe('mountdoom', () => {
     world.treeDirty = '?? .anduril/\n'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/is cast into the fire: its worktree removed/)
+    expect(await cleaning($, world)).toMatch(/is cleaned up: its worktree removed/)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeGreaterThan(-1)
     expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeLessThan(world.ran.indexOf(`git worktree remove --force ${TREE}`))
   })
 
-  test('casts every quest kept on the branch, and takes a worktree already gone for removed', async ($, on) => {
+  test('cleans up every run kept on the branch, and takes a worktree already gone for removed', async ($, on) => {
     const world = machine(on, { tree: TREE, isReviewed: true })
     world.state = 'MERGED'
     world.branch = 'main'
     world.isTreeGone = true
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/is cast into the fire/)
+    expect(await cleaning($, world)).toMatch(/is cleaned up/)
     expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
     // Neither quest on the branch is kept any more
-    const kept = String((await $.tool.call({ tool: 'mcp__middle-earth__relics' } as never)).result)
+    const kept = String((await $.tool.call({ tool: 'mcp__middle-earth__leftovers' } as never)).result)
     expect(kept).not.toContain(REF)
     expect(kept).not.toContain(REVIEW_REF)
   })
@@ -282,7 +282,7 @@ describe('mountdoom', () => {
     world.state = 'MERGED'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/forgotten by fellowship\.$/)
+    expect(await cleaning($, world)).toMatch(/forgotten by build\.$/)
   })
 
   test('keeps a merged branch that holds commits past the one the forge merged, and says so', async ($, on) => {
@@ -291,7 +291,7 @@ describe('mountdoom', () => {
     world.tip = 'beef002'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(new RegExp(`${BRANCH} kept: it holds commits past c0ffee1, the one merged`))
+    expect(await cleaning($, world)).toMatch(new RegExp(`${BRANCH} kept: it holds commits past c0ffee1, the one merged`))
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
 
@@ -302,17 +302,17 @@ describe('mountdoom', () => {
     world.isBehindHead = true
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(new RegExp(`${BRANCH} deleted`))
+    expect(await cleaning($, world)).toMatch(new RegExp(`${BRANCH} deleted`))
   })
 
-  test('says when the forge cannot be asked, casts nothing, and never takes it for not merged', async ($, on) => {
+  test('says when the forge cannot be asked, cleans up nothing, and never takes it for not merged', async ($, on) => {
     const world = machine(on)
     world.state = 'MERGED'
     world.forgeDown = 'gh: authentication required'
     await $.session.start({} as never)
 
-    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/the forge could not say whether it is merged: gh could not read https:.*\/pull\/40/)
-    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/the forge could not say whether it is merged: gh could not read https:.*\/pull\/40/)
+    expect(await cleaning($, world)).toMatch(/^Nothing kept is merged yet\./)
     expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
 
@@ -322,7 +322,7 @@ describe('mountdoom', () => {
     world.dirty = ' M beacons/gondor/app.py\n'
     await $.session.start({} as never)
 
-    expect(await casting($, world)).toMatch(/is checked out with uncommitted changes/)
+    expect(await cleaning($, world)).toMatch(/is checked out with uncommitted changes/)
     expect(world.ran).not.toContain(`git branch -D ${BRANCH}`)
   })
 })

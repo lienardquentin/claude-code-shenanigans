@@ -8,13 +8,13 @@ import { blackgateView, registerBlackgate, startBlackgate } from './blackgate/re
 import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
 import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, spentFellowship, startFellowship } from './fellowship/register'
 import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerLothlorien, sectionOfLothlorien, startLothlorien } from './lothlorien/register'
-import { mountdoomView, registerMountdoom, startMountdoom } from './mountdoom/register'
+import { cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { registerRings, ringsView, startRings } from './rings/register'
 import { carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 
 // The Middle-earth mod: one plugin, each of its parts a folder of its own (the Rings list the issues, Elrond plans, the
-// Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the Black Gate reads review, Mount Doom
+// Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the Black Gate reads review, the cleanup
 // clears what is merged). The parts call one another as functions; the agents they send are registered, kept and guarded in one place.
 // An event every part hears is hooked here once, and handed to each part in turn; a part hooks what is its own alone.
 
@@ -26,13 +26,13 @@ const PANES = {
   lothlorien: lothlorienView,
   argonath: argonathView,
   blackgate: blackgateView,
-  mountdoom: mountdoomView,
+  cleanup: cleanupView,
 } as const
 
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `rings` the open issues (/rings), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `lothlorien` the tests written first (/mirror), `argonath` the proof of the change (/argonath), `blackgate` the review comments (/blackgate), `mountdoom` what is merged (/mountdoom). Call it when the person speaks of a pane or of something only it shows.',
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `rings` the open issues (/rings), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `lothlorien` the tests written first (/mirror), `argonath` the proof of the change (/argonath), `blackgate` the review comments (/blackgate), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
 } as const
 
@@ -99,7 +99,7 @@ export const register: Register = on => {
     await startArgonath($)
     await startFellowship($)
     await startBlackgate($)
-    await startMountdoom($)
+    await startCleanup($)
     await startRings($)
     // A plugin of the marketplace that lags its folder is said, to the person and to Claude
     await startLag($).catch(stumbled($, 'the lag check'))
@@ -180,7 +180,7 @@ export const register: Register = on => {
   registerArgonath(on)
   registerFellowship(on)
   registerBlackgate(on)
-  registerMountdoom(on)
+  registerCleanup(on)
   registerRings(on)
 
   // Answered only from a hook: the clock calls it unanswered

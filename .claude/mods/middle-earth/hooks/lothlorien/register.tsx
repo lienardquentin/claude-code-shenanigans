@@ -241,7 +241,7 @@ export async function mirrorIn($: $, tree: string): Promise<Shown> {
 }
 
 /**
- * Forgets the tests written first of an issue once they are committed, for Mount Doom: each vision gazed for it, or the
+ * Forgets the tests written first of an issue once they are committed, for the cleanup: each vision gazed for it, or the
  * project's own when none is named. Tests still locked are kept.
  */
 export async function forgetVisions($: $, ref: string): Promise<{ forgotten: boolean; text: string }> {

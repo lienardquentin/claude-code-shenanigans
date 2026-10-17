@@ -5,7 +5,7 @@ import type { RingsIssue } from '../../types'
 import { HOW_TO, ringsOf, standingOf } from './rings'
 import { parseRemote } from '../../core/forge'
 import { askCouncil, planStanding } from '../elrond/register'
-import { askErrand, questRelics } from '../fellowship/register'
+import { askErrand, questLeftovers } from '../fellowship/register'
 import { errorText, forgeIn, git } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -63,7 +63,7 @@ async function refreshed($: $): Promise<string> {
 
 /** Where each listed issue stands with the Fellowship and Elrond, by its ref. */
 async function standings($: $, listed: readonly RingsIssue[]): Promise<Map<string, string>> {
-  const quests = await questRelics($).catch(() => [])
+  const quests = await questLeftovers($).catch(() => [])
   const found = new Map<string, string>()
 
   for (const issue of listed) {
