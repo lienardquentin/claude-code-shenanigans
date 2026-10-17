@@ -55,7 +55,9 @@ def checkout(home, label, sha):
 
 
 def overlay(home, tree, tests):
-    """The working tree's tests in place of the commit's."""
+    """The working tree's tests in place of the commit's; nothing where no test is named, as git would list every file."""
+    if not tests:
+        return
     inside = [os.path.relpath(path, home) for path in tests]
     if any(path.startswith("..") for path in inside):
         raise Stop("a test path is outside the project")

@@ -17,6 +17,10 @@ narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli -- --exact {
 # What a change of narsil can break: its every test, a couple of seconds once built. Run on the working tree, and on
 # HEAD's source only when one fails, to tell what the change broke from what was broken before it
 narsil.affected=cargo test --manifest-path narsil/Cargo.toml
+# Its lints and format, which a change may not newly fail: run as the affected tests are, on HEAD's source only when
+# they fail on the working tree. An audit of its dependencies (narsil.audit=cargo audit ...) is run only when a change
+# touches Cargo.toml or Cargo.lock; none is named while cargo-audit is not installed
+narsil.check=cargo clippy --manifest-path narsil/Cargo.toml --all-targets --quiet -- -D warnings && cargo fmt --manifest-path narsil/Cargo.toml --check
 
 # Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, with no
 # broker and a Rohan that never answers.
@@ -69,5 +73,8 @@ $ gondor GET /palantiri/ithil/gaze
 $ gondor GET /palantiri/mordor/gaze
 $ gondor POST /muster
 
-# Anor, the Nuxt frontend: Argonath has no frontend handler yet.
+# Anor, the Nuxt frontend: Argonath compares no kept run of a frontend, so its own tests alone prove a change of it,
+# run as Gondor's are, verbose so each test is named as it ends
 anor=frontend@beacons/anor
+anor.tests=beacons/anor/tests
+anor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose

@@ -169,8 +169,8 @@ export const ownPlan = (quest: Pick<FellowshipQuest, 'ref' | 'url' | 'title' | '
   accepted: [],
 })
 
-/** An errand's one task: the whole issue, as Elrond read it, its thread with it. */
-export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[] }): FellowshipTask => ({
+/** An errand's one task: the whole issue, as Elrond read it, its thread with it, those from outside the repository left out and counted. */
+export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[]; leftOut?: number }): FellowshipTask => ({
   id: 1,
   title: issue.title ?? '',
   why: '',
@@ -180,7 +180,13 @@ export const errandTask = (issue: { title?: string; body?: string; comments?: { 
   acceptance: 'What the issue asks for holds, and a test proves it.',
   weight: 'standard',
   state: 'todo',
-  brief: [issue.body ?? '', ...(issue.comments ?? []).map(one => `--- ${one.author}:\n${one.body}`)].filter(one => one.trim() !== '').join('\n\n'),
+  brief: [
+    issue.body ?? '',
+    ...(issue.comments ?? []).map(one => `--- ${one.author}:\n${one.body}`),
+    ...((issue.leftOut ?? 0) > 0 ? [`--- (${issue.leftOut ?? 0} ${issue.leftOut === 1 ? 'comment' : 'comments'} from outside the repository left out)`] : []),
+  ]
+    .filter(one => one.trim() !== '')
+    .join('\n\n'),
 })
 
 /** The review comments the Black Gate handed over, as tasks: each a change to make, in turn, on the pull request's branch. */
@@ -254,12 +260,6 @@ export const parseWorktrees = (porcelain: string): { path: string; branch: strin
 
 /** Whether a task is heavy to change: heavy by its weight, or threatened by a high risk. */
 const isWeighty = (plan: FellowshipPlan, task: FellowshipTask): boolean => task.weight === 'heavy' || isThreatened(plan, task)
-
-/**
- * The statues a task's change is judged by: Isildur, whose eye is on what it does, every time; Anárion, whose eye is on
- * what it lets in, on a heavy task or one a high risk threatens. Both judge a plan's whole branch once more before it sails.
- */
-export const statuesFor = (plan: FellowshipPlan, task: FellowshipTask): ('isildur' | 'anarion')[] => (isWeighty(plan, task) ? ['isildur', 'anarion'] : ['isildur'])
 
 /** The model the statues judge a task's change with: their own on a heavy task, a lighter one on any other. */
 export const statueModelFor = (plan: FellowshipPlan, task: FellowshipTask): string | undefined => (isWeighty(plan, task) ? undefined : SWIFT_STATUE_MODEL)

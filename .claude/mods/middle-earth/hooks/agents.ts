@@ -4,7 +4,7 @@ import type { EngineInterface } from 'claude-code'
 import type { FellowshipMember, MiddleEarthAgent, MiddleEarthRole } from '../types'
 import { STATUES, STATUE_EFFORT, STATUE_MODEL, statueSystem } from './argonath/statues'
 import { COUNCIL_SYSTEM, isPlanPath } from './elrond/council'
-import { isChanging, isForbiddenGit, isModPath, resolvedFrom, rootOf } from './flow'
+import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, resolvedFrom, rootOf } from './flow'
 import { MEMBERS, isModSource, isOutside, memberSystem, reachesOut } from './fellowship/quest'
 import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYSTEM, isTestPath } from './lothlorien/mirror'
 import type { Trees } from './kit/trees'
@@ -94,20 +94,23 @@ export async function listedRole($: $, agentId: string): Promise<MiddleEarthRole
 export const COUNCIL_READS = 'The Elrond council reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.'
 export const STATUE_READS = 'A statue of the Argonath judges the change and changes nothing: run only commands that read.'
 
-type Call = { tool?: unknown; command?: unknown; file_path?: unknown; notebook_path?: unknown; path?: unknown }
+type Call = { tool?: unknown; command?: unknown; file_path?: unknown; notebook_path?: unknown; path?: unknown; dangerouslyDisableSandbox?: unknown }
+
+/** The file a tool reads or changes, or the folder Grep and Glob search; nothing for a call that names none. */
+const namedOf = (given: Call): string | undefined =>
+  [given.file_path, given.notebook_path, given.tool === 'Grep' || given.tool === 'Glob' ? given.path : undefined].find((one): one is string => typeof one === 'string' && one !== '')
 
 const withinOf = (tree: string, path: string): string => (path.startsWith(`${tree}/`) ? path.slice(tree.length + 1) : path.replace(/^\.\//, ''))
 
 /** Why a member's call is refused: it builds in its quest's worktree, and leaves the branch, the commits and the mods' folders alone. */
 const memberRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
   if (given.tool === 'Bash' && typeof given.command === 'string') {
-    if (isForbiddenGit(given.command)) return 'The Fellowship commits and keeps the branch: leave your change uncommitted, and run no git command that moves HEAD or the index.'
+    if (isForbiddenGit(given.command)) return "The Fellowship commits and keeps the branch: leave your change uncommitted, run no git command that moves HEAD or the index, and leave git's config as it is."
     // A cd into the person's checkout would build the quest there, and move where the mod looks with it
     if (reachesOut(agent.root, agent.tree, given.command)) return `You work in the quest's worktree, ${agent.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.`
   }
 
-  // The file a tool reads or changes, and the folder Grep and Glob search
-  const named = [given.file_path, given.notebook_path, given.tool === 'Grep' || given.tool === 'Glob' ? given.path : undefined].find((one): one is string => typeof one === 'string' && one !== '')
+  const named = namedOf(given)
 
   if (named === undefined) return undefined
 
@@ -137,6 +140,22 @@ const galadrielRefusal = (agent: MiddleEarthAgent, given: Call): string | undefi
 export const refusalOf = (agent: MiddleEarthAgent, e: unknown): string | undefined => {
   const given = e as Call
 
+  // An agent seen spawned in a folder, of no type of the mod's, is the session's to hold
+  return agent.role === 'other' ? undefined : (machineRefusal(agent, given) ?? roleRefusal(agent, given))
+}
+
+/** Why no agent the mod sent may make a call, whatever its role: it leaves the sandbox, or reaches what is private on the machine. */
+const machineRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
+  if (given.tool === 'Bash' && given.dangerouslyDisableSandbox === true) return 'Run every command in the sandbox: an agent the mod sends never leaves it.'
+  if (given.tool === 'Bash' && typeof given.command === 'string') return privateRefusal(agent.root, agent.tree, given.command)
+
+  const named = namedOf(given)
+
+  return named !== undefined && isPrivatePath(agent.root, agent.tree, named) ? `${named} is outside the project, somewhere private on the machine: read only what the project holds.` : undefined
+}
+
+/** Why an agent the mod sent may not make a call in its role. */
+const roleRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
   switch (agent.role) {
     case 'council':
       if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return COUNCIL_READS

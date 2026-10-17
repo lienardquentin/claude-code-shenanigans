@@ -164,12 +164,13 @@ run is pinned and no test it can break is broken.
 _Avoid_: Covered, tested, green
 
 **Proof**:
-The Argonath's check of a change: its radius afresh, then the tests on both sides, settled or not.
+The Argonath's check of a change: its radius afresh, then the tests on both sides, the tests and checks it can break (and
+the audit of the dependencies whose manifests it touches), settled or not.
 _Avoid_: CI, test run, validation
 
 **Statues**:
-The Argonath's two reviewers, sent on a settled change: Isildur for correctness, Anárion for security. A blocking
-finding sends the change back to its builder.
+The Argonath's two reviewers, both sent on every settled change: Isildur for correctness, Anárion for security. A
+blocking finding, or one whose severity they do not call minor, sends the change back to its builder.
 _Avoid_: Judges, reviewers' bots, checks
 
 **Tests first**:

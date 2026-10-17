@@ -1,9 +1,10 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { UNTRACKED, changesByTarget, isProd, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, standingByTarget, targetsOf, withLive } from '../hooks/argonath/proof'
+import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, standingByTarget, targetsOf, withLive } from '../hooks/argonath/proof'
 import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, isChanging, parseFindings } from '../hooks/argonath/statues'
+import { secretsIn } from '../hooks/flow'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -73,7 +74,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
   // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
   // status says of them, read around each shell command and counted in `fingerprints`
-  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), missing: [] as string[] }
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), gates: {} as Record<string, string>, missing: [] as string[] }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -121,7 +122,8 @@ const machine = (on: On, given: Record<string, string> = {}) => {
       stdout = world.proof
     } else if (script.endsWith('affected.py')) {
       world.jobs.affected.push(job())
-      stdout = world.affected
+      // A check or an audit is run by the same script, and answered by its command
+      stdout = world.gates[String(job().command)] ?? world.affected
     } else {
       // git listing a target's test files, from the folder it runs in: the project's, or a quest's worktree
       const folders = e.argv.slice(e.argv.indexOf('--') + 1).map(whole)
@@ -373,6 +375,8 @@ describe('the statues', () => {
     expect(parseFindings('Looks fine to me.')).toBeUndefined()
     // A statue that shouts its severity still blocks
     expect(parseFindings('```json\n{ "findings": [{ "severity": "BLOCKING", "where": "a.py:1", "text": "It drops the error." }] }\n```')?.[0]?.severity).toBe('blocking')
+    // A severity the statue spelled its own way, or none, blocks: only one it calls minor lets the change pass
+    expect(parseFindings(FOUND([{ severity: 'critical', where: 'a.py:1', text: 'SQL built from input.' }, { where: 'a.py:2', text: 'No severity.' }, { severity: 'Low', where: '', text: 'A name.' }])).map(one => one?.severity)).toEqual(['blocking', 'blocking', 'minor'])
   })
 
   test('run only commands that read', () => {
@@ -398,7 +402,7 @@ describe('argonath', () => {
     expect(await call($, 'mcp__middle-earth__radius')).toMatch(/Argonath knows no target here.*gondor=service:gondor\.app:app/s)
   })
 
-  test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to none yet', async ($, on) => {
+  test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {
     const world = machine(on)
 
     const said = await call($, 'mcp__middle-earth__radius')
@@ -407,7 +411,8 @@ describe('argonath', () => {
     expect(world.jobs.service[0]).toMatchObject({ label: 'gondor', app: 'gondor.app:app', python: 'beacons', env: { ROHAN_URL: 'http://127.0.0.1:9', DATABASE_URL: '' }, requests: ['gondor GET /health', 'gondor POST /beacons/amon-din/light'], from: 'HEAD' })
     expect(said).toContain('bare: narsil show 999')
     expect(said).toContain('marked: gondor GET /health\n  marked by test_health_counts_what_burns, not proved')
-    expect(said).toContain('anor is a frontend: Argonath has no handler for a frontend yet')
+    expect(said).toContain('anor is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run.')
+    expect(said).not.toContain('No kept run answered otherwise: no integration test is owed.\n')
     expect(world.jobs.prove).toHaveLength(0)
   })
 
@@ -613,6 +618,13 @@ describe('argonath', () => {
     expect(String(world.jobs.prove.at(-1)?.test)).not.toContain('evil')
     expect(world.jobs.prove.at(-1)).toMatchObject({ home: tree, tests: [`${tree}/beacons/tests`] })
 
+    // A branch that takes a kept request out of its file is played on it still, and on a request it keeps besides: the
+    // change cannot shrink what proves it
+    world.files[`${tree}/.claude/argonath`] = `${PROJECT.replace(/^\$ gondor POST \/beacons\/amon-din\/light\n/m, '')}\n$ gondor GET /beacons\n`
+    world.whole = 'def457\n'
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'gimli-1' })
+    expect(world.jobs.service.at(-1)).toMatchObject({ home: tree, requests: ['gondor GET /health', 'gondor POST /beacons/amon-din/light', 'gondor GET /beacons'] })
+
     // The project's own folder was neither looked at nor judged, and an agent spawned in a folder that is no quest's
     // is looked at in the project's
     expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/have judged no change yet/)
@@ -771,6 +783,9 @@ describe('a proof read as JSON', () => {
 
     expect(unproved.verdict).toBe('unsettled')
     expect(unproved.line).toBe('Argonath could not prove gondor: The proof of gondor could not be made: boom')
+    // A check the change newly fails holds it, every run pinned or not; one that failed before does not
+    expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { gates: ['gondor.check fails on the working tree (exit 1)'] }), isTouched: true }])).toMatchObject({ verdict: 'unsettled', line: 'the change fails gondor.check' })
+    expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { gatesBefore: ['gondor.check fails on the commit\'s source too'] }), isTouched: true }]).verdict).toBe('settled')
   })
 
   test('says a target the change reached could not be looked at, where its handler failed', () => {
@@ -785,13 +800,17 @@ describe('a proof read as JSON', () => {
 
   test('lets a target the change did not reach go, and names a frontend it reached that nothing proves', () => {
     const answer = proofAnswer([
-      { label: 'anor', kind: 'frontend', found: 'anor is a frontend: Argonath has no handler for a frontend yet.', isTouched: true },
+      { label: 'anor', kind: 'frontend', found: { ...radiusWith('anor', []), isUnhandled: true }, isTouched: true },
       { label: 'gondor', kind: 'service', found: 'No request of gondor is kept to play.', isTouched: false },
       { label: 'narsil', kind: 'cli', found: radiusWith('narsil', ['pinned']), isTouched: true },
     ])
 
     expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; nothing proves anor', unhandled: ['anor'] })
     expect(answer.targets.map(one => one.state)).toEqual(['unhandled', 'untouched', 'pinned'])
+    // Nothing compares what a frontend does, but its own tests and checks hold the change all the same
+    const broken = proofAnswer([{ label: 'anor', kind: 'frontend', found: { ...radiusWith('anor', [], { regressions: ['tests/realm.test.ts > realm > names the beacons'] }), isUnhandled: true }, isTouched: true }])
+
+    expect(broken).toMatchObject({ verdict: 'unsettled', line: 'the change breaks a test: tests/realm.test.ts > realm > names the beacons' })
   })
 
   test('settles a change no kept run sees, as a refactor, but names the target it reached', () => {
@@ -861,6 +880,38 @@ describe('a database, a readiness and the tests a change can break', () => {
     world.affected = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: failing(['test_flaky']) }, from: { error: '', exitCode: 1, output: failing(['test_flaky']) } })
     world.whole = 'abc124\n'
     expect(await call($, 'mcp__middle-earth__prove', { target: 'gondor' })).not.toContain('Broken by the change')
+  })
+
+  test("settle nothing whose check the change newly fails, and audit the dependencies only when it touches a manifest", async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\n${DB}\ngondor.check=ruff check beacons\ngondor.audit=pip-audit` })
+    world.gates['ruff check beacons'] = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: 'beacons/gondor/app.py:3:1: F401 `os` imported but unused' }, from: { error: '', exitCode: 0, output: '' } })
+
+    const failed = await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+
+    expect(failed).toContain("gondor.check fails on the working tree (exit 1) and passes on the commit's source:\nbeacons/gondor/app.py:3:1: F401 `os` imported but unused")
+    expect(world.jobs.affected.map(one => one.command)).toEqual(['pytest -q -rfE beacons/tests', 'ruff check beacons'])
+
+    // The change touches gondor's manifest: its audit is run too, and one that failed before is said, not owed
+    world.gates['ruff check beacons'] = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '' }, from: null })
+    world.gates['pip-audit'] = JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 1, output: 'jinja2 3.0 GHSA-x' }, from: { error: '', exitCode: 1, output: 'jinja2 3.0 GHSA-x' } })
+    world.fingerprint = `${world.fingerprint}diff --git a/beacons/gondor/requirements.txt b/beacons/gondor/requirements.txt\n+requests==2.0\n`
+    world.whole = 'abc125\n'
+    const audited = await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+
+    expect(world.jobs.affected.map(one => one.command).slice(-2)).toEqual(['ruff check beacons', 'pip-audit'])
+    expect(audited).toContain("gondor.audit fails on the commit's source too, so it is not owed by the change")
+    expect(audited).toContain('Dependency manifests the change touches: beacons/gondor/requirements.txt.')
+    expect(audited).not.toContain('gondor.check fails')
+  })
+
+  test("are run for a frontend the change reached, which no kept run proves, and hold it", async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\nanor.tests=beacons/anor/tests\nanor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose` })
+    world.gates['npm --prefix beacons/anor test --silent -- --reporter=verbose'] = JSON.stringify({ label: 'anor', to: { error: '', exitCode: 1, output: ' × realm > names the beacons 3ms' }, from: { error: '', exitCode: 0, output: ' ✓ realm > names the beacons 3ms' } })
+
+    const said = await call($, 'mcp__middle-earth__prove', { target: 'anor' })
+
+    expect(world.jobs.affected[0]).toMatchObject({ label: 'anor', command: 'npm --prefix beacons/anor test --silent -- --reporter=verbose', from: 'HEAD' })
+    expect(said).toContain("Broken by the change (they pass on the commit's source): realm > names the beacons.")
   })
 
   test('does not run them for a target the change did not reach', async ($, on) => {
@@ -1046,5 +1097,75 @@ describe('a shell command', () => {
 
     await $.tool.call({ tool: 'Bash', command: 'make', agentId: 'helper-1' } as never)
     expect(world.fingerprints).toBe(2)
+  })
+})
+
+describe('the gates of a change', () => {
+  const side = (exitCode: number, output = '', error = '') => ({ ref: 'x', sha: '', error, exitCode, output })
+
+  test("hold a check the change newly fails, let one that failed before pass and say so, and never take an unknown for a pass", () => {
+    expect(gateOf(JSON.stringify({ to: side(0), from: null }), 'narsil.check')).toEqual({ broken: '', before: '', unproved: '' })
+    expect(gateOf(JSON.stringify({ to: side(1, 'warning: unused variable `x`'), from: side(0) }), 'narsil.check').broken).toMatch(/^narsil\.check fails on the working tree \(exit 1\) and passes on the commit's source:\nwarning: unused variable `x`/)
+    expect(gateOf(JSON.stringify({ to: side(1, 'old warning'), from: side(1) }), 'narsil.check')).toMatchObject({ broken: '', before: expect.stringMatching(/fails on the commit's source too/) })
+    // The commit's source could not be tried: the failure is the change's to answer
+    expect(gateOf(JSON.stringify({ to: side(1, 'x'), from: side(-1, '', 'it could not be checked out') }), 'narsil.check').broken).toMatch(/whether it failed before could not be told \(it could not be checked out\)/)
+    expect(gateOf(JSON.stringify({ to: side(-1, '', 'the tests were ended after 600 seconds'), from: null }), 'gondor.audit').unproved).toMatch(/gondor\.audit was not run/)
+    expect(gateOf('', 'gondor.audit').unproved).toMatch(/answered nothing that reads/)
+  })
+
+  test("know the dependency manifests a change touches, by its diff and the files it adds", () => {
+    const change = ['diff --git a/narsil/Cargo.toml b/narsil/Cargo.toml', 'index 1..2 100644', '+serde = "1"', 'diff --git a/narsil/src/main.rs b/narsil/src/main.rs', '+// Cargo.toml', 'beacons/requirements-dev.txt', 'beacons/gondor/app.py'].join('\n')
+
+    expect(manifestsOf(change)).toEqual(['narsil/Cargo.toml', 'beacons/requirements-dev.txt'])
+    expect(manifestsOf('diff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+x')).toEqual([])
+  })
+
+  test('find the tests a change takes out, deletes or skips, and leave one moved or added be', () => {
+    const diff = [
+      'diff --git a/beacons/tests/test_gondor.py b/beacons/tests/test_gondor.py',
+      '--- a/beacons/tests/test_gondor.py',
+      '+++ b/beacons/tests/test_gondor.py',
+      '-def test_quench_unknown():',
+      '-    assert quench("x").status_code == 404',
+      '+@pytest.mark.skip(reason="flaky")',
+      ' def test_light():',
+      'diff --git a/narsil/tests/cli.rs b/narsil/tests/cli.rs',
+      'deleted file mode 100644',
+      '--- a/narsil/tests/cli.rs',
+      '+++ /dev/null',
+      '-#[test]',
+      '-fn shows_a_lighting() {}',
+      'diff --git a/beacons/anor/app.spec.ts b/beacons/anor/app.spec.ts',
+      '-  test("draws the beacons", () => {})',
+      '+  test("draws the beacons, lit first", () => {})',
+      "+  it.only('lights one', () => {})",
+    ].join('\n')
+
+    expect(weakenedOf(diff)).toEqual([
+      'beacons/tests/test_gondor.py: 1 test taken out',
+      'beacons/tests/test_gondor.py: skipped or run alone, `@pytest.mark.skip(reason="flaky")`',
+      'narsil/tests/cli.rs: the test file is deleted, with its 1 test',
+      "beacons/anor/app.spec.ts: skipped or run alone, `it.only('lights one', () => {})`",
+    ])
+    expect(weakenedOf('diff --git a/t/test_a.py b/t/test_a.py\n+def test_new():\n+    assert True')).toEqual([])
+  })
+})
+
+describe('a secret', () => {
+  test('is found on a line a diff adds, by file, and never on one it takes out or in a local fixture', () => {
+    const key = `AKIA${'Q'.repeat(16)}`
+    const diff = [
+      '+++ b/beacons/gondor/settings.py',
+      `+AWS_KEY = "${key}"`,
+      `-OLD = "${key}"`,
+      '+DATABASE_URL = "postgres://postgres:postgres@localhost:5432/beacons"',
+      '+ROHAN = "https://rohan:hunter2hunter2@rohan.example.com/api"',
+      '+++ b/narsil/deploy.pem',
+      '+-----BEGIN OPENSSH PRIVATE KEY-----',
+      '+++ b/README.md',
+      '+Set GITHUB_TOKEN to a token of yours.',
+    ].join('\n')
+
+    expect(secretsIn(diff)).toEqual(['beacons/gondor/settings.py: an AWS access key', 'beacons/gondor/settings.py: a password in a URL', 'narsil/deploy.pem: a private key'])
   })
 })

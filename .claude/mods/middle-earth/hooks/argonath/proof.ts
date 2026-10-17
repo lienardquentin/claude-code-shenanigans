@@ -33,6 +33,10 @@ const KINDS: readonly ArgonathKind[] = ['cli', 'service', 'frontend']
  *   one of its own in a warm container of that Postgres image, its address in NAME, made ready by the command;
  * - `label.ready=METHOD /path` and `label.ready.match=regex`: asked before a service is played, until it answers;
  * - `label.affected=command`: the tests a change of the target can break, run when its folders changed;
+ * - `label.check=command`: its lint, type and format checks, run when its folders changed: the change may not newly
+ *   fail it;
+ * - `label.audit=command`: what audits its dependencies, run when the change touches a dependency manifest in its
+ *   folders: the change may not newly fail it;
  * - `$ label …`: a service's request kept to be played, `$ gondor GET /health`, with a JSON body as one quoted word
  *   after its path, `$ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'`. A CLI's runs are anduril's to keep.
  *
@@ -47,7 +51,7 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
     const line = raw.trim()
     const kept = /^\$\s+(.+)$/.exec(line)
     // The shortest label that reads: `gondor.live.env` is gondor's `live.env`, not a `gondor.live`'s `env`
-    const set = /^([\w.-]+?)\.(tests|test|python|env|mask|affected|ready|ready\.match|db|db\.env|db\.setup|live|live\.forward|live\.env|live\.db|live\.before|live\.cleanup|live\.restore|live\.scratch)\s*=\s*(.*)$/.exec(line)
+    const set = /^([\w.-]+?)\.(tests|test|python|env|mask|affected|check|audit|ready|ready\.match|db|db\.env|db\.setup|live|live\.forward|live\.env|live\.db|live\.before|live\.cleanup|live\.restore|live\.scratch)\s*=\s*(.*)$/.exec(line)
     const named = /^([\w.-]+)\s*=\s*(cli|service|frontend)(?::([^@]*))?\s*@\s*(.+)$/.exec(line)
 
     if (line === '' || line.startsWith('#')) continue
@@ -72,6 +76,8 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
         db: null,
         ready: null,
         affected: '',
+        check: '',
+        audit: '',
       })
     }
   }
@@ -104,6 +110,8 @@ export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
       if (what === 'ready') target.ready.request = value
       else target.ready.match = value
     } else if (what === 'affected') target.affected = value
+    else if (what === 'check') target.check = value
+    else if (what === 'audit') target.audit = value
     else if (what === 'tests') target.tests = value.split(',').map(path => path.trim()).filter(path => path !== '').map(path => under(cwd, path))
     else if (what === 'test') target.test = value
     else if (what === 'python') target.python = value.replace(/^\.\//, '')
@@ -143,21 +151,13 @@ export const parseStandards = (text: string): string[] =>
     .map(line => /^standards\s*=\s*(.+)$/.exec(line.trim())?.[1]?.trim() ?? '')
     .filter(path => path !== '')
 
-/** A change in a few characters, so the one last reviewed is known again: FNV-1a, in hex. */
-export const fingerprintOf = (text: string): string => {
-  let hash = 0x811c9dc5
-  for (let at = 0; at < text.length; at += 1) hash = Math.imul(hash ^ text.charCodeAt(at), 0x01000193) >>> 0
-
-  return `${text.length.toString(16)}-${hash.toString(16)}`
-}
-
 /**
- * The shell script that says what the change holds, as one text to fingerprint: HEAD, the diff against the merge base
- * of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by content, so an edit of a new file
- * moves it too.
+ * The shell script that fingerprints what the change holds, so the one last proved or reviewed is known again: HEAD,
+ * the diff against the merge base of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by
+ * content (so an edit of a new file moves it too), hashed whole by git. It writes nothing to the object store.
  */
 export const CHANGE_SCRIPT =
-  'b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --'
+  'held=$(b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --) || exit 1; printf %s "$held" | git hash-object --stdin'
 
 /** What each target's folders hold against HEAD, split from one diff and one list of new files, by label. */
 export const changesByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
@@ -212,6 +212,9 @@ export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarge
 
   const isClean = isQuiet(found) && found.unproved === ''
 
+  // No kept run of it is compared: nothing proves what it does, and its tests and checks can still hold the change
+  if (found.isUnhandled === true && isTouched) return isClean ? 'unhandled' : 'unsettled'
+
   if (found.seams.length === 0 && isClean) return isTouched ? 'unreached' : 'unchanged'
 
   return isClean ? 'pinned' : 'unsettled'
@@ -254,6 +257,9 @@ export const proofAnswer = (entries: readonly { label: string; kind: ArgonathTar
   if (counts.length > 0) return not('unsettled', `not pinned yet: ${counts.join(', ')}`)
   if (isTurned) return not('unsettled', 'a test that passed on the commit fails on the working tree')
   if (regressions.length > 0) return not('unsettled', `the change breaks ${regressions.length === 1 ? 'a test' : `${regressions.length} tests`}: ${regressions.slice(0, 5).join(', ')}`)
+  const gates = radii.flatMap(radius => radius.gates ?? [])
+
+  if (gates.length > 0) return not('unsettled', `the change fails ${gates.map(gate => gate.split(' ')[0] ?? gate).join(', ')}`)
   if (unmetTests.length > 0) return not('unsettled', `${unmetTests.length === 1 ? 'a test' : `${unmetTests.length} tests`} written before the change ${unmetTests.length === 1 ? 'does' : 'do'} not pass yet: ${unmetTests.slice(0, 5).join(', ')}`)
   if (unproved.length > 0) return not('unsettled', `Argonath could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`)
 
@@ -291,6 +297,8 @@ export const proofBrief = (radii: readonly ArgonathRadius[], unreached: readonly
     ),
     ...unreached.map(label => `- ${label}: the change reached its source, but no kept run of it answers otherwise. No integration test proves this part of the change.`),
     ...radii.filter(radius => unreachedText(radius) !== '').map(radius => `- ${radius.label}: changed lines no kept run ran, so no integration test checks them: ${unreachedText(radius)}.`),
+    ...radii.flatMap(radius => (radius.weakened ?? []).map(one => `- ${radius.label}: a test weakened, ${one}. Blocking unless what the change is for takes away the behaviour it tested.`)),
+    ...radii.flatMap(radius => ((radius.manifests ?? []).length > 0 ? [`- ${radius.label}: the change touches its dependency manifests (${(radius.manifests ?? []).join(', ')}). A dependency it adds or moves is a finding unless what the change is for needs it; one that is unmaintained, typo-squatted or pulled from outside the registry is blocking.`] : [])),
   ].join('\n')
 
   return lines.length > BRIEF_CHARS ? `${lines.slice(0, BRIEF_CHARS)}\n… (cut)` : lines
@@ -595,6 +603,85 @@ export const affectedOf = (source: string): { regressions: string[]; preexisting
   }
 }
 
+/**
+ * What a gate command found (a target's `check`, or its `audit` of the dependencies), from the answer of the script
+ * that runs it on the working tree and, where it fails there, on the commit's source: `broken`, why the change fails
+ * it; `before`, that it failed before the change too, and so is not owed by it; `unproved`, why it could not be told.
+ * Failing on the working tree where the commit's source could not be tried is the change's to answer, not a pass.
+ */
+export const gateOf = (source: string, name: string): { broken: string; before: string; unproved: string } => {
+  let value: { to?: Partial<Side>; from?: Partial<Side> | null }
+
+  try {
+    value = JSON.parse(source) as typeof value
+  } catch {
+    return { broken: '', before: '', unproved: `${name} could not be run: its script answered nothing that reads.` }
+  }
+
+  const after = sideOf(value.to)
+
+  if (after.error !== '') return { broken: '', before: '', unproved: `${name} was not run: ${after.error}.` }
+  if (after.exitCode === 0) return { broken: '', before: '', unproved: '' }
+
+  const before = value.from === null || value.from === undefined ? undefined : sideOf(value.from)
+  const said = lastLines(after.output, 12)
+
+  if (before !== undefined && before.error === '' && before.exitCode !== 0) return { broken: '', before: `${name} fails on the commit's source too, so it is not owed by the change (exit ${before.exitCode}).`, unproved: '' }
+
+  return {
+    broken: `${name} fails on the working tree (exit ${after.exitCode})${before === undefined || before.error !== '' ? `, and whether it failed before could not be told${before?.error ? ` (${before.error})` : ''}` : ' and passes on the commit\'s source'}:\n${said}`,
+    before: '',
+    unproved: '',
+  }
+}
+
+// The files a dependency is declared or locked in, by name
+const MANIFEST = /(^|\/)(Cargo\.(toml|lock)|package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|pyproject\.toml|uv\.lock|poetry\.lock|Pipfile(\.lock)?|requirements[\w.-]*\.txt|go\.(mod|sum)|Gemfile(\.lock)?|composer\.(json|lock))$/
+
+/** The dependency manifests a change touches, from its diff and the new files after it, a path each. */
+export const manifestsOf = (change: string): string[] =>
+  [
+    ...new Set(
+      change.split('\n').flatMap(line => {
+        // A chunk's header names its file; a new file is a bare path, where every line of a chunk starts otherwise
+        const path = /^diff --git a\/(\S+)/.exec(line)?.[1] ?? (/^[\w.][^\s]*$/.test(line) && !line.startsWith('index') ? line : '')
+
+        return MANIFEST.test(path) ? [path] : []
+      }),
+    ),
+  ]
+
+// A test declared, as a removed or added line of a diff spells it: Rust's attribute, Python's and Go's test functions,
+// a JavaScript runner's call
+const TEST_DECLARED = /^\s*(#\[(\w+::)?test\]|(async\s+)?def\s+test_\w+|func\s+Test\w+|(it|test)\s*\(\s*['"`])/
+
+// A test skipped, or the rest of a file's tests skipped by running one alone, as an added line spells it
+const TEST_SKIPPED = /#\[ignore\b|@pytest\.mark\.(skip|skipif|xfail)\b|\bpytest\.skip\(|@unittest\.skip|\b(it|test|describe)\.(skip|only|todo)\s*\(|\bx(it|test|describe)\s*\(|\bt\.Skip(Now|f)?\(/
+
+/**
+ * What a change does to the tests it touches that weakens them, as its diff of their files shows: a test file
+ * deleted, tests taken out of a file (more declared on removed lines than on added ones), a test skipped or run
+ * alone. A line each; none when it weakens nothing. Moving a test within the diff takes out nothing.
+ */
+export const weakenedOf = (diff: string): string[] =>
+  diff
+    .split(/^(?=diff --git )/m)
+    .filter(chunk => chunk.startsWith('diff --git '))
+    .flatMap(chunk => {
+      const file = /^diff --git a\/(\S+)/.exec(chunk)?.[1] ?? ''
+      const lines = chunk.split('\n').filter(line => !line.startsWith('---') && !line.startsWith('+++'))
+      const removed = lines.filter(line => line.startsWith('-') && TEST_DECLARED.test(line.slice(1))).length
+      const added = lines.filter(line => line.startsWith('+') && TEST_DECLARED.test(line.slice(1))).length
+      const skipped = lines.filter(line => line.startsWith('+') && TEST_SKIPPED.test(line.slice(1))).map(line => line.slice(1).trim())
+
+      if (/^deleted file mode/m.test(chunk)) return [`${file}: the test file is deleted${removed > 0 ? `, with its ${plural(removed, 'test', 'tests')}` : ''}`]
+
+      return [
+        ...(removed > added ? [`${file}: ${plural(removed - added, 'test', 'tests')} taken out`] : []),
+        ...skipped.map(line => `${file}: skipped or run alone, \`${line.slice(0, 120)}\``),
+      ]
+    })
+
 /** How many changed runs stand in each state. */
 export const tally = (radius: ArgonathRadius): Record<ArgonathState, number> => {
   const counts: Record<ArgonathState, number> = { bare: 0, marked: 0, pinned: 0, loose: 0, broken: 0 }
@@ -610,10 +697,10 @@ export const unmet = (radius: ArgonathRadius): ArgonathTest[] => (radius.require
 
 /**
  * Whether nothing is owed: every changed run pinned, no test turned, none broken by the change, every required test
- * passing on the working tree.
+ * passing on the working tree, and no check or audit the change newly fails.
  */
 export const isQuiet = (radius: ArgonathRadius): boolean =>
-  radius.seams.every(seam => seam.state === 'pinned') && radius.turned.length === 0 && (radius.regressions ?? []).length === 0 && unmet(radius).length === 0
+  radius.seams.every(seam => seam.state === 'pinned') && radius.turned.length === 0 && (radius.regressions ?? []).length === 0 && unmet(radius).length === 0 && (radius.gates ?? []).length === 0
 
 /** The changed lines no kept run ran, as `beacons/gondor/archive.py 93; beacons/gondor/app.py 10-12`. */
 export const unreachedText = (radius: Pick<ArgonathRadius, 'unreached'>): string =>
@@ -690,8 +777,12 @@ export const radiusText = (radius: ArgonathRadius): string => {
     ...(preexisting.length > 0 ? [`Failing before the change too, and not owed by it: ${preexisting.join(', ')}.`] : []),
     ...(unmetTests.length > 0 ? ['', `Written before the change, and not passing yet: ${unmetTests.map(test => `${test.name} (${test.to === 'none' ? 'not run' : 'fails'})`).join(', ')}.`] : []),
     ...(lines !== '' ? ['', `Changed lines no kept ${kept} ran: ${lines}. Where one is behaviour a caller sees, keep a ${kept} that reaches it and pin it.`] : []),
+    ...(radius.gates ?? []).flatMap(gate => ['', `${gate}`, 'Fix what it finds in the change.']),
+    ...(radius.gatesBefore ?? []),
+    ...((radius.weakened ?? []).length > 0 ? ['', 'The change weakens tests: a test taken out or skipped is blocking unless what the change is for takes the behaviour it tested away.', ...(radius.weakened ?? []).map(one => `- ${one}`)] : []),
+    ...((radius.manifests ?? []).length > 0 ? ['', `Dependency manifests the change touches: ${(radius.manifests ?? []).join(', ')}. A dependency added or bumped is judged as part of the change.`] : []),
     ...(radius.unproved !== '' ? ['', radius.unproved] : []),
-    ...(radius.seams.length === 0 && regressions.length === 0 && unmetTests.length === 0 ? [`No kept ${kept} answered otherwise: no integration test is owed.`] : []),
+    ...(radius.seams.length === 0 && regressions.length === 0 && unmetTests.length === 0 && radius.isUnhandled !== true ? [`No kept ${kept} answered otherwise: no integration test is owed.`] : []),
     ...(radius.unchanged.length > 0 ? [`${radius.unchanged.length} other kept ${radius.unchanged.length === 1 ? kept : `${kept}s`} answered as before.`] : []),
   ].join('\n')
 }

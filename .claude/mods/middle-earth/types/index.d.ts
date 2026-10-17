@@ -260,6 +260,8 @@ export type FellowshipQuest = {
   isWarded?: boolean
   /** The targets the task at hand reached that nothing proves, from its last proof. */
   unproven?: string[]
+  /** What git's config says of the code a commit runs (hooks, filters, includes) as the quest set out; absent on a quest set out before it was kept. */
+  gitRuns?: string
   at: number
 }
 
@@ -345,6 +347,10 @@ export type ArgonathTarget = {
   ready: { request: string; match: string } | null
   /** The command that runs the tests a change of the target can break, from the project's folder; empty when none is named. */
   affected: string
+  /** The command that runs its lint, type and format checks, which a change may not newly fail; empty when none is named. */
+  check: string
+  /** The command that audits its dependencies, run when a change touches a dependency manifest of it; empty when none is named. */
+  audit: string
 }
 
 /** A service's database for the fast stage: a Postgres image, the variable its address is set in, and how it is made ready. */
@@ -439,6 +445,16 @@ export type ArgonathRadius = {
   preexisting?: string[]
   /** The tests the caller requires to pass on the working tree (written before the change, as Galadriel does), and how each ended. */
   required?: ArgonathTest[]
+  /** Why the change fails its target's check or audit, which passed on the commit's source: each owed by the change. */
+  gates?: string[]
+  /** The check or audit that failed on the commit's source too: said, and not owed by the change. */
+  gatesBefore?: string[]
+  /** What the change does to its target's tests that weakens them: a file deleted, tests taken out, a test skipped. */
+  weakened?: string[]
+  /** The dependency manifests of the target the change touches. */
+  manifests?: string[]
+  /** Whether no kept run of the target is compared (a frontend): its tests and checks alone were run on the change. */
+  isUnhandled?: boolean
 }
 
 /** One of the two statues of the Argonath, which judge a settled change. */

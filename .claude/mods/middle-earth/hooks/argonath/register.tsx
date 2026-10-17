@@ -9,12 +9,13 @@ import { dealt, judgementShape, judgementText, parseFindings, seated, statueProm
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
-import { errorText, rootOf, toolFailed } from '../flow'
+import { rootOf, toolFailed } from '../flow'
 import type { Section, Target, TurnEnded } from '../flow'
 import { askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
-import type { Changed, Review } from './proof'
+import type { Review } from './proof'
+import { UNREADABLE, affectedIn, changeText, changesOf, cliChanged, gateIn, marksIn, proveIn, serviceJob, serviceLive, servicePlayed, testsDiffIn, wholeFingerprint } from './handlers'
+import type { Found, Place } from './handlers'
 import {
-  CHANGE_SCRIPT,
   HOME,
   HOW_TO,
   MARK,
@@ -22,18 +23,12 @@ import {
   isNarrowable,
   isProd,
   isQuiet,
-  fingerprintOf,
   isTested,
   markedTests,
-  marksOf,
   narrowed,
   owed,
-  parseDiffText,
-  parseLiveAnswer,
   parseProject,
-  parseProof,
   parseReviews,
-  parseServiceAnswer,
   parseStandards,
   proved,
   radiusLine,
@@ -41,15 +36,14 @@ import {
   radiusText,
   targetsOf,
   tidy,
-  UNTRACKED,
-  changesByTarget,
   STANDING_SCRIPT,
   standingByTarget,
   proofAnswer,
   proofBrief,
-  affectedOf,
+  gateOf,
+  manifestsOf,
+  weakenedOf,
   requiredOf,
-  withLive,
 } from './proof'
 
 type $ = EngineInterface
@@ -57,12 +51,6 @@ type On = Parameters<Register>[0]
 
 const PANE = 'argonath'
 const TITLE = 'Argonath'
-// The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
-const ANDURIL = 'anduril'
-// A look builds and plays on two sides, and a proof runs the tests on each: as long as a host command may run
-const RUN_TIMEOUT_MS = 600_000
-// How many test files are read for marks
-const READ_FILES = 300
 // How often the session is asked whether a look is owed: once a turn has ended with an edit, it runs on the next
 const OWED_MS = 2_000
 
@@ -95,11 +83,6 @@ async function homeOf($: $): Promise<string> {
   return cwd
 }
 
-/**
- * Where a look, a proof or a judgement is made: the project's own folder, whose radius the pane and the band show, or
- * a quest's worktree, whose answers go to the one who asked alone.
- */
-type Place = { tree: string; isHome: boolean }
 
 /** The place a call is about: a quest's worktree a part names or the calling agent was sent to work in, else the project's. */
 async function placeOf($: $, agentId?: string, named?: unknown): Promise<Place> {
@@ -215,52 +198,19 @@ async function setUp($: $): Promise<ArgonathTarget[]> {
 /**
  * The targets of a place, their folders in that place. The project's own are read afresh, or, `isKnown`, as last read.
  * A quest's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
- * (its tests, its database, its live stage) is never read from a branch. The requests it plays are its own file's.
+ * (its tests, its database, its live stage) is never read from a branch. The requests it plays are the project's own,
+ * then those its own file keeps besides: a request the branch takes out is played still, as the change it proves
+ * cannot shrink what proves it.
  */
 async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathTarget[]> {
   if (place.isHome) return isKnown ? read($, targets) : setUp($)
 
   const own = parseProject(await $.fs.read(`${place.tree}/${PROJECT_FILE}`).catch(() => ''), place.tree)
 
-  return parseProject(await $.fs.read(`${await homeOf($)}/${PROJECT_FILE}`).catch(() => ''), place.tree).map(target => ({ ...target, requests: own.find(one => one.label === target.label)?.requests ?? target.requests }))
-}
-
-/** Every mark in the files a target names as tests: what git tracks there, and what it neither tracks nor ignores. */
-async function marksIn($: $, cwd: string, target: ArgonathTarget): Promise<{ line: string; test: string }[]> {
-  if (target.tests.length === 0) return []
-
-  const listed = await $.process.run(['git', 'ls-files', '-co', '--exclude-standard', '--', ...target.tests], { cwd }).catch(() => undefined)
-  const paths = (listed?.exitCode === 0 ? listed.stdout.split('\n') : []).map(path => path.trim()).filter(path => path !== '')
-  const marks: { line: string; test: string }[] = []
-
-  for (const path of paths.slice(0, READ_FILES)) marks.push(...marksOf(await $.fs.read(`${cwd}/${path}`).catch(() => '')))
-
-  return marks
-}
-
-// What a handler found, and for a service with a live stage, what that stage found in a line
-type Found = Changed & { live?: string }
-
-/**
- * A CLI's handler: anduril plays its kept runs on both builds, and says what changed. Andúril is a plugin of its own,
- * useful alone, and this is the one call that crosses to it: through MCP, as a tool call would be put to the session's
- * permission check, which a proof no one is at the prompt for cannot answer.
- */
-async function cliChanged($: $, target: ArgonathTarget, against: string, place: Place): Promise<Changed | string> {
-  try {
-    const answered = await $.mcp.call(ANDURIL, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
-    const said = answered.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n')
-
-    // What anduril says in place of a comparison is why there is no radius
-    return parseDiffText(said) ?? (said !== '' ? said : 'anduril answered nothing to read.')
-  } catch (error) {
-    const why = error instanceof Error ? error.message : String(error)
-
-    // A session can run without Andúril loaded, though it is enabled (#48): no builder mends that, a restart does
-    if (/no connected MCP tool/.test(why)) return 'Andúril is not loaded in this session (no tool of its is connected): restart Claude Code, and prove again.'
-
-    return `A CLI's radius is read from anduril's diff, which could not be called: ${why}`
-  }
+  return parseProject(await $.fs.read(`${await homeOf($)}/${PROJECT_FILE}`).catch(() => ''), place.tree).map(target => ({
+    ...target,
+    requests: [...target.requests, ...(own.find(one => one.label === target.label)?.requests ?? []).filter(line => !target.requests.includes(line))],
+  }))
 }
 
 /**
@@ -272,9 +222,8 @@ async function serviceChanged($: $, target: ArgonathTarget, against: string, pla
   if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}: $ ${target.label} GET /health`
 
   // A quest's worktree plays against the project's warm database, which the project's folder names
-  const job = { home: place.tree, ...(place.isHome ? {} : { project: await homeOf($) }), label: target.label, app: target.app, python: target.python, env: target.env, masks: target.masks, requests: target.requests, from: against, roots: target.roots, db: target.db, ready: target.ready }
-  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/service.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS })
-  const fast = parseServiceAnswer(ran.stdout) ?? `The requests could not be played: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the service handler exited with ${ran.exitCode} and said nothing`}`
+  const job = serviceJob(target, against, place, place.isHome ? undefined : await homeOf($))
+  const fast = await servicePlayed($, job)
 
   if (typeof fast === 'string' || target.live === null) return fast
 
@@ -283,13 +232,7 @@ async function serviceChanged($: $, target: ArgonathTarget, against: string, pla
 
   await update($, working, () => `Playing what ${target.label} keeps on both builds against its real dependencies, on ${target.live?.workload ?? ''}…`)
 
-  const live = await $.process
-    .run(['python3', `${tidy($.plugin.root)}/handlers/live.py`], { stdin: JSON.stringify({ ...job, live: target.live }), timeoutMs: RUN_TIMEOUT_MS })
-    .then(done => parseLiveAnswer(done.stdout) ?? { where: target.live?.workload ?? '', skipped: '', error: done.stderr.trim().split('\n').slice(-2).join(' ') || `the live handler exited with ${done.exitCode}`, cases: [] })
-    .catch((error: unknown) => ({ where: target.live?.workload ?? '', skipped: '', error: error instanceof Error ? error.message : String(error), cases: [] }))
-  const merged = withLive(fast, live)
-
-  return { ...merged.changed, live: merged.line }
+  return serviceLive($, job, target.live, fast)
 }
 
 /** What changed in what one target does, by the handler of its kind. */
@@ -298,25 +241,7 @@ function changedIn($: $, target: ArgonathTarget, against: string, place: Place):
     ? cliChanged($, target, against, place)
     : target.kind === 'service'
       ? serviceChanged($, target, against, place)
-      : Promise.resolve(`${target.label} is a frontend: Argonath has no handler for a frontend yet, so what changed in it is not known.`)
-}
-
-/** Runs a target's tests on both sides, and says where each changed run, and each test required, stands. */
-async function proveIn($: $, target: ArgonathTarget, made: ArgonathRadius, against: string, required: readonly string[], place: Place): Promise<ArgonathRadius | string> {
-  // Only the tests marked on the runs that changed, and those required, are run, where the command says how to name them
-  const job = { home: place.tree, label: target.label, tests: target.tests, test: narrowed(target.test, [...new Set([...markedTests(made), ...required])]), from: against }
-  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/prove.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS })
-  const proof = parseProof(ran.stdout)
-
-  return proof === undefined ? `The proof of ${target.label} could not be made: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the prove script exited with ${ran.exitCode}`}` : proved(made, proof, required)
-}
-
-/** Runs the tests a change of the target can break, and tells what the change broke from what was broken before. */
-async function affectedIn($: $, target: ArgonathTarget, against: string, place: Place): Promise<ReturnType<typeof affectedOf>> {
-  const job = { home: place.tree, label: target.label, tests: target.tests, command: target.affected, from: against }
-  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/affected.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS }).catch(() => undefined)
-
-  return affectedOf(ran?.stdout ?? '')
+      : Promise.resolve({ summary: `${target.label} is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run`, changed: [], unchanged: [] })
 }
 
 // `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
@@ -345,7 +270,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
   const wanted = (asked.required ?? []).map(({ file, name }) => `${file}:${name}`).sort().join(',')
   // A proof takes minutes: one asked again of the same change, as a member's last and its mod's next are, is not made twice
-  const fingerprint = asked.isProving ? await wholeFingerprint($, 'HEAD', place) : ''
+  const fingerprint = asked.isProving ? await wholeFingerprint($, place.tree) : ''
   // A change git could not read is proved afresh each time: its proof is no other change's
   const key = asked.isProving && !fingerprint.startsWith(UNREADABLE) ? `${fingerprint}|${asked.against}|${chosen.map(({ label }) => label).join(',')}|${wanted}` : ''
   const last = lastProofs.get(cwd)
@@ -381,7 +306,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
         continue
       }
 
-      let made: ArgonathRadius = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: isUntouched ? [] : await marksIn($, cwd, target) }), live: changed.live ?? '' }
+      let made: ArgonathRadius = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: isUntouched ? [] : await marksIn($, cwd, target) }), live: changed.live ?? '', ...(target.kind === 'frontend' && !isUntouched ? { isUnhandled: true } : {}) }
 
       // A proof runs only the tests marked on what changed, and those required: with none, there is nothing to run
       if (asked.isProving && (markedTests(made).length > 0 || required.length > 0)) {
@@ -406,6 +331,28 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
         made = { ...made, regressions: broken.regressions, preexisting: broken.preexisting, unproved: [made.unproved, broken.unproved].filter(said => said !== '').join('\n') }
       }
 
+      // Its checks, when it reached the target, and the audit of its dependencies when it touched their manifests; and
+      // what it does to the target's tests, wherever they are
+      if (asked.isProving) {
+        const manifests = manifestsOf(changes.get(target.label) ?? '')
+        const gates = isUntouched ? [] : (['check', 'audit'] as const).filter(name => target[name] !== '' && (name === 'check' || manifests.length > 0))
+        const found: ReturnType<typeof gateOf>[] = []
+
+        for (const name of gates) {
+          await update($, working, () => `Running ${target.label}.${name} on the working tree…`)
+          found.push(await gateIn($, target, name, asked.against, place))
+        }
+
+        made = {
+          ...made,
+          gates: found.map(one => one.broken).filter(said => said !== ''),
+          gatesBefore: found.map(one => one.before).filter(said => said !== ''),
+          unproved: [made.unproved, ...found.map(one => one.unproved)].filter(said => said !== '').join('\n'),
+          weakened: weakenedOf(await testsDiffIn($, target, place)),
+          manifests,
+        }
+      }
+
       const kept = made
       const placed = (held: readonly ArgonathRadius[]) => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label)))
 
@@ -425,7 +372,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
 
   // Kept only when the tree did not move while it was made: a proof of a change it no longer is answers nothing
   if (key !== '') {
-    if (key.startsWith(`${await wholeFingerprint($, 'HEAD', place)}|`)) lastProofs.set(cwd, { key, looked: found })
+    if (key.startsWith(`${await wholeFingerprint($, place.tree)}|`)) lastProofs.set(cwd, { key, looked: found })
     else lastProofs.delete(cwd)
   }
   if (asked.isProving && isOwing) await owe($)
@@ -467,32 +414,9 @@ let reviewDue = ''
 async function owe($: $): Promise<void> {
   if (reviews.length === 0 || unsettled(await read($, radii)).length > 0) return
 
-  const due = await wholeFingerprint($)
+  const due = await wholeFingerprint($, await homeOf($))
 
   reviewDue = due === (await read($, reviewed)) ? '' : due
-}
-
-// What a fingerprint of a change git could not read starts with: it matches no change that was read, so no proof or
-// judgement made of one is ever taken for another's
-const UNREADABLE = 'unreadable:'
-
-/**
- * The whole change as one fingerprint: HEAD, the diff since `against` left it, and the new files by name and content.
- * One git could not read is `unreadable:` and why, the same each time it fails alike, so a judgement of it is not stale.
- */
-async function wholeFingerprint($: $, against = 'HEAD', place?: Place): Promise<string> {
-  const ran = await $.process.run(['sh', '-c', CHANGE_SCRIPT, 'sh', against], { cwd: place?.tree ?? (await homeOf($)) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  return ran.exitCode === 0 ? fingerprintOf(ran.stdout) : `${UNREADABLE}${ran.stderr.trim().split('\n').slice(-1)[0] ?? ''}`
-}
-
-/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name; or why git could not say it. */
-async function changeText($: $, against = 'HEAD', place?: Place): Promise<{ text: string } | { error: string }> {
-  const ran = await $.process
-    .run(['sh', '-c', 'b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard', 'sh', against], { cwd: place?.tree ?? (await homeOf($)) })
-    .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  return ran.exitCode === 0 ? { text: ran.stdout } : { error: `git could not show the change since ${against}: ${ran.stderr.trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}` }
 }
 
 /**
@@ -518,7 +442,8 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
 
   const fresh = (await radiiIn($, place)).filter(one => !one.isStale)
   const changes = await changesOf($, place, await targetsIn($, place, true))
-  const unreached = fresh.filter(one => one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
+  // A frontend's runs are compared by none: the statues are told so where the change reached it, not that none changed
+  const unreached = fresh.filter(one => one.isUnhandled !== true && one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
 
   return proofBrief(fresh, unreached)
 }
@@ -529,7 +454,7 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
  */
 async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place): Promise<ArgonathJudgement> {
   const place = at ?? (await homePlace($))
-  const due = await wholeFingerprint($, against, place)
+  const due = await wholeFingerprint($, place.tree, against)
   const held = await judgementIn($, place)
 
   if (place.isHome) reviewDue = ''
@@ -538,7 +463,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   if (place.isHome) await update($, reviewed, () => due)
 
-  const shown = await changeText($, against, place)
+  const shown = await changeText($, place.tree, against)
   const chosen = dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))
 
   // A change git could not show is judged by no statue, and so passes none: each seat is silent, saying why
@@ -631,9 +556,9 @@ async function review($: $): Promise<void> {
 
   if (due === '' || due === (await read($, reviewed))) return void (reviewDue = '')
   // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
-  if ((await wholeFingerprint($)) !== due) return void (reviewDue = '')
+  if ((await wholeFingerprint($, await homeOf($))) !== due) return void (reviewDue = '')
   // And a change committed whole leaves nothing to judge
-  const shown = await changeText($)
+  const shown = await changeText($, await homeOf($))
 
   if ('text' in shown && isNoChange(shown.text)) return void (reviewDue = '')
 
@@ -697,20 +622,6 @@ async function fingerprints($: $): Promise<Map<string, string>> {
   const ran = await $.process.run(['sh', '-c', STANDING_SCRIPT, 'sh', ...roots], { cwd }).catch(() => undefined)
 
   return ran === undefined || ran.exitCode !== 0 ? new Map() : standingByTarget(ran.stdout, list, cwd)
-}
-
-/** What each target's folders hold against HEAD in a place, by label, read in one go: empty for a target the change did not reach. */
-async function changesOf($: $, place: Place, list: readonly ArgonathTarget[]): Promise<Map<string, string>> {
-  const cwd = place.tree
-  const roots = [...new Set(list.flatMap(({ roots }) => roots))]
-
-  if (roots.length === 0) return new Map()
-
-  const ran = await $.process
-    .run(['sh', '-c', `git diff HEAD --no-color --no-ext-diff -- "$@"; echo; echo '${UNTRACKED}'; git ls-files -o --exclude-standard -- "$@"`, 'sh', ...roots], { cwd })
-    .catch(() => undefined)
-
-  return ran === undefined || ran.exitCode !== 0 ? new Map() : changesByTarget(ran.stdout, list, cwd)
 }
 
 // A turn that edited a target has ended: the next tick of the clock looks at what it touched
@@ -798,7 +709,7 @@ async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held
 
   const held = await judgementIn($, place)
 
-  return { held, isStale: held !== null && held.fingerprint !== (await wholeFingerprint($, held.against ?? 'HEAD', place)) }
+  return { held, isStale: held !== null && held.fingerprint !== (await wholeFingerprint($, place.tree, held.against ?? 'HEAD')) }
 }
 
 /** The statues' judgement of the change in a quest's worktree, for the Fellowship: sent on it first when asked. */
