@@ -522,8 +522,18 @@ async function rise($: $, made: ArgonathJudgement): Promise<void> {
 
   if (made.by !== 'turn') return
 
+  // Minor findings are tidied once, as a quest's member tidies them: those of the judgement after are only mentioned
+  const next =
+    verdict === 'fail'
+      ? 'Fix what blocks before the change is committed, then prove it again: the statues judge the new change.'
+      : verdict === 'silent'
+        ? 'A statue could not judge: say so to the person.'
+        : made.seats.some(seat => seat.findings.length > 0)
+          ? 'Tidy each minor finding that is about what the change itself wrote, with the smallest edit that answers it, unless the person said to leave them, then prove it again. If you tidied after the judgement before this one, mention these to the person and leave them.'
+          : ''
+
   await $.prompt
-    .submit({ text: `${judgementText(made, false)}\n\n${verdict === 'fail' ? 'Fix what blocks before the change is committed, then prove it again: the statues judge the new change.' : verdict === 'silent' ? 'A statue could not judge: say so to the person.' : 'Mention the minor findings to the person, if any.'}` })
+    .submit({ text: [judgementText(made, false), next].filter(one => one !== '').join('\n\n') })
     .catch(() => undefined)
 }
 

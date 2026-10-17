@@ -705,6 +705,31 @@ describe('argonath', () => {
     expect(spawned).toHaveLength(5)
   })
 
+  test('tells Claude to tidy the minor findings of a pass once, and nothing more of a clean one', async ($, on) => {
+    const world = machine(on)
+    const { submitted } = statues(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+    const turn = async () => {
+      await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
+      await world.clock.advance(2_500)
+    }
+
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+    await turn()
+    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
+    await ends($, 'anarion-1', FOUND([]))
+
+    expect(submitted[0]).toMatch(/has judged the change: pass[\s\S]*- \[minor\] app\.py:70: lit could[\s\S]*\n\nTidy each minor finding that is about what the change itself wrote[\s\S]*If you tidied after the judgement before this one, mention these to the person and leave them\.$/)
+
+    world.whole = 'abc123\nmore\n'
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
+    await turn()
+    await ends($, 'isildur-1', FOUND([]))
+    await ends($, 'anarion-1', FOUND([]))
+
+    expect(submitted[1]).toMatch(/has judged the change: pass[\s\S]*nothing found$/)
+  })
+
   test('asks a statue that passed the change in prose alone for its verdict, and takes it', async ($, on) => {
     machine(on)
     const { spawned } = statues(on)

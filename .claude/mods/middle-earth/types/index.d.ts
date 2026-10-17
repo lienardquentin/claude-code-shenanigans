@@ -203,6 +203,8 @@ export type FellowshipMarch = {
   head?: string
   /** Whether this try's member was already sent back once with its proof, rather than a member a rung up. */
   isResumed?: boolean
+  /** Whether this try's member was already sent back once to tidy the minor findings of a pass. */
+  isTidied?: boolean
   /** Whether the person put this try's change before the Argonath, after its member was back: its account came first. */
   isPutBefore?: boolean
 }
