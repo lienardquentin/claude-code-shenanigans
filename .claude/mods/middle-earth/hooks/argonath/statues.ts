@@ -1,5 +1,6 @@
 import type { ArgonathFinding, ArgonathJudgement, ArgonathSeat, ArgonathStatue, ArgonathVerdict } from '../../types'
 import type { Review } from './proof'
+import { fencedJson } from '../flow'
 export { isChanging } from '../flow'
 
 /** The two kings carved beside the river: each judges a settled change by the reviews it is given. */
@@ -97,7 +98,7 @@ const MINOR = ['minor', 'nit', 'nitpick', 'low', 'info', 'suggestion']
 
 /** A statue's findings, from the last json block of its answer: undefined when it gave none that reads. */
 export const parseFindings = (answer: string): ArgonathFinding[] | undefined => {
-  const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n?```/g)].map(found => found[1] ?? '').reverse()
+  const fenced = fencedJson(answer).reverse()
 
   for (const one of fenced) {
     try {

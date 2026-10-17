@@ -1,5 +1,5 @@
 import type { ElrondDecision, ElrondForge, ElrondPlan, ElrondQuestion, ElrondRef, ElrondRisk, ElrondSeverity, ElrondTask, ElrondTaskState, ElrondWeight } from '../../types'
-import { TRUSTED_ASSOCIATIONS, WEIGHT_MEANS, forgeOfHost, resolvedFrom } from '../flow'
+import { TRUSTED_ASSOCIATIONS, WEIGHT_MEANS, fencedJson, forgeOfHost, resolvedFrom } from '../flow'
 export { isChanging } from '../flow'
 
 /** The project's own repository, as its git remote names it: where a bare `#12` lives. */
@@ -307,7 +307,7 @@ const strings = (value: unknown): string[] => list(value).map(one => (typeof one
 
 /** The JSON a planner's answer carries: its last fenced json block, else from its first `{` to its last `}`. */
 const jsonOf = (answer: string): unknown => {
-  const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n?```/g)].map(found => found[1] ?? '')
+  const fenced = fencedJson(answer)
   const tries = [...fenced.reverse(), answer.slice(answer.indexOf('{'), answer.lastIndexOf('}') + 1)]
 
   for (const one of tries) {
