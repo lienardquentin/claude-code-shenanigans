@@ -57,6 +57,8 @@ pub struct Syntax {
     /// `const light = (beacon) => …`, `let light = |beacon| …;`, `light = lambda beacon: …`
     pub bindings: &'static [Binding],
     pub function_values: &'static [&'static str],
+    /// Kinds of the nodes whose functions are methods, reached through a receiver or a path: an impl, a class
+    pub methods: &'static [&'static str],
     /// Where a node of each kind declares a name that is a value's, a variable's or a parameter's
     pub declarations: &'static [(&'static str, Place)],
     /// Where the name stands in a parameter of each kind
@@ -89,6 +91,7 @@ pub static RUST: Syntax = Syntax {
         value: "value",
     }],
     function_values: &["closure_expression"],
+    methods: &["impl_item", "trait_item"],
     declarations: &[
         ("let_declaration", Place::Field("pattern")),
         ("parameter", Place::Field("pattern")),
@@ -135,6 +138,7 @@ pub static PYTHON: Syntax = Syntax {
         value: "right",
     }],
     function_values: &["lambda"],
+    methods: &["class_definition"],
     declarations: &[
         ("default_parameter", Place::Field("name")),
         ("typed_default_parameter", Place::Field("name")),
@@ -174,6 +178,8 @@ pub static TYPESCRIPT: Syntax = Syntax {
         value: "value",
     }],
     function_values: &["arrow_function", "function_expression"],
+    // A class's, and an object literal's `{ light() {} }`
+    methods: &["class_body", "object"],
     declarations: &[
         ("variable_declarator", Place::Field("name")),
         ("required_parameter", Place::Field("pattern")),
