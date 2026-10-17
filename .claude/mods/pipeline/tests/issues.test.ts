@@ -15,7 +15,7 @@ const issue = (number: number, title: string, labels: string[] = []) => ({ numbe
 
 const GH_LIST = JSON.stringify([issue(12, 'Beacons answer how long they have burned', ['ready-for-agent']), issue(21, 'Quench answers 404 for an unknown beacon')])
 
-const GH_ISSUE = (number: number, title: string) => JSON.stringify({ number, title, body: `The body of #${number}.`, url: `https://github.com/${REPO}/issues/${number}`, state: 'OPEN', labels: [], comments: [] })
+const GH_ISSUE = (number: number, title: string) => JSON.stringify({ number, title, body: `The body of #${number}.\n\n## Verification\nuv run pytest -q`, url: `https://github.com/${REPO}/issues/${number}`, state: 'OPEN', labels: [], comments: [] })
 
 /** Stands for the machine, the forge and the engine beneath the mod. */
 const machine = (on: On) => {

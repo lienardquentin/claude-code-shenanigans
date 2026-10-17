@@ -9,6 +9,9 @@ import { HAND_BACK } from '../core/run'
 import { canMove } from '../core/phases'
 import type { Ran } from '../core/forge'
 import type { Quota } from '../core/budget'
+import type { TargetFolders } from '../core/run'
+import { errand } from '../core/build'
+import { verificationOf, setupOf } from '../core/verification'
 
 // The build's loop on plain fakes of its ports: no engine, no `$`, only what each port was asked and answered
 
@@ -40,7 +43,7 @@ const errandRun = (over: Partial<Run> = {}): Run => ({
 })
 
 /** A world of fakes: the runs held, what was said and asked, the agents sent, and git as a few answers. */
-function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?: Quota } = {}) {
+function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?: Quota; targets?: TargetFolders[]; issue?: unknown; failing?: string } = {}) {
   const runs = new Map<string, Run>([[run.ref, run]])
   const said: string[] = []
   const wanted: string[] = []
@@ -57,6 +60,7 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?
       const line = argv.join(' ')
 
       ran.push(line)
+      if (answers.failing !== undefined && line === `sh -c ${answers.failing}`) return { exitCode: 1, stdout: '', stderr: 'E   assert 3 == 2\n1 failed' }
       if (line === 'git rev-parse HEAD') return answer(`${head}\n`)
       if (line.startsWith('git status --porcelain')) return answer(' M beacons/gondor/app.py\n')
       if (line.startsWith('git config')) return answer('', 1)
@@ -115,12 +119,12 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?
     parts: {
       planFor: async () => null,
       markTask: async () => '',
-      readIssue: async () => ({ error: 'none here' }),
+      readIssue: async () => (answers.issue ?? { error: 'none here' }) as never,
       writeTestsFor: async () => '',
       testsFirstIn: async () => ({ state: 'none' }) as never,
       proveFor: async () => answers.proof ?? { verdict: 'settled', line: 'every changed run is pinned' },
       judgementFor: async () => answers.judgement ?? { verdict: 'pass', seats: [] },
-      targetsKnown: async () => [],
+      targetsKnown: async () => answers.targets ?? [{ label: 'gondor', kind: 'service', roots: ['beacons/gondor'] }],
       standardsText: async () => '',
       isMergedFrom: async () => false,
     },
@@ -262,6 +266,56 @@ describe('a builder stopped past its budget', () => {
     const why = refusalOf({ role: 'builder', root: '/proj', tree: TREE, stopped: 'This task has outgrown its context budget.' }, { tool: 'Read', file_path: `${TREE}/a.py` })
 
     expect(why).toBe('This task has outgrown its context budget. Call no more tools: end your turn now, saying what you built so far.')
+  })
+})
+
+describe('a project that names no target', () => {
+  const ISSUE = (body: string) => ({ ref: 'github:o/r#7', title: 'Quench', body, url: 'https://github.com/o/r/issues/7', state: 'OPEN', labels: [], author: 'quent', comments: [], isOutside: false })
+
+  test("reads the commands of an issue's Verification and Setup sections, a line each", () => {
+    const body = ['Quench a beacon.', '', '## Setup', '', '```sh', 'uv sync', '```', '', '## Verification', '', '- `uv run pytest -q`', '- uv run ruff check', '', '## Notes', 'later'].join('\n')
+
+    expect(verificationOf(body)).toEqual(['uv run pytest -q', 'uv run ruff check'])
+    expect(setupOf(body)).toEqual(['uv sync'])
+    expect(verificationOf('no sections')).toEqual([])
+  })
+
+  test('does not start an errand whose issue states no verification command, saying how to give it one', async () => {
+    const { ports, runs } = world(errandRun(), { targets: [], issue: ISSUE('Quench a beacon.') })
+
+    runs.clear()
+    expect(await errand(ports, '#7', false, true)).toMatch(/^github:o\/r#7 is not started: the project names no target in \.claude\/verify, and the issue states no verification command.*Add a `## Verification` section/)
+    expect(runs.size).toBe(0)
+  })
+
+  test('proves a task by the verification commands, sets up a fresh worktree, and sends a failing one back', async () => {
+    const body = ['## Setup', 'uv sync', '## Verification', 'uv run pytest -q'].join('\n')
+    const passing = world(errandRun(), { targets: [], issue: ISSUE(body) })
+
+    passing.runs.clear()
+    expect(await errand(passing.ports, '#7', false, true)).toMatch(/^The build starts on github:o\/r#7/)
+    expect(passing.ran).toContain('sh -c uv sync')
+
+    const ref = 'github:o/r#7'
+
+    expect(passing.runs.get(ref)).toMatchObject({ checks: ['uv run pytest -q'], setup: ['uv sync'] })
+    await sendNext(passing.ports, ref)
+    await builderEnded(passing.ports, passing.runs.get(ref) as Run, { answer: 'Quenched.', isAborted: false, reason: 'answer' })
+    await prove(passing.ports, ref)
+
+    expect(passing.ran).toContain('sh -c uv run pytest -q')
+    expect(passing.runs.get(ref)).toMatchObject({ commits: [{ taskId: 1, sha: 'bbb2222', proof: 'the 1 verification command passes' }] })
+
+    // the same command failing sends the task up a rung, with what it wrote
+    const failing = world(errandRun({ checks: ['uv run pytest -q'] }), { targets: [], failing: 'uv run pytest -q' })
+
+    await sendNext(failing.ports, ref)
+    await builderEnded(failing.ports, failing.runs.get(ref) as Run, { answer: 'Quenched.', isAborted: false, reason: 'answer' })
+    await prove(failing.ports, ref)
+
+    expect(failing.runs.get(ref)?.proofLine).toBe('`uv run pytest -q` fails (exit 1)')
+    expect(failing.runs.get(ref)?.proof).toMatch(/assert 3 == 2/)
+    expect(failing.sent).toHaveLength(2)
   })
 })
 

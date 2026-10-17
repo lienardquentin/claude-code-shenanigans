@@ -201,6 +201,9 @@ The workflow mods are one marketplace, `pipeline`, kept in
   the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
   and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
   merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
+  Verify proves each change against the targets a project names in `.claude/verify`; a project that names none is
+  proved by the verification commands its plan states, or its issue's `## Verification` section (and `## Setup` for a
+  fresh worktree). A run with neither is not started.
   A run starts no task while the 5-hour quota window is past 90%: it waits, and goes on by itself once the window
   resets (past 90% of the weekly window it stops for you). A builder that fills 70% of a context window is stopped,
   and its task said to be too large, to be split. Each threshold is an option of the plugin (`/plugin`).

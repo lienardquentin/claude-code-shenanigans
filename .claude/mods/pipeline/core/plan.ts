@@ -122,10 +122,13 @@ export const PLANNER_SYSTEM = [
   '    }',
   '  ],',
   '  "questions": [{ "question": "What the issue leaves open?", "options": ["The answer you would pick", "Another"] }],',
-  '  "risks": [{ "risk": "What could go wrong", "severity": "high", "mitigation": "How to make it less likely or less harmful", "tasks": [2] }]',
+  '  "risks": [{ "risk": "What could go wrong", "severity": "high", "mitigation": "How to make it less likely or less harmful", "tasks": [2] }],',
+  '  "verification": ["A shell command, run from the repository\'s root, that checks the whole change: its tests, its linter"],',
+  '  "setup": ["What a fresh worktree needs before those commands run, such as installing dependencies; none when it needs nothing"]',
   '}',
   '```',
   `Weigh each task by what it asks of whoever builds it, which says who is sent to build it. The weight is exactly one of three words: \`light\` for ${WEIGHT_MEANS.light}; \`standard\` for ${WEIGHT_MEANS.standard}; \`heavy\` for ${WEIGHT_MEANS.heavy}.`,
+  'Name in verification the commands that check the change as this repository runs them (read its README, its CI config, its package scripts), and in setup what a fresh git worktree of it needs first: where the project names no target in .claude/verify, those commands are the proof of every task.',
   'Rate each risk by what it would cost this change: high, it could break behaviour, lose data or block the work; medium, it could cost rework or a failed review; low, a nuisance. Name the tasks it threatens by id, and a mitigation the person could choose.',
   'Once it is written, your final answer is one line and nothing else: "The plan is laid: N tasks, M questions." The planner part reads the file and shows the plan to the person. Anything worth saying goes in the plan: a doubt in questions, a danger in risks. Only if the write is refused, answer the plan as a single fenced json block instead.',
 ].join('\n')
@@ -216,7 +219,21 @@ export const planOf = (value: unknown, about: About): IssuePlan | string => {
     }
   })
 
-  return { ...about, summary: text(parsed.summary).trim(), approach: text(parsed.approach).trim(), tasks, questions: questionsOf(parsed.questions), decided: [], risks: risksOf(parsed.risks, tasks.map(task => task.id)), accepted: [] }
+  const verification = strings(parsed.verification).map(one => one.trim()).filter(one => one !== '')
+  const setup = strings(parsed.setup).map(one => one.trim()).filter(one => one !== '')
+
+  return {
+    ...about,
+    summary: text(parsed.summary).trim(),
+    approach: text(parsed.approach).trim(),
+    tasks,
+    questions: questionsOf(parsed.questions),
+    decided: [],
+    risks: risksOf(parsed.risks, tasks.map(task => task.id)),
+    accepted: [],
+    ...(verification.length > 0 ? { verification } : {}),
+    ...(setup.length > 0 ? { setup } : {}),
+  }
 }
 
 const SEVERITIES: readonly RiskSeverity[] = ['high', 'medium', 'low']
@@ -435,6 +452,8 @@ export const planText = (plan: IssuePlan): string =>
     ...(plan.questions.length > 0 ? ['', 'Open questions:', ...plan.questions.map(questionText)] : []),
     ...(plan.risks.length > 0 ? ['', 'Risks, the worst first:', ...sortedRisks(plan).map(({ risk }) => riskText(risk))] : []),
     ...(plan.accepted.length > 0 ? ['', 'Risks the person accepted as they are:', ...plan.accepted.map(one => `- ${one}`)] : []),
+    ...((plan.verification ?? []).length > 0 ? ['', 'Verified by (where the project names no target in .claude/verify):', ...(plan.verification ?? []).map(one => `- ${one}`)] : []),
+    ...((plan.setup ?? []).length > 0 ? ['', 'A fresh worktree is set up by:', ...(plan.setup ?? []).map(one => `- ${one}`)] : []),
   ].join('\n')
 
 /** What Claude is asked when the person begins a task from the pane. */

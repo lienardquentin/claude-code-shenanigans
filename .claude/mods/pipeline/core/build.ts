@@ -6,6 +6,7 @@ import { applyAfresh, commitTask, git, gitRunsOf, landLane, leakOf } from './git
 import { budgetOf, clockTime, holdOf, isOverBudget, shareOf } from './budget'
 import type { Budget, Quota } from './budget'
 import { errorText, inTurn } from './kit'
+import { checksVerdict, runCommands, setupOf, verificationOf } from './verification'
 import { restingPhase } from './phases'
 import {
   HOW_TO,
@@ -219,7 +220,7 @@ export async function baseOf(p: Ports, root: string, branch: string): Promise<st
  * else a worktree made for it under .fellowship/trees, its branch made from its base when there is none. A review's
  * branch is the pull request's, fetched from the forge. Answers why there is none where it could not be made.
  */
-export async function placeTree(p: Ports, branch: string, base: string | undefined, isFetched: boolean): Promise<{ tree: string; base: string } | string> {
+export async function placeTree(p: Ports, branch: string, base: string | undefined, isFetched: boolean): Promise<{ tree: string; base: string; isNew?: true } | string> {
   const root = await p.machine.root()
   const from = base ?? (await baseOf(p, root, branch))
   const at = parseWorktrees((await gitAt(p, ['worktree', 'list', '--porcelain'], root)).out).find(one => one.branch === branch)
@@ -239,7 +240,7 @@ export async function placeTree(p: Ports, branch: string, base: string | undefin
 
   const added = await gitAt(p, exists.ok || isFetched ? ['worktree', 'add', tree, branch] : ['worktree', 'add', '-b', branch, tree, from], root)
 
-  return added.ok ? { tree, base: from } : `The worktree of ${branch} could not be made at ${tree}: ${added.out}`
+  return added.ok ? { tree, base: from, isNew: true } : `The worktree of ${branch} could not be made at ${tree}: ${added.out}`
 }
 
 /**
@@ -280,7 +281,7 @@ export async function followBase(p: Ports, held: Run): Promise<string | undefine
 }
 
 /** What a run is start on: what it is, and the branch it is built on. */
-export type Spec ={ kind: RunKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: RunTask[]; pr?: string }
+export type Spec = { kind: RunKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: RunTask[]; pr?: string; checks?: readonly string[]; setup?: readonly string[] }
 
 /**
  * Sets a run out, or takes it up where it was left: in its worktree, its first task sent by the clock, outside the
@@ -293,9 +294,25 @@ export async function begin(p: Ports, spec: Spec, made: RunWork): Promise<string
 
   const resumed = held !== null && held.phase !== 'submitted' ? held : undefined
   const branch = resumed?.branch ?? spec.branch
+  // A review answers on the branch of a run that may be kept still: its commands prove the answers too
+  const built = spec.kind === 'review' ? (await p.runs.all()).find(one => one.kind !== 'review' && one.branch === spec.branch) : undefined
+  const checks = [...(resumed?.checks ?? spec.checks ?? built?.checks ?? [])]
+  const setup = [...(resumed?.setup ?? spec.setup ?? built?.setup ?? [])]
+
+  // Where the project names no target, the commands its plan or its issue states are the proof: with none, nothing
+  // could prove a task. A review is the pull request's, which states none: it starts, and its proof says so
+  if (spec.kind !== 'review' && checks.length === 0 && (await p.parts.targetsKnown().catch(() => [])).length === 0) return noProofFor(spec)
+
   const placed = await placeTree(p, branch, resumed?.base ?? spec.base, spec.kind === 'review')
 
   if (typeof placed === 'string') return placed
+
+  // A fresh worktree holds what git tracks alone: what it needs besides is put there first, as the plan or the issue says
+  if (placed.isNew === true && setup.length > 0) {
+    const ready = await runCommands(p.machine.shell(placed.tree), setup)
+
+    if (!ready.ok) return `The worktree ${placed.tree} could not be set up: \`${ready.command}\` failed (exit ${ready.exitCode}).\n\n${ready.output}`
+  }
 
   // A run left mid-march has no builder out any more, and the reviewers no longer judge its whole branch: the person
   // sends it again, or is submitted again
@@ -335,6 +352,8 @@ export async function begin(p: Ports, spec: Spec, made: RunWork): Promise<string
     commits: resumed?.commits ?? [],
     pr: resumed?.pr ?? spec.pr ?? '',
     gitRuns: resumed?.gitRuns ?? (await gitRunsOf(p.machine.shell(placed.tree))),
+    ...(checks.length > 0 ? { checks } : {}),
+    ...(setup.length > 0 ? { setup } : {}),
     at: resumed?.at ?? p.clock.now(),
   }
 
@@ -374,7 +393,7 @@ export async function setOut(p: Ports, isAuto: boolean, ref = ''): Promise<strin
 
   if (open.length > 0) return `The planner's work on ${made.ref} is not settled: ${open.join('; ')}. Settle them in the planner pane, then start the run.`
 
-  return begin(p, { kind: 'plan', ref: made.ref, url: made.url, title: made.title, branch: branchOf(made), isAuto }, made)
+  return begin(p, { kind: 'plan', ref: made.ref, url: made.url, title: made.title, branch: branchOf(made), isAuto, checks: made.verification ?? [], setup: made.setup ?? [] }, made)
 }
 
 /**
@@ -388,7 +407,7 @@ export async function errand(p: Ports, input: string, isAuto: boolean, isPersons
   if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person starts on it, with /build errand ${issue.ref} or from the issues pane (/issues).`
 
   const task = errandTask(issue)
-  const spec: Spec = { kind: 'errand', ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', branch: branchOf({ ref: issue.ref, title: issue.title ?? '' }), isAuto, tasks: [task] }
+  const spec: Spec = { kind: 'errand', ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', branch: branchOf({ ref: issue.ref, title: issue.title ?? '' }), isAuto, tasks: [task], checks: verificationOf(issue.body ?? ''), setup: setupOf(issue.body ?? '') }
 
   return begin(p, spec, ownPlan(spec))
 }
@@ -662,6 +681,29 @@ export async function stop(p: Ports, held: Run, why: string): Promise<void> {
 // One proof at a time: lanes build beside one another, but a service's proof plays against one database kept warm
 const oneProof = inTurn()
 
+/**
+ * The proof of a run's change: verify's, of the targets the project names; where it names none, the run's
+ * verification commands, run in its worktree.
+ */
+async function proofOf(p: Ports, held: Run, written: readonly { file: string; name: string }[]): Promise<unknown> {
+  if ((await p.parts.targetsKnown().catch(() => [])).length > 0) return p.parts.proveFor(held.tree, written)
+
+  const checks = held.checks ?? []
+
+  if (checks.length === 0) return { verdict: 'unlooked', line: 'Verify knows no target here, and the run states no verification command' }
+
+  return checksVerdict(await runCommands(p.machine.shell(held.tree), checks), checks)
+}
+
+/** Why a run is not started where nothing could prove its tasks. */
+const noProofFor = (spec: Spec): string =>
+  [
+    `${spec.ref} is not started: the project names no target in .claude/verify, and ${spec.kind === 'plan' ? 'its plan states' : 'the issue states'} no verification command, so nothing could prove its tasks.`,
+    spec.kind === 'plan'
+      ? 'Have the planner plan it again: it names the commands that check the change (its tests, its linter). Or name what the project builds in .claude/verify.'
+      : 'Add a `## Verification` section to the issue, a command a line (its tests, its linter), and `## Setup` for what a fresh worktree needs. Or name what the project builds in .claude/verify.',
+  ].join(' ')
+
 /** Proves what a builder built: settled, the reviewers are sent to judge it; else the task goes up a rung. */
 export async function prove(p: Ports, ref: string): Promise<void> {
   const held = await p.runs.at(ref)
@@ -681,7 +723,7 @@ export async function prove(p: Ports, ref: string): Promise<void> {
   const isSeen = held.testsToPass?.taskId === out.taskId
   const mirror = isSeen ? await mirrorOf(p, held) : { amendments: [], tampered: [], unrun: [] }
   const written = isSeen ? (held.testsToPass?.tests ?? []).filter(test => !mirror.unrun.some(one => one.file === test.file && one.name === test.name)) : []
-  const verdict = proofVerdict(await oneProof(() => p.parts.proveFor(held.tree, written)).catch((error: unknown) => `Verify could not prove the change: ${errorText(error)}`))
+  const verdict = proofVerdict(await oneProof(() => proofOf(p, held, written)).catch((error: unknown) => `Verify could not prove the change: ${errorText(error)}`))
 
   await p.runs.keep(ref, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
 

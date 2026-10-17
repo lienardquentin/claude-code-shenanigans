@@ -88,6 +88,10 @@ export type IssuePlan = {
   risks: PlanRisk[]
   /** Risks the person accepted as they are: carried into every revision, and raised no more. */
   accepted: string[]
+  /** The commands that check the whole change, run from the repository's root: the proof where the project names no target. */
+  verification?: string[]
+  /** What a fresh worktree needs before it is built in: installed dependencies, generated files. */
+  setup?: string[]
   /** When it was made, epoch milliseconds. */
   at: number
 }
@@ -164,6 +168,9 @@ export type RunWork = {
   decided: { text: string; answer: string }[]
   risks: { text: string; severity: 'high' | 'medium' | 'low'; mitigation: string; tasks: number[]; wantsTask: boolean }[]
   accepted: string[]
+  /** The plan's verification and setup commands, where the planner stated them. */
+  verification?: string[]
+  setup?: string[]
 }
 
 /**
@@ -293,6 +300,9 @@ export type Run = {
   /** Until when it waits for the quota before its next task, in the clock's milliseconds, and why; absent while it does not. */
   heldUntil?: number
   heldWhy?: string
+  /** The commands that prove its change where the project names no target, from its plan or its issue; and its worktree's setup. */
+  checks?: string[]
+  setup?: string[]
 }
 
 /** Something a press, a command or a turn asked the clock to do for a run, outside the hook that asked. */
