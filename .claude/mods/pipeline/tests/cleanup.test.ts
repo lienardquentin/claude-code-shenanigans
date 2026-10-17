@@ -88,9 +88,9 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     if (line === 'git status --porcelain') return answer(world.dirty)
     if (line === `git -C ${TREE} status --porcelain`) return answer(world.treeDirty)
     // What the tree holds, the mods' own folders left out
-    if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(elrond|argonath|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
-    // Andúril builds the run's CLI in a worktree of its own, inside the run's
-    if (line === 'git worktree list --porcelain') return answer([`worktree ${CWD}\nbranch refs/heads/main\n`, `worktree ${TREE}\nbranch refs/heads/${BRANCH}\n`, `worktree ${TREE}/.anduril/trees/narsil\ndetached\n`].join('\n'))
+    if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(elrond|argonath|pipeline|recorder|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
+    // The recorder builds the run's CLI in a worktree of its own, inside the run's
+    if (line === 'git worktree list --porcelain') return answer([`worktree ${CWD}\nbranch refs/heads/main\n`, `worktree ${TREE}\nbranch refs/heads/${BRANCH}\n`, `worktree ${TREE}/.recorder/trees/narsil\ndetached\n`].join('\n'))
     if (line.startsWith('git switch ')) {
       world.branch = e.argv.at(-1) ?? ''
 
@@ -253,13 +253,13 @@ describe('cleanup', () => {
     const world = machine(on, { tree: TREE })
     world.state = 'MERGED'
     world.branch = 'main'
-    // Andúril's build, untracked: none of the run's work
-    world.treeDirty = '?? .anduril/\n'
+    // the recorder's build, untracked: none of the run's work
+    world.treeDirty = '?? .recorder/\n'
     await $.session.start({} as never)
 
     expect(await cleaning($, world)).toMatch(/is cleaned up: its worktree removed/)
-    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeGreaterThan(-1)
-    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.anduril/trees/narsil`)).toBeLessThan(world.ran.indexOf(`git worktree remove --force ${TREE}`))
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.recorder/trees/narsil`)).toBeGreaterThan(-1)
+    expect(world.ran.indexOf(`git worktree remove --force ${TREE}/.recorder/trees/narsil`)).toBeLessThan(world.ran.indexOf(`git worktree remove --force ${TREE}`))
   })
 
   test('cleans up every run kept on the branch, and takes a worktree already gone for removed', async ($, on) => {

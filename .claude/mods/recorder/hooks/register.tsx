@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AndurilDiff, AndurilRun, AndurilTarget } from '../types'
+import type { RunsDiff, RecordedRun, WatchedTool } from '../types'
 import { badge } from './kit/badge'
 import { paneView } from './kit/pane-text'
 import { treeOf, withTree } from './kit/trees'
@@ -11,6 +11,7 @@ import type { TableCell } from './kit/table'
 import {
   HOME,
   HOW_TO_WATCH,
+  OLD_PROJECT_FILE,
   PROJECT_FILE,
   binDir,
   clock,
@@ -45,9 +46,9 @@ import {
 
 type $ = EngineInterface
 
-const PANE = 'anduril'
-const TITLE = 'Anduril'
-// How many runs the session holds, and how much of each stream: the files under .anduril/runs hold the rest
+const PANE = 'recorder'
+const TITLE = 'Recorder'
+// How many runs the session holds, and how much of each stream: the files under .recorder/runs hold the rest
 const KEPT_RUNS = 200
 const KEPT_CHARS = 8_000
 // How many lines of a stream the pane draws of the run it shows in full: half from its start, half from its end
@@ -60,17 +61,17 @@ const WIDE_COLUMNS = 90
 // A button's label with the key that presses it: a Button that is not plain draws no hotkey
 const keyed = (hotkey: string, text: string): string => `${hotkey} ${text}`
 
-const targets = atom({ plugin: 'anduril', key: 'targets' } as const, [] as AndurilTarget[])
-const runs = atom({ plugin: 'anduril', key: 'runs' } as const, [] as AndurilRun[])
-const selected = atom({ plugin: 'anduril', key: 'selected' } as const, '')
-const isFailedOnly = atom({ plugin: 'anduril', key: 'isFailedOnly' } as const, false)
-const note = atom({ plugin: 'anduril', key: 'note' } as const, '')
-const home = atom({ plugin: 'anduril', key: 'home' } as const, '')
-const corpus = atom({ plugin: 'anduril', key: 'corpus' } as const, [] as string[])
-const diff = atom({ plugin: 'anduril', key: 'diff' } as const, null as AndurilDiff | null)
-const diffing = atom({ plugin: 'anduril', key: 'diffing' } as const, '')
-const against = atom({ plugin: 'anduril', key: 'against' } as const, 'HEAD')
-const trees = atom({ plugin: 'anduril', key: 'trees' } as const, {} as Trees)
+const targets = atom({ plugin: 'recorder', key: 'targets' } as const, [] as WatchedTool[])
+const runs = atom({ plugin: 'recorder', key: 'runs' } as const, [] as RecordedRun[])
+const selected = atom({ plugin: 'recorder', key: 'selected' } as const, '')
+const isFailedOnly = atom({ plugin: 'recorder', key: 'isFailedOnly' } as const, false)
+const note = atom({ plugin: 'recorder', key: 'note' } as const, '')
+const home = atom({ plugin: 'recorder', key: 'home' } as const, '')
+const corpus = atom({ plugin: 'recorder', key: 'corpus' } as const, [] as string[])
+const diff = atom({ plugin: 'recorder', key: 'diff' } as const, null as RunsDiff | null)
+const diffing = atom({ plugin: 'recorder', key: 'diffing' } as const, '')
+const against = atom({ plugin: 'recorder', key: 'against' } as const, 'HEAD')
+const trees = atom({ plugin: 'recorder', key: 'trees' } as const, {} as Trees)
 
 /**
  * The folder the session started in: where the project's file is looked for and the records are kept. The session's
@@ -90,7 +91,7 @@ const homeOf = async ($: $): Promise<string> => {
 }
 
 // What the pane last drew, for the model to read
-const view = paneView({ id: PANE, title: TITLE, command: '/anduril' })
+const view = paneView({ id: PANE, title: TITLE, command: '/recorder' })
 
 const TOOLS = [
   {
@@ -122,7 +123,7 @@ const TOOLS = [
   {
     name: 'diff',
     description:
-      "What changed in the behaviour of the command-line tool being written between two builds. Plays the runs the project keeps (the `$` lines of .claude/anduril) on each build, in a copy of the tool's source folder, and says which ended otherwise or wrote something else, with a diff of each stream. Left to itself it compares the working tree, built afresh, with HEAD: what the uncommitted edits changed. Call it after changing the tool's source and before saying the change is done; a run that changed and was not meant to is a regression. `from` and `to` name any commits (a tag, a branch); a commit is built once, which can take minutes the first time. To have a run kept, add a `$ ` line with it to .claude/anduril.",
+      "What changed in the behaviour of the command-line tool being written between two builds. Plays the runs the project keeps (the `$` lines of .claude/recorder) on each build, in a copy of the tool's source folder, and says which ended otherwise or wrote something else, with a diff of each stream. Left to itself it compares the working tree, built afresh, with HEAD: what the uncommitted edits changed. Call it after changing the tool's source and before saying the change is done; a run that changed and was not meant to is a regression. `from` and `to` name any commits (a tag, a branch); a commit is built once, which can take minutes the first time. To have a run kept, add a `$ ` line with it to .claude/recorder.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -137,17 +138,17 @@ const TOOLS = [
 ] as const
 
 // The tools watched, as the system prompt's section reads them: a module's own copy, set again at each load
-let watched: readonly AndurilTarget[] = []
+let watched: readonly WatchedTool[] = []
 
-const sectionText = (list: readonly AndurilTarget[]): string => {
+const sectionText = (list: readonly WatchedTool[]): string => {
   const labels = list.map(({ label }) => `\`${label}\``).join(', ')
 
   return [
-    `The anduril mod records every run of ${labels} made by that name: its arguments, exit code, duration and what it wrote to stdout and stderr.`,
+    `The recorder records every run of ${labels} made by that name: its arguments, exit code, duration and what it wrote to stdout and stderr.`,
     `In a shell command, run ${list.length === 1 ? 'it' : 'each'} by its name (\`${list[0]?.label ?? 'tool'} --help\`), which is on the PATH there, and not by the path of its binary or through the build tool: a run made any other way is not recorded.`,
     `The name runs the binary as it was last built (${list.map(({ label, binary }) => `${label}: ${binary}`).join('; ')}), so build before running.`,
-    'mcp__anduril__runs lists the recorded runs, the person\'s own among them, and mcp__anduril__run says one in full.',
-    'After changing its source, mcp__anduril__diff plays the runs the project keeps on the working tree and on HEAD and says what changed in what the tool does.',
+    'mcp__recorder__runs lists the recorded runs, the person\'s own among them, and mcp__recorder__run says one in full.',
+    'After changing its source, mcp__recorder__diff plays the runs the project keeps on the working tree and on HEAD and says what changed in what the tool does.',
   ].join(' ')
 }
 
@@ -155,9 +156,9 @@ const sectionText = (list: readonly AndurilTarget[]): string => {
  * Puts a launcher in place in a folder for each tool it watches: a file named as the tool, which hands a run to the
  * shim. A launcher that already says the same is left alone. Answers what stood in the way.
  */
-const launch = async ($: $, cwd: string, list: readonly AndurilTarget[]): Promise<string[]> => {
+const launch = async ($: $, cwd: string, list: readonly WatchedTool[]): Promise<string[]> => {
   const problems: string[] = []
-  const shim = `${tidy($.plugin.root)}/shim/anduril_shim.py`
+  const shim = `${tidy($.plugin.root)}/shim/recorder_shim.py`
   // Nothing under the folder is the repo's: it says so itself, and the project's own ignore file is left alone
   const ignore = `${cwd}/${HOME}/.gitignore`
   if (!(await $.fs.exists(ignore).catch(() => false))) await $.fs.write(ignore, '*\n').catch(() => undefined)
@@ -182,8 +183,15 @@ const launch = async ($: $, cwd: string, list: readonly AndurilTarget[]): Promis
   return problems
 }
 
+/** A folder's project file: under its name, else under the name it had before, where the project has not renamed it. */
+const projectFileIn = async ($: $, cwd: string): Promise<string> =>
+  (await $.fs.exists(`${cwd}/${PROJECT_FILE}`).catch(() => false)) || !(await $.fs.exists(`${cwd}/${OLD_PROJECT_FILE}`).catch(() => false)) ? `${cwd}/${PROJECT_FILE}` : `${cwd}/${OLD_PROJECT_FILE}`
+
+/** What a folder's project file says, as `projectFileIn` finds it. */
+const projectTextIn = async ($: $, cwd: string): Promise<string> => $.fs.read(await projectFileIn($, cwd)).catch(() => '')
+
 /** What a folder's own project file watches and keeps, its paths in that folder. */
-const projectIn = async ($: $, cwd: string): Promise<ReturnType<typeof parseProject>> => parseProject(await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => ''), cwd)
+const projectIn = async ($: $, cwd: string): Promise<ReturnType<typeof parseProject>> => parseProject(await projectTextIn($, cwd), cwd)
 
 /**
  * What a quest's worktree is launched and played by: the tools and their builds as the project's folder says them,
@@ -192,11 +200,11 @@ const projectIn = async ($: $, cwd: string): Promise<ReturnType<typeof parseProj
 const projectOfTree = async ($: $, tree: string): Promise<ReturnType<typeof parseProject>> => {
   const home = await homeOf($)
 
-  return projectInTree({ text: await $.fs.read(`${home}/${PROJECT_FILE}`).catch(() => ''), cwd: home }, { text: await $.fs.read(`${tree}/${PROJECT_FILE}`).catch(() => ''), cwd: tree })
+  return projectInTree({ text: await projectTextIn($, home), cwd: home }, { text: await projectTextIn($, tree), cwd: tree })
 }
 
 /** Reads what the project watches, and puts a launcher in place for each. */
-const setUp = async ($: $): Promise<AndurilTarget[]> => {
+const setUp = async ($: $): Promise<WatchedTool[]> => {
   const cwd = await homeOf($)
   const project = await projectIn($, cwd)
   const list = project.targets
@@ -228,7 +236,7 @@ const pull = ($: $): Promise<void> => {
       .map(({ name }) => name)
       .sort()
       .slice(-KEPT_RUNS)
-    const found: AndurilRun[] = []
+    const found: RecordedRun[] = []
 
     for (const name of fresh) {
       const run = parseRun(await $.fs.read(`${folder}/${name}`).catch(() => ''))
@@ -251,7 +259,7 @@ const pull = ($: $): Promise<void> => {
  * Plays the kept runs of a tool on two builds and keeps what differs. Answers the comparison, or a sentence saying
  * why none was made.
  */
-const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean; tree: string }): Promise<AndurilDiff | string> => {
+const compare = async ($: $, asked: { target?: string; from: string; to: string; mergeBase: boolean; tree: string }): Promise<RunsDiff | string> => {
   // The project's file is read again: a run kept a moment ago is played. A quest's worktree plays the runs its own file
   // keeps, built as the project's folder says, and what it finds is not the pane's
   const isHome = asked.tree === (await homeOf($))
@@ -260,7 +268,7 @@ const compare = async ($: $, asked: { target?: string; from: string; to: string;
   const target = asked.target === undefined ? list[0] : list.find(({ label }) => label === asked.target)
 
   if (list.length === 0) return HOW_TO_WATCH
-  if (target === undefined) return `anduril watches no tool named ${asked.target ?? ''}. It watches ${list.map(({ label }) => label).join(', ')}.`
+  if (target === undefined) return `The recorder watches no tool named ${asked.target ?? ''}. It watches ${list.map(({ label }) => label).join(', ')}.`
 
   const kept = corpusOf(project === undefined ? await read($, corpus) : project.corpus, target.label)
 
@@ -271,7 +279,7 @@ const compare = async ($: $, asked: { target?: string; from: string; to: string;
   if (isHome) await update($, diffing, () => target.label)
 
   try {
-    const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/shim/anduril_replay.py`], { stdin: JSON.stringify(job), timeoutMs: DIFF_TIMEOUT_MS })
+    const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/shim/recorder_replay.py`], { stdin: JSON.stringify(job), timeoutMs: DIFF_TIMEOUT_MS })
     const made = parseDiff(ran.stdout, await $.clock.now())
 
     if (made === undefined) return `The comparison could not be made: ${ran.stderr.trim().split('\n').slice(-3).join(' ') || `the replay script exited with ${ran.exitCode} and said nothing`}`
@@ -295,7 +303,7 @@ export const register: Register = (on, options) => {
   const seconds = typeof options?.pollSeconds === 'number' && Number.isFinite(options.pollSeconds) ? Math.max(0, options.pollSeconds) : 3
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'anduril', description: 'Open the pane of the runs of the command-line tool being written: each run with its arguments, how it exited, how long it took and what it wrote' })
+    await $.command.register({ name: 'recorder', description: 'Open the pane of the runs of the command-line tool being written: each run with its arguments, how it exited, how long it took and what it wrote' })
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
@@ -315,7 +323,7 @@ export const register: Register = (on, options) => {
   on('prompt.compose', async (_$, e, next) => {
     const composed = await next(e)
 
-    return watched.length === 0 ? composed : { sections: [...composed.sections, { id: 'anduril:watch', text: sectionText(watched), scope: 'session' as const }] }
+    return watched.length === 0 ? composed : { sections: [...composed.sections, { id: 'recorder:watch', text: sectionText(watched), scope: 'session' as const }] }
   })
 
   // A quest's agents work in its worktree: each is learnt as it is sent, so a run of theirs launches that worktree's build
@@ -344,9 +352,9 @@ export const register: Register = (on, options) => {
     return ran
   }).catch((_$, e, next) => next(e))
 
-  on('tool.call', { tool: 'mcp__anduril__pane' }, $ => view.answer(() => $.ui.panes()))
+  on('tool.call', { tool: 'mcp__recorder__pane' }, $ => view.answer(() => $.ui.panes()))
 
-  on('tool.call', { tool: 'mcp__anduril__runs' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__recorder__runs' }, async ($, e) => {
     const asked = e as unknown as { target?: unknown; failed?: unknown; grep?: unknown; limit?: unknown }
 
     if ((await read($, targets)).length === 0) return { result: HOW_TO_WATCH }
@@ -362,7 +370,7 @@ export const register: Register = (on, options) => {
     return { result: all.length === 0 ? 'No run is recorded yet.' : runsText(matching.slice(-integer(asked.limit, 20, KEPT_RUNS)), all.length) }
   })
 
-  on('tool.call', { tool: 'mcp__anduril__run' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__recorder__run' }, async ($, e) => {
     const asked = e as unknown as { id?: unknown; max?: unknown }
 
     if ((await read($, targets)).length === 0) return { result: HOW_TO_WATCH }
@@ -380,14 +388,14 @@ export const register: Register = (on, options) => {
     return { result: runText(whole, integer(asked.max, 4000, 60_000)) }
   })
 
-  on('tool.call', { tool: 'mcp__anduril__diff' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__recorder__diff' }, async ($, e) => {
     const asked = e as unknown as { target?: unknown; from?: unknown; to?: unknown; mergeBase?: unknown; tree?: unknown }
     const made = await compare($, { target: typeof asked.target === 'string' ? asked.target : undefined, from: refOf(asked.from, 'HEAD'), to: refOf(asked.to, 'work'), mergeBase: asked.mergeBase === true, tree: await workIn($, e.agentId, asked.tree) })
 
     return { result: typeof made === 'string' ? made : diffText(made) }
   })
 
-  on('command.run', { command: 'anduril' }, async $ => {
+  on('command.run', { command: 'recorder' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     const list = await setUp($)
@@ -399,7 +407,7 @@ export const register: Register = (on, options) => {
     const held = await read($, runs)
     const problems = await read($, note)
 
-    return { text: `anduril watches ${list.map(({ label }) => label).join(', ')}: ${held.length} ${held.length === 1 ? 'run' : 'runs'} recorded.${problems !== '' ? ` ${problems}` : ''}` }
+    return { text: `The recorder watches ${list.map(({ label }) => label).join(', ')}: ${held.length} ${held.length === 1 ? 'run' : 'runs'} recorded.${problems !== '' ? ` ${problems}` : ''}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -478,7 +486,7 @@ export const register: Register = (on, options) => {
     }
 
     // A comparison: what stood in its way, or each run that changed with how, then the ones that did not by name
-    const comparison = (held: AndurilDiff) => {
+    const comparison = (held: RunsDiff) => {
       const stopped = diffProblems(held)
       const changed = held.cases.filter(one => one.isChanged)
       const same = held.cases.filter(one => !one.isChanged)
@@ -578,7 +586,7 @@ export const register: Register = (on, options) => {
                     key="keep"
                     hotkey="k"
                     onPress={async () => {
-                      const file = `${await homeOf($)}/${PROJECT_FILE}`
+                      const file = await projectFileIn($, await homeOf($))
 
                       await $.fs.write(file, withKept(await $.fs.read(file).catch(() => ''), commandLine(open)))
                       await setUp($).catch(() => undefined)

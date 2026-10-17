@@ -1,5 +1,5 @@
-/** A command-line tool the session watches, as the project's `.claude/anduril` names it. */
-export type AndurilTarget = {
+/** A command-line tool the session watches, as the project's `.claude/recorder` names it. */
+export type WatchedTool = {
   /** The name it is run by, and the name of its launcher. */
   label: string
   /** The built binary a run of it runs, absolute. */
@@ -13,7 +13,7 @@ export type AndurilTarget = {
 }
 
 /** One of the two builds a comparison plays the kept runs on. */
-export type AndurilSide = {
+export type BuildSide = {
   /** `work` for the working tree, else the commit as it was named (`HEAD`, a tag, a branch). */
   ref: string
   /** The commit it names, whole; empty for the working tree. */
@@ -23,7 +23,7 @@ export type AndurilSide = {
 }
 
 /** How one kept run ended on one build. */
-export type AndurilOutcome = {
+export type RunOutcome = {
   exitCode: number
   signal: string
   durationMs: number
@@ -34,12 +34,12 @@ export type AndurilOutcome = {
 }
 
 /** One kept run played on both builds. */
-export type AndurilCase = {
+export type RunCase = {
   /** The run as the project's file keeps it. */
   line: string
   isChanged: boolean
-  from: AndurilOutcome
-  to: AndurilOutcome
+  from: RunOutcome
+  to: RunOutcome
   /** What differs in each stream as a unified diff, the masks applied; empty where nothing does. */
   stdoutDiff: string
   stderrDiff: string
@@ -56,12 +56,12 @@ export type AndurilCase = {
 }
 
 /** The kept runs of a tool played on two builds, and what differs. */
-export type AndurilDiff = {
+export type RunsDiff = {
   label: string
   /** When it was made, milliseconds since the epoch. */
   at: number
-  from: AndurilSide
-  to: AndurilSide
+  from: BuildSide
+  to: BuildSide
   /** Why nothing was played (no run kept, a mask that does not read); empty otherwise. */
   error: string
   /**
@@ -69,11 +69,11 @@ export type AndurilDiff = {
    * place it is played in, or writes and removes again, is not seen.
    */
   untraced: string
-  cases: AndurilCase[]
+  cases: RunCase[]
 }
 
 /** One run of a watched tool, as the shim wrote it once the tool had exited. */
-export type AndurilRun = {
+export type RecordedRun = {
   /** When it started and the process that recorded it: unique, and in order of start as text. */
   id: string
   label: string
@@ -117,10 +117,10 @@ export type AndurilRun = {
 
 declare module 'claude-code' {
   interface PluginState {
-    anduril: {
-      targets: AndurilTarget[]
+    recorder: {
+      targets: WatchedTool[]
       /** The last runs, oldest first, each stream cut to what the pane draws. */
-      runs: AndurilRun[]
+      runs: RecordedRun[]
       /** The id of the run the pane shows in full; empty for none. */
       selected: string
       /** Whether the pane lists only the runs that did not exit with 0. */
@@ -132,7 +132,7 @@ declare module 'claude-code' {
       /** The runs the project keeps to play again, each as it is typed, in the order of its file. */
       corpus: string[]
       /** The last comparison made, or none yet. */
-      diff: AndurilDiff | null
+      diff: RunsDiff | null
       /** The tool a comparison is being made for now; empty when none is. */
       diffing: string
       /** The commit the pane compares the working tree with. */

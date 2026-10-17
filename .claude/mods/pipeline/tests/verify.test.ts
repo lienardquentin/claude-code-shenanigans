@@ -35,7 +35,7 @@ const PROJECT = [
 // A path as the tests write it, however the host spells it
 const whole = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 
-// What anduril's diff says of narsil: one kept run changed
+// What the recorder's diff says of narsil: one kept run changed
 const CLI_DIFF = [
   "narsil, the working tree against HEAD (209dec6): 1 of 2 kept runs changed. Each was played on both builds in a copy of the tool's source folder, with no terminal; a line with - is HEAD (209dec6)'s, one with + the working tree's.",
   '',
@@ -70,12 +70,12 @@ const PROOF = {
   to: { ref: 'work', sha: '', error: '', exitCode: 1, output: pytest({ test_health_counts_what_burns: true, test_health: false }) },
 }
 
-/** Stands for the machine beneath the mod and for anduril beside it. */
+/** Stands for the machine beneath the mod and for the recorder beside it. */
 const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
   // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
   // status says of them, read around each shell command and counted in `fingerprints`
-  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', size: `1\t0\tbeacons/gondor/app.py\0${UNTRACKED}\0`, cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), gates: {} as Record<string, string>, missing: [] as string[] }
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', size: `1\t0\tbeacons/gondor/app.py\0${UNTRACKED}\0`, cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isRecorderGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), gates: {} as Record<string, string>, missing: [] as string[] }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -135,11 +135,11 @@ const machine = (on: On, given: Record<string, string> = {}) => {
 
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } as never
   })
-  // Anduril is asked as the mods ask one another, through MCP, never through a tool call the permission check sees
+  // The recorder is asked as the mods ask one another, through MCP, never through a tool call the permission check sees
   on('mcp.call', (_, e) => {
-    if (e.server !== 'anduril' || e.tool !== 'diff') throw new Error(`no ${e.server} ${e.tool}`)
-    // A session that never loaded Andúril answers as the engine does
-    if (world.isAndurilGone) return { deny: 'no connected MCP tool "diff" on a server named "anduril"' } as never
+    if (e.server !== 'recorder' || e.tool !== 'diff') throw new Error(`no ${e.server} ${e.tool}`)
+    // A session that never loaded the recorder answers as the engine does
+    if (world.isRecorderGone) return { deny: 'no connected MCP tool "diff" on a server named "recorder"' } as never
     world.asked.push(e.args)
 
     return { value: { content: [{ type: 'text', text: world.cli }], isError: false } } as never
@@ -393,11 +393,11 @@ describe('the reviewers', () => {
 })
 
 describe('verify', () => {
-  test('says Andúril is not loaded in the session, and that a restart brings it, when its diff is not there to call', async ($, on) => {
+  test('says the recorder is not loaded in the session, and that a restart brings it, when its diff is not there to call', async ($, on) => {
     const world = machine(on)
-    world.isAndurilGone = true
+    world.isRecorderGone = true
 
-    expect(await call($, 'mcp__pipeline__radius', { target: 'narsil' })).toMatch(/Andúril is not loaded in this session \(no tool of its is connected\): restart Claude Code, and prove again\./)
+    expect(await call($, 'mcp__pipeline__radius', { target: 'narsil' })).toMatch(/The recorder is not loaded in this session \(no tool of its is connected\): restart Claude Code, and prove again\./)
   })
 
   test('says how to name targets to a Claude that asks where none are', async ($, on) => {
@@ -412,7 +412,7 @@ describe('verify', () => {
     expect(await call($, 'mcp__pipeline__radius', { target: 'nope' })).toBe('Verify knows no target named nope. It knows narsil.')
   })
 
-  test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {
+  test('sends each target to the handler of its kind: a CLI to the recorder, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {
     const world = machine(on)
 
     const said = await call($, 'mcp__pipeline__radius')
@@ -1146,7 +1146,7 @@ describe('the reviewers, on a change', () => {
     expect(scripts.some(line => line.includes('--numstat'))).toBe(true)
     expect(scripts.some(line => line.includes('New files:'))).toBe(true)
     for (const script of scripts) {
-      for (const listing of script.match(/git (diff "\$b"|ls-files -o)[^;|]*/g) ?? []) expect(listing).toContain("'--' '.' ':(exclude).pipeline' ':(exclude).anduril' ':(exclude).elrond' ':(exclude).argonath' ':(exclude).fellowship' ':(exclude).lothlorien' ':(exclude).blackgate'")
+      for (const listing of script.match(/git (diff "\$b"|ls-files -o)[^;|]*/g) ?? []) expect(listing).toContain("'--' '.' ':(exclude).pipeline' ':(exclude).recorder' ':(exclude).anduril' ':(exclude).elrond' ':(exclude).argonath' ':(exclude).fellowship' ':(exclude).lothlorien' ':(exclude).blackgate'")
     }
   })
 

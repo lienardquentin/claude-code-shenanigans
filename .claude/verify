@@ -9,7 +9,7 @@ review=/security-review
 # What the project rejects in a change, read from this folder and handed to both reviewers: a run's branch never loosens it
 standards=docs/agents/standards.md
 
-# narsil, the CLI: its runs are kept by anduril, in .claude/anduril.
+# narsil, the CLI: its runs are kept by the recorder, in .claude/recorder.
 narsil=cli@narsil
 narsil.tests=narsil/tests
 # {tests} is filled with the tests marked on what changed, and only those run
@@ -25,7 +25,7 @@ narsil.check=cargo clippy --manifest-path narsil/Cargo.toml --all-targets --quie
 # that failed before the change hides none of what it finds
 narsil.check=sh scripts/orcrist.sh narsil {against}
 
-# orcrist, the linter: its runs are kept by anduril, in .claude/anduril, and it is proved and checked as narsil is.
+# orcrist, the linter: its runs are kept by the recorder, in .claude/recorder, and it is proved and checked as narsil is.
 orcrist=cli@orcrist
 orcrist.tests=orcrist/tests
 orcrist.test=cargo test --manifest-path orcrist/Cargo.toml --test cli -- --exact {tests}

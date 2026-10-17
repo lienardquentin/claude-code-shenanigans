@@ -1,13 +1,16 @@
-import type { AndurilCase, AndurilDiff, AndurilOutcome, AndurilRun, AndurilSide, AndurilTarget } from '../types'
+import type { RunCase, RunsDiff, RunOutcome, RecordedRun, BuildSide, WatchedTool } from '../types'
 
 // What is watched, how a run reaches the shim, and a record read back and said. Text in, text out: nothing here
 // touches the machine.
 
 /** The project's own list of the tools it watches, one per line, beside its other Claude files. */
-export const PROJECT_FILE = '.claude/anduril'
+export const PROJECT_FILE = '.claude/recorder'
+
+/** What the project's list was called before: read where the project has not renamed it. */
+export const OLD_PROJECT_FILE = '.claude/recorder'
 
 /** Where the launchers and the records are kept, under the working directory: per machine, and never committed. */
-export const HOME = '.anduril'
+export const HOME = '.recorder'
 
 /** A path with forward slashes and no trailing one, so two spellings of a folder compare equal. */
 export const tidy = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -20,7 +23,7 @@ export const under = (cwd: string, path: string): string =>
  * One tool as the project's file writes it: `label=binary@root,root`. The label is the name it is run by, the
  * binary the built file a run of it runs, and the roots the source folders whose edits are edits of it.
  */
-export const parseTarget = (spec: string, cwd: string): AndurilTarget | undefined => {
+export const parseTarget = (spec: string, cwd: string): WatchedTool | undefined => {
   const found = /^([\w.-]+)\s*=\s*(.+)$/.exec(spec.trim())
 
   if (found === null) return undefined
@@ -44,8 +47,8 @@ export const parseTarget = (spec: string, cwd: string): AndurilTarget | undefine
  * What does not read is left out, a label is one tool, and a build or a mask of a tool the file does not name is
  * dropped.
  */
-export const parseProject = (text: string, cwd: string): { targets: AndurilTarget[]; corpus: string[] } => {
-  const byLabel = new Map<string, AndurilTarget>()
+export const parseProject = (text: string, cwd: string): { targets: WatchedTool[]; corpus: string[] } => {
+  const byLabel = new Map<string, WatchedTool>()
   const builds = new Map<string, string>()
   const masks = new Map<string, string[]>()
   const corpus: string[] = []
@@ -75,7 +78,7 @@ export const parseProject = (text: string, cwd: string): { targets: AndurilTarge
 }
 
 /** Every tool a project's file names. */
-export const parseTargets = (text: string, cwd: string): AndurilTarget[] => parseProject(text, cwd).targets
+export const parseTargets = (text: string, cwd: string): WatchedTool[] => parseProject(text, cwd).targets
 
 /** A path of the project's folder as the same path in a quest's worktree; any other path as it is. */
 const moved = (home: string, tree: string, path: string): string => (path === tidy(home) ? tidy(tree) : path.startsWith(`${tidy(home)}/`) ? `${tidy(tree)}${path.slice(tidy(home).length)}` : path)
@@ -86,7 +89,7 @@ const moved = (home: string, tree: string, path: string): string => (path === ti
  * own, then those the branch keeps besides. A run the branch takes out of its file is played still: the change it
  * proves cannot shrink what proves it.
  */
-export const projectInTree = (home: { text: string; cwd: string }, tree: { text: string; cwd: string }): { targets: AndurilTarget[]; corpus: string[] } => {
+export const projectInTree = (home: { text: string; cwd: string }, tree: { text: string; cwd: string }): { targets: WatchedTool[]; corpus: string[] } => {
   const kept = parseProject(home.text, home.cwd).corpus
 
   return {
@@ -111,26 +114,26 @@ const quoted = (text: string): string => `'${text.replace(/'/g, `'\\''`)}'`
 export const binDir = (cwd: string): string => `${tidy(cwd)}/${HOME}/bin`
 
 /** The launcher: the tool's name on the PATH, which hands the run to the shim with the binary to run. */
-export const launcher = (input: { shim: string; cwd: string; target: AndurilTarget }): string =>
+export const launcher = (input: { shim: string; cwd: string; target: WatchedTool }): string =>
   [
     '#!/bin/sh',
-    `# Written by the anduril mod from ${PROJECT_FILE}: runs ${input.target.label} and keeps a record of the run.`,
+    `# Written by the recorder from ${PROJECT_FILE}: runs ${input.target.label} and keeps a record of the run.`,
     `exec python3 ${quoted(tidy(input.shim))} --dir ${quoted(`${tidy(input.cwd)}/${HOME}`)} --label ${quoted(input.target.label)} --binary ${quoted(input.target.binary)} -- "$@"`,
     '',
   ].join('\n')
 
 /** Whether a command's text names one of the tools as a word: only such a command is given the launchers. */
-export const names = (command: string, targets: readonly AndurilTarget[]): boolean =>
+export const names = (command: string, targets: readonly WatchedTool[]): boolean =>
   targets.some(({ label }) => new RegExp(`(^|[^\\w./-])${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w/-])`).test(command))
 
 /** The one line put before a command of Claude's: the launchers first on the PATH, and who is running. */
-export const prelude = (cwd: string): string => `export PATH=${quoted(binDir(cwd))}:"$PATH" ANDURIL_BY=claude\n`
+export const prelude = (cwd: string): string => `export PATH=${quoted(binDir(cwd))}:"$PATH" RECORDER_BY=claude\n`
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 const number = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
 
 /** A record as the shim wrote it; `undefined` for a file that is none, or is half written. */
-export const parseRun = (source: string): AndurilRun | undefined => {
+export const parseRun = (source: string): RecordedRun | undefined => {
   let value: Record<string, unknown>
 
   try {
@@ -180,7 +183,7 @@ export const ends = (text: string, chars: number): string => {
 }
 
 /** The run with each stream held to its start and its end: what the session holds of it. */
-export const trimmed = (run: AndurilRun, chars: number): AndurilRun => ({ ...run, stdout: ends(run.stdout, chars), stderr: ends(run.stderr, chars) })
+export const trimmed = (run: RecordedRun, chars: number): RecordedRun => ({ ...run, stdout: ends(run.stdout, chars), stderr: ends(run.stderr, chars) })
 
 /**
  * The lines of a stream as the pane draws them: all of them, or the first and the last with a line between saying
@@ -196,7 +199,7 @@ export const excerpt = (lines: readonly string[], most: number): string[] => {
 }
 
 /** The run as it was typed. */
-export const commandLine = (run: Pick<AndurilRun, 'label' | 'argv'>): string => [run.label, ...run.argv.map(shQuote)].join(' ')
+export const commandLine = (run: Pick<RecordedRun, 'label' | 'argv'>): string => [run.label, ...run.argv.map(shQuote)].join(' ')
 
 /** How long, for a person: `4.2 ms`, `310 ms`, `2.31 s`. */
 export const duration = (ms: number): string => (ms < 10 ? `${ms.toFixed(1)} ms` : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`)
@@ -214,7 +217,7 @@ export const clock = (ms: number): string => {
 }
 
 /** How a run ended, in a word or two: `0`, `1`, `101 panic`, `143 SIGTERM`. */
-export const ending = (run: Pick<AndurilRun, 'exitCode' | 'signal' | 'stderr'>): string =>
+export const ending = (run: Pick<RecordedRun, 'exitCode' | 'signal' | 'stderr'>): string =>
   run.signal !== '' ? `${run.exitCode} ${run.signal}` : run.exitCode === 101 && /panicked at /.test(run.stderr) ? '101 panic' : String(run.exitCode)
 
 const ESCAPES = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
@@ -233,7 +236,7 @@ export const hasEscapes = (stream: string): boolean => /\u001b\[/.test(stream)
 export const drawable = (stream: string): string => plain(stream).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
 
 /** What stands out about how a run was made and what it wrote, each as a short sentence: what a reader should not miss. */
-export const remarks = (run: AndurilRun): string[] => [
+export const remarks = (run: RecordedRun): string[] => [
   ...(run.stdoutBytes > 0 && !run.isStdoutTty && hasEscapes(run.stdout) ? ['It wrote terminal escape codes to a stdout that was no terminal.'] : []),
   ...(run.exitCode !== 0 && run.stderrBytes === 0 ? ['It failed and wrote nothing to stderr.'] : []),
   ...(/Broken pipe/.test(run.stderr) ? ['Whoever read its output left before it was done (a broken pipe).'] : []),
@@ -254,7 +257,7 @@ const streamText = (name: string, kept: string, bytes: number, max: number, isTt
 }
 
 /** One run in full, for the model: what was run and how, how it ended, what it cost and what it wrote. */
-export const runText = (run: AndurilRun, max: number): string => {
+export const runText = (run: RecordedRun, max: number): string => {
   const env = Object.entries(run.env).map(([name, value]) => `${name}=${value}`)
   const said = remarks(run)
 
@@ -272,7 +275,7 @@ export const runText = (run: AndurilRun, max: number): string => {
 }
 
 /** The runs as a list, newest last, for the model: one line each, which `run` then opens by its id. */
-export const runsText = (runs: readonly AndurilRun[], total: number): string =>
+export const runsText = (runs: readonly RecordedRun[], total: number): string =>
   runs.length === 0
     ? 'No run matches.'
     : [
@@ -282,14 +285,14 @@ export const runsText = (runs: readonly AndurilRun[], total: number): string =>
 
 /** How to have a tool watched, said where nothing is. */
 export const HOW_TO_WATCH = [
-  `anduril watches no tool here. Name one in ${PROJECT_FILE}, a line each:`,
+  `The recorder watches no tool here. Name one in ${PROJECT_FILE}, a line each:`,
   '',
   '    narsil=narsil/target/debug/narsil@narsil',
   '',
-  'The name it is run by, the built binary a run of it runs, and after @ the folder of its source. Then /anduril.',
+  'The name it is run by, the built binary a run of it runs, and after @ the folder of its source. Then /recorder.',
 ].join('\n')
 
-const outcomeOf = (value: unknown): AndurilOutcome => {
+const outcomeOf = (value: unknown): RunOutcome => {
   const held = (value !== null && typeof value === 'object' ? value : {}) as Record<string, unknown>
 
   return {
@@ -302,7 +305,7 @@ const outcomeOf = (value: unknown): AndurilOutcome => {
   }
 }
 
-const sideOf = (value: unknown): AndurilSide => {
+const sideOf = (value: unknown): BuildSide => {
   const held = (value !== null && typeof value === 'object' ? value : {}) as Record<string, unknown>
 
   return { ref: text(held.ref), sha: text(held.sha), error: text(held.error) }
@@ -316,7 +319,7 @@ const bothOf = (value: unknown): { from: string[]; to: string[] } => {
 }
 
 /** What the replay script answered; `undefined` when it answered nothing that reads. */
-export const parseDiff = (source: string, at: number): AndurilDiff | undefined => {
+export const parseDiff = (source: string, at: number): RunsDiff | undefined => {
   let value: Record<string, unknown>
 
   try {
@@ -351,16 +354,16 @@ export const parseDiff = (source: string, at: number): AndurilDiff | undefined =
 }
 
 /** A build as a person names it: `the working tree`, `HEAD (223f934)`. */
-export const sideName = (side: AndurilSide): string => (side.ref === 'work' ? 'the working tree' : side.sha === '' ? side.ref : `${side.ref} (${side.sha.slice(0, 7)})`)
+export const sideName = (side: BuildSide): string => (side.ref === 'work' ? 'the working tree' : side.sha === '' ? side.ref : `${side.ref} (${side.sha.slice(0, 7)})`)
 
-const endOf = (outcome: AndurilOutcome): string => (outcome.error !== '' ? outcome.error : outcome.signal !== '' ? `${outcome.exitCode} ${outcome.signal}` : String(outcome.exitCode))
+const endOf = (outcome: RunOutcome): string => (outcome.error !== '' ? outcome.error : outcome.signal !== '' ? `${outcome.exitCode} ${outcome.signal}` : String(outcome.exitCode))
 
 /** How a run's ending changed between the two builds, `exit 1 → 2`; empty when it ended the same. */
-export const exitChange = (one: AndurilCase): string => (endOf(one.from) === endOf(one.to) ? '' : `exit ${endOf(one.from)} → ${endOf(one.to)}`)
+export const exitChange = (one: RunCase): string => (endOf(one.from) === endOf(one.to) ? '' : `exit ${endOf(one.from)} → ${endOf(one.to)}`)
 
 const sameList = (one: readonly string[], other: readonly string[]): boolean => one.length === other.length && one.every((path, index) => path === other[index])
 
-const pathsNote = (diff: AndurilDiff, both: { from: string[]; to: string[] }, what: string): string[] =>
+const pathsNote = (diff: RunsDiff, both: { from: string[]; to: string[] }, what: string): string[] =>
   sameList(both.from, both.to)
     ? []
     : [`${what}: ${sideName(diff.from)} ${both.from.length > 0 ? both.from.join(', ') : 'nothing'}; ${sideName(diff.to)} ${both.to.length > 0 ? both.to.join(', ') : 'nothing'}`]
@@ -369,30 +372,30 @@ const pathsNote = (diff: AndurilDiff, both: { from: string[]; to: string[] }, wh
  * What a run did to files that the two builds do not agree on, each as a line: a file it left that differs, what
  * it wrote outside the place it was played in, and what it wrote and removed again.
  */
-export const fileNotes = (diff: AndurilDiff, one: AndurilCase): string[] => [
+export const fileNotes = (diff: RunsDiff, one: RunCase): string[] => [
   ...one.files.map(({ path, change }) => `file ${path}: ${change === 'added' ? `${sideName(diff.to)} alone left it` : change === 'removed' ? `${sideName(diff.from)} alone left it` : 'not the same'}`),
   ...pathsNote(diff, one.outside, 'written outside the folder'),
   ...pathsNote(diff, one.transient, 'written and removed again'),
 ]
 
 /** Every file a run of either build wrote outside the place it was played in: those writes reached the machine. */
-export const writtenOutside = (diff: AndurilDiff): string[] => [...new Set(diff.cases.flatMap(one => [...one.outside.from, ...one.outside.to]))].sort()
+export const writtenOutside = (diff: RunsDiff): string[] => [...new Set(diff.cases.flatMap(one => [...one.outside.from, ...one.outside.to]))].sort()
 
 /** What stands in the way of a comparison, each as a sentence; none when both builds were played. */
-export const diffProblems = (diff: AndurilDiff): string[] => [
+export const diffProblems = (diff: RunsDiff): string[] => [
   ...(diff.error !== '' ? [`Nothing was played: ${diff.error}.`] : []),
   ...[diff.from, diff.to].filter(side => side.error !== '').map(side => `${sideName(side)} was not played: ${side.error}`),
 ]
 
 /** A comparison in a line: which builds, and how many of the kept runs changed. */
-export const diffSummary = (diff: AndurilDiff): string => {
+export const diffSummary = (diff: RunsDiff): string => {
   const changed = diff.cases.filter(one => one.isChanged).length
 
   return `${diff.label}, ${sideName(diff.to)} against ${sideName(diff.from)}: ${diffProblems(diff).length > 0 ? 'not compared' : `${changed} of ${diff.cases.length} kept ${diff.cases.length === 1 ? 'run' : 'runs'} changed`}`
 }
 
 /** A comparison in full, for the model: each run that changed with how, then the runs that did not, by name. */
-export const diffText = (diff: AndurilDiff): string => {
+export const diffText = (diff: RunsDiff): string => {
   const problems = diffProblems(diff)
 
   if (problems.length > 0) return [`${diffSummary(diff)}.`, ...problems].join('\n')

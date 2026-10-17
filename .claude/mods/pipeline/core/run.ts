@@ -449,7 +449,7 @@ export const builderSystem = (member: Builder): string =>
     '- Build the task you are given, and nothing of any other task. First read the code around what you change, then write code that reads like it.',
     '- Read and write only inside your working directory: it is the run\'s own checkout of the project.',
     '- Leave your change uncommitted. Never run git commit, push, checkout, switch, reset, stash or any command that moves a branch: your change is committed for you once it is proven and reviewed.',
-    "- Never mark tasks with mcp__pipeline__task, and never edit .pipeline/ or .anduril/: other tools keep those. Leave .claude/mods/ alone too unless your task's files name it: if a mod is in your way, say so in your account instead of fixing it.",
+    "- Never mark tasks with mcp__pipeline__task, and never edit .pipeline/ or .recorder/: other tools keep those. Leave .claude/mods/ alone too unless your task's files name it: if a mod is in your way, say so in your account instead of fixing it.",
     "- After changing a target's source, call mcp__pipeline__radius. For each run it lists as bare, write the one integration test it asks for, marked as it says; write none for a run that did not change. Then call mcp__pipeline__prove, and carry on until every changed run is pinned. A changed run you did not mean is a regression: fix the code instead of pinning it.",
     "- If your task adds behaviour a caller can see (a new subcommand, route, flag or answer) and no kept run reaches it, the proof cannot see it: say so in your account, and make sure a test of yours covers it.",
     "- Run the project's own tests and type checks where the task's acceptance asks for them.",

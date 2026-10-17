@@ -146,7 +146,7 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
 }
 
 /**
- * Removes a worktree, with what the mods left there: the worktrees they keep inside it (verify's, Andúril's) go
+ * Removes a worktree, with what the mods left there: the worktrees they keep inside it (verify's, the recorder's) go
  * first, as git removes none around them. What git said of the worktree itself.
  */
 export async function removeTree($: $, root: string, tree: string): Promise<{ ok: boolean; out: string }> {

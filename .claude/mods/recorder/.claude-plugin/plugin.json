@@ -1,5 +1,5 @@
 {
-  "name": "anduril",
+  "name": "recorder",
   "version": "0.1.0",
   "description": "Keeps a record of every run of the command-line tool being written, whoever ran it: its arguments, how it exited, how long it took, what it consumed and what it wrote to each stream, in a pane and as tools Claude reads",
   "types": "./types/index.d.ts",
@@ -7,7 +7,7 @@
     "pollSeconds": {
       "type": "number",
       "title": "Seconds between reads",
-      "description": "How often the records are read once a tool is watched, so a run made in another terminal shows in the pane. 0 reads them only when asked: on /anduril, on Refresh, after a command of Claude's and when Claude calls a tool.",
+      "description": "How often the records are read once a tool is watched, so a run made in another terminal shows in the pane. 0 reads them only when asked: on /recorder, on Refresh, after a command of Claude's and when Claude calls a tool.",
       "default": 3
     }
   }

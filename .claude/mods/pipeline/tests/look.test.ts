@@ -28,7 +28,7 @@ const TARGETS = parseProject(
 
 const target = (label: string): Target => TARGETS.find(one => one.label === label) as Target
 
-// What anduril's diff says of narsil: one kept run changed
+// What the recorder's diff says of narsil: one kept run changed
 const CLI_DIFF = [
   'narsil, the working tree against HEAD (209dec6): 1 of 2 kept runs changed.',
   '',
@@ -96,10 +96,10 @@ describe('a look', () => {
   })
 
   test('says why a target has no radius: what the recorder said, a service with no app, a frontend no kept run sees', async () => {
-    const lost = await lookAt({ ...machine().fake, keptRuns: async () => ({ why: 'Andúril is not loaded in this session' }) }, look())
+    const lost = await lookAt({ ...machine().fake, keptRuns: async () => ({ why: 'The recorder is not loaded in this session' }) }, look())
     const [quill, anor] = await lookAt(machine().fake, look({ chosen: [target('quill'), target('anor')] }))
 
-    expect(lost[0]?.found).toBe('Andúril is not loaded in this session')
+    expect(lost[0]?.found).toBe('The recorder is not loaded in this session')
     expect(quill?.found).toMatch(/^quill names no app/)
     expect(anor?.found).toMatchObject({ isUnhandled: true, seams: [] })
   })
