@@ -1,5 +1,5 @@
 import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../../types'
-import { forgeOfHost } from '../flow'
+import { TRUSTED_ASSOCIATIONS, forgeOfHost, gitlabPushers } from '../flow'
 
 export const HOW_TO = "No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /blackgate march hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
@@ -74,11 +74,6 @@ const MAX_THREADS = 100
 const MAX_NOTES = 30
 const MAX_REVIEWS = 50
 
-// Who a GitHub comment is trusted from: one who can push to the repository. Anyone else's is the person's to weigh
-const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR']
-// The least GitLab access that can push: Developer
-const GITLAB_DEVELOPER = 30
-
 /** A thread's notes as one body: its first, then each reply after `--- <author>:`, those from outside left out and counted. */
 const threadBody = (notes: readonly { author: string; body: string; isOutside: boolean }[]): string => {
   const [first, ...replies] = notes
@@ -152,13 +147,7 @@ export const parseGitlab = (request: string, discussions: string, repo: string, 
   try {
     const mr = JSON.parse(request) as Record<string, unknown>
     const held = JSON.parse(discussions) as { id?: unknown; notes?: { id?: unknown; author?: { username?: unknown }; body?: unknown; system?: unknown; resolvable?: unknown; resolved?: unknown; position?: { new_path?: unknown; new_line?: unknown } }[] }[]
-    const pushers = (() => {
-      try {
-        return (JSON.parse(members) as { username?: unknown; access_level?: unknown }[]).filter(one => typeof one.access_level === 'number' && one.access_level >= GITLAB_DEVELOPER).map(one => text(one.username))
-      } catch {
-        return []
-      }
-    })()
+    const pushers = gitlabPushers(members)
     const isOutside = (author: unknown) => !pushers.includes(text(author))
 
     if (typeof mr.iid !== 'number') return `No merge request !${number} in ${repo}.`

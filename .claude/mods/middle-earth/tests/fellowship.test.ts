@@ -393,6 +393,8 @@ const machine = (on: On) => {
     plan: structuredClone(PLAN) as typeof PLAN | null,
     kept: {} as Record<string, typeof PLAN>,
     issue: ISSUE,
+    // How the forge says the issue's author stands with the repository
+    association: 'OWNER',
     proofs: ['pinned'] as Proof[],
     judgements: ['pass'] as Verdict[],
     mirror: ['empty'] as Vision[],
@@ -525,7 +527,8 @@ const machine = (on: On) => {
     if (line.startsWith('git log -n 1 --format=%H --fixed-strings --grep=')) return answer(`${Object.values(world.rewritten)[0] ?? ''}\n`)
 
     // The forge
-    if (e.argv[0] === 'gh' && e.argv[1] === 'issue') return answer(JSON.stringify({ number: 21, title: world.issue.title, body: world.issue.body, url: world.issue.url, state: 'OPEN', labels: [], comments: world.issue.comments.map(one => ({ author: { login: one.author }, body: one.body })) }))
+    if (e.argv[0] === 'gh' && e.argv[1] === 'issue') return answer(JSON.stringify({ number: 21, title: world.issue.title, body: world.issue.body, url: world.issue.url, state: 'OPEN', labels: [], author: { login: 'quent' }, comments: world.issue.comments.map(one => ({ author: { login: one.author }, authorAssociation: 'MEMBER', body: one.body })) }))
+    if (e.argv[0] === 'gh' && line.endsWith('--jq .author_association')) return answer(`${world.association}\n`)
     if (e.argv[0] === 'gh' && e.argv[1] === 'api') return answer(GITHUB)
     if (e.argv[0] === 'gh' && e.argv[1] === 'pr' && e.argv[2] === 'view') return answer(JSON.stringify(world.prState))
     if (e.argv[0] === 'gh') return answer('https://github.com/lienardquentin/claude-code-shenanigans/pull/13\n')
@@ -1153,6 +1156,21 @@ describe('a quest whose base moved on', () => {
 })
 
 describe('an errand', () => {
+  test('on an issue opened from outside the repository is set out on by the person alone, never on a call of Claude\'s', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    world.association = 'NONE'
+    await start($, world)
+
+    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/opened by quent, from outside the repository[\s\S]*only the person sets out on it/)
+    await settle($, world)
+    expect(world.spawned).toEqual([])
+
+    expect((await $.command.run({ command: 'fellowship', args: 'errand #21' } as never)).text).toMatch(/sets out on #21 as an errand/)
+    await settle($, world)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
+  })
+
   test('builds a small issue in one change in its worktree, and waits for the person\'s go to open its pull request', async ($, on) => {
     const world = machine(on)
     world.plan = null

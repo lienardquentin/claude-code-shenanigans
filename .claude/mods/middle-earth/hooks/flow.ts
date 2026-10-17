@@ -143,6 +143,21 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
  */
 export const forgeOfHost = (host: string): 'github' | 'gitlab' => (host.toLowerCase().includes('gitlab') ? 'gitlab' : 'github')
 
+/** Who a GitHub issue or comment is trusted from: one who can push to the repository. Anyone else's is the person's to weigh. */
+export const TRUSTED_ASSOCIATIONS: readonly string[] = ['OWNER', 'MEMBER', 'COLLABORATOR']
+
+// The least GitLab access that can push: Developer
+const GITLAB_DEVELOPER = 30
+
+/** Who can push to a GitLab project, from its `members/all` list; no one where the list does not read, so no one is trusted on a guess. */
+export const gitlabPushers = (members: string): string[] => {
+  try {
+    return (JSON.parse(members) as { username?: unknown; access_level?: unknown }[]).filter(one => typeof one.access_level === 'number' && one.access_level >= GITLAB_DEVELOPER).map(one => text(one.username).trim())
+  } catch {
+    return []
+  }
+}
+
 /** The forge a pull request (a merge request on GitLab) is on, by its URL: its path says so where it can, else its host. */
 export const forgeOfUrl = (url: string): 'github' | 'gitlab' =>
   /\/-\/merge_requests\/\d+/.test(url) ? 'gitlab' : /\/pull\/\d+/.test(url) ? 'github' : forgeOfHost(/^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1] ?? url)

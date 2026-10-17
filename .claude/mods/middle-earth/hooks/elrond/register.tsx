@@ -2,10 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskState, MiddleEarthAgent } from '../../types'
-import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
-import type { Issue, Origin } from './council'
+import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, trustArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
+import type { Issue, Origin, Trust } from './council'
 import { badge } from '../kit/badge'
-import { isMergedFrom, rootOf, toolFailed } from '../flow'
+import { gitlabPushers, isMergedFrom, rootOf, toolFailed } from '../flow'
 import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
@@ -128,20 +128,41 @@ async function originOf($: $): Promise<Origin | undefined> {
 
 const lastLine = (said: string): string => said.trim().split('\n').filter(line => line.trim() !== '').slice(-1)[0] ?? ''
 
+/** A forge's command, run: what it answered, or why it could not be run. */
+async function asked($: $, argv: readonly string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return $.process.run([...argv], { timeoutMs: FETCH_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
+}
+
+/**
+ * Who is trusted on an issue, as the forge says: its author's association on GitHub (a comment's comes with it), the
+ * people who can push on GitLab. Where the forge cannot say, nothing is trusted, so the issue reads as from outside.
+ */
+async function trustOf($: $, ref: ElrondRef, origin: Origin | undefined): Promise<Trust> {
+  const cli = await asked($, trustArgv(ref))
+
+  if (ref.forge === 'github') return cli.exitCode === 0 ? { association: cli.stdout.trim() } : {}
+
+  const members = cli.exitCode === 0 ? cli : await asked($, apiArgv(ref, origin).members)
+
+  return { pushers: members.exitCode === 0 ? gitlabPushers(members.stdout) : [] }
+}
+
 /** The issue, through the forge's CLI, else its REST API; why neither could read it, when neither could. */
-async function fetchIssue($: $, ref: ElrondRef): Promise<Issue | string> {
+async function fetchIssue($: $, ref: ElrondRef, origin: Origin | undefined): Promise<Issue | string> {
   const argv = cliArgv(ref)
-  const cli = await $.process.run(argv, { timeoutMs: FETCH_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
-  const viaCli = cli.exitCode === 0 ? parseIssue(cli.stdout) : undefined
+  const cli = await asked($, argv)
+  const trust = await trustOf($, ref, origin)
+  const viaCli = cli.exitCode === 0 ? parseIssue(cli.stdout, '', trust) : undefined
 
   if (viaCli !== undefined) return viaCli
 
-  const api = apiArgv(ref)
-  const got = await $.process.run(api.issue, { timeoutMs: FETCH_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
+  const api = apiArgv(ref, origin)
+  const got = await asked($, api.issue)
 
   if (got.exitCode === 0) {
-    const thread = await $.process.run(api.comments, { timeoutMs: FETCH_TIMEOUT_MS }).catch(() => undefined)
-    const viaApi = parseIssue(got.stdout, thread?.exitCode === 0 ? thread.stdout : '')
+    const thread = await asked($, api.comments)
+    // GitHub's API says each author's association itself; GitLab's is told by the members
+    const viaApi = parseIssue(got.stdout, thread.exitCode === 0 ? thread.stdout : '', ref.forge === 'github' ? {} : trust)
 
     if (viaApi !== undefined) return viaApi
   }
@@ -187,7 +208,8 @@ async function kept($: $, ref: string): Promise<ElrondPlan | undefined> {
  * sentence; the plan itself lands when the planner's turn ends.
  */
 async function convene($: $, input: string, by: ElrondCouncil['by'], isAgain: boolean): Promise<{ text: string; plan?: ElrondPlan }> {
-  const ref = parseRef(input, await originOf($))
+  const origin = await originOf($)
+  const ref = parseRef(input, origin)
 
   if (typeof ref === 'string') return { text: ref }
 
@@ -218,7 +240,7 @@ async function convene($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
   await $.fs.write(`${cwd}/.elrond/.gitignore`, '*\n').catch(() => undefined)
   await $.fs.write(planPath, '').catch(() => undefined)
 
-  const issue = await fetchIssue($, ref)
+  const issue = await fetchIssue($, ref, origin)
 
   if (typeof issue === 'string') {
     await update($, note, () => issue)
@@ -349,11 +371,12 @@ const sectionText = (held: ElrondPlan): string =>
 
 /** An issue as Elrond reads it, for a part that works from one: its short ref and what the forge says, or why it could not be read. */
 export async function readIssue($: $, input: string): Promise<({ ref: string } & Issue) | { error: string }> {
-  const ref = parseRef(input, await originOf($))
+  const origin = await originOf($)
+  const ref = parseRef(input, origin)
 
   if (typeof ref === 'string') return { error: ref }
 
-  const issue = await fetchIssue($, ref)
+  const issue = await fetchIssue($, ref, origin)
 
   return typeof issue === 'string' ? { error: issue } : { ref: refText(ref), ...issue }
 }

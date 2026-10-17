@@ -169,8 +169,8 @@ export const ownPlan = (quest: Pick<FellowshipQuest, 'ref' | 'url' | 'title' | '
   accepted: [],
 })
 
-/** An errand's one task: the whole issue, as Elrond read it, its thread with it. */
-export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[] }): FellowshipTask => ({
+/** An errand's one task: the whole issue, as Elrond read it, its thread with it, those from outside the repository left out and counted. */
+export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[]; leftOut?: number }): FellowshipTask => ({
   id: 1,
   title: issue.title ?? '',
   why: '',
@@ -180,7 +180,13 @@ export const errandTask = (issue: { title?: string; body?: string; comments?: { 
   acceptance: 'What the issue asks for holds, and a test proves it.',
   weight: 'standard',
   state: 'todo',
-  brief: [issue.body ?? '', ...(issue.comments ?? []).map(one => `--- ${one.author}:\n${one.body}`)].filter(one => one.trim() !== '').join('\n\n'),
+  brief: [
+    issue.body ?? '',
+    ...(issue.comments ?? []).map(one => `--- ${one.author}:\n${one.body}`),
+    ...((issue.leftOut ?? 0) > 0 ? [`--- (${issue.leftOut ?? 0} ${issue.leftOut === 1 ? 'comment' : 'comments'} from outside the repository left out)`] : []),
+  ]
+    .filter(one => one.trim() !== '')
+    .join('\n\n'),
 })
 
 /** The review comments the Black Gate handed over, as tasks: each a change to make, in turn, on the pull request's branch. */

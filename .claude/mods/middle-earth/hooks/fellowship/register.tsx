@@ -430,11 +430,15 @@ async function setOut($: $, isAuto: boolean, ref = ''): Promise<string> {
   return begin($, { kind: 'plan', ref: made.ref, url: made.url, title: made.title, branch: branchOf(made), isAuto }, made)
 }
 
-/** Sets out on an issue as an errand: one task, the whole issue, read through Elrond. */
-async function errand($: $, input: string, isAuto: boolean): Promise<string> {
+/**
+ * Sets out on an issue as an errand: one task, the whole issue, read through Elrond. One opened from outside the
+ * repository is built only when the person asked for it themselves (`isPersons`): Claude's call may have been steered.
+ */
+async function errand($: $, input: string, isAuto: boolean, isPersons: boolean): Promise<string> {
   const issue = await readIssue($, input)
 
   if ('error' in issue) return issue.error
+  if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person sets out on it, with /fellowship errand ${issue.ref} or from the Rings.`
 
   const task = errandTask(issue)
   const spec: Spec = { kind: 'errand', ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', branch: branchOf({ ref: issue.ref, title: issue.title ?? '' }), isAuto, tasks: [task] }
@@ -1057,7 +1061,7 @@ async function act($: $, asked: { ref: string; what: FellowshipWanted | 'look'; 
         what === 'set out' || what === 'set out auto'
           ? await setOut($, what === 'set out auto', asked.arg ?? '')
           : what === 'errand' || what === 'errand auto'
-            ? await errand($, asked.arg ?? '', what === 'errand auto')
+            ? await errand($, asked.arg ?? '', what === 'errand auto', true)
             : what === 'abandon'
               ? await abandon($, ref)
               : await sail($, ref)
@@ -1275,7 +1279,7 @@ export function registerFellowship(on: On): void {
   on('tool.call', { tool: 'mcp__middle-earth__errand' }, async ($, e) => {
     const given = e as unknown as { issue?: unknown; auto?: unknown }
 
-    const said = await alone($, '', () => errand($, String(given.issue ?? ''), given.auto === true))
+    const said = await alone($, '', () => errand($, String(given.issue ?? ''), given.auto === true, false))
 
     // The errand's member is sent here, where it is held
     await pumpFellowship($)
