@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { BlackgateComment, BlackgateGate, BlackgatePhase } from '../../types'
 import { HOW_TO, WEIGHER_MODEL, commentLine, gateText, handedOf, parseGithub, parseGitlab, parsePrRef, parseRemote, parseWeights, readArgv, reviewRef, weighPrompt } from './gate'
-import { errorText, git, isMergedFrom, run } from '../flow'
+import { errorText, git, isMergedFrom, run, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -86,34 +86,57 @@ async function open($: $, input: string): Promise<string> {
 
   const answers: string[] = []
 
-  for (const argv of readArgv(named.forge, named.repo, named.number)) {
+  const unread: string[] = []
+
+  for (const [at, argv] of readArgv(named.forge, named.repo, named.number).entries()) {
     const got = await run($, argv, FORGE_TIMEOUT_MS)
 
+    // GitLab's members say whose comments are trusted: unread, every author is taken as outside, and that is said
+    if (!got.ok && named.forge === 'gitlab' && at === 2) {
+      unread.push(`the project's members could not be read (${got.out.split('\n').slice(-1)[0] ?? ''}), so every comment is taken as from outside the repository`)
+      answers.push('')
+      continue
+    }
     if (!got.ok) return `${argv[0] ?? ''} could not read ${named.repo}#${named.number}: ${got.out.split('\n').slice(-1)[0] ?? ''}`
     answers.push(got.out)
   }
 
-  const parsed = named.forge === 'github' ? parseGithub(answers[0] ?? '', named.repo, named.number) : parseGitlab(answers[0] ?? '', answers[1] ?? '', named.repo, named.number)
+  const parsed = named.forge === 'github' ? parseGithub(answers[0] ?? '', named.repo, named.number) : parseGitlab(answers[0] ?? '', answers[1] ?? '', named.repo, named.number, answers[2] ?? '')
 
   if (typeof parsed === 'string') return parsed
 
   await update($, gate, (): BlackgateGate => ({ pr: parsed.pr, comments: [], phase: 'weighing', at: Date.now() }))
   await update($, working, () => `The Mouth of Sauron weighs ${parsed.comments.length} ${parsed.comments.length === 1 ? 'comment' : 'comments'}…`)
 
-  const weighed = parsed.comments.length === 0 ? new Map() : await $.model.complete({ model: WEIGHER_MODEL, prompt: weighPrompt(parsed.comments) }).then(said => (said.isAnswered ? parseWeights(said.text) : new Map())).catch(() => new Map())
-  const all = parsed.comments.map(one => ({ ...one, ...(weighed.get(one.id) ?? { weight: 'standard' as const, kind: 'change' as const }) }))
+  const weighing = parsed.comments.length === 0 ? new Map() : await $.model.complete({ model: WEIGHER_MODEL, prompt: weighPrompt(parsed.comments) }).then(said => (said.isAnswered ? parseWeights(said.text) : 'it gave no answer')).catch((error: unknown) => errorText(error))
+  const weighed = typeof weighing === 'string' ? new Map<string, { weight: 'standard'; kind: 'question' }>() : weighing
+  // A comment the Mouth of Sauron did not weigh is the person's to read, never built on a guess; one from outside the
+  // repository is the person's to weigh, whatever it asks
+  const all = parsed.comments.map(one => {
+    const got = weighed.get(one.id) ?? { weight: 'standard' as const, kind: 'question' as const }
+
+    return { ...one, ...got, kind: one.isOutside === true && got.kind === 'change' ? ('question' as const) : got.kind }
+  })
+  const unweighed = parsed.comments.filter(one => !weighed.has(one.id)).length
+  const outside = all.filter(one => one.isOutside === true && one.kind !== 'settled').length
+  const said = [
+    ...unread,
+    ...parsed.unread,
+    ...(typeof weighing === 'string' ? [`the comments could not be weighed (${weighing}): each is a question for you`] : unweighed > 0 ? [`${unweighed} ${unweighed === 1 ? 'comment was' : 'comments were'} not weighed, and ${unweighed === 1 ? 'is a question' : 'are questions'} for you`] : []),
+    ...(outside > 0 ? [`${outside} ${outside === 1 ? 'comment is' : 'comments are'} from outside the repository, and ${outside === 1 ? 'is a question' : 'are questions'} for you, never built`] : []),
+  ]
   // What asks nothing more (a question answered against the change, a review's summary, a comment taken back) is left out
   const comments: BlackgateComment[] = all.flatMap(one => (one.kind === 'settled' ? [] : [{ ...one, kind: one.kind }]))
   const settled = all.length - comments.length
 
   await keep($, was => ({ ...was, comments, phase: 'ready' }))
-  await update($, note, () => '')
+  await update($, note, () => (said.length === 0 ? '' : `${said.join('; ')}.`))
   await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
 
   const changes = comments.filter(one => one.kind === 'change').length
   const questions = comments.length - changes
 
-  return `The Black Gate opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /blackgate march hands them to the Fellowship.`}`
+  return `The Black Gate opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /blackgate march hands them to the Fellowship.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
 }
 
 /** Hands the comments that ask for a change to the Fellowship, which builds them on the pull request's branch. */
@@ -122,6 +145,7 @@ async function hand($: $, isAuto: boolean): Promise<string> {
 
   if (held === null) return HOW_TO
   if (held.phase === 'weighing') return 'The comments are still being weighed.'
+  if (held.pr.isFork === true) return `${held.pr.repo}#${held.pr.number} comes from a fork: its branch cannot be pushed to from this repository, so the Fellowship does not take it up. Answer its comments on the fork.`
   if (!held.comments.some(one => one.kind === 'change')) return `No comment of ${held.pr.repo}#${held.pr.number} asks for a change: the questions are yours to answer.`
 
   await update($, working, () => `Handing ${held.pr.repo}#${held.pr.number}'s comments to the Fellowship…`)
@@ -199,15 +223,15 @@ export async function startBlackgate($: $): Promise<void> {
 }
 
 export function registerBlackgate(on: On): void {
-  on('tool.call', { tool: 'mcp__middle-earth__open' }, async ($, e) => ({ result: await alone($, () => open($, String((e as unknown as { pr?: unknown }).pr ?? ''))) }))
+  on('tool.call', { tool: 'mcp__middle-earth__open' }, async ($, e) => ({ result: await alone($, () => open($, String((e as unknown as { pr?: unknown }).pr ?? ''))) })).catch((_$, _e, next) => toolFailed('open', next.error))
 
-  on('tool.call', { tool: 'mcp__middle-earth__march' }, async ($, e) => ({ result: await alone($, () => hand($, (e as unknown as { auto?: unknown }).auto === true)) }))
+  on('tool.call', { tool: 'mcp__middle-earth__march' }, async ($, e) => ({ result: await alone($, () => hand($, (e as unknown as { auto?: unknown }).auto === true)) })).catch((_$, _e, next) => toolFailed('march', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__gate' }, async $ => {
     const held = await read($, gate)
 
     return { result: held === null ? HOW_TO : gateText(held) }
-  })
+  }).catch((_$, _e, next) => toolFailed('gate', next.error))
 
   // Reading the forge and handing over take a while: the command answers at once, and the clock does them
   on('command.run', { command: 'blackgate' }, async ($, e) => {

@@ -58,7 +58,7 @@ export const isIssueRef = (ref: string): boolean => /^(github|gitlab):.+#\d+$/.t
 
 /** A relic in a line. */
 export const relicLine = (relic: MountdoomRelic): string =>
-  `${relic.isMerged ? '🔥' : '·'} ${relic.ref !== '' ? relic.ref : relic.branch} on ${relic.branch} (${relic.keepers.join(', ')})${relic.pr !== '' ? ` · ${relic.pr}` : ' · no pull request known'}${relic.isMerged ? ' · merged' : ''}${relic.isConflicting === true ? ' · in conflict with its base' : ''}`
+  `${relic.isMerged ? '🔥' : '·'} ${relic.ref !== '' ? relic.ref : relic.branch} on ${relic.branch} (${relic.keepers.join(', ')})${relic.pr !== '' ? ` · ${relic.pr}` : ' · no pull request known'}${relic.isMerged ? ' · merged' : ''}${relic.isConflicting === true ? ' · in conflict with its base' : ''}${relic.unknown !== undefined ? ` · the forge could not say whether it is merged: ${relic.unknown}` : ''}`
 
 /** What Mount Doom watches, for Claude. */
 export const relicsText = (relics: readonly MountdoomRelic[]): string =>

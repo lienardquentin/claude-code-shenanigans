@@ -33,7 +33,7 @@ import {
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
-import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt } from '../flow'
+import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -117,14 +117,30 @@ async function questOf($: $, ref: string): Promise<FellowshipQuest | null> {
 
 /** Changes a quest, and keeps it across sessions. Answers it as it now stands; nothing when no quest is on the ref. */
 async function keep($: $, ref: string, change: (was: FellowshipQuest) => FellowshipQuest): Promise<FellowshipQuest | null> {
-  const was = await questOf($, ref)
+  // Set inside the update: typed wide, as the narrowing does not follow it there
+  let made = null as FellowshipQuest | null
 
-  if (was === null) return null
+  // The change is made once, on the quest as it stands when it is written, and what is kept across sessions is that
+  await update($, quests, held => {
+    const was = held[ref]
 
-  const made = change(was)
+    if (was === undefined) return held
 
-  await update($, quests, held => (held[ref] === undefined ? held : { ...held, [ref]: change(held[ref]) }))
-  await $.store.set(STORE_KEY(ref), made).catch(() => undefined)
+    made = change(was)
+
+    return { ...held, [ref]: made }
+  })
+
+  if (made !== null) {
+    const kept: FellowshipQuest = made
+
+    await $.store.set(STORE_KEY(ref), kept).catch(async (error: unknown) => {
+      const why = `${ref} could not be kept for the next session: ${errorText(error)}`
+
+      $.ui.toast(`Fellowship: ${why}`)
+      await update($, notes, all => ({ ...all, [ref]: why }))
+    })
+  }
 
   return made
 }
@@ -239,9 +255,12 @@ async function placeTree($: $, branch: string, base: string | undefined, isFetch
   // The folder ignores itself: no quest's worktree is part of the project's checkout
   await $.fs.write(`${root}/.fellowship/.gitignore`, '*\n').catch(() => undefined)
 
-  if (isFetched) await run($, ['git', 'fetch', 'origin', branch], FETCH_TIMEOUT_MS, root)
-
+  const fetched = isFetched ? await run($, ['git', 'fetch', 'origin', branch], FETCH_TIMEOUT_MS, root) : undefined
   const exists = await git($, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], root)
+
+  // A review's branch lives on origin; one that is not there is a fork's, which the Fellowship cannot push to
+  if (fetched !== undefined && !fetched.ok && !exists.ok) return `${branch} could not be fetched from origin (${fetched.out || 'git said nothing'}): a pull request from a fork is not answered here, as its branch cannot be pushed to from this repository.`
+
   const added = await git($, exists.ok || isFetched ? ['worktree', 'add', tree, branch] : ['worktree', 'add', '-b', branch, tree, from], root)
 
   return added.ok ? { tree, base: from } : `The worktree of ${branch} could not be made at ${tree}: ${added.out}`
@@ -844,6 +863,7 @@ async function answerThreads($: $, ref: string): Promise<string> {
   const forge = forgeOf(held.pr !== '' ? held.pr : held.url)
   let answered = 0
   let resolved = 0
+  const failed: string[] = []
 
   for (const task of (held.tasks ?? []).filter(one => one.thread !== undefined && one.thread !== '' && one.isAnswered !== true)) {
     const commit = held.commits.find(one => one.taskId === task.id && one.sha !== '')
@@ -852,15 +872,28 @@ async function answerThreads($: $, ref: string): Promise<string> {
     if (reply === undefined) continue
 
     const argv = threadArgv(forge, number, task.thread ?? '', reply)
+    const replied = await run($, argv.reply, undefined, held.tree)
 
-    if (!(await run($, argv.reply, undefined, held.tree)).ok) continue
+    // A thread left unanswered is said, and tried again at the next push
+    if (!replied.ok) {
+      failed.push(`task ${task.id} (${replied.out.split('\n').slice(-1)[0] || 'the forge said nothing'})`)
+      continue
+    }
 
     answered += 1
-    if (commit !== undefined && (await run($, argv.resolve, undefined, held.tree)).ok) resolved += 1
+    if (commit !== undefined) {
+      const done = await run($, argv.resolve, undefined, held.tree)
+
+      if (done.ok) resolved += 1
+      else failed.push(`task ${task.id}'s thread is answered but not resolved (${done.out.split('\n').slice(-1)[0] || 'the forge said nothing'})`)
+    }
     await keep($, ref, was => ({ ...was, tasks: (was.tasks ?? []).map(one => (one.id === task.id ? { ...one, isAnswered: true } : one)) }))
   }
 
-  return answered === 0 ? '' : ` ${answered} ${answered === 1 ? 'thread is' : 'threads are'} answered on the pull request, ${resolved} resolved.`
+  return [
+    answered === 0 ? '' : ` ${answered} ${answered === 1 ? 'thread is' : 'threads are'} answered on the pull request, ${resolved} resolved.`,
+    failed.length === 0 ? '' : ` Not answered on the forge: ${failed.join('; ')}.`,
+  ].join('')
 }
 
 /** Pushes the branch and opens the pull request that closes the issue; a review's answers are pushed onto its pull request. */
@@ -901,7 +934,10 @@ async function sail($: $, ref: string): Promise<string> {
   // Each task of a plan was judged alone: both statues judge what the tasks do and let in together, once, before the
   // branch leaves the machine
   if (held.kind === 'plan' && held.isWarded !== true) {
-    const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, statues: ['isildur', 'anarion'], against: held.base, about: wardPurpose(made) }).catch((error: unknown) => errorText(error)))
+    // The branch took in origin's base, just fetched: judged against a local base behind it, the statues would judge
+    // the commits it took in as the branch's own
+    const upstream = (await git($, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${held.base}`], held.tree)).ok ? `origin/${held.base}` : held.base
+    const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, statues: ['isildur', 'anarion'], against: upstream, about: wardPurpose(made) }).catch((error: unknown) => errorText(error)))
 
     await keep($, ref, was => ({ ...was, phase: 'warding', verdictLine: judged.line }))
 
@@ -1081,7 +1117,14 @@ async function questOfAgent($: $, agentId: string, phase?: FellowshipPhase): Pro
 async function namedQuest($: $, named = ''): Promise<FellowshipQuest | null> {
   const all = await read($, quests)
 
-  if (named !== '') return all[named] ?? Object.values(all).find(one => one.branch === named || one.ref.endsWith(named)) ?? null
+  // A quest by its ref, its branch, or its number (`12`, `#12`), matched whole: `2` is never #12. Two quests a number
+  // names alike (#12 of two repositories) name none
+  if (named !== '') {
+    const number = /^#?(\d+)$/.exec(named)?.[1]
+    const found = all[named] !== undefined ? [all[named]] : Object.values(all).filter(one => one.branch === named || (number !== undefined && new RegExp(`[#!]${number}$`).test(one.ref)))
+
+    return found.length === 1 ? (found[0] ?? null) : null
+  }
 
   const shown = await read($, selected)
 
@@ -1189,7 +1232,7 @@ export function registerFellowship(on: On): void {
     await pumpFellowship($)
 
     return { result: said }
-  })
+  }).catch((_$, _e, next) => toolFailed('set_out', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__errand' }, async ($, e) => {
     const given = e as unknown as { issue?: unknown; auto?: unknown }
@@ -1200,7 +1243,7 @@ export function registerFellowship(on: On): void {
     await pumpFellowship($)
 
     return { result: said }
-  })
+  }).catch((_$, _e, next) => toolFailed('errand', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__quest' }, async ($, e) => {
     const named = String((e as unknown as { ref?: unknown }).ref ?? '')
@@ -1217,7 +1260,7 @@ export function registerFellowship(on: On): void {
     }
 
     return { result: texts.join('\n\n―――\n\n') }
-  })
+  }).catch((_$, _e, next) => toolFailed('quest', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__commit' }, async ($, e) => {
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
@@ -1230,7 +1273,7 @@ export function registerFellowship(on: On): void {
     await pumpFellowship($, held.ref)
 
     return { result: said }
-  })
+  }).catch((_$, _e, next) => toolFailed('commit', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__next' }, async ($, e) => {
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
@@ -1243,7 +1286,7 @@ export function registerFellowship(on: On): void {
     await pumpFellowship($, held.ref)
 
     return { result: `A member is sent on the next task of ${held.ref}: mcp__middle-earth__quest says how it goes.` }
-  })
+  }).catch((_$, _e, next) => toolFailed('next', next.error))
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person sails with
   // /fellowship sail or the pane, or opted into it up front with --auto. What sends an agent is done in the command,
