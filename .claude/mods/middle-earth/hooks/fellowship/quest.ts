@@ -255,12 +255,6 @@ export const parseWorktrees = (porcelain: string): { path: string; branch: strin
 /** Whether a task is heavy to change: heavy by its weight, or threatened by a high risk. */
 const isWeighty = (plan: FellowshipPlan, task: FellowshipTask): boolean => task.weight === 'heavy' || isThreatened(plan, task)
 
-/**
- * The statues a task's change is judged by: Isildur, whose eye is on what it does, every time; Anárion, whose eye is on
- * what it lets in, on a heavy task or one a high risk threatens. Both judge a plan's whole branch once more before it sails.
- */
-export const statuesFor = (plan: FellowshipPlan, task: FellowshipTask): ('isildur' | 'anarion')[] => (isWeighty(plan, task) ? ['isildur', 'anarion'] : ['isildur'])
-
 /** The model the statues judge a task's change with: their own on a heavy task, a lighter one on any other. */
 export const statueModelFor = (plan: FellowshipPlan, task: FellowshipTask): string | undefined => (isWeighty(plan, task) ? undefined : SWIFT_STATUE_MODEL)
 

@@ -90,6 +90,9 @@ export const verdictPrompt = (answer: string): string => {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
+// The severities a finding is minor by, as reviews spell them
+const MINOR = ['minor', 'nit', 'nitpick', 'low', 'info', 'suggestion']
+
 /** A statue's findings, from the last json block of its answer: undefined when it gave none that reads. */
 export const parseFindings = (answer: string): ArgonathFinding[] | undefined => {
   const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n?```/g)].map(found => found[1] ?? '').reverse()
@@ -102,7 +105,8 @@ export const parseFindings = (answer: string): ArgonathFinding[] | undefined => 
 
       return held.findings
         .map(raw => raw as Record<string, unknown>)
-        .map(raw => ({ severity: typeof raw.severity === 'string' && raw.severity.trim().toLowerCase() === 'blocking' ? ('blocking' as const) : ('minor' as const), where: text(raw.where), text: text(raw.text) }))
+        // Minor only when the statue says it is: a severity it spelled otherwise ("critical", "high", none) blocks
+        .map(raw => ({ severity: MINOR.includes(text(raw.severity).toLowerCase()) ? ('minor' as const) : ('blocking' as const), where: text(raw.where), text: text(raw.text) }))
         .filter(finding => finding.text !== '')
     } catch {
       // the one before

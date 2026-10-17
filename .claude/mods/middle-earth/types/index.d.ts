@@ -260,6 +260,8 @@ export type FellowshipQuest = {
   isWarded?: boolean
   /** The targets the task at hand reached that nothing proves, from its last proof. */
   unproven?: string[]
+  /** What git's config says of the code a commit runs (hooks, filters, includes) as the quest set out; absent on a quest set out before it was kept. */
+  gitRuns?: string
   at: number
 }
 

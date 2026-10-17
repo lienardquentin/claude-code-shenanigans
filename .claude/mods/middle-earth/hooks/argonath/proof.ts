@@ -143,21 +143,13 @@ export const parseStandards = (text: string): string[] =>
     .map(line => /^standards\s*=\s*(.+)$/.exec(line.trim())?.[1]?.trim() ?? '')
     .filter(path => path !== '')
 
-/** A change in a few characters, so the one last reviewed is known again: FNV-1a, in hex. */
-export const fingerprintOf = (text: string): string => {
-  let hash = 0x811c9dc5
-  for (let at = 0; at < text.length; at += 1) hash = Math.imul(hash ^ text.charCodeAt(at), 0x01000193) >>> 0
-
-  return `${text.length.toString(16)}-${hash.toString(16)}`
-}
-
 /**
- * The shell script that says what the change holds, as one text to fingerprint: HEAD, the diff against the merge base
- * of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by content, so an edit of a new file
- * moves it too.
+ * The shell script that fingerprints what the change holds, so the one last proved or reviewed is known again: HEAD,
+ * the diff against the merge base of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by
+ * content (so an edit of a new file moves it too), hashed whole by git. It writes nothing to the object store.
  */
 export const CHANGE_SCRIPT =
-  'b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --'
+  'held=$(b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --) || exit 1; printf %s "$held" | git hash-object --stdin'
 
 /** What each target's folders hold against HEAD, split from one diff and one list of new files, by label. */
 export const changesByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {

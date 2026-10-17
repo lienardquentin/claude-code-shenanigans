@@ -373,6 +373,8 @@ describe('the statues', () => {
     expect(parseFindings('Looks fine to me.')).toBeUndefined()
     // A statue that shouts its severity still blocks
     expect(parseFindings('```json\n{ "findings": [{ "severity": "BLOCKING", "where": "a.py:1", "text": "It drops the error." }] }\n```')?.[0]?.severity).toBe('blocking')
+    // A severity the statue spelled its own way, or none, blocks: only one it calls minor lets the change pass
+    expect(parseFindings(FOUND([{ severity: 'critical', where: 'a.py:1', text: 'SQL built from input.' }, { where: 'a.py:2', text: 'No severity.' }, { severity: 'Low', where: '', text: 'A name.' }])).map(one => one?.severity)).toEqual(['blocking', 'blocking', 'minor'])
   })
 
   test('run only commands that read', () => {

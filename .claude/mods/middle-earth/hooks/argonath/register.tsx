@@ -22,7 +22,6 @@ import {
   isNarrowable,
   isProd,
   isQuiet,
-  fingerprintOf,
   isTested,
   markedTests,
   marksOf,
@@ -483,7 +482,7 @@ const UNREADABLE = 'unreadable:'
 async function wholeFingerprint($: $, against = 'HEAD', place?: Place): Promise<string> {
   const ran = await $.process.run(['sh', '-c', CHANGE_SCRIPT, 'sh', against], { cwd: place?.tree ?? (await homeOf($)) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
-  return ran.exitCode === 0 ? fingerprintOf(ran.stdout) : `${UNREADABLE}${ran.stderr.trim().split('\n').slice(-1)[0] ?? ''}`
+  return ran.exitCode === 0 ? `git:${ran.stdout.trim()}` : `${UNREADABLE}${ran.stderr.trim().split('\n').slice(-1)[0] ?? ''}`
 }
 
 /** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name; or why git could not say it. */

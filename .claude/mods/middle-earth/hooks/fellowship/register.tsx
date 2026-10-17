@@ -24,7 +24,6 @@ import {
   questText,
   reviewTasks,
   statueModelFor,
-  statuesFor,
   tally,
   threadArgv,
   treePathOf,
@@ -303,6 +302,33 @@ async function followBase($: $, held: FellowshipQuest): Promise<string | undefin
   return `${held.branch} cannot take in ${upstream}: it conflicts in ${conflicted.join(', ') || 'the tree'}. Merge it in ${held.tree} by hand, then go on.`
 }
 
+// The config by which a git command runs code of the repository's: its hooks, its filters, what it includes, what it
+// watches the tree with. A builder's change can set none of it (the config is outside its worktree, `git config` is
+// refused it), so a commit made after it changed was not the person's to make
+const GIT_RUNS = '^(core\\.(hookspath|fsmonitor|sshcommand|attributesfile)|include(if)?\\..*|filter\\..*|diff\\..*\\.(command|textconv))$'
+
+/** What git's config says of the code a git command run in a folder would run. */
+async function gitRunsIn($: $, tree: string): Promise<string> {
+  // None of it set is no error: git answers 1, and nothing
+  return (await git($, ['config', '--show-origin', '--get-regexp', GIT_RUNS], tree)).out
+}
+
+/**
+ * Why the mod may not commit in a quest's worktree: git's config of the code a commit runs changed since the quest set
+ * out, or the change touches the hooks the commit would run; nothing when it may. A builder's code is run by the mod's
+ * own commit, outside the guard, only through these.
+ */
+async function commitRefusal($: $, held: FellowshipQuest): Promise<string | undefined> {
+  const runs = await gitRunsIn($, held.tree)
+
+  if (held.gitRuns !== undefined && runs !== held.gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${held.tree} since the quest set out, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task before the Argonath again.`
+
+  const hooks = (await git($, ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], held.tree)).out
+  const touched = hooks.startsWith(`${held.tree}/`) ? (await git($, ['status', '--porcelain', '--', hooks], held.tree)).out : ''
+
+  return touched === '' ? undefined : `The change touches the git hooks its own commit would run (${hooks}), so it is not committed by the mod: look at them, and commit it by hand if they are as they should be.`
+}
+
 /** What a quest is set out on: what it is, and the branch it is built on. */
 type Spec ={ kind: FellowshipKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: FellowshipTask[]; pr?: string }
 
@@ -358,6 +384,7 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
     gazed: resumed?.gazed,
     commits: resumed?.commits ?? [],
     pr: resumed?.pr ?? spec.pr ?? '',
+    gitRuns: resumed?.gitRuns ?? (await gitRunsIn($, placed.tree)),
     at: resumed?.at ?? Date.now(),
   }
 
@@ -647,12 +674,12 @@ async function prove($: $, ref: string): Promise<void> {
   const made = await workOf($, held)
   const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
   const about = typeof made === 'string' || task === undefined ? '' : purposeOf(held, made, task, mirror.amendments)
-  // Where nothing proves what the change reached, both statues judge it with their own model; else as the task's weight
+  // Both statues judge every change: a task's weight is the council's guess, and what a change lets in is known only
+  // once it is made. Where nothing proves what it reached, they judge with their own model; else as the task's weight
   // and risks ask, a task that is not heavy on a lighter model
   const isBlind = typeof made === 'string' || task === undefined || verdict.unhandled.length > 0
-  const statues = isBlind ? ['isildur', 'anarion'] : statuesFor(made, task)
   const model = isBlind ? undefined : statueModelFor(made, task)
-  const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, about, statues, ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
+  const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, about, statues: ['isildur', 'anarion'], ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
 
   await keep($, ref, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
   await settle($, ref, judged)
@@ -741,6 +768,14 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   // A task that needed no change is done with no commit
   if (dirty.out !== '') {
+    const refused = await commitRefusal($, held)
+
+    if (refused !== undefined) {
+      await stop($, held, refused)
+
+      return refused
+    }
+
     const added = await git($, ['add', '-A', ...UNMODDED], held.tree)
     const done = added.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : added
 
@@ -773,7 +808,10 @@ async function resubmit($: $, ref: string): Promise<string> {
   if (held === null) return HOW_TO
   if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest on ${ref} is ${held.phase}.`
 
-  await keep($, ref, was => ({ ...was, phase: 'proving', march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
+  // The person puts it there having looked: git's config as it now stands is theirs
+  const gitRuns = await gitRunsIn($, held.tree)
+
+  await keep($, ref, was => ({ ...was, phase: 'proving', gitRuns, march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
   await want($, ref, 'prove')
 
   return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`

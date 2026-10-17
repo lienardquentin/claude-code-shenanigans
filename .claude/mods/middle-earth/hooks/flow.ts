@@ -34,6 +34,13 @@ const AT_WORD = '(^|[;&|(`]\\s*|\\s)'
 // git, run by its name or by its path (`/usr/bin/git`), and the options it takes before its verb
 const GIT = `${AT_WORD}(\\S*/)?git\\s+(-\\S+(\\s+[^-\\s]\\S*)?\\s+)*`
 
+// git run with config of the command's own, before its verb (`git -c core.fsmonitor=… status`), or with the
+// environment that stands for it: a config can run any command, and so can a git told to look in another repository
+const GIT_CONFIGURED = `${AT_WORD}(\\S*/)?git\\s+((?!-c\\b|--config-env)-\\S+(\\s+[^-\\s]\\S*)?\\s+)*(-c|--config-env)\\b|\\bGIT_(CONFIG\\w*|DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|EXEC_PATH|SSH_COMMAND|EXTERNAL_DIFF|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES)=`
+
+// `git config` that writes: one that only reads (`--get`, `--list`) changes nothing
+const GIT_CONFIG_WRITE = 'config(?!(\\s+--(show-origin|show-scope|null|includes|global|system|local|worktree|file\\s+\\S+))*\\s+(--get\\S*|--list|-l)\\b)'
+
 /** The command and the shell scripts it runs inline (`sh -c '…'`, `bash -c "…"`), each read as a command of its own. */
 const scriptsOf = (command: string): string[] => [command, ...[...command.matchAll(/\b(?:ba|z|da)?sh\s+(?:-\S+\s+)*-c\s+(['"])([\s\S]*?)\1/g)].map(found => found[2] ?? '')]
 
@@ -46,13 +53,43 @@ const scriptsOf = (command: string): string[] => [command, ...[...command.matchA
 export const isChanging = (command: string): boolean =>
   scriptsOf(command).some(
     script =>
-      new RegExp(`${GIT}(add|commit|push|pull|fetch|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch|worktree|update-ref|gc|init|clone)\\b`).test(script) ||
+      new RegExp(`${GIT}(add|commit|push|pull|fetch|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch|worktree|update-ref|gc|init|clone|${GIT_CONFIG_WRITE})\\b`).test(script) ||
+      new RegExp(GIT_CONFIGURED).test(script) ||
       new RegExp(`${AT_WORD}(rm|mv|cp|ln|touch|mkdir|chmod|chown|tee|truncate|dd|rsync|unzip|(npm|pnpm|yarn)\\s+(install|i|add|remove|update)|pip3?\\s+install|uv\\s+(add|remove|sync|lock|pip)|cargo\\s+(add|install|update)|sed\\s+-i|perl\\s+-i|curl|wget)\\b`).test(script) ||
       new RegExp(`${AT_WORD}(python[\\d.]*|node|deno|bun|ruby|perl|php)\\s+(-\\S+\\s+)*-[ce]\\b`).test(script) ||
       /(^|\s)find\s[^;&|]*\s-(delete|exec|execdir|ok)\b/.test(script) ||
       // A redirection writes a file; one into the void, or into another stream, does not
       /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(script),
   )
+
+// The folders of the machine where what is private lives: the people's homes, the system's config and secrets, the
+// processes' environment, the drives mounted in
+const PRIVATE_ROOTS = /^\/(home|root|Users|etc|proc|run|srv|media|mnt|var(?!\/tmp(\/|$)))(\/|$)/
+
+/** Whether a path, absolute once resolved from a folder, is somewhere private on the machine outside the project's folder. */
+export const isPrivatePath = (root: string, cwd: string, path: string): boolean => {
+  const whole = resolvedFrom(cwd, path)
+
+  return whole !== root && !whole.startsWith(`${root}/`) && PRIVATE_ROOTS.test(whole)
+}
+
+/**
+ * Why a shell command no agent the mod sends is to run, whatever its role; nothing when it may. It names the home
+ * folder or a private folder of the machine outside the project (`cat ~/.ssh/id_rsa`, `cat /etc/shadow`), or runs what
+ * it downloads (`curl … | sh`). It reads the command's words: a fence for agents that mean well, not a sandbox.
+ */
+export const privateRefusal = (root: string, cwd: string, command: string): string | undefined => {
+  for (const script of scriptsOf(command)) {
+    if (/(^|[\s=:'"(])(~|\$\{?HOME\}?)(\/|[\s'";&|)]|$)/.test(script)) return 'Leave the home folder alone: work in the project, by paths relative to your working directory.'
+    if (new RegExp(`${AT_WORD}(curl|wget)\\b[^;&]*\\|\\s*(sudo\\s+)?((ba|z|da)?sh|python[\\d.]*|node|perl|ruby|php)\\b`).test(script)) return 'Run nothing you download: what a builder needs is in the project, or named in its manifests for the person to install.'
+
+    const named = script.split(/[\s;&|()<>'"`]+/).map(word => word.replace(/^[^=/]*=/, '')).find(word => word.startsWith('/') && isPrivatePath(root, cwd, word))
+
+    if (named !== undefined) return `${named} is outside the project, somewhere private on the machine: read and run only what the project holds.`
+  }
+
+  return undefined
+}
 
 /** A path as it lands from a folder: absolute, its `.` and `..` walked. */
 export const resolvedFrom = (cwd: string, path: string): string => {
@@ -236,9 +273,16 @@ export const parseJudgement = (answer: unknown): Judged => {
   return { verdict, blocking, minor, line }
 }
 
-/** A command a builder is not to run: its mod commits, and the branch is the mod's to keep. */
+/**
+ * A command a builder is not to run: its mod commits, and the branch is the mod's to keep. Nor does it set what git
+ * runs (its config, by `git config`, `-c` or the environment): the mod's own commit would run it, outside the guard.
+ */
 export const isForbiddenGit = (command: string): boolean =>
-  scriptsOf(command).some(script => new RegExp(`${GIT}(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull|update-ref|worktree)\\b`).test(script))
+  scriptsOf(command).some(
+    script =>
+      new RegExp(`${GIT}(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull|update-ref|worktree|${GIT_CONFIG_WRITE})\\b`).test(script) ||
+      new RegExp(GIT_CONFIGURED).test(script),
+  )
 
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 
