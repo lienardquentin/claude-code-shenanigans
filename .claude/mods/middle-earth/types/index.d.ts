@@ -107,7 +107,7 @@ export type Planning = {
   accepted?: string[]
   /** The file it writes its plan to. */
   planPath?: string
-  /** Whether it has laid its plan: it sits on until its turn ends. */
+  /** Whether it has laid its plan: it reviews until its turn ends. */
   isLaid?: boolean
 }
 
@@ -179,11 +179,11 @@ export type FellowshipKind = 'plan' | 'errand' | 'review'
  * - `ready`: no member out; the next task waits for the person, or goes at once on an auto quest
  * - `gazing`: the test writer writes the task's tests first, red, before a member builds it (a plan's tasks that are not light)
  * - `marching`: a member builds a task
- * - `proving`: Argonath proves what the member built
- * - `judging`: every changed run is pinned; the statues of the Argonath judge the change, which is committed once they pass it
+ * - `proving`: verify proves what the member built
+ * - `judging`: every changed run is pinned; the reviewers judge the change, which is committed once they pass it
  * - `stuck`: a member handed its task back, or its tries ran out; the person decides
  * - `arrived`: every task is committed; the pull request waits to be opened, or the branch to be pushed
- * - `warding`: both statues judge the whole branch of a plan, what its tasks do together, before it sails
+ * - `warding`: both reviewers judge the whole branch of a plan, what its tasks do together, before it sails
  * - `sailed`: the pull request is open, or the review's answers are pushed
  */
 export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'warding' | 'sailed'
@@ -203,17 +203,17 @@ export type FellowshipMarch = {
   at: number
   /** What the member answered when its turn ended. */
   answer: string
-  /** HEAD when the task was first sent: a commit past it was made past the proof and the statues. */
+  /** HEAD when the task was first sent: a commit past it was made past the proof and the reviewers. */
   head?: string
   /** Whether this try's member was already sent back once with its proof, rather than a member a rung up. */
   isResumed?: boolean
   /** Whether this try's member was already sent back once to tidy the minor findings of a pass. */
   isTidied?: boolean
-  /** Whether the person put this try's change before the Argonath, after its member was back: its account came first. */
+  /** Whether the person put this try's change up for verification, after its member was back: its account came first. */
   isPutBefore?: boolean
   /**
-   * Whether a lane's change, passed by the statues, was rebased onto its quest's branch since: it is proved again, and
-   * lands with the minor findings it passed with, no statue sent anew.
+   * Whether a lane's change, passed by the reviewers, was rebased onto its quest's branch since: it is proved again, and
+   * lands with the minor findings it passed with, no reviewer sent anew.
    */
   isRebased?: boolean
   /** The minor findings a rebased change passed with. */
@@ -237,15 +237,15 @@ export type FellowshipCommit = {
   sha: string
   /** Who built it. */
   by: string
-  /** What the statues found that did not block it, a line each. */
+  /** What the reviewers found that did not block it, a line each. */
   minor: string[]
-  /** The targets the change reached that nothing proves (a frontend): the statues judged them alone. */
+  /** The targets the change reached that nothing proves (a frontend): the reviewers judged them alone. */
   unproven?: string[]
   /** What its builder said of it: an errand's pull request opens on it. */
   answer?: string
-  /** The Argonath's proof of it, in a line. */
+  /** The the proof of it, in a line. */
   proof?: string
-  /** Whether the person put it before the Argonath after its builder was back: the builder's account came before the proof. */
+  /** Whether the person put it up for verification after its builder was back: the builder's account came before the proof. */
   isPutBefore?: boolean
 }
 
@@ -266,11 +266,11 @@ export type FellowshipQuest = {
   isAuto: boolean
   phase: FellowshipPhase
   march: FellowshipMarch | null
-  /** Argonath's last proof of the change, whole. */
+  /** verify's last proof of the change, whole. */
   proof: string
   /** Its verdict in a line. */
   proofLine: string
-  /** The statues' verdict on the change, in a line; empty before they judge it. */
+  /** The reviewers' verdict on the change, in a line; empty before they judge it. */
   verdictLine: string
   /** What the tests written first showed of the task at hand; null before it gazed, for a light task, or when it showed nothing. */
   vision?: FellowshipVision | null
@@ -279,7 +279,7 @@ export type FellowshipQuest = {
   commits: FellowshipCommit[]
   /** The pull or merge request, once opened; a review's from the start. */
   pr: string
-  /** Whether both statues passed the whole branch as it stands; a commit after it is judged again before sailing. */
+  /** Whether both reviewers passed the whole branch as it stands; a commit after it is judged again before sailing. */
   isWarded?: boolean
   /** The targets the task at hand reached that nothing proves, from its last proof. */
   unproven?: string[]
@@ -344,16 +344,16 @@ export type TestsFirst = {
   tree?: string
 }
 
-// --- The Argonath: what a change reached, its proof and its judgement ----------------------------------------------------
+// --- Verify: what a change reached, its proof and its judgement ----------------------------------------------------
 
 /** What a target is, which says the handler that finds what changed in what it does. */
-export type ArgonathKind = 'cli' | 'service' | 'frontend'
+export type TargetKind = 'cli' | 'service' | 'frontend'
 
 /** One thing the project builds, as `.claude/argonath` names it. */
-export type ArgonathTarget = {
+export type Target = {
   /** Its name: for a CLI, the one anduril watches it under. */
   label: string
-  kind: ArgonathKind
+  kind: TargetKind
   /** The source folders whose edits are edits of it, absolute. */
   roots: string[]
   /** The files and folders that hold its integration tests, absolute; none when the project names none. */
@@ -371,9 +371,9 @@ export type ArgonathTarget = {
   /** A service's kept requests, each as `label METHOD /path [json]`, played in order. */
   requests: string[]
   /** Where a service is deployed, to play its requests on both builds against its real dependencies; none when not said. */
-  live: ArgonathLive | null
+  live: LiveStage | null
   /** A service's database: each build of the fast stage plays against one of its own, in a warm container; none when not said. */
-  db: ArgonathDb | null
+  db: Database | null
   /** The request a service is asked before it is played, until it answers 2xx with a body `match` finds; none when not said. */
   ready: { request: string; match: string } | null
   /** The command that runs the tests a change of the target can break, from the project's folder; empty when none is named. */
@@ -385,7 +385,7 @@ export type ArgonathTarget = {
 }
 
 /** A service's database for the fast stage: a Postgres image, the variable its address is set in, and how it is made ready. */
-export type ArgonathDb = {
+export type Database = {
   /** A Postgres image, `postgres:18-alpine`: one container of it is started for the project and kept warm. */
   image: string
   /** The variable the build's database address is set in, `DATABASE_URL`. */
@@ -395,7 +395,7 @@ export type ArgonathDb = {
 }
 
 /** A service's live stage: its deployed workload, what to forward to it, and how to leave its database as it was. */
-export type ArgonathLive = {
+export type LiveStage = {
   /** The workload, `context/namespace/kind/name`: its environment is the one played with. A context naming prod is refused. */
   workload: string
   /** The services reached through a port-forward, `service:port`; the workload's variables are pointed at the forwarded ones. */
@@ -419,15 +419,15 @@ export type ArgonathLive = {
 }
 
 /** How a test ended on one side of a proof; `skip` when its runner said it skipped it, `none` when that side did not name it. */
-export type ArgonathOutcome = 'pass' | 'fail' | 'skip' | 'none'
+export type Outcome = 'pass' | 'fail' | 'skip' | 'none'
 
 /** One test a changed run is marked on, and how it ended on each side once proved. */
-export type ArgonathTest = {
+export type TestResult = {
   name: string
   /** On the source of the commit compared against, with the working tree's tests. */
-  from: ArgonathOutcome
+  from: Outcome
   /** On the working tree. */
-  to: ArgonathOutcome
+  to: Outcome
 }
 
 /**
@@ -435,27 +435,27 @@ export type ArgonathTest = {
  * test of its own fails on the commit and passes on the working tree, `loose` when its tests pass on both, `broken`
  * when one fails on the working tree.
  */
-export type ArgonathState = 'bare' | 'marked' | 'pinned' | 'loose' | 'broken'
+export type RunState = 'bare' | 'marked' | 'pinned' | 'loose' | 'broken'
 
 /** One kept run or request whose answer changed: a part of the radius. */
-export type ArgonathSeam = {
+export type ChangedRun = {
   /** The run or the request as the project keeps it. */
   line: string
   /** How it changed: its ending or status, and a diff of what it wrote or answered. */
   evidence: string
-  tests: ArgonathTest[]
-  state: ArgonathState
+  tests: TestResult[]
+  state: RunState
 }
 
 /** What a change reached in one target, by the kept runs or requests that changed, and what of it a test pins. */
-export type ArgonathRadius = {
+export type Radius = {
   label: string
-  kind: ArgonathKind
+  kind: TargetKind
   /** When it was made, milliseconds since the epoch. */
   at: number
   /** The two builds compared and how many of the kept ones changed, in a line. */
   summary: string
-  seams: ArgonathSeam[]
+  seams: ChangedRun[]
   /** The kept runs or requests that did not change: outside the radius, and owed no test. */
   unchanged: string[]
   /** Whether the tests were run on both sides since the radius was made. */
@@ -475,7 +475,7 @@ export type ArgonathRadius = {
   /** The tests the affected command found failing on both sides: broken before the change, and not owed by it. */
   preexisting?: string[]
   /** The tests the caller requires to pass on the working tree (written before the change, as the test writer does), and how each ended. */
-  required?: ArgonathTest[]
+  required?: TestResult[]
   /** Why the change fails its target's check or audit, which passed on the commit's source: each owed by the change. */
   gates?: string[]
   /** The check or audit that failed on the commit's source too: said, and not owed by the change. */
@@ -488,43 +488,43 @@ export type ArgonathRadius = {
   isUnhandled?: boolean
 }
 
-/** One of the two statues of the Argonath, which judge a settled change. */
-export type ArgonathStatue = 'isildur' | 'anarion'
+/** One of the two reviewers of verify, which judge a settled change. */
+export type ReviewerName = 'reviewer-correctness' | 'reviewer-security'
 
-/** Something a statue found in the change: `blocking` keeps it from being committed, `minor` does not. */
-export type ArgonathFinding = { severity: 'blocking' | 'minor'; where: string; text: string }
+/** Something a reviewer found in the change: `blocking` keeps it from being committed, `minor` does not. */
+export type Finding = { severity: 'blocking' | 'minor'; where: string; text: string }
 
-/** One statue sitting in judgement: the reviews it carries and what it found. */
-export type ArgonathSeat = {
-  statue: ArgonathStatue
+/** One reviewer reviewing in judgement: the reviews it carries and what it found. */
+export type ReviewSeat = {
+  reviewer: ReviewerName
   title: string
   /** The reviews it carries, as slash commands. */
   reviews: string[]
-  /** The id its spawn answered; empty where it answered none, and the statue is known by its type. */
+  /** The id its spawn answered; empty where it answered none, and the reviewer is known by its type. */
   agentId: string
-  /** `sitting` while it judges; `pass` with no blocking finding, `fail` with one; `silent` when it gave no findings that read. */
-  state: 'sitting' | 'pass' | 'fail' | 'silent'
-  findings: ArgonathFinding[]
+  /** `reviewing` while it judges; `pass` with no blocking finding, `fail` with one; `silent` when it gave no findings that read. */
+  state: 'reviewing' | 'pass' | 'fail' | 'silent'
+  findings: Finding[]
   /** Why it is silent; empty otherwise. */
   why: string
   /** Whether it was asked again for its verdict alone, its first answer holding no findings that read: once only. */
   isAskedAgain?: boolean
 }
 
-/** The statues together: sitting, or what they found. */
-export type ArgonathVerdict = 'sitting' | 'pass' | 'fail' | 'silent'
+/** The reviewers together: reviewing, or what they found. */
+export type Verdict = 'reviewing' | 'pass' | 'fail' | 'silent'
 
 /** The judgement of one settled change. */
-export type ArgonathJudgement = {
+export type Judgement = {
   /** The change judged: HEAD, the diff against it and the new files, as one fingerprint. */
   fingerprint: string
   at: number
   /** Who sent it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
   by: 'turn' | 'tool'
-  seats: ArgonathSeat[]
+  seats: ReviewSeat[]
   /** What the change was taken against: its merge base with HEAD is diffed. HEAD when left out. */
   against?: string
-  /** Whether there was no change to judge, and so no statue sat. */
+  /** Whether there was no change to judge, and so no reviewer sat. */
   isEmpty?: boolean
 }
 
@@ -533,13 +533,13 @@ export type ArgonathJudgement = {
  * - `pinned`: every changed run is pinned, and no test turned
  * - `unchanged`: no kept run changed, and the change did not reach its folders
  * - `unreached`: the change reached its folders, but no kept run answers otherwise: a refactor, or behaviour no kept
- *   run reaches, which only the statues are left to tell apart
+ *   run reaches, which only the reviewers are left to tell apart
  * - `unsettled`: a changed run is not pinned yet, or a test turned
  * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, anduril did not answer)
- * - `unhandled`: the change reached its folders, and Argonath has no handler for its kind: nothing is proved of it
+ * - `unhandled`: the change reached its folders, and verify has no handler for its kind: nothing is proved of it
  * - `untouched`: the change did not reach its folders, and its handler could not look either
  */
-export type ArgonathProofState = 'pinned' | 'unchanged' | 'unreached' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
+export type ProofState = 'pinned' | 'unchanged' | 'unreached' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
 
 // --- Review follow-up: a pull request's review comments-----------------------------------------------------------------
 
@@ -644,10 +644,10 @@ export type Leftover = {
  * - `planner`: the planner's planner, which reads and writes its plan file alone
  * - `member`: a member of the Fellowship, building one task in its quest's worktree
  * - `test-writer`: writing a task's tests first, and only tests
- * - `statue`: Isildur or Anárion, judging a change and changing nothing
+ * - `reviewer`: the correctness reviewer or the security reviewer, judging a change and changing nothing
  * - `other`: an agent the mod did not send, known only by the folder its spawn named
  */
-export type MiddleEarthRole = 'planner' | 'member' | 'test-writer' | 'statue' | 'other'
+export type MiddleEarthRole = 'planner' | 'member' | 'test-writer' | 'reviewer' | 'other'
 
 /** One agent, as the mod sent it or saw it spawned: what it is, and the folder it works in. */
 export type MiddleEarthAgent = {
@@ -732,29 +732,29 @@ declare module 'claude-code' {
       testsFirstByTree: Record<string, TestsFirst>
       testsFirstNote: string
 
-      argonathTargets: ArgonathTarget[]
+      verifyTargets: Target[]
       /** The last radius of each target that has one, in the order the project names them. */
-      argonathRadii: ArgonathRadius[]
+      verifyRadii: Radius[]
       /** The targets whose folders were edited and not yet looked at again, by label. */
-      argonathTouched: string[]
+      verifyTouched: string[]
       /** What is being done now, for the pane to say; empty when nothing is. */
-      argonathWorking: string
+      verifyWorking: string
       /** What stood in the way of the last look, a sentence a target; empty when nothing did. */
-      argonathNote: string
+      verifyNote: string
       /** The changed run the pane shows the evidence of, `label line`; empty for none. */
-      argonathSelected: string
+      verifySelected: string
       /** Whether the band above the prompt is hidden until the next radius. */
-      argonathIsHidden: boolean
+      verifyIsHidden: boolean
       /** The beat of the band's glow, which swells and fades while the band is lit. */
-      argonathGlow: number
+      verifyGlow: number
       /** The folder the session started in, absolute: where the project's file and the checkouts are. */
-      argonathHome: string
+      verifyHome: string
       /** The fingerprint of the change last handed to the reviews: the same change is not reviewed twice. */
-      argonathReviewed: string
-      /** The statues' judgement of the last settled change; null before any. */
-      argonathJudgement: ArgonathJudgement | null
-      /** The statues' judgement of the last change in each quest's worktree, by its folder. */
-      argonathTreeJudgements: Record<string, ArgonathJudgement>
+      verifyReviewed: string
+      /** The reviewers' judgement of the last settled change; null before any. */
+      verifyJudgement: Judgement | null
+      /** The reviewers' judgement of the last change in each quest's worktree, by its folder. */
+      verifyTreeJudgements: Record<string, Judgement>
 
       followUpReview: FollowUp | null
       followUpNote: string

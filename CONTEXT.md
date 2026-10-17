@@ -92,16 +92,16 @@ _Avoid_: Session usage, context usage, tokens left
 
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
 committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the issues pane lists the issues,
-the planner plans, the Fellowship builds, the test writer writes tests first, the Argonath check and review, the review follow-up reads
+the planner plans, the Fellowship builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
 review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
 One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, the planner, the Fellowship, tests first, the
-Argonath, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
+verify, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
 **Sent agent**:
-A subagent a part sends (the planner, a builder, the test writer, a statue), registered, recorded and guarded in one place:
+A subagent a part sends (the planner, a builder, the test writer, a reviewer), registered, recorded and guarded in one place:
 held to what its role allows under the session's own permission mode.
 _Avoid_: Worker, helper, bot
 
@@ -170,18 +170,18 @@ run is pinned and no test it can break is broken.
 _Avoid_: Covered, tested, green
 
 **Proof**:
-The Argonath's check of a change: its radius afresh, then the tests on both sides, the tests and checks it can break (and
+Verify's (`/verify`) check of a change: its radius afresh, then the tests on both sides, the tests and checks it can break (and
 the audit of the dependencies whose manifests it touches), settled or not.
 _Avoid_: CI, test run, validation
 
-**Statues**:
-The Argonath's two reviewers, both sent on every settled change: Isildur for correctness, Anárion for security. A
+**Reviewers**:
+Verify's two reviewers, both sent on every settled change: one for correctness, one for security. A
 blocking finding, or one whose severity they do not call minor, sends the change back to its builder.
-_Avoid_: Judges, reviewers' bots, checks
+_Avoid_: Statues, judges, reviewers' bots, checks
 
 **Tests first**:
 The failing tests the test writer (`/tests`) writes for a plan's task that is not light, before its builder starts; locked until committed,
-changed only with a reason the statues are shown.
+changed only with a reason the reviewers are shown.
 _Avoid_: Spec tests, red tests, TDD tests
 
 **Leftover**:

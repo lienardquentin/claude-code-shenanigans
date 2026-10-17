@@ -12,7 +12,7 @@ export const MOD_FOLDERS = ['elrond', 'argonath', 'anduril', 'fellowship', 'loth
 /** The pathspec of a tree's own files, the mods' folders left out: what a commit stages, and what a change is looked for in. */
 export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder => `:(exclude).${folder}`)]
 
-/** `UNMODDED` as a shell script spells it: what the statues are shown, and what a change is known by, is what a commit takes. */
+/** `UNMODDED` as a shell script spells it: what the reviewers are shown, and what a change is known by, is what a commit takes. */
 export const UNMODDED_WORDS = UNMODDED.map(one => `'${one}'`).join(' ')
 
 /**
@@ -39,7 +39,7 @@ export const fingerprintOf = async (shell: Shell, against = 'HEAD'): Promise<str
   return ran.exitCode === 0 ? `git:${ran.stdout.trim()}` : `${UNREADABLE}${lastLine(ran.stderr)}`
 }
 
-/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name, the mods' folders left out; or why git could not say it. */
+/** The change as the reviewers are handed it: the diff since `against` left HEAD, then the new files by name, the mods' folders left out; or why git could not say it. */
 export const changeText = async (shell: Shell, against = 'HEAD'): Promise<{ text: string } | { error: string }> => {
   const ran = await shell.run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff ${UNMODDED_WORDS}; echo; echo "New files:"; git ls-files -o --exclude-standard ${UNMODDED_WORDS}`, 'sh', against])
 
@@ -47,7 +47,7 @@ export const changeText = async (shell: Shell, against = 'HEAD'): Promise<{ text
 }
 
 /**
- * How big the change is, in a sentence for the statues: nothing when git could not count it, as a size is only a note.
+ * How big the change is, in a sentence for the reviewers: nothing when git could not count it, as a size is only a note.
  * Each new file is counted as git would diff it (a link by where it points, a binary by no line), and one git cannot
  * diff (a nested repository) is left out of the count.
  */

@@ -72,7 +72,7 @@ describe("a task's commit", () => {
       ['git diff --cached', ok('+++ b/settings.py\n+KEY = "AKIAABCDEFGHIJKLMNOP"')],
     ])
 
-    expect(await commitTask(leaky.fake, asked)).toEqual({ kind: 'refused', why: `Task 2's change adds what looks like a secret (settings.py: an AWS access key), so it is not committed: take it out of ${TREE}, then put the task before the Argonath again.` })
+    expect(await commitTask(leaky.fake, asked)).toEqual({ kind: 'refused', why: `Task 2's change adds what looks like a secret (settings.py: an AWS access key), so it is not committed: take it out of ${TREE}, then put the task up for verification again.` })
     expect(leaky.ran).toContain('git reset -q')
 
     const refused = shell([

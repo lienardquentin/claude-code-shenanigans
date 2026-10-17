@@ -323,7 +323,7 @@ const sameQuestion = (one: string, other: string): boolean => {
 export const decidedOf = (plan: IssuePlan): PlanDecision[] =>
   [...plan.decided, ...answersOf(plan)].reduce<PlanDecision[]>((all, one) => [...all.filter(held => !sameQuestion(held.text, one.text)), one], [])
 
-/** A folder the project builds, as Argonath names it: what a task's files are weighed against. */
+/** A folder the project builds, as verify names it: what a task's files are weighed against. */
 export type Built = { label: string; roots: readonly string[] }
 
 // Where a behaviour is proved: a test file, or the runs and requests the project keeps for its targets
@@ -331,7 +331,7 @@ const isTestFile = (file: string): boolean => /(^|\/)tests?\//.test(file) || /(^
 const isKeptRuns = (file: string): boolean => file === '.claude/argonath' || file === '.claude/anduril'
 
 /**
- * The tasks the Argonath cannot prove on their own: each changes a target's source, but names neither a test nor a
+ * The tasks verify cannot prove on their own: each changes a target's source, but names neither a test nor a
  * kept run. Split from the task that exposes what it builds, its proof settles with nothing to pin, and the behaviour
  * goes untested until that task. Each is a risk for the person to decide, as the planner's own are.
  */
@@ -344,7 +344,7 @@ export const unprovenRisks = (plan: IssuePlan, built: readonly Built[]): PlanRis
 
     return [
       {
-        text: `Task ${task.id} changes ${reached.map(target => target.label).join(' and ')} but names no test and no kept run: the Argonath cannot prove it on its own, and what it builds goes untested until a later task.`,
+        text: `Task ${task.id} changes ${reached.map(target => target.label).join(' and ')} but names no test and no kept run: verify cannot prove it on its own, and what it builds goes untested until a later task.`,
         severity: 'medium' as const,
         mitigation: `Fold it into the task that exposes what it builds, or give it its own test and kept run.`,
         tasks: [task.id],
@@ -353,7 +353,7 @@ export const unprovenRisks = (plan: IssuePlan, built: readonly Built[]): PlanRis
     ]
   })
 
-/** A plan with the risks the planner did not name of a task the Argonath cannot prove, each once. */
+/** A plan with the risks the planner did not name of a task verify cannot prove, each once. */
 export const withUnproven = (made: IssuePlan, built: readonly Built[]): IssuePlan => {
   const found = unprovenRisks(made, built).filter(risk => !made.risks.some(held => sameQuestion(held.text, risk.text)))
 

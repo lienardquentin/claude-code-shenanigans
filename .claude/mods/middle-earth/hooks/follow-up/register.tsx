@@ -38,7 +38,7 @@ const TOOLS = [
   {
     name: 'answer_review',
     description:
-      "Hands the open follow-up's comments that ask for a change to the Fellowship, which answers them one at a time on the pull request's branch, in a worktree of its own: each answer proven by Argonath, judged by its statues, and committed. Questions are left to the person, and nothing is pushed until the person says so.",
+      "Hands the open follow-up's comments that ask for a change to the Fellowship, which answers them one at a time on the pull request's branch, in a worktree of its own: each answer proven by verify, judged by its reviewers, and committed. Questions are left to the person, and nothing is pushed until the person says so.",
     inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself from one comment to the next. Only when the person asked for it.' } } },
   },
   {

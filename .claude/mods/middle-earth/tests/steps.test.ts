@@ -12,10 +12,10 @@ describe('a proof of a task', () => {
     expect(afterProof(proof(), { taskId: 2 }, [])).toEqual({ kind: 'judge' })
   })
 
-  test("stops the quest where the Argonath could not look, as no builder can mend that", () => {
-    expect(afterProof(proof({ isSettled: false, isUnlooked: true, line: 'Argonath could not look at gondor (no app)' }), { taskId: 2 }, [])).toEqual({
+  test("stops the quest where verify could not look, as no builder can mend that", () => {
+    expect(afterProof(proof({ isSettled: false, isUnlooked: true, line: 'Verify could not look at gondor (no app)' }), { taskId: 2 }, [])).toEqual({
       kind: 'stop',
-      why: 'Argonath could not look at gondor (no app). No member can mend that: set the target right in .claude/argonath, then put task 2 before the Argonath again.',
+      why: 'Verify could not look at gondor (no app). No member can mend that: set the target right in .claude/argonath, then put task 2 up for verification again.',
     })
   })
 
@@ -31,21 +31,21 @@ describe('a proof of a task', () => {
   })
 
   test("commits a lane's change rebased since it passed, with the minor findings it passed with", () => {
-    expect(afterProof(proof(), { taskId: 2, isRebased: true, minor: ['- Isildur: a name'] }, [])).toEqual({ kind: 'commit', minor: ['- Isildur: a name'] })
+    expect(afterProof(proof(), { taskId: 2, isRebased: true, minor: ['- Correctness reviewer: a name'] }, [])).toEqual({ kind: 'commit', minor: ['- Correctness reviewer: a name'] })
   })
 })
 
 describe("the reviewers' judgement of a task", () => {
-  test('is waited on while they sit, and commits a pass', () => {
-    expect(afterVerdict(judged('sitting'), { taskId: 2 }, [])).toEqual({ kind: 'wait' })
+  test('is waited on while they review, and commits a pass', () => {
+    expect(afterVerdict(judged('reviewing'), { taskId: 2 }, [])).toEqual({ kind: 'wait' })
     expect(afterVerdict(judged('pass'), { taskId: 2 }, [])).toEqual({ kind: 'commit', minor: [] })
   })
 
   test("has the builder tidy a pass's minor findings about what it wrote, once, and commits them as they are otherwise", () => {
-    const pass = judged('pass', { minor: ['- Isildur, a.py:3: a name', '- Isildur, b.py:9: elsewhere'] })
+    const pass = judged('pass', { minor: ['- Correctness reviewer, a.py:3: a name', '- Correctness reviewer, b.py:9: elsewhere'] })
 
     expect(isTidyAsked(pass, {})).toBe(true)
-    expect(afterVerdict(pass, { taskId: 2 }, ['- Isildur, a.py:3: a name'])).toEqual({ kind: 'tidy', minor: ['- Isildur, a.py:3: a name'], otherwise: { kind: 'commit', minor: pass.minor } })
+    expect(afterVerdict(pass, { taskId: 2 }, ['- Correctness reviewer, a.py:3: a name'])).toEqual({ kind: 'tidy', minor: ['- Correctness reviewer, a.py:3: a name'], otherwise: { kind: 'commit', minor: pass.minor } })
     expect(isTidyAsked(pass, { isTidied: true })).toBe(false)
     expect(afterVerdict(pass, { taskId: 2, isTidied: true }, [])).toEqual({ kind: 'commit', minor: pass.minor })
     // None of them is about what the change wrote
@@ -53,13 +53,13 @@ describe("the reviewers' judgement of a task", () => {
   })
 
   test('sends the task again on blocking findings, and proves it afresh where the change moved', () => {
-    expect(afterVerdict(judged('fail', { blocking: ['- Anárion: it leaks'], line: '1 blocking finding' }), { taskId: 2 }, [])).toEqual({ kind: 'again', why: { findings: ['- Anárion: it leaks'] }, line: '1 blocking finding' })
+    expect(afterVerdict(judged('fail', { blocking: ['- Security reviewer: it leaks'], line: '1 blocking finding' }), { taskId: 2 }, [])).toEqual({ kind: 'again', why: { findings: ['- Security reviewer: it leaks'] }, line: '1 blocking finding' })
 
     for (const verdict of ['stale', 'unsettled', 'none']) expect(afterVerdict(judged(verdict), { taskId: 2 }, [])).toEqual({ kind: 'prove' })
   })
 
   test('stops the quest where the reviewers could not judge', () => {
-    expect(afterVerdict(judged('silent', { line: 'not judged: Isildur gave no findings that read' }), { taskId: 2 }, [])).toEqual({ kind: 'stop', why: 'The statues could not judge task 2: not judged: Isildur gave no findings that read. Commit it once they can, or send it again.' })
+    expect(afterVerdict(judged('silent', { line: 'not judged: the correctness reviewer gave no findings that read' }), { taskId: 2 }, [])).toEqual({ kind: 'stop', why: 'The reviewers could not judge task 2: not judged: the correctness reviewer gave no findings that read. Commit it once they can, or send it again.' })
   })
 })
 
@@ -90,18 +90,18 @@ describe('a quest that sails', () => {
   test("says why it does not: a lane lands by itself, it sailed already, the reviewers judge it, or it has not arrived", () => {
     expect(whyNotSail(quest({ lane: { of: 'github:o/r#12', taskId: 2 } }))).toBe("A lane lands on its quest's branch by itself: it is github:o/r#12 that sails.")
     expect(whyNotSail(quest({ phase: 'sailed', pr: 'https://github.com/o/r/pull/7' }))).toBe('The pull request is open: https://github.com/o/r/pull/7')
-    expect(whyNotSail(quest({ phase: 'warding' }))).toBe('The statues judge the whole branch of github:o/r#12: the pull request opens once they pass it.')
+    expect(whyNotSail(quest({ phase: 'warding' }))).toBe('The reviewers judge the whole branch of github:o/r#12: the pull request opens once they pass it.')
     expect(whyNotSail(quest({ phase: 'marching' }))).toBe('The quest on github:o/r#12 has not arrived: it is marching. Every task is committed first.')
   })
 
   test("waits on the reviewers' judgement of its whole branch, sails once they pass it, and stops on what blocks it", () => {
     const at = { ref: 'github:o/r#12', tree: '/proj/.fellowship/trees/x' }
 
-    expect(afterWard(judged('sitting'), at)).toMatchObject({ kind: 'wait' })
+    expect(afterWard(judged('reviewing'), at)).toMatchObject({ kind: 'wait' })
     expect(afterWard(judged('pass', { line: 'passed' }), at)).toEqual({ kind: 'sail', line: 'the whole branch passed' })
-    expect(afterWard(judged('fail', { blocking: ['- Anárion: it leaks'], line: '1 blocking finding' }), at)).toEqual({
+    expect(afterWard(judged('fail', { blocking: ['- Security reviewer: it leaks'], line: '1 blocking finding' }), at)).toEqual({
       kind: 'stop',
-      why: 'The statues found what blocks the whole branch of github:o/r#12:\n- Anárion: it leaks\nFix it in /proj/.fellowship/trees/x and commit, then sail again: they judge the branch as it then stands.',
+      why: 'The reviewers found what blocks the whole branch of github:o/r#12:\n- Security reviewer: it leaks\nFix it in /proj/.fellowship/trees/x and commit, then sail again: they judge the branch as it then stands.',
       line: 'the whole branch: 1 blocking finding',
     })
     expect(afterWard(judged('silent', { line: 'not judged' }), at)).toMatchObject({ kind: 'stop', why: expect.stringMatching(/could not judge the whole branch .*\(not judged\): sail again/) })

@@ -1,19 +1,8 @@
-import type { ArgonathDb, ArgonathKind, ArgonathLive, ArgonathOutcome, ArgonathProofState, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../types'
+export type { ChangedRun, Database, LiveStage, Outcome, ProofState, Radius, RunState, Target, TargetKind, TestResult } from '../types'
+import type { ChangedRun, Outcome, ProofState, Radius, RunState, Target, TargetKind, TestResult } from '../types'
 
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
-
-// The state contract must hold the types the mod keeps in its state itself: the core names them there
-export type TargetKind = ArgonathKind
-export type Target = ArgonathTarget
-export type Database = ArgonathDb
-export type LiveStage = ArgonathLive
-export type Outcome = ArgonathOutcome
-export type TestResult = ArgonathTest
-export type RunState = ArgonathState
-export type ChangedRun = ArgonathSeam
-export type Radius = ArgonathRadius
-export type ProofState = ArgonathProofState
 
 /** The project's own list of what it builds, beside its other Claude files. */
 export const PROJECT_FILE = '.claude/argonath'
@@ -157,7 +146,7 @@ export const parseReviews = (text: string): Review[] =>
     .filter((found): found is RegExpExecArray => found !== null)
     .map(([, command = '', args = '']) => ({ command, args: args.trim() }))
 
-/** The files of written standards the statues judge a change by, a `standards=path` line each, from the project's folder. */
+/** The files of written standards the reviewers judge a change by, a `standards=path` line each, from the project's folder. */
 export const parseStandards = (text: string): string[] =>
   text
     .split('\n')
@@ -182,7 +171,7 @@ export const changesByTarget = (output: string, targets: readonly Pick<Target, '
 }
 
 /** The line between the diff and the new files in what `changesByTarget` reads. */
-export const UNTRACKED = '--argonath-untracked--'
+export const UNTRACKED = '--untracked--'
 
 /**
  * The shell script that says where the folders `$@` stand, cheaply: git status's lines, then a line a changed file
@@ -230,7 +219,7 @@ export type ProofAnswer = {
   verdict: 'settled' | 'unsettled' | 'unlooked'
   line: string
   targets: { label: string; kind: Target['kind'] | ''; state: ProofState; why: string }[]
-  /** The targets the change reached that nothing proves: a statue judges them alone. */
+  /** The targets the change reached that nothing proves: a reviewer judges them alone. */
   unhandled: string[]
   /** The targets the change reached where no kept run answers otherwise: a refactor, or behaviour no kept run reaches. */
   unreached: string[]
@@ -254,8 +243,8 @@ export const proofAnswer = (entries: readonly { label: string; kind: Target['kin
 
   const not = (verdict: ProofAnswer['verdict'], line: string): ProofAnswer => ({ verdict, line, targets, unhandled, unreached })
 
-  if (entries.length === 0) return not('unlooked', 'Argonath knows no target to prove')
-  if (unlooked.length > 0) return not('unlooked', `Argonath could not look at ${unlooked.map(one => `${one.label} (${one.why})`).join('; ')}`)
+  if (entries.length === 0) return not('unlooked', 'Verify knows no target to prove')
+  if (unlooked.length > 0) return not('unlooked', `Verify could not look at ${unlooked.map(one => `${one.label} (${one.why})`).join('; ')}`)
   const regressions = radii.flatMap(radius => radius.regressions ?? [])
   const unmetTests = radii.flatMap(radius => unmet(radius).map(test => test.name))
 
@@ -266,11 +255,11 @@ export const proofAnswer = (entries: readonly { label: string; kind: Target['kin
 
   if (gates.length > 0) return not('unsettled', `the change fails ${gates.map(gate => gate.split(' ')[0] ?? gate).join(', ')}`)
   if (unmetTests.length > 0) return not('unsettled', `${unmetTests.length === 1 ? 'a test' : `${unmetTests.length} tests`} written before the change ${unmetTests.length === 1 ? 'does' : 'do'} not pass yet: ${unmetTests.slice(0, 5).join(', ')}`)
-  if (unproved.length > 0) return not('unsettled', `Argonath could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`)
+  if (unproved.length > 0) return not('unsettled', `Verify could not prove ${unproved.map(one => one.label).join(', ')}: ${unproved[0]?.why ?? ''}`)
 
   const isPinned = targets.some(one => one.state === 'pinned')
   const said = isPinned ? 'every changed run is pinned' : 'no kept run changed: nothing to pin'
-  // A change no kept run sees settles, as a refactor does, but is said: the statues are left to tell a refactor from new behaviour
+  // A change no kept run sees settles, as a refactor does, but is said: the reviewers are left to tell a refactor from new behaviour
   const where = (label: string) => {
     const found = entries.find(one => one.label === label)?.found
     const lines = found === undefined || typeof found === 'string' ? '' : unreachedText(found)
@@ -282,12 +271,12 @@ export const proofAnswer = (entries: readonly { label: string; kind: Target['kin
   return not('settled', [said, ...caveats].join('; '))
 }
 
-// How much of a changed run's evidence, and of the whole proof, the statues are handed
+// How much of a changed run's evidence, and of the whole proof, the reviewers are handed
 const BRIEF_EVIDENCE = 1_500
 const BRIEF_CHARS = 12_000
 
 /**
- * What a proof found, as the statues are handed it: each run whose answer changed, the tests that pin it and how it
+ * What a proof found, as the reviewers are handed it: each run whose answer changed, the tests that pin it and how it
  * answers now against before, and the targets the change reached that no kept run sees. Empty when there is nothing.
  */
 export const proofBrief = (radii: readonly Radius[], unreached: readonly string[]): string => {
@@ -695,7 +684,7 @@ const numstatOf = (tokens: readonly string[], isNew: boolean): { path: string; a
 }
 
 /**
- * How big a change is, in a sentence for the statues, from git's `--numstat -z` of its diff, `UNTRACKED`, then of each
+ * How big a change is, in a sentence for the reviewers, from git's `--numstat -z` of its diff, `UNTRACKED`, then of each
  * new file against nothing: the lines it adds and takes out, across how many files, how many new, and where it adds
  * most. Lock files are not counted. Nothing for a change of no line.
  */

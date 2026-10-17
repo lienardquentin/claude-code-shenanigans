@@ -146,7 +146,7 @@ describe('issues', () => {
     await pane.press({ key: 'issue-12' })
     await pane.press({ key: 'planner' })
 
-    // Outside a hook the council would sit unheld: the press asks, and it is convened where Claude calls for it
+    // Outside a hook the council would sit unheld: the press asks, and it is sent where Claude calls for it
     expect(world.spawned).toEqual([])
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] asked of the planner/)
     await call($, 'mcp__middle-earth__pump')
@@ -154,7 +154,7 @@ describe('issues', () => {
     await world.clock.advance(600)
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] being planned/)
 
-    // A plan kept of the issue is opened, and no council sits on it again
+    // A plan kept of the issue is opened, and no council reviews it again
     world.store[`plan:github:${REPO}#21`] = { ref: `github:${REPO}#21`, url: '', title: 'Quench answers 404 for an unknown beacon', summary: '', approach: '', tasks: [{ id: 1, title: 'Answer 404', why: '', steps: [], files: [], dependsOn: [], acceptance: '', weight: 'light', state: 'todo' }], questions: [], risks: [], accepted: [], at: 1_800_000_000_000 }
     await pane.press({ key: 'issue-21' })
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[c Open its plan\]/)

@@ -28,7 +28,7 @@ import {
   requestOf,
   reviewTasks,
   spentOn,
-  statueModelFor,
+  reviewerModelFor,
   tally,
   triesOf,
   unsettledOf,
@@ -53,7 +53,7 @@ import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
 import { markTask, planFor, readIssue, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
-import { judgementFor, proveFor, standardsText, targetsKnown } from '../argonath/register'
+import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -62,7 +62,7 @@ const PANE = 'fellowship'
 const TITLE = 'Fellowship'
 // How often the clock looks for what a press, a command or a turn asked for
 const TICK_MS = 500
-// What is said while the statues judge a plan's whole branch
+// What is said while the reviewers judge a plan's whole branch
 // Where a quest is kept across sessions, by its ref
 const STORE_KEY = (ref: string) => `quest:${ref}`
 // How long the forge is given to answer a fetch
@@ -104,7 +104,7 @@ const TOOLS = [
   {
     name: 'set_out',
     description:
-      "Implements the plan in force (or resumes it) in a git worktree of its own under .fellowship/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, Argonath checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /fellowship sail, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; quests on other issues run beside it. Call it when the person asks to implement a planned issue.",
+      "Implements the plan in force (or resumes it) in a git worktree of its own under .fellowship/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, verify checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /fellowship sail, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; quests on other issues run beside it. Call it when the person asks to implement a planned issue.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -116,7 +116,7 @@ const TOOLS = [
   {
     name: 'errand',
     description:
-      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, Argonath checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /planner to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
+      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, verify checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /planner to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
   },
   {
@@ -139,7 +139,7 @@ const TOOLS = [
 
 const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', gazing: 'info', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', warding: 'info', sailed: 'success' }
 
-// The phases a quest waits in on something that is out: a member, the tests written first, the proof or the statues
+// The phases a quest waits in on something that is out: a member, the tests written first, the proof or the reviewers
 const OUT: readonly FellowshipPhase[] = ['gazing', 'marching', 'proving', 'judging', 'warding']
 
 async function questOf($: $, ref: string): Promise<FellowshipQuest | null> {
@@ -364,7 +364,7 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
 
   if (typeof placed === 'string') return placed
 
-  // A quest left mid-march has no member out any more, and the statues no longer judge its whole branch: the person
+  // A quest left mid-march has no member out any more, and the reviewers no longer judge its whole branch: the person
   // sends it again, or sails again
   const was = resumed?.phase
   const phase: FellowshipPhase = was === undefined ? 'ready' : restingPhase(was)
@@ -695,7 +695,7 @@ async function again($: $, ref: string, why: Why, line: string): Promise<void> {
 
 /**
  * Why the change in the tree cannot be taken as the task's: HEAD moved since the task was first sent, so a commit was
- * made past the proof and the statues. Nothing when it did not.
+ * made past the proof and the reviewers. Nothing when it did not.
  */
 async function headMoved($: $, held: FellowshipQuest): Promise<string | undefined> {
   const out = held.march
@@ -706,7 +706,7 @@ async function headMoved($: $, held: FellowshipQuest): Promise<string | undefine
 
   return now === out.head
     ? undefined
-    : `HEAD moved from ${out.head.slice(0, 7)} to ${now.slice(0, 7)} while task ${out.taskId} was out: a commit was made past the Argonath's proof and its statues. Put it back as uncommitted work (git reset --soft ${out.head.slice(0, 7)} in ${held.tree}), then put it before the Argonath again.`
+    : `HEAD moved from ${out.head.slice(0, 7)} to ${now.slice(0, 7)} while task ${out.taskId} was out: a commit was made past the proof and its reviewers. Put it back as uncommitted work (git reset --soft ${out.head.slice(0, 7)} in ${held.tree}), then put it up for verification again.`
 }
 
 /** Stops a quest for the person, saying why. */
@@ -719,7 +719,7 @@ async function stop($: $, held: FellowshipQuest, why: string): Promise<void> {
 // One proof at a time: lanes build beside one another, but a service's proof plays against one database kept warm
 const oneProof = inTurn()
 
-/** Proves what a member built: settled, the statues of the Argonath are sent to judge it; else the task goes up a rung. */
+/** Proves what a member built: settled, the reviewers are sent to judge it; else the task goes up a rung. */
 async function prove($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
 
@@ -730,15 +730,15 @@ async function prove($: $, ref: string): Promise<void> {
 
   if (moved !== undefined) return stop($, held, moved)
 
-  await work($, ref, `Argonath proves task ${out.taskId}…`)
+  await work($, ref, `Verify proves task ${out.taskId}…`)
 
-  // The statues are sent here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
+  // The reviewers are sent here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
   // tests, written from the task before it was built, must pass for the proof to settle, all but
   // those a member has since said cannot run here
   const isSeen = held.vision?.taskId === out.taskId
   const mirror = isSeen ? await mirrorOf($, held) : { amendments: [], tampered: [], unrun: [] }
   const written = isSeen ? (held.vision?.tests ?? []).filter(test => !mirror.unrun.some(one => one.file === test.file && one.name === test.name)) : []
-  const verdict = proofVerdict(await oneProof(() => proveFor($, held.tree, written)).catch((error: unknown) => `Argonath could not prove the change: ${errorText(error)}`))
+  const verdict = proofVerdict(await oneProof(() => proveFor($, held.tree, written)).catch((error: unknown) => `Verify could not prove the change: ${errorText(error)}`))
 
   await keep($, ref, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
 
@@ -748,17 +748,17 @@ async function prove($: $, ref: string): Promise<void> {
   if (step.kind === 'again') return again($, ref, step.why, step.line)
   if (step.kind === 'commit') return void (await commitNow($, ref, step.minor))
 
-  await work($, ref, `The statues of the Argonath are sent to judge task ${out.taskId}…`)
+  await work($, ref, `The reviewers are sent to judge task ${out.taskId}…`)
 
   const made = await workOf($, held)
   const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
   const about = typeof made === 'string' || task === undefined ? '' : purposeOf(held, made, task, mirror.amendments)
-  // Both statues judge every change: a task's weight is the planner's guess, and what a change lets in is known only
+  // Both reviewers judge every change: a task's weight is the planner's guess, and what a change lets in is known only
   // once it is made. Where nothing proves what it reached, they judge with their own model; else as the task's weight
   // and risks ask, a task that is not heavy on a lighter model
   const isBlind = typeof made === 'string' || task === undefined || verdict.unhandled.length > 0
-  const model = isBlind ? undefined : statueModelFor(made, task)
-  const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, about, statues: ['isildur', 'anarion'], ref: issueRefOf(held), ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
+  const model = isBlind ? undefined : reviewerModelFor(made, task)
+  const judged = parseJudgement(await judgementFor($, held.tree, { start: true, about, reviewers: ['reviewer-correctness', 'reviewer-security'], ref: issueRefOf(held), ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
 
   await keep($, ref, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
   await settle($, ref, judged)
@@ -789,7 +789,7 @@ async function ownMinorIn($: $, tree: string, judged: Judged): Promise<string[]>
   return ownMinor(judged.minorAt, tree, `${tracked.out}\n${fresh.out}`.split('\n').map(one => one.trim()).filter(one => one !== ''))
 }
 
-/** Looks at the statues' judgement of a quest's change, while they sit. */
+/** Looks at the reviewers' judgement of a quest's change, while they review. */
 async function judge($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
 
@@ -798,7 +798,7 @@ async function judge($: $, ref: string): Promise<void> {
   await settle($, ref, parseJudgement(await judgementFor($, held.tree).catch((error: unknown) => errorText(error))))
 }
 
-/** What the statues' verdict comes to: committed when they pass the change, sent back up a rung when they find what blocks it. */
+/** What the reviewers' verdict comes to: committed when they pass the change, sent back up a rung when they find what blocks it. */
 async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgement>): Promise<void> {
   const held = await keep($, ref, was => (was.phase === 'judging' ? { ...was, verdictLine: judged.line } : was))
 
@@ -825,7 +825,7 @@ async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgemen
   if (step.kind === 'commit') return void (await commitNow($, ref, step.minor))
   if (step.kind === 'again') return again($, ref, step.why, step.line)
 
-  // The change moved while they sat, or they never sat on it: it is proved and judged afresh
+  // The change moved while they sat, or they never reviewed it: it is proved and judged afresh
   if (step.kind === 'prove') {
     await keep($, ref, was => ({ ...was, phase: 'proving' }))
     await want($, ref, 'prove')
@@ -836,7 +836,7 @@ async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgemen
   if (step.kind === 'stop') await stop($, held, step.why)
 }
 
-/** Commits the change the statues passed as the task's own, and goes on. Answers what was done, in a sentence. */
+/** Commits the change the reviewers passed as the task's own, and goes on. Answers what was done, in a sentence. */
 async function commitNow($: $, ref: string, minor: readonly string[]): Promise<string> {
   const held = await questOf($, ref)
 
@@ -852,7 +852,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
     return `Task ${out.taskId} is not in the work of ${ref} any more: ${typeof made === 'string' ? made : 'set out again.'}`
   }
 
-  // The statues judged the change against HEAD as it was sent: a commit made since was judged by no one
+  // The reviewers judged the change against HEAD as it was sent: a commit made since was judged by no one
   const moved = await headMoved($, held)
 
   if (moved !== undefined) {
@@ -865,7 +865,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   const by = MEMBERS[out.member].title
   const unproven = held.unproven ?? []
-  // What the mods keep in the tree (Andúril's builds, the Argonath's trees) is none of the change
+  // What the mods keep in the tree (Andúril's builds, verify's trees) is none of the change
   const committed = await commitTask(shellIn($, held.tree), { tree: held.tree, taskId: task.id, message: commitMessage({ ...held, ref: issueRefOf(held) }, made, task, by, minor, unproven), gitRuns: held.gitRuns })
 
   // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
@@ -894,7 +894,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
   const after = await keep($, ref, was => ({ ...was, phase: 'ready', march: null, vision: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isWarded: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: was.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) }] }))
   const left = after === null ? made : await workOf($, after)
   const isArrived = typeof left !== 'string' && isAllDone(left)
-  const said = `Task ${task.id} of ${ref}, "${task.title}", built by ${by}, passed the Argonath and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
+  const said = `Task ${task.id} of ${ref}, "${task.title}", built by ${by}, passed verification and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
 
   if (isArrived || after?.isAuto === true) await want($, ref, 'next')
   else await tell($, `${said} The next task waits for you.`)
@@ -945,7 +945,7 @@ async function landNow($: $, ref: string, commit: FellowshipCommit): Promise<str
   const after = await keep($, quest.ref, was => ({ ...was, isWarded: false, commits: [...was.commits, landed] }))
   const left = after === null ? null : await workOf($, after)
   const uncleared = await clearLane($, held)
-  const said = `Task ${commit.taskId} of ${quest.ref}, "${commit.title}", built by ${commit.by} in a lane, passed the Argonath and landed on ${quest.branch}${landed.sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${landed.sha.slice(0, 7)}`}.${uncleared}`
+  const said = `Task ${commit.taskId} of ${quest.ref}, "${commit.title}", built by ${commit.by} in a lane, passed verification and landed on ${quest.branch}${landed.sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${landed.sha.slice(0, 7)}`}.${uncleared}`
 
   await say($, quest.ref, said)
   if ((left !== null && typeof left !== 'string' && isAllDone(left)) || quest.isAuto) await want($, quest.ref, 'next')
@@ -973,7 +973,7 @@ async function conflicted($: $, held: FellowshipQuest, quest: FellowshipQuest, o
   if (applied.kind === 'applies') return reproved($, held, quest, onto, commit)
 
   if (applied.kind === 'failed') {
-    const why = `Task ${out.taskId} could not be taken onto ${quest.branch}, which moved while it was built: ${applied.why}. Its change is ${sha.slice(0, 7)}: apply it in ${held.tree} by hand, then put it before the Argonath.`
+    const why = `Task ${out.taskId} could not be taken onto ${quest.branch}, which moved while it was built: ${applied.why}. Its change is ${sha.slice(0, 7)}: apply it in ${held.tree} by hand, then put it up for verification.`
 
     await stop($, after, why)
 
@@ -992,7 +992,7 @@ async function conflicted($: $, held: FellowshipQuest, quest: FellowshipQuest, o
     return said
   }
 
-  const why = `Task ${out.taskId} conflicts with what landed on ${quest.branch} (${files.join(', ')}), and ${MEMBERS[out.member].title} could not be sent back: its change is in ${held.tree} with git's conflict markers. Resolve them there, then put it before the Argonath.`
+  const why = `Task ${out.taskId} conflicts with what landed on ${quest.branch} (${files.join(', ')}), and ${MEMBERS[out.member].title} could not be sent back: its change is in ${held.tree} with git's conflict markers. Resolve them there, then put it up for verification.`
 
   await stop($, after, why)
 
@@ -1018,7 +1018,7 @@ async function reproved($: $, held: FellowshipQuest, quest: FellowshipQuest, ont
 /** Clears a lane once it landed: its worktree removed, its branch deleted, and the lane forgotten. Says what could not be cleared. */
 async function clearLane($: $, held: FellowshipQuest): Promise<string> {
   const root = await rootOf($)
-  // What is left in it is what the mods kept there (Andúril's runs, the Argonath's trees): its change is landed
+  // What is left in it is what the mods kept there (Andúril's runs, verify's trees): its change is landed
   const left = (await git($, ['status', '--porcelain', ...UNMODDED], held.tree)).out
   const removed = left === '' ? await removeTree($, root, held.tree) : { ok: false, out: `it holds changes that did not land (${left.split('\n')[0] ?? ''})` }
   const deleted = removed.ok ? await git($, ['branch', '-D', held.branch], root) : { ok: true, out: '' }
@@ -1029,12 +1029,12 @@ async function clearLane($: $, held: FellowshipQuest): Promise<string> {
   return removed.ok && deleted.ok ? '' : ` Its lane is not cleared: ${removed.ok ? `${held.branch} could not be deleted: ${deleted.out}` : `${held.tree} is left: ${removed.out}`}.`
 }
 
-/** Puts a stuck task's change before the Argonath again: proved, judged, and committed once the statues pass it. */
+/** Puts a stuck task's change up for verification again: proved, judged, and committed once the reviewers pass it. */
 async function resubmit($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
 
   if (held === null) return HOW_TO
-  if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest on ${ref} is ${held.phase}.`
+  if (held.march === null || held.phase !== 'stuck') return `There is nothing to put up for verification: the quest on ${ref} is ${held.phase}.`
 
   // The person puts it there having looked: git's config as it now stands is theirs
   const gitRuns = await gitRunsOf(shellIn($, held.tree))
@@ -1042,13 +1042,13 @@ async function resubmit($: $, ref: string): Promise<string> {
   await keep($, ref, was => ({ ...was, phase: 'proving', gitRuns, march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
   await want($, ref, 'prove')
 
-  return `Task ${held.march.taskId}'s change goes before the Argonath: it is proved, judged by the statues, and committed once they pass it.`
+  return `Task ${held.march.taskId}'s change goes up for verification: it is proved, judged by the reviewers, and committed once they pass it.`
 }
 
 /** What a quest that is out waits on before it may be abandoned; nothing when it waits on nothing. */
 const waitBeforeAbandon = (held: FellowshipQuest): string | undefined =>
   OUT.includes(held.phase)
-    ? `The quest on ${held.ref} is ${held.phase}: wait until ${held.phase === 'gazing' ? 'the test writer has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+    ? `The quest on ${held.ref} is ${held.phase}: wait until ${held.phase === 'gazing' ? 'the test writer has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the reviewers have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
     : undefined
 
 /** What a quest, or a lane of it, that is out waits on before the quest may be abandoned; nothing when none waits. */
@@ -1223,14 +1223,14 @@ async function sail($: $, ref: string): Promise<string> {
     if (behind !== undefined) return behind
   }
 
-  // Each task of a plan was judged alone: both statues judge what the tasks do and let in together, once, before the
+  // Each task of a plan was judged alone: both reviewers judge what the tasks do and let in together, once, before the
   // branch leaves the machine
   if (held.kind === 'plan' && held.isWarded !== true) {
-    // The branch took in origin's base, just fetched: judged against a local base behind it, the statues would judge
+    // The branch took in origin's base, just fetched: judged against a local base behind it, the reviewers would judge
     // the commits it took in as the branch's own
     const upstream = (await git($, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${held.base}`], held.tree)).ok ? `origin/${held.base}` : held.base
     const model = wardModelFor(made, held.commits)
-    const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, statues: ['isildur', 'anarion'], against: upstream, about: wardPurpose(made), ref, ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
+    const judged = parseJudgement(await judgementFor($, held.tree, { start: true, reviewers: ['reviewer-correctness', 'reviewer-security'], against: upstream, about: wardPurpose(made), ref, ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
 
     await keep($, ref, was => ({ ...was, phase: 'warding', verdictLine: judged.line }))
 
@@ -1253,8 +1253,8 @@ async function sail($: $, ref: string): Promise<string> {
 }
 
 /**
- * What the statues' judgement of a plan's whole branch comes to: it sails once they pass it; what they find blocking,
- * or a statue's silence, stops it for the person. Answers what was done, in a sentence.
+ * What the reviewers' judgement of a plan's whole branch comes to: it sails once they pass it; what they find blocking,
+ * or a reviewer's silence, stops it for the person. Answers what was done, in a sentence.
  */
 async function ward($: $, ref: string, judged: ReturnType<typeof parseJudgement>): Promise<string> {
   const held = await questOf($, ref)
@@ -1277,7 +1277,7 @@ async function ward($: $, ref: string, judged: ReturnType<typeof parseJudgement>
   return step.why
 }
 
-/** Looks at the statues' judgement of a plan's whole branch, while they sit. */
+/** Looks at the reviewers' judgement of a plan's whole branch, while they review. */
 async function watchWard($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
 
@@ -1335,7 +1335,7 @@ const UNHELD: readonly FellowshipWanted[] = ['set out', 'set out auto', 'errand'
 /**
  * Does what was asked of the quests, the first ask of each at a time, and answers how many it took: in a hook every
  * one, as an agent sent there is held; from the clock only what sends none. `only` keeps to one quest's asks (and to
- * setting out); `isLooking` also looks at each quest waiting on the statues or the tests written first, whose answer is in.
+ * setting out); `isLooking` also looks at each quest waiting on the reviewers or the tests written first, whose answer is in.
  */
 async function drain($: $, isFramed: boolean, only?: string, isLooking = false): Promise<number> {
   // A press of the planner's pane asks to set out on the plan it shows
@@ -1365,9 +1365,9 @@ async function tick($: $): Promise<void> {
 }
 
 /**
- * Does what was asked of the quests, in the hook that calls it: where it stands in one, a member, the statues or the
+ * Does what was asked of the quests, in the hook that calls it: where it stands in one, a member, the reviewers or the
  * test writer it sends are held. Each ask may ask the next (setting out asks for the first task, a commit for the next), so
- * it goes on until none is left; a quest waiting on the statues or the tests written first is looked at first.
+ * it goes on until none is left; a quest waiting on the reviewers or the tests written first is looked at first.
  */
 export async function pumpFellowship($: $, only?: string): Promise<void> {
   const isFramed = await inFrame($)
@@ -1477,7 +1477,7 @@ export async function startFellowship($: $): Promise<void> {
 
 /**
  * The quests kept across sessions, back as they stood: what was out when the session ended (a member, the proof, the
- * statues, the tests written first) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
+ * reviewers, the tests written first) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
  * the session holds already (a reload keeps them) is left as it is.
  */
 async function recallQuests($: $): Promise<void> {
@@ -1596,7 +1596,7 @@ export function registerFellowship(on: On): void {
 
     const said = await resubmit($, held.ref)
 
-    // The proof, and the statues it leads to, are done here, where the statues are held
+    // The proof, and the reviewers it leads to, are done here, where the reviewers are held
     await pumpFellowship($, held.ref)
 
     return { result: said }
@@ -1818,14 +1818,14 @@ export function registerFellowship(on: On): void {
         )}
         {held.phase === 'gazing' && <Text color="suggestion">{`The test writer writes task ${held.gazed ?? ''}'s tests first, red`}</Text>}
         {held.phase === 'warding' && <Text color="suggestion">{`${WARDING} before it sails`}</Text>}
-        {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isWarded === true ? 'success' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
+        {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isWarded === true ? 'success' : 'warning'}>{`The reviewers: ${held.verdictLine}`}</Text>}
         {out !== null && (
           <Box flexDirection="column" borderStyle="round" borderColor={held.phase === 'stuck' ? 'error' : undefined} paddingX={1}>
             <Text bold>{`${MEMBERS[out.member].title} ${held.phase === 'stuck' ? 'is back from' : 'is on'} task ${out.taskId}: ${out.title}`}</Text>
             <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${clockOf(out.at)}`}</Text>
             {held.vision !== undefined && held.vision !== null && held.vision.taskId === out.taskId && held.vision.tests.length > 0 && <Text dimColor>{`The tests written first: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} to make pass`}</Text>}
-            {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`Argonath's proof: ${held.proofLine}`}</Text>}
-            {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
+            {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`The proof: ${held.proofLine}`}</Text>}
+            {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The reviewers: ${held.verdictLine}`}</Text>}
           </Box>
         )}
         {(out === null || held.vision?.taskId !== out.taskId) && held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The tests written first: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
@@ -1839,7 +1839,7 @@ export function registerFellowship(on: On): void {
           )}
           {held.phase === 'stuck' && out !== null && (
             <Button key="commit" hotkey="c" onPress={() => resubmit($, held.ref).then(text => say($, held.ref, text)).then(() => pumpFellowship($, held.ref))}>
-              {keyed('c', 'Put it before the Argonath')}
+              {keyed('c', 'Put it up for verification')}
             </Button>
           )}
           {isSailable && (

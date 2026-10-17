@@ -7,7 +7,7 @@ import { resolvedFrom } from '../core/paths'
 import { QUEST_TREES } from './kit/trees'
 
 // What the parts of the mod share: the project's folder, git and the forge, what a command changes, and how the
-// Fellowship reads Argonath's proof and judgement of a builder's change.
+// Fellowship reads the proof and judgement of a builder's change.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
@@ -146,7 +146,7 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
 }
 
 /**
- * Removes a worktree, with what the mods left there: the worktrees they keep inside it (the Argonath's, Andúril's) go
+ * Removes a worktree, with what the mods left there: the worktrees they keep inside it (verify's, Andúril's) go
  * first, as git removes none around them. What git said of the worktree itself.
  */
 export async function removeTree($: $, root: string, tree: string): Promise<{ ok: boolean; out: string }> {

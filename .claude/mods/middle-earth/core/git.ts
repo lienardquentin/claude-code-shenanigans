@@ -29,7 +29,7 @@ export const gitRunsOf = async (shell: Shell): Promise<string> =>
 export const commitRefusal = async (shell: Shell, tree: string, gitRuns: string | undefined): Promise<string | undefined> => {
   const runs = await gitRunsOf(shell)
 
-  if (gitRuns !== undefined && runs !== gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${tree} since the quest set out, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task before the Argonath again.`
+  if (gitRuns !== undefined && runs !== gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${tree} since the quest set out, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task up for verification again.`
 
   const hooks = (await git(shell, ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'])).out
   const touched = hooks.startsWith(`${tree}/`) ? (await git(shell, ['status', '--porcelain', '--', hooks])).out : ''
@@ -61,7 +61,7 @@ export const commitTask = async (shell: Shell, asked: { tree: string; taskId: nu
   if (staged.ok && leaked.length > 0) {
     await git(shell, ['reset', '-q'])
 
-    return { kind: 'refused', why: `Task ${asked.taskId}'s change adds what looks like a secret (${leaked.join('; ')}), so it is not committed: take it out of ${asked.tree}, then put the task before the Argonath again.` }
+    return { kind: 'refused', why: `Task ${asked.taskId}'s change adds what looks like a secret (${leaked.join('; ')}), so it is not committed: take it out of ${asked.tree}, then put the task up for verification again.` }
   }
 
   const done = staged.ok ? await git(shell, ['commit', '-m', asked.message]) : staged
@@ -107,7 +107,7 @@ export const landLane = async (lane: Shell, quest: Shell, asked: { taskId: numbe
 
   const merged = await git(quest, ['merge', '--ff-only', asked.sha])
 
-  if (!merged.ok) return { kind: 'stop', why: `Task ${asked.taskId} could not land on ${asked.branch} in ${asked.questTree}: ${merged.out}. Once that worktree is clean, put the task before the Argonath again.` }
+  if (!merged.ok) return { kind: 'stop', why: `Task ${asked.taskId} could not land on ${asked.branch} in ${asked.questTree}: ${merged.out}. Once that worktree is clean, put the task up for verification again.` }
 
   return { kind: 'landed', sha: (await git(quest, ['rev-parse', 'HEAD'])).out }
 }
