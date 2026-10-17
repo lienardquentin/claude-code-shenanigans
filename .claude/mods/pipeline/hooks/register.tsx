@@ -32,7 +32,7 @@ const PANES = {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `build` the runs (/build), `tests-first` the tests written first (/tests), `verify` the proof of the change (/verify), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `build` the runs (/build), `tests-first` the tests written first (/tests), `verify` the proof of the change (/checks), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
 } as const
 
@@ -94,13 +94,14 @@ export const register: Register = on => {
     await $.tool.register(FRAME_TOOL).catch(() => undefined)
     await $.tool.register(PUMP_TOOL).catch(() => undefined)
 
-    await startPlanner($)
-    await startTestsFirst($)
-    await startVerify($)
-    await startBuild($)
-    await startFollowUp($)
-    await startCleanup($)
-    await startIssues($)
+    // A part the host refuses to start (a command name it holds) is said, and the parts after it start all the same
+    await startPlanner($).catch(stumbled($, 'the planner'))
+    await startTestsFirst($).catch(stumbled($, 'the test writer'))
+    await startVerify($).catch(stumbled($, 'verify'))
+    await startBuild($).catch(stumbled($, 'the build'))
+    await startFollowUp($).catch(stumbled($, 'the review follow-up'))
+    await startCleanup($).catch(stumbled($, 'the cleanup'))
+    await startIssues($).catch(stumbled($, 'the issues pane'))
     // A plugin of the marketplace that lags its folder is said, to the person and to Claude
     await startLag($).catch(stumbled($, 'the lag check'))
 

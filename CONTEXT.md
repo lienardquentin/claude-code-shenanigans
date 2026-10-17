@@ -170,7 +170,7 @@ run is pinned and no test it can break is broken.
 _Avoid_: Covered, tested, green
 
 **Proof**:
-Verify's (`/verify`) check of a change: its radius afresh, then the tests on both sides, the tests and checks it can break (and
+Verify's (`/checks`) check of a change: its radius afresh, then the tests on both sides, the tests and checks it can break (and
 the audit of the dependencies whose manifests it touches), settled or not.
 _Avoid_: CI, test run, validation
 
