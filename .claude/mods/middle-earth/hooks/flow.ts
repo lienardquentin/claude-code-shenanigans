@@ -3,26 +3,14 @@ import type { EngineInterface } from 'claude-code'
 import { MOD_FOLDERS } from '../core/change'
 import { forgeOf, pullStateAt } from '../core/forge'
 import type { Forge, ForgeKind, NewRequest, PullState, Ran, Shell } from '../core/forge'
+import { resolvedFrom } from '../core/paths'
+import { QUEST_TREES } from './kit/trees'
 
 // What the parts of the mod share: the project's folder, git and the forge, what a command changes, and how the
 // Fellowship reads Argonath's proof and judgement of a builder's change.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
-
-/** The trailer each commit a builder's change is committed with ends with, and each pull request. */
-export const COMMIT_TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>'
-export const PR_TRAILER = '🤖 Generated with [Claude Code](https://claude.com/claude-code)'
-
-/** The model the statues judge a change with when it is not heavy: lighter than their own, and enough for it. */
-export const SWIFT_STATUE_MODEL = 'claude-sonnet-5-5'
-
-/** What a task of each weight is, as the council weighs it and the statues weigh a change's size against it. */
-export const WEIGHT_MEANS = {
-  light: 'docs, config, a rename, a typo or a test to adjust',
-  standard: "one module's change and the test that proves it",
-  heavy: 'a change that crosses targets, reworks a design, or touches code that is risky to change',
-} as const
 
 // How long the forge is given to take a push
 const FORGE_TIMEOUT_MS = 120_000
@@ -116,18 +104,6 @@ export const privateRefusal = (root: string, cwd: string, command: string): stri
   }
 
   return undefined
-}
-
-/** A path as it lands from a folder: absolute, its `.` and `..` walked. */
-export const resolvedFrom = (cwd: string, path: string): string => {
-  const parts: string[] = []
-
-  for (const part of (/^([A-Za-z]:)?\//.test(path) ? path : `${cwd}/${path}`).split('/')) {
-    if (part === '..') parts.pop()
-    else if (part !== '.' && part !== '') parts.push(part)
-  }
-
-  return `/${parts.join('/')}`
 }
 
 /**
@@ -229,85 +205,6 @@ export type TurnEnded = { agentId?: string; answer?: string; isAborted: boolean;
 /** A section a part adds to the system prompt, for the session. */
 export type Section = { id: string; text: string }
 
-/** A target of the project, as Argonath knows it: a builder is chosen by the target its work is in. */
-export type Target = { label: string; kind: 'frontend' | 'service' | 'cli'; roots: string[] }
-
-/** Argonath's proof as a mod reads it. */
-export type ProofVerdict = { isSettled: boolean; isUnlooked: boolean; line: string; unhandled: string[]; unreached: string[]; text: string }
-
-/** An answer as a part hands it, or as JSON text: the object it is, or why it is none. */
-const heldOf = (answer: unknown): Record<string, unknown> | string => {
-  if (typeof answer === 'object' && answer !== null) return answer as Record<string, unknown>
-
-  const said = String(answer)
-
-  try {
-    const held = JSON.parse(said) as unknown
-
-    return typeof held === 'object' && held !== null ? (held as Record<string, unknown>) : said
-  } catch {
-    return said
-  }
-}
-
-/**
- * Argonath's proof, as it answers a part: whether it settles the change (every changed run pinned, no test turned),
- * whether a target the change reached could not be looked at at all, which no builder can mend, the targets nothing
- * proves, the targets no kept run sees, and the proof as it reads. An answer that is not one is a proof that could not
- * be looked at.
- */
-export const proofVerdict = (answer: unknown): ProofVerdict => {
-  const held = heldOf(answer)
-
-  if (typeof held === 'string' || typeof held.verdict !== 'string') {
-    const said = typeof held === 'string' ? held : JSON.stringify(held)
-
-    return { isSettled: false, isUnlooked: true, line: `Argonath answered no proof that reads: ${said.trim().slice(0, 200)}`, unhandled: [], unreached: [], text: said }
-  }
-
-  return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: text(held.line) || held.verdict, unhandled: strings(held.unhandled), unreached: strings(held.unreached), text: text(held.text) || JSON.stringify(held) }
-}
-
-/** The statues' judgement as a part reads it: the verdict, their findings a line each, where each minor one is, and the verdict in a line. */
-export type Judged = { verdict: string; blocking: string[]; minor: string[]; minorAt: { where: string; line: string }[]; line: string }
-
-/** The statues' judgement as Argonath answers it to a part. */
-export const parseJudgement = (answer: unknown): Judged => {
-  const held = heldOf(answer)
-
-  if (typeof held === 'string') return { verdict: 'unreadable', blocking: [], minor: [], minorAt: [], line: `the Argonath answered no judgement: ${held.trim().slice(0, 200)}` }
-
-  const verdict = typeof held.verdict === 'string' ? held.verdict : 'unreadable'
-  const seats = (Array.isArray(held.seats) ? held.seats : []) as { title?: unknown; state?: unknown; why?: unknown; findings?: { severity?: unknown; where?: unknown; text?: unknown }[] }[]
-  const found = (severity: string) =>
-    seats.flatMap(seat =>
-      (Array.isArray(seat.findings) ? seat.findings : [])
-        .filter(one => one.severity === severity)
-        .map(one => {
-          const where = typeof one.where === 'string' ? one.where : ''
-
-          return { where, line: `- ${String(seat.title ?? '')}${where !== '' ? `, ${where}` : ''}: ${String(one.text ?? '')}` }
-        }),
-    )
-  const blocking = found('blocking').map(one => one.line)
-  const minorAt = found('minor')
-  const minor = minorAt.map(one => one.line)
-  const silent = seats.filter(seat => seat.state === 'silent').map(seat => `${String(seat.title ?? '')} ${String(seat.why ?? 'could not judge')}`)
-  const many = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`
-  const line =
-    verdict === 'pass'
-      ? `passed${minor.length > 0 ? `, ${many(minor.length, 'minor finding')}` : ''}`
-      : verdict === 'fail'
-        ? many(blocking.length, 'blocking finding')
-        : verdict === 'silent'
-          ? `not judged: ${silent.join('; ')}`
-          : verdict === 'sitting'
-            ? 'judging'
-            : verdict
-
-  return { verdict, blocking, minor, minorAt, line }
-}
-
 // Secrets as their issuers spell them: each a name, and a pattern no test fixture or prose matches by chance
 const SECRETS: readonly [string, RegExp][] = [
   ['a private key', /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY(?: BLOCK)?-----/],
@@ -384,27 +281,5 @@ export async function sendBack($: $, agentId: string, agentType: string, text: s
   return sent?.isDelivered === true
 }
 
-/** What a builder is sent back with: what the proof or the statues found, to mend in the change it made. */
-export const sendBackPrompt = (why: { proof?: string; findings?: string[] }): string =>
-  why.findings !== undefined
-    ? [
-        'Every changed run of your change is pinned, but its review found what blocks it. Fix each finding in the change you made, prove it again, and end your turn with your account as before.',
-        '<findings>',
-        ...why.findings,
-        '</findings>',
-      ].join('\n')
-    : [
-        "Argonath's proof does not settle your change yet. Carry on from where you are: write the integration test each changed run it lists as bare asks for, bring a loose or broken one to what the code now does, or fix the code where a change was not meant. Then prove it again, and end your turn with your account as before.",
-        '<proof>',
-        (why.proof ?? '').trim(),
-        '</proof>',
-      ].join('\n')
-
-/** What a builder is sent back with once its change passed with minor findings: to tidy them, and change nothing else. */
-export const tidyPrompt = (minor: readonly string[]): string =>
-  [
-    'Your change passed its review, with minor findings. Tidy each one that is about what your change itself wrote, with the smallest edit that answers it, and change no behaviour; leave one you judge wrong, and say why in your account. Then prove it again, and end your turn with your account as before. Minor findings of the review after this one are left as they are.',
-    '<findings>',
-    ...minor,
-    '</findings>',
-  ].join('\n')
+/** The worktree a branch is built in, under the project's folder. */
+export const treePathOf = (root: string, branch: string): string => `${root.replace(/\/+$/, '')}/${QUEST_TREES}/${branch.replace(/[^\w.-]+/g, '-')}`

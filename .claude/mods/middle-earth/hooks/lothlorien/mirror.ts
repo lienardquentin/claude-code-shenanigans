@@ -1,6 +1,7 @@
 import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../../types'
 import { fencedJson } from '../../core/answers'
-export { isChanging, resolvedFrom } from '../flow'
+export { resolvedFrom } from '../../core/paths'
+export { isChanging } from '../flow'
 
 /** What Galadriel gazes with: Opus, at medium effort. */
 export const GALADRIEL_MODEL = 'claude-opus-5-5'

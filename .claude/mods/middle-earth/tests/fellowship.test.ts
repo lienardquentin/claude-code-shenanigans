@@ -3,13 +3,14 @@ import type { TestBody } from 'claude-code/testing'
 
 import { refOf } from '../core/forge'
 import { refusalOf } from '../hooks/agents'
-import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, proofVerdict, purposeOf, reachesOut, readyTasks, requestOf, reviewTasks, spentOn, treePathOf, triesOf, unsettledOf, wardModelFor } from '../hooks/fellowship/quest'
-import type { QuestOf } from '../hooks/fellowship/quest'
+import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isModSource, isOutside, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, proofVerdict, purposeOf, reachesOut, readyTasks, requestOf, reviewTasks, spentOn, triesOf, unsettledOf, wardModelFor } from '../core/quest'
+import { isForbiddenGit, isModPath, treePathOf } from '../hooks/flow'
+import type { QuestOf } from '../core/quest'
 import { canMove, restingPhase } from '../hooks/fellowship/phases'
 import { shortRef } from '../hooks/look'
 import type { FellowshipPlan, FellowshipQuest, MiddleEarthSpend } from '../types'
-import { MEMBERS } from '../hooks/fellowship/quest'
-import type { Target } from '../hooks/fellowship/quest'
+import { MEMBERS } from '../core/quest'
+import type { TargetFolders } from '../core/quest'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -69,7 +70,7 @@ const TARGETS = [
   { label: 'narsil', kind: 'cli', roots: ['narsil'] },
   { label: 'gondor', kind: 'service', roots: ['beacons/gondor'] },
   { label: 'anor', kind: 'frontend', roots: ['beacons/anor'] },
-] as Target[]
+] as TargetFolders[]
 
 const seat = (title: string, state: string, findings: { severity: string; where: string; text: string }[] = []) => ({ statue: title.toLowerCase(), title, reviews: [], state, findings, why: '' })
 const JUDGED = {

@@ -1,14 +1,40 @@
-import type { MiddleEarthSpend } from '../../types'
-import type { FellowshipCommit, FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
-import { refOf } from '../../core/forge'
-import type { ForgeKind, NewRequest } from '../../core/forge'
-import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, WEIGHT_MEANS, resolvedFrom } from '../flow'
-import type { Target } from '../flow'
-import { QUEST_TREES } from '../kit/trees'
+import type { FellowshipCommit, FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight, MiddleEarthSpend } from '../types'
+import { refOf } from './forge'
+import type { ForgeKind, NewRequest } from './forge'
+import { resolvedFrom } from './paths'
+import type { Target } from './proof'
 
-export { isForbiddenGit, isModPath, parseJudgement, proofVerdict } from '../flow'
-export { resolvedFrom } from '../flow'
-export type { Target } from '../flow'
+// A quest's work: who builds each task and on what model, what a builder is told, which tasks are ready and which can
+// be built beside one another, and how a commit and a pull request are written. Text in, text out.
+
+// The state contract must hold the types the mod keeps in its state itself: the core names them there
+export type Commit = FellowshipCommit
+export type QuestKind = FellowshipKind
+export type Builder = FellowshipMember
+export type Plan = FellowshipPlan
+export type Quest = FellowshipQuest
+export type Task = FellowshipTask
+export type TaskState = FellowshipTaskState
+export type Vision = FellowshipVision
+export type Weight = FellowshipWeight
+export type Spend = MiddleEarthSpend
+
+/** A target as a builder is chosen by: the kind of its source and its folders. */
+export type TargetFolders = Pick<Target, 'label' | 'kind' | 'roots'>
+
+/** The trailer each commit a builder's change is committed with ends with, and each pull request. */
+export const COMMIT_TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>'
+export const PR_TRAILER = '🤖 Generated with [Claude Code](https://claude.com/claude-code)'
+
+/** The model the reviewers judge a change with when it is not heavy: lighter than their own, and enough for it. */
+export const LIGHTER_REVIEWER_MODEL = 'claude-sonnet-5-5'
+
+/** What a task of each weight is, as the council weighs it and the statues weigh a change's size against it. */
+export const WEIGHT_MEANS = {
+  light: 'docs, config, a rename, a typo or a test to adjust',
+  standard: "one module's change and the test that proves it",
+  heavy: 'a change that crosses targets, reworks a design, or touches code that is risky to change',
+} as const
 
 const OPUS = 'claude-opus-5-5'
 const SONNET = 'claude-sonnet-5-5'
@@ -28,7 +54,7 @@ const LIGHT = 'You carry a light task: keep it small, and stop and say so if it 
  * The members of the Fellowship, by rung: the hobbits carry light tasks, the elf, the dwarf and the man of Gondor a
  * target's work, Aragorn the heavy, and Gandalf comes last, when every other has failed.
  */
-const MEMBER_LIST: readonly { name: FellowshipMember; title: string; rung: 0 | 1 | 2 | 3; kind?: Target['kind']; charge: string }[] = [
+const MEMBER_LIST: readonly { name: Builder; title: string; rung: 0 | 1 | 2 | 3; kind?: TargetFolders['kind']; charge: string }[] = [
   { name: 'gandalf', title: 'Gandalf', rung: 3, charge: 'You are sent last, when every member before you could not finish the task. Read what they tried and what stopped them before you change anything.' },
   { name: 'aragorn', title: 'Aragorn', rung: 2, charge: 'You carry the heavy tasks: the ones that cross targets, rework a design, or touch what is risky to change.' },
   { name: 'legolas', title: 'Legolas', rung: 1, kind: 'frontend', charge: "You know the project's frontends best: their components, their state and how they are drawn." },
@@ -40,7 +66,7 @@ const MEMBER_LIST: readonly { name: FellowshipMember; title: string; rung: 0 | 1
   { name: 'pippin', title: 'Pippin', rung: 0, charge: LIGHT },
 ]
 
-export const MEMBERS = Object.fromEntries(MEMBER_LIST.map(one => [one.name, { ...one, ...RUNGS[one.rung] }])) as Record<FellowshipMember, (typeof MEMBER_LIST)[number] & (typeof RUNGS)[number]>
+export const MEMBERS = Object.fromEntries(MEMBER_LIST.map(one => [one.name, { ...one, ...RUNGS[one.rung] }])) as Record<Builder, (typeof MEMBER_LIST)[number] & (typeof RUNGS)[number]>
 
 const HOBBITS = MEMBER_LIST.filter(one => one.rung === 0).map(one => one.name)
 
@@ -56,20 +82,20 @@ export const handBackOf = (answer: string): string | undefined => {
   return why === undefined || why === '' || /^(none|nothing|n\/a)\b|^no[.!]?$/i.test(why) ? undefined : why
 }
 
-const WEIGHT_RUNG: Record<FellowshipWeight, number> = { light: 0, standard: 1, heavy: 2 }
+const WEIGHT_RUNG: Record<Weight, number> = { light: 0, standard: 1, heavy: 2 }
 
 /** Whether a high risk threatens a task. */
-const isThreatened = (plan: FellowshipPlan, task: FellowshipTask): boolean => plan.risks.some(risk => risk.severity === 'high' && risk.tasks.includes(task.id))
+const isThreatened = (plan: Plan, task: Task): boolean => plan.risks.some(risk => risk.severity === 'high' && risk.tasks.includes(task.id))
 
 /** The rung a task is first carried from: its weight, one up when a high risk threatens it. */
-export const firstRung = (plan: FellowshipPlan, task: FellowshipTask): number => Math.min(2, WEIGHT_RUNG[task.weight] + (isThreatened(plan, task) ? 1 : 0))
+export const firstRung = (plan: Plan, task: Task): number => Math.min(2, WEIGHT_RUNG[task.weight] + (isThreatened(plan, task) ? 1 : 0))
 
 /** How many tries a task is given: one a rung, from its first up to Gandalf. */
-export const triesOf = (plan: FellowshipPlan, task: FellowshipTask): number => 4 - firstRung(plan, task)
+export const triesOf = (plan: Plan, task: Task): number => 4 - firstRung(plan, task)
 
 /** The kind of target most of a task's files are in; none when no file is in a target. */
-export const kindOf = (task: FellowshipTask, targets: readonly Target[]): Target['kind'] | undefined => {
-  const counts = new Map<Target['kind'], number>()
+export const kindOf = (task: Task, targets: readonly TargetFolders[]): TargetFolders['kind'] | undefined => {
+  const counts = new Map<TargetFolders['kind'], number>()
 
   for (const file of task.files) {
     const target = targets.find(one => one.roots.some(root => file === root || file.startsWith(`${root.replace(/\/+$/, '')}/`)))
@@ -80,7 +106,7 @@ export const kindOf = (task: FellowshipTask, targets: readonly Target[]): Target
 }
 
 /** Who carries a task on a try: one rung up a try, the hobbits by turn, the elf, the dwarf or the man by the target. */
-export const memberFor = (plan: FellowshipPlan, task: FellowshipTask, attempt: number, targets: readonly Target[]): FellowshipMember => {
+export const memberFor = (plan: Plan, task: Task, attempt: number, targets: readonly TargetFolders[]): Builder => {
   const rung = Math.min(3, firstRung(plan, task) + attempt - 1)
 
   if (rung === 3) return 'gandalf'
@@ -95,15 +121,15 @@ export const memberFor = (plan: FellowshipPlan, task: FellowshipTask, attempt: n
 export const HOW_TO =
   'No quest is under way. Plan an issue with /elrond <issue>, answer its questions and decide its risks, then /fellowship sets out on it (/fellowship --auto goes on by itself). A small issue goes straight to /fellowship errand <issue>; an open pull request\'s review comments, to /blackgate.'
 
-export const MARK: Record<FellowshipTaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
+export const MARK: Record<TaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : [])
 const numbers = (value: unknown): number[] => (Array.isArray(value) ? value.filter((one): one is number => typeof one === 'number') : [])
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
-const weightOf = (value: unknown): FellowshipWeight => (value === 'light' || value === 'heavy' ? value : 'standard')
+const weightOf = (value: unknown): Weight => (value === 'light' || value === 'heavy' ? value : 'standard')
 
 /** A task as a mod hands it over in JSON, every field read as what it should be. */
-const taskOf = (task: Record<string, unknown>): FellowshipTask => ({
+const taskOf = (task: Record<string, unknown>): Task => ({
   id: Number(task.id),
   title: text(task.title),
   why: text(task.why),
@@ -122,7 +148,7 @@ const taskOf = (task: Record<string, unknown>): FellowshipTask => ({
 })
 
 /** The plan Elrond keeps, or as JSON text: `null` when none is in force, a sentence when the answer is not a plan. */
-export const parsePlan = (answer: unknown): FellowshipPlan | null | string => {
+export const parsePlan = (answer: unknown): Plan | null | string => {
   let held: unknown = answer
 
   if (typeof answer === 'string') {
@@ -160,7 +186,7 @@ export const parsePlan = (answer: unknown): FellowshipPlan | null | string => {
 }
 
 /** The work of an errand or a review as one plan, of the tasks the quest keeps: no question, risk or decision of a council. */
-export const ownPlan = (quest: Pick<FellowshipQuest, 'ref' | 'url' | 'title' | 'tasks'>): FellowshipPlan => ({
+export const ownPlan = (quest: Pick<Quest, 'ref' | 'url' | 'title' | 'tasks'>): Plan => ({
   ref: quest.ref,
   url: quest.url,
   title: quest.title,
@@ -174,7 +200,7 @@ export const ownPlan = (quest: Pick<FellowshipQuest, 'ref' | 'url' | 'title' | '
 })
 
 /** An errand's one task: the whole issue, as Elrond read it, its thread with it, those from outside the repository left out and counted. */
-export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[]; leftOut?: number }): FellowshipTask => ({
+export const errandTask = (issue: { title?: string; body?: string; comments?: { author: string; body: string }[]; leftOut?: number }): Task => ({
   id: 1,
   title: issue.title ?? '',
   why: '',
@@ -194,7 +220,7 @@ export const errandTask = (issue: { title?: string; body?: string; comments?: { 
 })
 
 /** The review comments the Black Gate handed over, as tasks: each a change to make, in turn, on the pull request's branch. */
-export const reviewTasks = (given: unknown): FellowshipTask[] =>
+export const reviewTasks = (given: unknown): Task[] =>
   (Array.isArray(given) ? (given as Record<string, unknown>[]) : [])
     .map((one, at) => ({ ...taskOf({ ...one, id: at + 1, dependsOn: [], steps: [], state: 'todo' }), acceptance: text(one.acceptance) || 'What the comment asks for is done, and nothing else of the pull request.' }))
     .filter(task => task.title !== '' || (task.brief ?? '') !== '')
@@ -210,7 +236,7 @@ export const settlingOf = (plan: { questions: readonly { answer: string }[]; ris
 })
 
 /** What the council left open, which the quest does not set out with: unanswered questions, risks not decided. */
-export const unsettledOf = (plan: FellowshipPlan): string[] => {
+export const unsettledOf = (plan: Plan): string[] => {
   const { unanswered, toCover, undecided } = settlingOf(plan)
 
   return [
@@ -224,13 +250,13 @@ export const unsettledOf = (plan: FellowshipPlan): string[] => {
  * What the person decided, to build and judge with: what earlier revisions carried, and their answers to this plan's
  * own questions, which only a revision after it would carry as decided.
  */
-export const decisionsOf = (plan: FellowshipPlan): { text: string; answer: string }[] => [
+export const decisionsOf = (plan: Plan): { text: string; answer: string }[] => [
   ...plan.decided,
   ...plan.questions.filter(question => question.answer.trim() !== '').map(({ text, answer }) => ({ text, answer })),
 ]
 
 /** Whether a task is behind the quest: built, or handed back to the person. */
-const isSettled = (task: FellowshipTask): boolean => task.state === 'done' || task.state === 'asked'
+const isSettled = (task: Task): boolean => task.state === 'done' || task.state === 'asked'
 
 /** How many of a plan's tasks are built at once, each beside the others in a lane of its own. */
 export const LANES = 3
@@ -242,10 +268,10 @@ export const laneRefOf = (ref: string, taskId: number): string => `${ref}~${task
 export const laneBranchOf = (branch: string, taskId: number): string => `${branch}--task-${taskId}`
 
 /** The issue a quest works for: a lane's is its quest's. */
-export const issueRefOf = (quest: Pick<FellowshipQuest, 'ref' | 'lane'>): string => quest.lane?.of ?? quest.ref
+export const issueRefOf = (quest: Pick<Quest, 'ref' | 'lane'>): string => quest.lane?.of ?? quest.ref
 
 /** The tasks a plan could send now: not behind it, every dependency done, and none already out in a lane. */
-export const readyTasks = (plan: FellowshipPlan, out: readonly number[]): FellowshipTask[] => {
+export const readyTasks = (plan: Plan, out: readonly number[]): Task[] => {
   const isDone = (id: number) => plan.tasks.find(one => one.id === id)?.state === 'done'
 
   return plan.tasks.filter(task => !isSettled(task) && !out.includes(task.id) && task.dependsOn.every(isDone))
@@ -256,8 +282,8 @@ export const readyTasks = (plan: FellowshipPlan, out: readonly number[]): Fellow
  * none of them is a file another task out or taken names, as two changes of one file would not land on each other. A
  * task that names no file could touch any, and is sent alone.
  */
-export const besideOf = (ready: readonly FellowshipTask[], out: readonly FellowshipTask[]): FellowshipTask[] => {
-  const taken: FellowshipTask[] = []
+export const besideOf = (ready: readonly Task[], out: readonly Task[]): Task[] => {
+  const taken: Task[] = []
   const files = new Set(out.flatMap(task => task.files))
 
   if (out.some(task => task.files.length === 0)) return []
@@ -281,23 +307,23 @@ export const conflictPrompt = (branch: string, files: readonly string[]): string
   ].join('\n')
 
 /** The task to send a member on: one already begun first, else the first whose every dependency is done. */
-export const nextTask = (plan: FellowshipPlan): FellowshipTask | undefined => {
+export const nextTask = (plan: Plan): Task | undefined => {
   const isDone = (id: number) => plan.tasks.find(one => one.id === id)?.state === 'done'
   const open = plan.tasks.filter(task => !isSettled(task) && task.dependsOn.every(isDone))
 
   return open.find(task => task.state === 'doing') ?? open[0]
 }
 
-export const isAllDone = (plan: FellowshipPlan): boolean => plan.tasks.every(isSettled)
+export const isAllDone = (plan: Plan): boolean => plan.tasks.every(isSettled)
 
-export const tally = (plan: FellowshipPlan): string => {
+export const tally = (plan: Plan): string => {
   const asked = plan.tasks.filter(task => task.state === 'asked').length
 
   return `${plan.tasks.filter(task => task.state === 'done').length}/${plan.tasks.length} done${asked > 0 ? `, ${asked} for you` : ''}`
 }
 
 /** The branch a plan or an errand commits on: the issue's number and its title, as a branch name spells them. */
-export const branchOf = (plan: Pick<FellowshipPlan, 'ref' | 'title'>): string => {
+export const branchOf = (plan: Pick<Plan, 'ref' | 'title'>): string => {
   const slug = plan.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -308,9 +334,6 @@ export const branchOf = (plan: Pick<FellowshipPlan, 'ref' | 'title'>): string =>
   return `fellowship/${refOf(plan.ref)?.number ?? 'quest'}${slug === '' ? '' : `-${slug}`}`
 }
 
-/** The worktree a branch is built in, under the project's folder. */
-export const treePathOf = (root: string, branch: string): string => `${root.replace(/\/+$/, '')}/${QUEST_TREES}/${branch.replace(/[^\w.-]+/g, '-')}`
-
 /** The worktrees git lists, each folder with the branch checked out there (none when HEAD is detached). */
 export const parseWorktrees = (porcelain: string): { path: string; branch: string }[] =>
   porcelain
@@ -319,20 +342,20 @@ export const parseWorktrees = (porcelain: string): { path: string; branch: strin
     .filter(one => one.path !== '')
 
 /** Whether a task is heavy to change: heavy by its weight, or threatened by a high risk. */
-const isWeighty = (plan: FellowshipPlan, task: FellowshipTask): boolean => task.weight === 'heavy' || isThreatened(plan, task)
+const isWeighty = (plan: Plan, task: Task): boolean => task.weight === 'heavy' || isThreatened(plan, task)
 
 /** The model the statues judge a task's change with: their own on a heavy task, a lighter one on any other. */
-export const statueModelFor = (plan: FellowshipPlan, task: FellowshipTask): string | undefined => (isWeighty(plan, task) ? undefined : SWIFT_STATUE_MODEL)
+export const statueModelFor = (plan: Plan, task: Task): string | undefined => (isWeighty(plan, task) ? undefined : LIGHTER_REVIEWER_MODEL)
 
 /**
  * The model the statues judge a plan's whole branch with: their own when a task of it is heavy, or a change of it went
  * unproven, as each such task was judged; a lighter one on any other.
  */
-export const wardModelFor = (plan: FellowshipPlan, commits: readonly Pick<FellowshipCommit, 'unproven'>[]): string | undefined =>
-  plan.tasks.some(task => isWeighty(plan, task)) || commits.some(one => (one.unproven ?? []).length > 0) ? undefined : SWIFT_STATUE_MODEL
+export const wardModelFor = (plan: Plan, commits: readonly Pick<Commit, 'unproven'>[]): string | undefined =>
+  plan.tasks.some(task => isWeighty(plan, task)) || commits.some(one => (one.unproven ?? []).length > 0) ? undefined : LIGHTER_REVIEWER_MODEL
 
 /** What a plan's whole branch is meant to do, for both statues to judge it against before it sails. */
-export const wardPurpose = (plan: FellowshipPlan): string =>
+export const wardPurpose = (plan: Plan): string =>
   [
     `The whole branch of the plan for ${plan.ref}, "${plan.title}", before its pull request is opened. Each task was proved and reviewed alone; review what the tasks do together: one task undoing or contradicting another, a seam between them left broken, and what they let in together.`,
     ...(plan.summary !== '' ? [`What it asks for: ${plan.summary}`] : []),
@@ -346,7 +369,7 @@ const withinOf = (root: string, path: string): string => (path.startsWith(`${roo
  * A path in the mods' own source, which a member leaves alone unless its task is about a mod: a fix to a mod that
  * stood in its way is not the quest's, and would ride into its pull request.
  */
-export const isModSource = (root: string, path: string, task: Pick<FellowshipTask, 'files'> | undefined): boolean =>
+export const isModSource = (root: string, path: string, task: Pick<Task, 'files'> | undefined): boolean =>
   /^\.claude\/mods(\/|$)/.test(withinOf(root, path)) && !(task?.files ?? []).some(file => /^\.claude\/mods\//.test(file.replace(/^\.\//, '')))
 
 /**
@@ -409,7 +432,7 @@ export const reachesOut = (root: string, tree: string, command: string): boolean
   return false
 }
 
-const taskBlock = (task: FellowshipTask): string[] => [
+const taskBlock = (task: Task): string[] => [
   `Task ${task.id}: ${task.title}`,
   ...(task.why !== '' ? [`Why: ${task.why}`] : []),
   ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
@@ -418,7 +441,7 @@ const taskBlock = (task: FellowshipTask): string[] => [
 ]
 
 /** The system prompt of a member: one task, built in the quest's worktree, left uncommitted for Argonath to prove and judge. */
-export const memberSystem = (member: FellowshipMember): string =>
+export const memberSystem = (member: Builder): string =>
   [
     `You are ${MEMBERS[member].title}, a builder: you build exactly one task, in the quest's git worktree, which is your working directory. ${MEMBERS[member].charge}`,
     '',
@@ -442,13 +465,13 @@ export const memberSystem = (member: FellowshipMember): string =>
 export type Retry = { attempt: number; by: string; answer: string; proof?: string; findings?: string[] }
 
 /** What a quest is, as its prompts and messages name it. */
-export type QuestOf = Pick<FellowshipQuest, 'kind' | 'ref' | 'url' | 'title' | 'branch'>
+export type QuestOf = Pick<Quest, 'kind' | 'ref' | 'url' | 'title' | 'branch'>
 
 /** The number a ref names: an issue's, or a review's pull request's. */
 const numberOf = (ref: string): number | undefined => refOf(ref.replace(/^review:/, 'github:'))?.number
 
 /** What a member is told of the quest it works for, and when it may hand its task back. */
-const questHead = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, member: FellowshipMember): string[] => {
+const questHead = (quest: QuestOf, plan: Plan, task: Task, member: Builder): string[] => {
   if (quest.kind === 'errand') {
     return [
       `The issue: ${quest.ref}, "${quest.title}"${quest.url !== '' ? ` (${quest.url})` : ''}. Build the whole of it in one change, with the tests that prove it.`,
@@ -494,7 +517,7 @@ const questHead = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, m
 }
 
 /** What a member is sent with: its quest and task, and on a retry, where the last try stood. */
-export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, member: FellowshipMember, retry?: Retry, vision?: FellowshipVision | null, standards = ''): string =>
+export const companionPrompt = (quest: QuestOf, plan: Plan, task: Task, member: Builder, retry?: Retry, vision?: Vision | null, standards = ''): string =>
   [
     ...questHead(quest, plan, task, member),
     ...(standards.trim() !== '' ? ['', "The project's written standards, what it rejects in a change: build to them, as the statues judge your change by them.", '<standards>', standards.trim(), '</standards>'] : []),
@@ -526,10 +549,10 @@ export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: Fell
   ].join('\n')
 
 /** What a task was weighed as before it was built, for the statues to weigh its change's size against: nothing when no one weighed it. */
-const weighedAs = (task: FellowshipTask): string[] => (task.isUnweighed === true ? [] : [`Weighed as ${task.weight} before it was built: ${WEIGHT_MEANS[task.weight]}.`])
+const weighedAs = (task: Task): string[] => (task.isUnweighed === true ? [] : [`Weighed as ${task.weight} before it was built: ${WEIGHT_MEANS[task.weight]}.`])
 
 /** What a task's change is meant to do, for the statues to judge it against. */
-export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, amendments: readonly { file: string; why: string; by: string }[] = []): string => {
+export const purposeOf = (quest: QuestOf, plan: Plan, task: Task, amendments: readonly { file: string; why: string; by: string }[] = []): string => {
   if (quest.kind === 'errand') return [`The whole of issue ${quest.ref}, "${quest.title}", in one change, as an errand. What the issue says:`, (task.brief ?? '').trim().slice(0, 4_000)].join('\n')
 
   if (quest.kind === 'review') {
@@ -561,7 +584,7 @@ const firstLine = (body: string): string => {
 }
 
 /** The message a task is committed with. */
-export const commitMessage = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, by: string, minor: readonly string[] = [], unproven: readonly string[] = []): string => {
+export const commitMessage = (quest: QuestOf, plan: Plan, task: Task, by: string, minor: readonly string[] = [], unproven: readonly string[] = []): string => {
   const number = numberOf(quest.ref)
   const head =
     quest.kind === 'review'
@@ -596,7 +619,7 @@ export const closingLine = (ref: string): string => {
  * before the Argonath after the builder was back, the account came before the proof, and may tell of a failure since
  * mended: it is said so.
  */
-const errandOpening = (last: FellowshipQuest['commits'][number] | undefined): string[] => {
+const errandOpening = (last: Quest['commits'][number] | undefined): string[] => {
   const answer = (last?.answer ?? '').trim()
   const proof = (last?.proof ?? '').trim()
 
@@ -606,7 +629,7 @@ const errandOpening = (last: FellowshipQuest['commits'][number] | undefined): st
   return [...(answer !== '' ? [answer, ''] : []), ...(proof !== '' ? [`The Argonath's proof: ${proof}.`, ''] : [])]
 }
 
-export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>, plan: FellowshipPlan): string =>
+export const prBody = (quest: Pick<Quest, 'kind' | 'ref' | 'commits'>, plan: Plan): string =>
   [
     // An errand's pull request opens on what its builder said of the change, and on what the Argonath proved of it
     ...(quest.kind === 'errand' ? errandOpening(quest.commits.at(-1)) : []),
@@ -628,15 +651,15 @@ export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>,
   ].join('\n')
 
 /** The pull request that closes a quest's issue, from its branch onto its base, and the forge it is opened on. */
-export const requestOf = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: FellowshipPlan): { forge: ForgeKind; request: NewRequest } => ({
+export const requestOf = (quest: Pick<Quest, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: Plan): { forge: ForgeKind; request: NewRequest } => ({
   forge: refOf(plan.ref)?.forge ?? 'github',
   request: { branch: quest.branch, base: quest.base, title: plan.title, body: prBody(quest, plan) },
 })
 
-const KIND_LINE: Record<FellowshipKind, string> = { plan: 'plan', errand: 'errand', review: 'review' }
+const KIND_LINE: Record<QuestKind, string> = { plan: 'plan', errand: 'errand', review: 'review' }
 
 /** A quest in a line: what it is, where it stands, and on what branch. */
-export const questLine = (quest: FellowshipQuest, plan: FellowshipPlan | null): string =>
+export const questLine = (quest: Quest, plan: Plan | null): string =>
   `${quest.ref} (${KIND_LINE[quest.kind]}), "${quest.title}"${plan === null ? '' : ` (${tally(plan)})`}: ${quest.phase}${quest.isAuto ? ', going on by itself' : ''}, on ${quest.branch} from ${quest.base}`
 
 /**
@@ -644,11 +667,11 @@ export const questLine = (quest: FellowshipQuest, plan: FellowshipPlan | null): 
  * earlier quest on it), and those of agents sent with no issue named into its worktree (the statues). An agent in the
  * project's own folder that names no issue is no quest's.
  */
-export const spentOn = (quest: Pick<FellowshipQuest, 'ref' | 'tree'>, root: string, turns: readonly MiddleEarthSpend[]): MiddleEarthSpend[] =>
+export const spentOn = (quest: Pick<Quest, 'ref' | 'tree'>, root: string, turns: readonly Spend[]): Spend[] =>
   turns.filter(one => one.ref === quest.ref || (one.ref === undefined && quest.tree !== root && one.tree === quest.tree))
 
 /** The quest in full, for Claude, and what its agents cost where any was counted to it. */
-export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null, cost = ''): string =>
+export const questText = (quest: Quest, plan: Plan | null, cost = ''): string =>
   [
     `The Fellowship's quest on ${questLine(quest, plan)}.`,
     `It is built in ${quest.tree}.`,
@@ -670,3 +693,171 @@ export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null, c
     ...(quest.pr !== '' ? ['', `Pull request: ${quest.pr}`] : []),
     ...(cost !== '' ? ['', cost] : []),
   ].join('\n')
+
+/** The Argonath's proof as a quest reads it. */
+export type ProofVerdict = { isSettled: boolean; isUnlooked: boolean; line: string; unhandled: string[]; unreached: string[]; text: string }
+
+/** An answer as a part hands it, or as JSON text: the object it is, or why it is none. */
+const heldOf = (answer: unknown): Record<string, unknown> | string => {
+  if (typeof answer === 'object' && answer !== null) return answer as Record<string, unknown>
+
+  const said = String(answer)
+
+  try {
+    const held = JSON.parse(said) as unknown
+
+    return typeof held === 'object' && held !== null ? (held as Record<string, unknown>) : said
+  } catch {
+    return said
+  }
+}
+
+/**
+ * Argonath's proof, as it answers a part: whether it settles the change (every changed run pinned, no test turned),
+ * whether a target the change reached could not be looked at at all, which no builder can mend, the targets nothing
+ * proves, the targets no kept run sees, and the proof as it reads. An answer that is not one is a proof that could not
+ * be looked at.
+ */
+export const proofVerdict = (answer: unknown): ProofVerdict => {
+  const held = heldOf(answer)
+
+  if (typeof held === 'string' || typeof held.verdict !== 'string') {
+    const said = typeof held === 'string' ? held : JSON.stringify(held)
+
+    return { isSettled: false, isUnlooked: true, line: `Argonath answered no proof that reads: ${said.trim().slice(0, 200)}`, unhandled: [], unreached: [], text: said }
+  }
+
+  return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: text(held.line) || held.verdict, unhandled: strings(held.unhandled), unreached: strings(held.unreached), text: text(held.text) || JSON.stringify(held) }
+}
+
+/** The statues' judgement as a part reads it: the verdict, their findings a line each, where each minor one is, and the verdict in a line. */
+export type Judged = { verdict: string; blocking: string[]; minor: string[]; minorAt: { where: string; line: string }[]; line: string }
+
+/** The statues' judgement as Argonath answers it to a part. */
+export const parseJudgement = (answer: unknown): Judged => {
+  const held = heldOf(answer)
+
+  if (typeof held === 'string') return { verdict: 'unreadable', blocking: [], minor: [], minorAt: [], line: `the Argonath answered no judgement: ${held.trim().slice(0, 200)}` }
+
+  const verdict = typeof held.verdict === 'string' ? held.verdict : 'unreadable'
+  const seats = (Array.isArray(held.seats) ? held.seats : []) as { title?: unknown; state?: unknown; why?: unknown; findings?: { severity?: unknown; where?: unknown; text?: unknown }[] }[]
+  const found = (severity: string) =>
+    seats.flatMap(seat =>
+      (Array.isArray(seat.findings) ? seat.findings : [])
+        .filter(one => one.severity === severity)
+        .map(one => {
+          const where = typeof one.where === 'string' ? one.where : ''
+
+          return { where, line: `- ${String(seat.title ?? '')}${where !== '' ? `, ${where}` : ''}: ${String(one.text ?? '')}` }
+        }),
+    )
+  const blocking = found('blocking').map(one => one.line)
+  const minorAt = found('minor')
+  const minor = minorAt.map(one => one.line)
+  const silent = seats.filter(seat => seat.state === 'silent').map(seat => `${String(seat.title ?? '')} ${String(seat.why ?? 'could not judge')}`)
+  const many = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`
+  const line =
+    verdict === 'pass'
+      ? `passed${minor.length > 0 ? `, ${many(minor.length, 'minor finding')}` : ''}`
+      : verdict === 'fail'
+        ? many(blocking.length, 'blocking finding')
+        : verdict === 'silent'
+          ? `not judged: ${silent.join('; ')}`
+          : verdict === 'sitting'
+            ? 'judging'
+            : verdict
+
+  return { verdict, blocking, minor, minorAt, line }
+}
+
+/** What a builder is sent back with: what the proof or the statues found, to mend in the change it made. */
+export const sendBackPrompt = (why: { proof?: string; findings?: string[] }): string =>
+  why.findings !== undefined
+    ? [
+        'Every changed run of your change is pinned, but its review found what blocks it. Fix each finding in the change you made, prove it again, and end your turn with your account as before.',
+        '<findings>',
+        ...why.findings,
+        '</findings>',
+      ].join('\n')
+    : [
+        "Argonath's proof does not settle your change yet. Carry on from where you are: write the integration test each changed run it lists as bare asks for, bring a loose or broken one to what the code now does, or fix the code where a change was not meant. Then prove it again, and end your turn with your account as before.",
+        '<proof>',
+        (why.proof ?? '').trim(),
+        '</proof>',
+      ].join('\n')
+
+/** What a builder is sent back with once its change passed with minor findings: to tidy them, and change nothing else. */
+export const tidyPrompt = (minor: readonly string[]): string =>
+  [
+    'Your change passed its review, with minor findings. Tidy each one that is about what your change itself wrote, with the smallest edit that answers it, and change no behaviour; leave one you judge wrong, and say why in your account. Then prove it again, and end your turn with your account as before. Minor findings of the review after this one are left as they are.',
+    '<findings>',
+    ...minor,
+    '</findings>',
+  ].join('\n')
+
+/** What a builder is sent again with: what the proof found, or the findings that block its change. */
+export type Why = { proof?: string; findings?: string[] }
+
+/** What comes next of a task's try, once its change is proved or judged. */
+export type Step =
+  | { kind: 'judge' }
+  | { kind: 'commit'; minor: readonly string[] }
+  | { kind: 'again'; why: Why; line: string }
+  | { kind: 'tidy'; minor: readonly string[]; otherwise: { kind: 'commit'; minor: readonly string[] } }
+  | { kind: 'prove' }
+  | { kind: 'wait' }
+  | { kind: 'stop'; why: string }
+
+/**
+ * What a proof of a task's change comes to: stopped where the Argonath could not look (no builder mends that, and no
+ * try is spent on it), tried again where it does not settle or the tests first were tampered with, committed as it
+ * passed where the change was only rebased since, else judged.
+ */
+export const afterProof = (verdict: ProofVerdict, out: { taskId: number; isRebased?: boolean; minor?: readonly string[] }, tampered: readonly { file: string; lines: readonly string[] }[]): Step => {
+  if (verdict.isUnlooked) return { kind: 'stop', why: `${verdict.line}. No member can mend that: set the target right in .claude/argonath, then put task ${out.taskId} before the Argonath again.` }
+  if (!verdict.isSettled) return { kind: 'again', why: { proof: verdict.text }, line: verdict.line }
+
+  // What was taken out of the tests written first without a reason blocks the change, as a finding would
+  if (tampered.length > 0) {
+    const findings = tampered.map(one => `- Lothlórien, ${one.file}: locked lines of Galadriel's tests were taken out with no reason given (${one.lines.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). Put them back, or call mcp__middle-earth__amend with the file and why before changing them.`)
+
+    return { kind: 'again', why: { findings }, line: `${findings.length} of Galadriel's test ${findings.length === 1 ? 'file' : 'files'} changed with no reason` }
+  }
+
+  // A lane's change the reviewers passed, rebased since onto its quest's branch, lands as it passed
+  if (out.isRebased === true) return { kind: 'commit', minor: out.minor ?? [] }
+
+  return { kind: 'judge' }
+}
+
+/** Whether a judgement's minor findings would send the builder back to tidy them: a pass's, once only. */
+export const isTidyAsked = (judged: Judged, out: { isTidied?: boolean }): boolean => judged.verdict === 'pass' && judged.minor.length > 0 && out.isTidied !== true
+
+/**
+ * What the reviewers' judgement of a task's change comes to: waited on while they sit; tidied by its builder where it
+ * passed with minor findings about what the change wrote (`ownMinor`), committed as it is where the builder cannot be
+ * reached; committed where it passed; tried again on blocking findings; proved and judged afresh where the change moved
+ * or they never sat on it; else stopped.
+ */
+export const afterVerdict = (judged: Judged, out: { taskId: number; isTidied?: boolean }, ownMinor: readonly string[]): Step => {
+  if (judged.verdict === 'sitting') return { kind: 'wait' }
+  if (isTidyAsked(judged, out) && ownMinor.length > 0) return { kind: 'tidy', minor: ownMinor, otherwise: { kind: 'commit', minor: judged.minor } }
+  if (judged.verdict === 'pass') return { kind: 'commit', minor: judged.minor }
+  if (judged.verdict === 'fail') return { kind: 'again', why: { findings: judged.blocking }, line: judged.line }
+  if (judged.verdict === 'stale' || judged.verdict === 'unsettled' || judged.verdict === 'none') return { kind: 'prove' }
+
+  return { kind: 'stop', why: `The statues could not judge task ${out.taskId}: ${judged.line}. Commit it once they can, or send it again.` }
+}
+
+/**
+ * What follows a try that did not pass: its builder sent back once, with all it read and did still in its context,
+ * where it was not already; else, or where it cannot be reached, a fresh builder a rung up while tries are left, or the
+ * quest stopped for the person. `tries` is how many the task is given; none where the task is no longer in the work.
+ */
+export const afterFailedTry = (out: { taskId: number; attempt: number; by: string; isResumed?: boolean }, tries: number | undefined, line: string, tree: string): { isSentBack: boolean; otherwise: { kind: 'climb'; attempt: number } | { kind: 'stop'; why: string } } => ({
+  isSentBack: out.isResumed !== true,
+  otherwise:
+    tries !== undefined && out.attempt < tries
+      ? { kind: 'climb', attempt: out.attempt + 1 }
+      : { kind: 'stop', why: `Task ${out.taskId} did not pass after ${out.attempt} ${out.attempt === 1 ? 'try' : 'tries'}, the last ${out.by}'s: ${line}. Finish it by hand in ${tree} and commit it from the pane, or send it again.` },
+})

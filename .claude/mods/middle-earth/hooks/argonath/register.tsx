@@ -12,7 +12,8 @@ import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
 import { errorText, rootOf, shellIn, toolFailed } from '../flow'
-import type { Section, Target, TurnEnded } from '../flow'
+import type { TargetFolders } from '../../core/quest'
+import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Review } from '../../core/proof'
 import { UNREADABLE, changeText, changesIn, fingerprintOf, sizeOf } from '../../core/change'
@@ -367,7 +368,7 @@ export async function proveFor($: $, tree: string, mustPass: readonly { file: st
 }
 
 /** What the project builds, by label, kind and folders from the project's folder: the Fellowship chooses a builder by it. */
-export async function targetsKnown($: $): Promise<Target[]> {
+export async function targetsKnown($: $): Promise<TargetFolders[]> {
   const cwd = await homeOf($)
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
 

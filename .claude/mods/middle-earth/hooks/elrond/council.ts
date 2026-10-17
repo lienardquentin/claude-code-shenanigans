@@ -2,7 +2,8 @@ import type { ElrondDecision, ElrondPlan, ElrondQuestion, ElrondRisk, ElrondSeve
 import { parseIssueRef } from '../../core/forge'
 import type { Issue, IssueRef, Repo } from '../../core/forge'
 import { fencedJson } from '../../core/answers'
-import { WEIGHT_MEANS, resolvedFrom } from '../flow'
+import { resolvedFrom } from '../../core/paths'
+import { WEIGHT_MEANS } from '../../core/quest'
 export { isChanging } from '../flow'
 
 // What the planner is handed of an issue at most: a longer body or thread is cut, and says so
