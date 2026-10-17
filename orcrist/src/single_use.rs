@@ -288,15 +288,18 @@ fn call<'a>(node: Node, file: &'a File) -> Option<(&'a str, Passed, bool)> {
     Some((&file.code[name.byte_range()], passed, name != function))
 }
 
-/// The name a node gives itself, when `declares`.
-fn named<'a>(node: Node, file: &'a File, declares: bool) -> Option<&'a str> {
-    let name = node.child_by_field_name("name").filter(|_| declares)?;
+/// The name a node gives itself.
+fn named<'a>(node: Node, file: &'a File) -> Option<&'a str> {
+    let name = node.child_by_field_name("name")?;
     Some(&file.code[name.byte_range()])
 }
 
 /// `trait Store`
 pub fn rust_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
-    named(node, file, node.kind() == "trait_item")
+    if node.kind() != "trait_item" {
+        return None;
+    }
+    named(node, file)
 }
 
 /// `impl Store for Disk`
@@ -312,8 +315,10 @@ pub fn rust_implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
 
 /// `class Store(ABC)`
 pub fn python_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
-    let declares = node.kind() == "class_definition" && python_bases(node, file).any(|supertype| supertype == "ABC");
-    named(node, file, declares)
+    if node.kind() != "class_definition" || !python_bases(node, file).any(|supertype| supertype == "ABC") {
+        return None;
+    }
+    named(node, file)
 }
 
 /// `class Disk(Store)`
@@ -326,8 +331,10 @@ pub fn python_implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
 
 /// `interface Store`, `abstract class Clock`
 pub fn typescript_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
-    let declares = matches!(node.kind(), "interface_declaration" | "abstract_class_declaration");
-    named(node, file, declares)
+    if !matches!(node.kind(), "interface_declaration" | "abstract_class_declaration") {
+        return None;
+    }
+    named(node, file)
 }
 
 /// `class Disk implements Store`, `class Wall extends Clock`

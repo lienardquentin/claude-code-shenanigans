@@ -1,7 +1,9 @@
 //! What orcrist knows of each language's grammar, one table per language: the rules ask the table of a file's
 //! language rather than match on it. A language's own checks, such as how it swallows an error, are written in the
 //! rule's module and named here. The rules still take some grammar as given: a call names what it calls in its
-//! `function` field, a function its parameters in `parameters`, and a bare name is an `identifier`.
+//! `function` field, a function its parameters in `parameters`, and a bare name is an `identifier`. A callee reached
+//! through a path or a receiver names its member in a `name`, `field`, `attribute` or `property` field, an
+//! `identifier`, `field_identifier` or `property_identifier`, and the call's arguments are in `arguments`.
 
 use tree_sitter::Node;
 
@@ -76,7 +78,7 @@ pub struct Syntax {
     pub guards: &'static [Guard],
 }
 
-/// Python's receivers, left out in every language as they were before the tables.
+/// A method's own receiver names, which no call passes: shared by every language's table.
 const RECEIVERS: &[&str] = &["self", "cls"];
 
 /// What a rule says of an error caught and left there.
