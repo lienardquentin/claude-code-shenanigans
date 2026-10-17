@@ -1102,3 +1102,46 @@ fn json_and_sarif_without_a_finding_are_still_a_document() {
     assert!(stdout(&sarif).contains("\"results\": []"), "{}", stdout(&sarif));
     assert_eq!(sarif.status.code(), Some(0));
 }
+
+// sting: orcrist check fixtures/clean/cart.ts
+#[test]
+fn an_element_named_for_its_collection_is_not_vague() {
+    let output = run(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &["check", "fixtures/clean/cart.ts"],
+    );
+
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn an_element_of_a_collection_named_otherwise_is_still_vague() {
+    let output = check(
+        "element-of-data",
+        "names.ts",
+        "export const names = (beacons: Beacon[]) => beacons.map((item) => item.name)\nexport const fetched = () => load().then((data) => show(data))\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "names.ts:1 vague-name: item says nothing of what it is\n\
+         names.ts:2 vague-name: data says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn idiomatic_code_in_each_language_holds_no_finding() {
+    for fixture in [
+        "fixtures/clean/TodoList.tsx",
+        "fixtures/clean/debounce.js",
+        "fixtures/clean/shapes.py",
+        "fixtures/clean/inventory.rs",
+    ] {
+        let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", fixture]);
+
+        assert_eq!(stdout(&output), "", "{fixture}");
+        assert_eq!(output.status.code(), Some(0), "{fixture}");
+    }
+}

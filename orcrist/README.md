@@ -108,3 +108,15 @@ impossible guard or an interface. To read another language, add its tree-sitter 
 written in the rule's module. A rule the language has no case of leaves the table's list empty. The rules still take
 some grammar as given: a call names what it calls in a `function` field, a function its parameters in `parameters`,
 and a bare name is an `identifier`. A grammar shaped otherwise needs those rules taught too.
+
+## Keeping it precise
+
+`fixtures/clean` holds idiomatic code of each language, in styles other than this repository's: arrow-heavy
+TypeScript, a React component, plain JavaScript, Python with a `Protocol`, Rust with its own error type. Any finding
+there is a false one, and the tests and kept runs hold them at none.
+
+`precision/check.sh` runs orcrist on well-known projects of each language, each at the commit `precision/projects`
+pins, and compares what it finds with the findings kept in `precision/<name>.txt`. A change to a rule shows there as
+the findings it adds or loses on code nobody wrote for orcrist. It needs the network the first time it fetches a
+project; `ORCRIST_PRECISION_CACHE` names a folder to keep them in between runs. `--update` keeps what orcrist finds
+now, once the difference is read and wanted.

@@ -1,0 +1,123 @@
+source/core/Ky.ts:107 swallowed-error: the error is caught and nothing is done with it
+source/core/Ky.ts:279 restating-comment: the comment says what line 280 already says
+source/core/Ky.ts:846 vague-name: data says nothing of what it is
+source/errors/NonError.ts:29 swallowed-error: the error is caught and nothing is done with it
+source/types/options.ts:116 vague-name: data says nothing of what it is
+source/utils/is-network-error.ts:9 restating-comment: the comment says what line 10 already says
+source/utils/merge.ts:238 vague-name: item says nothing of what it is
+source/utils/merge.ts:266 vague-name: item says nothing of what it is
+source/utils/options.ts:33 impossible-guard: the signature already says search is SearchParamsOption
+source/utils/options.ts:38 impossible-guard: the signature already says search is SearchParamsOption
+test/browser.ts:318 vague-name: data says nothing of what it is
+test/browser.ts:352 vague-name: data says nothing of what it is
+test/browser.ts:461 vague-name: data says nothing of what it is
+test/errors.ts:30 restating-comment: the comment says what line 32 already says
+test/errors.ts:82 vague-name: object says nothing of what it is
+test/errors.ts:97 restating-comment: the comment says what line 99 already says
+test/errors.ts:149 restating-comment: the comment says what line 151 already says
+test/fetch.ts:78 duplicate-helper: customFetch does what customFetch in test/main.ts:1850 already does
+test/fetch.ts:167 duplicate-helper: fetch does what fetch in test/fetch.ts:181 already does
+test/fetch.ts:181 duplicate-helper: fetch does what fetch in test/fetch.ts:167 already does
+test/fetch.ts:289 duplicate-helper: customFetch does what customFetch in test/fetch.ts:350 already does
+test/fetch.ts:350 duplicate-helper: customFetch does what customFetch in test/fetch.ts:289 already does
+test/fetch.ts:597 duplicate-helper: fetch does what fetch in test/fetch.ts:619 already does
+test/fetch.ts:619 duplicate-helper: fetch does what fetch in test/fetch.ts:597 already does
+test/headers.ts:348 duplicate-helper: customFetch does what customFetch in test/headers.ts:358 already does
+test/headers.ts:358 duplicate-helper: customFetch does what customFetch in test/headers.ts:348 already does
+test/headers.ts:368 duplicate-helper: customFetch does what customFetch in test/headers.ts:348 already does
+test/headers.ts:378 duplicate-helper: customFetch does what customFetch in test/headers.ts:348 already does
+test/headers.ts:1057 duplicate-helper: fetch does what fetch in test/headers.ts:1073 already does
+test/headers.ts:1073 duplicate-helper: fetch does what fetch in test/headers.ts:1057 already does
+test/helpers/create-large-file.ts:1 restating-comment: the comment says what line 2 already says
+test/helpers/create-large-file.ts:2 single-use-abstraction: every call passes 10 for sizeInMB
+test/hooks.ts:1277 duplicate-helper: customFetch does what customFetch in test/hooks.ts:1567 already does
+test/hooks.ts:1567 duplicate-helper: customFetch does what customFetch in test/hooks.ts:1277 already does
+test/hooks.ts:2410 duplicate-helper: fetch does what fetch in test/hooks.ts:2477 already does
+test/hooks.ts:2477 duplicate-helper: fetch does what fetch in test/hooks.ts:2410 already does
+test/hooks.ts:3614 vague-name: data says nothing of what it is
+test/hooks.ts:3683 vague-name: data says nothing of what it is
+test/hooks.ts:3719 vague-name: data says nothing of what it is
+test/hooks.ts:3753 vague-name: data says nothing of what it is
+test/hooks.ts:3839 vague-name: data says nothing of what it is
+test/hooks.ts:3888 vague-name: data says nothing of what it is
+test/hooks.ts:3926 vague-name: data says nothing of what it is
+test/hooks.ts:3963 vague-name: data says nothing of what it is
+test/hooks.ts:4001 vague-name: data says nothing of what it is
+test/hooks.ts:4033 vague-name: data says nothing of what it is
+test/hooks.ts:4072 vague-name: data says nothing of what it is
+test/hooks.ts:4115 vague-name: data says nothing of what it is
+test/hooks.ts:4154 vague-name: data says nothing of what it is
+test/hooks.ts:4192 restating-comment: the comment says what line 4193 already says
+test/hooks.ts:4194 restating-comment: the comment says what line 4195 already says
+test/hooks.ts:4213 vague-name: data says nothing of what it is
+test/hooks.ts:4248 vague-name: data says nothing of what it is
+test/hooks.ts:4296 vague-name: data says nothing of what it is
+test/hooks.ts:4338 vague-name: data says nothing of what it is
+test/hooks.ts:4380 vague-name: data says nothing of what it is
+test/hooks.ts:4417 vague-name: data says nothing of what it is
+test/hooks.ts:4464 vague-name: data says nothing of what it is
+test/hooks.ts:4512 vague-name: data says nothing of what it is
+test/hooks.ts:5771 vague-name: data says nothing of what it is
+test/hooks.ts:6159 duplicate-helper: fetch does what fetch in test/hooks.ts:6210 already does
+test/hooks.ts:6210 duplicate-helper: fetch does what fetch in test/hooks.ts:6159 already does
+test/hooks.ts:6411 duplicate-helper: fetch does what fetch in test/hooks.ts:6636 already does
+test/hooks.ts:6528 vague-name: object says nothing of what it is
+test/hooks.ts:6583 vague-name: data says nothing of what it is
+test/hooks.ts:6609 vague-name: data says nothing of what it is
+test/hooks.ts:6636 duplicate-helper: fetch does what fetch in test/hooks.ts:6411 already does
+test/hooks.ts:7701 swallowed-error: the error is caught and nothing is done with it
+test/hooks.ts:8045 vague-name: data says nothing of what it is
+test/http-error.ts:161 vague-name: data says nothing of what it is
+test/http-error.ts:182 vague-name: data says nothing of what it is
+test/http-error.ts:204 vague-name: data says nothing of what it is
+test/http-error.ts:222 vague-name: data says nothing of what it is
+test/main.ts:265 duplicate-helper: start does what start in test/retry.ts:1933 already does
+test/main.ts:1850 duplicate-helper: customFetch does what customFetch in test/fetch.ts:78 already does
+test/main.ts:2428 duplicate-helper: fetch does what fetch in test/main.ts:2444 already does
+test/main.ts:2444 duplicate-helper: fetch does what fetch in test/main.ts:2428 already does
+test/main.ts:3900 duplicate-helper: parseJson does what parseJson in test/main.ts:3922 already does
+test/main.ts:3922 duplicate-helper: parseJson does what parseJson in test/main.ts:3900 already does
+test/merge.ts:197 restating-comment: the comment says what line 199 already says
+test/request-options.ts:11 duplicate-helper: fetch does what fetch in test/request-options.ts:42 already does
+test/request-options.ts:42 duplicate-helper: fetch does what fetch in test/request-options.ts:11 already does
+test/resilience.ts:210 restating-comment: the comment says what line 212 already says
+test/resilience.ts:502 restating-comment: the comment says what line 504 already says
+test/response-handling.ts:215 vague-name: data says nothing of what it is
+test/response-handling.ts:279 vague-name: data says nothing of what it is
+test/retry-options.ts:30 duplicate-helper: fetch does what fetch in test/retry-options.ts:55 already does
+test/retry-options.ts:55 duplicate-helper: fetch does what fetch in test/retry-options.ts:30 already does
+test/retry.ts:1070 duplicate-helper: fetch does what fetch in test/retry.ts:1184 already does
+test/retry.ts:1184 duplicate-helper: fetch does what fetch in test/retry.ts:1070 already does
+test/retry.ts:1641 duplicate-helper: fetch does what fetch in test/retry.ts:1657 already does
+test/retry.ts:1657 duplicate-helper: fetch does what fetch in test/retry.ts:1641 already does
+test/retry.ts:1674 duplicate-helper: fetch does what fetch in test/retry.ts:1641 already does
+test/retry.ts:1690 duplicate-helper: fetch does what fetch in test/retry.ts:1641 already does
+test/retry.ts:1704 duplicate-helper: fetch does what fetch in test/retry.ts:1641 already does
+test/retry.ts:1721 duplicate-helper: fetch does what fetch in test/retry.ts:1641 already does
+test/retry.ts:1933 duplicate-helper: start does what start in test/main.ts:265 already does
+test/retry.ts:1994 duplicate-helper: start does what start in test/main.ts:265 already does
+test/retry.ts:2347 duplicate-helper: fetch does what fetch in test/retry.ts:2370 already does
+test/retry.ts:2370 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
+test/retry.ts:2400 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
+test/retry.ts:2469 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
+test/retry.ts:2516 restating-comment: the comment says what line 2517 already says
+test/retry.ts:2641 duplicate-helper: customFetch does what customFetch in test/retry.ts:2669 already does
+test/retry.ts:2669 duplicate-helper: customFetch does what customFetch in test/retry.ts:2641 already does
+test/retry.ts:3197 duplicate-helper: customFetch does what customFetch in test/retry.ts:3501 already does
+test/retry.ts:3226 duplicate-helper: customFetch does what customFetch in test/retry.ts:3274 already does
+test/retry.ts:3274 duplicate-helper: customFetch does what customFetch in test/retry.ts:3226 already does
+test/retry.ts:3313 duplicate-helper: customFetch does what customFetch in test/retry.ts:3226 already does
+test/retry.ts:3501 duplicate-helper: customFetch does what customFetch in test/retry.ts:3197 already does
+test/retry.ts:3752 duplicate-helper: fetch does what fetch in test/retry.ts:3835 already does
+test/retry.ts:3835 duplicate-helper: fetch does what fetch in test/retry.ts:3752 already does
+test/retry.ts:4329 duplicate-helper: fetch does what fetch in test/retry.ts:4388 already does
+test/retry.ts:4388 duplicate-helper: fetch does what fetch in test/retry.ts:4329 already does
+test/stream.ts:109 vague-name: data says nothing of what it is
+test/stream.ts:956 duplicate-helper: onUploadProgress does what onUploadProgress in test/stream.ts:1039 already does
+test/stream.ts:1039 duplicate-helper: onUploadProgress does what onUploadProgress in test/stream.ts:956 already does
+test/stream.ts:1088 vague-name: data says nothing of what it is
+test/stream.ts:1251 duplicate-helper: start does what start in test/stream.ts:1272 already does
+test/stream.ts:1272 duplicate-helper: start does what start in test/stream.ts:1251 already does
+test/stream.ts:1297 duplicate-helper: start does what start in test/stream.ts:1347 already does
+test/stream.ts:1347 duplicate-helper: start does what start in test/stream.ts:1297 already does
+test/stream.ts:1382 duplicate-helper: start does what start in test/stream.ts:1297 already does
