@@ -6,6 +6,7 @@ mod impossible;
 mod lang;
 mod parallel;
 mod project;
+mod report;
 mod restating;
 mod rules;
 mod single_use;
@@ -23,6 +24,7 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use lang::Language;
 use project::Project;
+use report::Format;
 
 /// Finds what an AI leaves behind in code: comments that restate it, guards for what cannot happen, vague names.
 #[derive(Parser)]
@@ -41,11 +43,14 @@ enum Command {
         /// Judge only the lines the working tree added since this commit, in the files of the languages orcrist reads.
         #[arg(long)]
         since: Option<String>,
+        /// How the findings are written.
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
     },
 }
 
 fn main() -> ExitCode {
-    let Command::Check { files, since } = Cli::parse().command;
+    let Command::Check { files, since, format } = Cli::parse().command;
     let config = match Config::find() {
         Ok(config) => config,
         Err(error) => {
@@ -95,24 +100,21 @@ fn main() -> ExitCode {
             .expect("every file judged is loaded into the project");
         rules::check(file, &indexes, &config.settings)
     });
-    let mut found = false;
+    let mut reported = Vec::new();
     for ((path, lines), findings) in targets.iter().zip(findings) {
         for finding in findings {
             let added = lines.as_ref().is_none_or(|lines| lines.contains(&finding.line));
-            if !added || !config.reports(finding.rule, path) {
-                continue;
+            if added && config.reports(finding.rule, path) {
+                reported.push((path.clone(), finding));
             }
-            println!(
-                "{}:{} {}: {}",
-                path.display(),
-                finding.line,
-                finding.rule,
-                finding.message
-            );
-            found = true;
         }
     }
-    if found { ExitCode::from(1) } else { ExitCode::SUCCESS }
+    print!("{}", report::write(format, &reported));
+    if reported.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 /// How many of `files` there are of each extension, as in `2 .md, 1 .json, 1 Makefile`: a file without one by its name.

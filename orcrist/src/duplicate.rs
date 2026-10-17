@@ -55,14 +55,11 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
         .get(&(file.language.code_language(), shape))?
         .iter()
         .find(|(path, other_line, _)| (path, *other_line) != (&file.path, line))?;
-    Some(Finding {
-        line,
-        rule: "duplicate-helper",
-        message: format!(
-            "{name} does what {other} in {}:{other_line} already does",
-            path.display()
-        ),
-    })
+    let message = format!(
+        "{name} does what {other} in {}:{other_line} already does",
+        path.display()
+    );
+    Some(Finding::at(node, &file.code, "duplicate-helper", message))
 }
 
 /// The name of the function `node` defines, and what it does: the pieces of its parameters and body in order, each

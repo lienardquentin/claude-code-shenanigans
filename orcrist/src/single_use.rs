@@ -74,14 +74,11 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
     if let Some(name) = (file.language.syntax().interface)(node, file)
         && let Some([(path, line)]) = index.implementations.get(&named(name)).map(Vec::as_slice)
     {
-        findings.push(Finding {
-            line: node.start_position().row + 1,
-            rule: "single-use-abstraction",
-            message: format!(
-                "{name} has one implementation, in {}:{line}; the code could use it directly",
-                path.display()
-            ),
-        });
+        let message = format!(
+            "{name} has one implementation, in {}:{line}; the code could use it directly",
+            path.display()
+        );
+        findings.push(Finding::at(node, &file.code, "single-use-abstraction", message));
     }
     if let Some((name, parameters)) = file.function(node)
         && index.definitions.get(&named(name)) == Some(&1)
@@ -94,11 +91,8 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
             let passed = |call: &Vec<Option<String>>| call.get(position).cloned().flatten();
             let Some(value) = passed(&calls[0]) else { continue };
             if calls.iter().all(|call| passed(call).as_ref() == Some(&value)) {
-                findings.push(Finding {
-                    line: parameter.start_position().row + 1,
-                    rule: "single-use-abstraction",
-                    message: format!("every call passes {value} for {}", &file.code[parameter.byte_range()]),
-                });
+                let message = format!("every call passes {value} for {}", &file.code[parameter.byte_range()]);
+                findings.push(Finding::at(*parameter, &file.code, "single-use-abstraction", message));
             }
         }
     }

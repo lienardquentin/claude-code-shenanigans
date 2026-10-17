@@ -7,11 +7,55 @@ use crate::lang::{self, Language};
 use crate::project::{File, Project};
 use crate::{duplicate, impossible, restating, single_use, swallowed, vague};
 
-/// Lines are counted from 1, as an editor shows them.
+/// Every rule a finding can come from, as the config and the findings name them, and what it finds.
+pub const RULES: [(&str, &str); 7] = [
+    (
+        "restating-comment",
+        "A comment most of whose words are in the line of code below it",
+    ),
+    ("swallowed-error", "An error dropped where someone needed to know of it"),
+    ("vague-name", "A name every word of which could name anything"),
+    (
+        "impossible-guard",
+        "A check on a parameter that its own annotation decides",
+    ),
+    (
+        "single-use-abstraction",
+        "An interface one type implements, or a parameter every call passes the same literal for",
+    ),
+    (
+        "duplicate-helper",
+        "A function that does what another of the project already does",
+    ),
+    ("unexplained-spare", "A spare that does not say why"),
+];
+
+/// Lines and columns are counted from 1, as an editor shows them, a column in characters.
 pub struct Finding {
     pub line: usize,
+    pub column: usize,
     pub rule: &'static str,
     pub message: String,
+}
+
+impl Finding {
+    /// A finding where `node` starts in `source`.
+    pub fn at(node: Node, source: &str, rule: &'static str, message: String) -> Finding {
+        let (line, column) = position(node, source);
+        Finding {
+            line,
+            column,
+            rule,
+            message,
+        }
+    }
+}
+
+/// The line and column `node` starts at, each counted from 1, the column in characters where tree-sitter counts bytes.
+fn position(node: Node, source: &str) -> (usize, usize) {
+    let start = node.start_position();
+    let line_start = node.start_byte() - start.column;
+    (start.row + 1, source[line_start..node.start_byte()].chars().count() + 1)
 }
 
 /// What the rules that look across files know of the whole project, gathered once.
@@ -52,6 +96,7 @@ pub fn check(file: &File, indexes: &Indexes, settings: &Settings) -> Vec<Finding
     for spare in spares.iter().filter(|spare| !spare.explained) {
         findings.push(Finding {
             line: spare.line,
+            column: spare.column,
             rule: "unexplained-spare",
             message: "a spare says why the finding is no slop here".to_string(),
         });
@@ -62,6 +107,7 @@ pub fn check(file: &File, indexes: &Indexes, settings: &Settings) -> Vec<Finding
 
 struct Spare<'a> {
     line: usize,
+    column: usize,
     rule: &'a str,
     explained: bool,
 }
@@ -73,8 +119,10 @@ fn spare<'a>(node: Node, source: &'a str, language: Language) -> Option<Spare<'a
     }
     let (_, spare) = lang::comment_text(&source[node.byte_range()]).split_once("orcrist: spare ")?;
     let (rule, reason) = spare.split_once(':').unwrap_or((spare, ""));
+    let (line, column) = position(node, source);
     Some(Spare {
-        line: node.start_position().row + 1,
+        line,
+        column,
         rule: rule.trim(),
         explained: !reason.trim().is_empty(),
     })
