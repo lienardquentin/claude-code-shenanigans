@@ -2,11 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BlackgateComment, BlackgateGate, BlackgatePhase } from '../../types'
-import { HOW_TO, WEIGHER_MODEL, commentLine, gateText, handedOf, parseGithub, parseGitlab, parsePrRef, parseRemote, parseWeights, readArgv, reviewRef, weighPrompt } from './gate'
+import { HOW_TO, WEIGHER_MODEL, commentShown, gateText, handedOf, parseGithub, parseGitlab, parsePrRef, parseRemote, parseWeights, readArgv, reviewRef, weighPrompt } from './gate'
 import { errorText, git, isMergedFrom, run, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { keyed, shortRef } from '../look'
 import { takeReview } from '../fellowship/register'
 
 type $ = EngineInterface
@@ -17,6 +18,8 @@ const TITLE = 'Black Gate'
 const TICK_MS = 500
 // How long the forge is given to answer
 const FORGE_TIMEOUT_MS = 120_000
+// How many lines of a comment the pane says: the rest is on the forge
+const COMMENT_LINES = 3
 
 const gate = atom({ plugin: 'middle-earth', key: 'blackgateGate' } as const, null as BlackgateGate | null)
 const note = atom({ plugin: 'middle-earth', key: 'blackgateNote' } as const, '')
@@ -272,42 +275,67 @@ export function registerBlackgate(on: On): void {
           {problem !== '' && <Text color="warning">{problem}</Text>}
           <Text dimColor>{HOW_TO}</Text>
         </Box>,
+        e.props.bodyColumns,
       )
     }
 
     const changes = held.comments.filter(one => one.kind === 'change')
-
+    const questions = held.comments.length - changes.length
+    const width = e.props.bodyColumns ?? 80
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
-          {badge({ label: held.phase, tone: PHASE_TONE[held.phase] })}
-          <Text bold wrap="truncate-end">{held.pr.title}</Text>
+        <Box flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {badge({ label: held.phase, tone: PHASE_TONE[held.phase] })}
+            {changes.length > 0 && <Text>{`${changes.length} ${changes.length === 1 ? 'change' : 'changes'}`}</Text>}
+            {questions > 0 && <Text color="warning">{`${questions} ${questions === 1 ? 'question' : 'questions'}`}</Text>}
+          </Box>
+          <Text bold>{`#${held.pr.number} ${held.pr.title}`}</Text>
+          <Text dimColor>{`${held.pr.repo} · ${held.pr.branch} → ${held.pr.base}`}</Text>
         </Box>
-        <Text dimColor>{`${held.pr.repo}#${held.pr.number} · ${held.pr.branch} → ${held.pr.base}`}</Text>
         {busy !== '' && <Text color="suggestion">{busy}</Text>}
         {problem !== '' && <Text color="warning">{problem}</Text>}
-        <Box flexDirection="column" borderStyle="round" paddingX={1}>
+        <Box flexDirection="column" borderStyle="round" paddingX={1} gap={1}>
           {held.comments.length === 0 && <Text dimColor>No open review comment.</Text>}
-          {held.comments.map(comment => (
-            <Text key={comment.id} color={comment.kind === 'question' ? 'warning' : held.phase === 'handed' ? 'success' : undefined} wrap="truncate-end">
-              {commentLine(comment)}
-            </Text>
-          ))}
+          {held.comments.map(comment => {
+            const color = comment.kind === 'question' ? 'warning' : held.phase === 'handed' ? 'success' : undefined
+            const where = comment.path !== '' ? `${comment.path}:${comment.line}` : ''
+            const replies = comment.replies ?? 0
+            const leftOut = comment.leftOut ?? 0
+
+            return (
+              <Box key={comment.id} flexDirection="row">
+                <Box width={2} flexShrink={0}>
+                  <Text color={color}>{comment.kind === 'question' ? '?' : '○'}</Text>
+                </Box>
+                <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                  <Text>
+                    <Text color={color} bold>{comment.kind === 'question' ? 'question' : comment.weight}</Text>
+                    <Text dimColor>{` · ${comment.author}`}</Text>
+                    {comment.isOutside === true && <Text color="warning">{' · from outside the repository'}</Text>}
+                  </Text>
+                  {where !== '' && <Text dimColor wrap="truncate-start">{where}</Text>}
+                  <Text>{commentShown(comment, COMMENT_LINES) || 'a review comment'}</Text>
+                  {replies > 0 && <Text dimColor>{`${replies} ${replies === 1 ? 'reply' : 'replies'} on the forge`}</Text>}
+                  {leftOut > 0 && <Text color="warning">{`${leftOut} ${leftOut === 1 ? 'reply' : 'replies'} from outside the repository left out`}</Text>}
+                </Box>
+              </Box>
+            )
+          })}
         </Box>
-        {held.phase === 'handed' && <Text dimColor>{`The Fellowship answers ${changes.length === 1 ? 'the comment' : `the ${changes.length} comments`} that ask for a change as ${reviewRef(held.pr)}: its pane says how each stands, and pushes them once you say so.`}</Text>}
-        <Box flexDirection="row" gap={1}>
-          {held.phase === 'ready' && changes.length > 0 && (
+        {held.phase === 'handed' && <Text dimColor>{`The Fellowship answers ${changes.length === 1 ? 'the comment' : `the ${changes.length} comments`} that ask for a change as ${shortRef(reviewRef(held.pr))}: its pane says how each stands, and pushes them once you say so.`}</Text>}
+        {held.phase === 'ready' && changes.length > 0 && (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
             <Button key="march" hotkey="m" variant="primary" onPress={() => update($, wanted, () => ({ what: 'hand' as const }))}>
-              Hand them to the Fellowship
+              {keyed('m', 'Hand them to the Fellowship')}
             </Button>
-          )}
-          {held.phase === 'ready' && changes.length > 0 && (
             <Button key="march-auto" hotkey="a" onPress={() => update($, wanted, () => ({ what: 'hand auto' as const }))}>
-              Hand them over, going on by itself
+              {keyed('a', 'Hand them over, going on by itself')}
             </Button>
-          )}
-        </Box>
+          </Box>
+        )}
       </Box>,
+      width,
     )
   })
 }

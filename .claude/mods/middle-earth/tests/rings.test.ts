@@ -126,7 +126,7 @@ describe('rings', () => {
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/2 open · lienardquentin\/claude-code-shenanigans[\s\S]*#12 Beacons answer how long they have burned \[ready-for-agent\][\s\S]*#21 Quench answers 404/)
 
       await pane.press({ key: 'issue-21' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[Errand\][\s\S]*\[Send to the council\]/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the council\]/)
 
       // The press only asks: the Fellowship's clock sets the errand out, which sends no agent
       await pane.press({ key: 'errand' })
@@ -136,7 +136,7 @@ describe('rings', () => {
 
       // Once on the Fellowship's road, the issue is the Fellowship's: no second errand, no council
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The Fellowship is on it \(errand · \w+\): \/fellowship goes on with it\./)
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).not.toContain('[Errand]')
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).not.toContain('[e Errand]')
     })
   }
 
@@ -160,12 +160,32 @@ describe('rings', () => {
     // A plan kept of the issue is opened, and no council sits on it again
     world.store[`plan:github:${REPO}#21`] = { ref: `github:${REPO}#21`, url: '', title: 'Quench answers 404 for an unknown beacon', summary: '', approach: '', tasks: [{ id: 1, title: 'Answer 404', why: '', steps: [], files: [], dependsOn: [], acceptance: '', weight: 'light', state: 'todo' }], questions: [], risks: [], accepted: [], at: 1_800_000_000_000 }
     await pane.press({ key: 'issue-21' })
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[Open its plan\]/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[c Open its plan\]/)
     await ends($, 'council-1', 'No plan.')
     await pane.press({ key: 'council' })
     await call($, 'mcp__middle-earth__pump')
     expect(world.spawned).toHaveLength(1)
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(new RegExp(`A plan of github:${REPO}#21 is kept from \\d{4}-\\d\\d-\\d\\d \\(0/1 done\\): shown in the pane\\.`))
+  })
+
+  test('keeps where an issue stands in a narrow pane, its title cut and whole once opened', async ($, on) => {
+    machine(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+    await $.command.run({ command: 'rings', args: '' } as never)
+
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 40 } as never, requestId: 'rings' })
+    await pane.press({ key: 'issue-12' })
+    await pane.press({ key: 'council' })
+
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'rings' })
+    // Each row fits the pane: the title gives way, where the issue stands does not, and no label crowds it out
+    expect(drawn).toContain('40 columns wide')
+    const row = /\[(▸ #12 [^\]]*)\]/.exec(drawn)?.[1] ?? ''
+    expect(row).toMatch(/^▸ #12 Beacons answ.*… asked of the council$/)
+    expect(row.length).toBeLessThanOrEqual(40)
+    expect(row).not.toContain('ready-for-agent')
+    // Opened, the title is said whole, and the labels with it
+    expect(drawn).toMatch(/#12 Beacons answer how long they have burned\n\s+by quent · updated 2026-10-14\n\s+\[ready-for-agent\]/)
   })
 
   test('says what the forge said when the issues cannot be listed, and lists none', async ($, on) => {

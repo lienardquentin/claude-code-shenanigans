@@ -74,19 +74,58 @@ const MAX_THREADS = 100
 const MAX_NOTES = 30
 const MAX_REVIEWS = 50
 
-/** A thread's notes as one body: its first, then each reply after `--- <author>:`, those from outside left out and counted. */
-const threadBody = (notes: readonly { author: string; body: string; isOutside: boolean }[]): string => {
+/**
+ * A thread's notes as one comment: its body, its first then each reply after `--- <author>:`, those from outside left out
+ * and counted; and, apart, what its first says and how many replies it holds, which no one's text can feign.
+ */
+const threadOf = (notes: readonly { author: string; body: string; isOutside: boolean }[]): Pick<BlackgateComment, 'body' | 'said' | 'replies' | 'leftOut'> => {
   const [first, ...replies] = notes
-  const outside = replies.filter(one => one.isOutside).length
+  const kept = replies.filter(one => !one.isOutside)
+  const outside = replies.length - kept.length
 
-  return [
-    first?.body ?? '',
-    ...replies.filter(one => !one.isOutside).map(one => `--- ${one.author}:\n${one.body}`),
-    ...(outside > 0 ? [`--- (${outside} ${outside === 1 ? 'reply' : 'replies'} from outside the repository left out)`] : []),
-  ].join('\n\n')
+  return {
+    body: [
+      first?.body ?? '',
+      ...kept.map(one => `--- ${one.author}:\n${one.body}`),
+      ...(outside > 0 ? [`--- (${outside} ${outside === 1 ? 'reply' : 'replies'} from outside the repository left out)`] : []),
+    ].join('\n\n'),
+    said: first?.body ?? '',
+    replies: kept.length,
+    leftOut: outside,
+  }
 }
 
 type Unweighed = Omit<BlackgateComment, 'weight' | 'kind'>
+
+// How long a comment's line is said where it is cut short: in the gate's own line for Claude, and in a pane of a
+// comment from outside the repository, which reaches Claude through it as no one's data
+const SHORT_CHARS = 60
+
+/** A comment's line cut to SHORT_CHARS, an ellipsis saying it was. */
+const cutShort = (line: string): string => (line.length > SHORT_CHARS ? `${line.slice(0, SHORT_CHARS - 3).trimEnd()}…` : line)
+
+/**
+ * What a pane says of a comment: its first lines when its author is of the repository; else, or where nothing says
+ * (a gate kept before authors were marked), its first line cut short.
+ */
+export const commentShown = (comment: Pick<BlackgateComment, 'body' | 'said' | 'isOutside'>, lines: number): string => {
+  const says = commentSays(comment, comment.isOutside === false ? lines : 1)
+
+  return comment.isOutside === false ? says : cutShort(says)
+}
+
+/**
+ * What a comment says, in its first lines: a thread's first comment as the forge gave it apart from its replies, which
+ * are counted, never read out of its text, as its author could type what looks like one. A gate kept before the first
+ * comment was kept apart has its body alone, cut at the first mark of a reply, so none is said as its author's.
+ */
+export const commentSays = (comment: Pick<BlackgateComment, 'body' | 'said'>, lines: number): string =>
+  (comment.said ?? comment.body.split(/\n--- (?:\S+:|\(.*left out\))\n?/)[0] ?? '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .slice(0, lines)
+    .join(' ')
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
@@ -121,7 +160,7 @@ export const parseGithub = (answer: string, repo: string, number: number): { pr:
             author: text(notes[0]?.author?.login),
             path: text(thread.path),
             line: typeof thread.line === 'number' ? thread.line : 0,
-            body: threadBody(notes.map(note => ({ author: text(note.author?.login), body: text(note.body), isOutside: isOutside(note) }))),
+            ...threadOf(notes.map(note => ({ author: text(note.author?.login), body: text(note.body), isOutside: isOutside(note) }))),
             url: text(notes[0]?.url),
             thread: text(thread.id),
             isOutside: isOutside(notes[0]),
@@ -130,7 +169,8 @@ export const parseGithub = (answer: string, repo: string, number: number): { pr:
       // A review's own words, when it asked for changes or said something: an approval's are not a request
       ...reviews
         .filter(review => text(review.body) !== '' && review.state !== 'APPROVED' && review.state !== 'DISMISSED')
-        .map(review => ({ id: text(review.id), author: text(review.author?.login), path: '', line: 0, body: text(review.body), url: text(review.url), isOutside: isOutside(review) })),
+        // A review's words are all its author's: none of it is a reply, whatever it holds
+        .map(review => ({ id: text(review.id), author: text(review.author?.login), path: '', line: 0, body: text(review.body), said: text(review.body), replies: 0, leftOut: 0, url: text(review.url), isOutside: isOutside(review) })),
     ]
 
     return { pr: { forge: 'github', repo, number, url: text(pull.url), title: text(pull.title), branch: text(pull.headRefName), base: text(pull.baseRefName), isFork: pull.isCrossRepository === true }, comments, unread }
@@ -160,7 +200,7 @@ export const parseGitlab = (request: string, discussions: string, repo: string, 
         author: text(notes[0]?.author?.username),
         path: text(notes[0]?.position?.new_path),
         line: typeof notes[0]?.position?.new_line === 'number' ? notes[0].position.new_line : 0,
-        body: threadBody(notes.map(note => ({ author: text(note.author?.username), body: text(note.body), isOutside: isOutside(note.author?.username) }))),
+        ...threadOf(notes.map(note => ({ author: text(note.author?.username), body: text(note.body), isOutside: isOutside(note.author?.username) }))),
         // A link names a note, not its discussion
         url: `${text(mr.web_url)}#note_${notes[0]?.id !== undefined ? String(notes[0].id) : id}`,
         thread: id,
@@ -211,11 +251,7 @@ export const parseWeights = (answer: string): Map<string, { weight: BlackgateWei
   return weighed
 }
 
-const firstLine = (body: string): string => {
-  const line = body.split('\n').find(one => one.trim() !== '' && !one.startsWith('---'))?.trim() ?? 'a review comment'
-
-  return line.length > 60 ? `${line.slice(0, 57).trimEnd()}…` : line
-}
+const firstLine = (body: string): string => cutShort(body.split('\n').find(one => one.trim() !== '' && !one.startsWith('---'))?.trim() ?? 'a review comment')
 
 /** The ref a gate's quest is known by in the Fellowship. */
 export const reviewRef = (pr: BlackgatePr): string => `review:${pr.repo}#${pr.number}`

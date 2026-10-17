@@ -530,6 +530,15 @@ export type BlackgateComment = {
   line: number
   /** What it says, its replies after it, as data. */
   body: string
+  /**
+   * What its first comment says alone, as the forge gave it apart from the replies: what a pane says under its author.
+   * A review's own words are all of its body. None in a gate kept before it was.
+   */
+  said?: string
+  /** How many replies of its thread its body carries, as the forge counted them: never read from the body's text. */
+  replies?: number
+  /** How many replies from outside the repository were left out of its body. */
+  leftOut?: number
   url: string
   /** Its thread (a GitHub review thread, a GitLab discussion), which can be answered and resolved; none for a review's own words. */
   thread?: string

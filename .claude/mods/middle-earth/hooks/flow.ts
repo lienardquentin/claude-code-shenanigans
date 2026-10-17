@@ -117,11 +117,16 @@ export const resolvedFrom = (cwd: string, path: string): string => {
  * nest its own worktree inside it.
  */
 export async function rootOf($: $): Promise<string> {
+  return (await gitRootOf($)) ?? (await $.session.cwd()).replace(/\/+$/, '')
+}
+
+/** The project's root as git finds it, as `rootOf` says it; nothing where git could not say, which `rootOf` answers with the session's directory. */
+export async function gitRootOf($: $): Promise<string | undefined> {
   const cwd = (await $.session.cwd()).replace(/\/+$/, '')
   const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
   const found = top?.exitCode === 0 ? top.stdout.trim() : ''
 
-  if (found === '') return cwd
+  if (found === '') return undefined
 
   const common = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }).catch(() => undefined)
   const shared = common?.exitCode === 0 ? common.stdout.trim().replace(/\/+$/, '') : ''

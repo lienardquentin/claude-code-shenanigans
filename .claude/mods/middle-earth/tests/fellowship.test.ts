@@ -1111,6 +1111,16 @@ describe('fellowship', () => {
     expect(world.spawned.map(one => one.cwd)).toEqual([TREE, otherTree])
     expect(world.marked).toEqual(['1 doing', '1 doing'])
 
+    // In a narrow pane each quest is a row that fits it: its ref and phase whole, its title cut to what is left
+    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 30 } as never, requestId: 'fellowship' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'fellowship' })
+    // The text read off a button is trimmed: a row that is not shown gives back the two cells before its ref
+    const rows = [...drawn.matchAll(/\[((?:▸ )?#1[24] ● \w+ [^\]]*)\]/g)].map(found => (found[1] ?? '').replace(/^(?!▸)/, '  '))
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatch(/^▸ #14 ● marching plan Beac.*…$/)
+    expect(rows[1]).toMatch(/^ {2}#12 ● marching plan .*…$/)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(30)
+
     // The first quest's member ends: only that quest is proved
     await ends($, 'frodo-1', 'Added lit_at.', world)
     await settle($, world)
@@ -1143,6 +1153,10 @@ describe('an agent the Fellowship sends', () => {
 
     expect(world.spawned).toHaveLength(1)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', cwd: TREE })
+    // A quest under way leaves another to set out beside it, from its own pane
+    await pane.redraw()
+    expect(await pane.find({ key: 'set-out' })).toBeDefined()
+    expect(await pane.find({ key: 'auto' })).toBeDefined()
     expect(await $.tool.call({ tool: 'Bash', command: 'git commit -am done', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/Fellowship commits/) })
     expect(await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
   })

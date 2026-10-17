@@ -526,6 +526,22 @@ describe('argonath', () => {
     })
   }
 
+  test('lists each changed run on a row of its own in a narrow pane, its tests under it, and says it whole once opened', async ($, on) => {
+    machine(on)
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'argonath' })
+    await pane.press({ key: 'refresh' })
+    await pane.press({ key: 'radius' })
+
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })
+    // No table cuts the run: its state, the run, and the tests that mark it, each on a line
+    expect(drawn).not.toContain('STATE')
+    expect(drawn).toMatch(/marked\s+\[gondor GET \/health\]\n\s+test_health_counts_what_burns/)
+    expect(drawn).toMatch(/gondor\s+service\s+● 1 kept request changed/)
+
+    await pane.press({ key: 'seam-gondor-gondor GET /health' })
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })).toMatch(/gondor GET \/health\n\s+marked by test_health_counts_what_burns/)
+  })
+
   test('sends the statues once the turn that proved every changed run pinned has ended, tells Claude their verdict, and judges the same change once', async ($, on) => {
     const world = machine(on)
     const { spawned, submitted } = statues(on)

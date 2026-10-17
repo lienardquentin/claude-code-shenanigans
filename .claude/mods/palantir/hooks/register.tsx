@@ -1523,6 +1523,8 @@ export const register: Register = (on, options) => {
 
     // The last figures of each, as a line beside the figure, where the pane is wide enough for both
     const hasSparks = width >= 100
+    // In a side pane the table keeps its columns narrow, so its state is not squeezed out: memory says what is held alone
+    const isNarrow = width < 72
     const CELL_SPARK = 6
     const figure = (past: readonly number[], text: string): string => (text === '' ? '' : hasSparks && spark(past, CELL_SPARK) !== '' ? `${spark(past, CELL_SPARK).padStart(CELL_SPARK)} ${text}` : text)
     const pastOf = (label: string): History => pasts[label] ?? { cpu: [], memory: [], lag: [] }
@@ -1542,7 +1544,8 @@ export const register: Register = (on, options) => {
       const { state, detail, restarts } = watch.health
       const standing = [state, detail, restarts > 0 ? `${restarts} restarts` : ''].filter(part => part !== '').join(' · ')
       const past = pastOf(label)
-      const memory = figure(past.memory, memoryText(factsOf(label).usage))
+      const inUse = memoryText(factsOf(label).usage)
+      const memory = figure(past.memory, isNarrow ? (inUse.split(' / ')[0] ?? inUse) : inUse)
 
       return {
         // A row is its own filter: pressed, the views show it alone; pressed again, all
@@ -1594,15 +1597,15 @@ export const register: Register = (on, options) => {
         </Box>,
         table({
           columns: [
-            { header: TITLE_OF[kind], width: 14 },
+            { header: TITLE_OF[kind], width: isNarrow ? 12 : 14 },
             ...(isMixed ? [{ header: 'Runs on', width: 10 }] : []),
             ...(kind === 'app' ? [] : [{ header: 'Engine', width: 11 }]),
             { header: 'State' },
-            { header: 'CPU', width: hasSparks ? 13 : 6 },
-            { header: 'Memory', width: hasSparks ? 23 : 16 },
+            { header: 'CPU', width: hasSparks ? 13 : isNarrow ? 5 : 6 },
+            { header: 'Memory', width: hasSparks ? 23 : isNarrow ? 8 : 16 },
             ...(kind === 'broker' ? [{ header: 'Topics', width: 6 }, { header: 'Lag', width: hasSparks ? 13 : 6 }] : []),
             ...(kind === 'database' ? [{ header: 'Sessions', width: 8 }, { header: 'Tables', width: 6 }] : []),
-            { header: 'Errors', width: 11 },
+            { header: 'Errors', width: isNarrow ? 9 : 11 },
           ],
           rows: members.map((attachment): TableCell[] => {
             const { name, state, cpu, memory, errors } = rowOf(attachment)
@@ -1718,7 +1721,7 @@ export const register: Register = (on, options) => {
       ].filter(note => note !== '')
 
       return [
-        <Box key="logs-actions" flexDirection="row" gap={2}>
+        <Box key="logs-actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Button key="errors-only" hotkey="e" onPress={() => update($, isErrorsOnly, value => !value)}>
             {actionLabel({ text: keyed('e', 'Errors only'), primary: errorsOnly })}
           </Button>
@@ -1764,7 +1767,7 @@ export const register: Register = (on, options) => {
       const [rid] = led.flatMap(({ line }) => requestIds(line.message))
 
       return [
-        <Box key="errors-actions" flexDirection="row" gap={2}>
+        <Box key="errors-actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Button key="errors-since" hotkey="b" onPress={() => update($, since, was => BASELINES[(BASELINES.indexOf(was) + 1) % BASELINES.length] ?? 'edit')}>
             {actionLabel({ text: keyed('b', `New since ${BASELINE_NAME[baseline]}`) })}
           </Button>
@@ -1809,7 +1812,7 @@ export const register: Register = (on, options) => {
                   {`  ${frame}`}
                 </Text>
               )),
-              <Box key="error-actions" flexDirection="row" gap={2}>
+              <Box key="error-actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
                 <Button key="error-diagnose" hotkey="d" onPress={() => $.prompt.submit({ text: diagnosePrompt(open, watchOf(open.label), led) })}>
                   {actionLabel({ text: keyed('d', 'Diagnose with Claude'), primary: true })}
                 </Button>
@@ -2141,7 +2144,7 @@ export const register: Register = (on, options) => {
       const toggle = (id: string) => update($, opened, ids => (ids.includes(id) ? ids.filter(known => known !== id) : [...ids, id]))
 
       return [
-        <Box key="e2e-actions" flexDirection="row" gap={2}>
+        <Box key="e2e-actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Button key="e2e-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_PROMPT })}>
             {actionLabel({ text: keyed('p', planned === 0 ? 'Plan' : 'Plan again'), primary: planned === 0 })}
           </Button>
@@ -2214,7 +2217,7 @@ export const register: Register = (on, options) => {
       const toggle = (id: string) => update($, opened, ids => (ids.includes(id) ? ids.filter(known => known !== id) : [...ids, id]))
 
       return [
-        <Box key="unit-actions" flexDirection="row" gap={2}>
+        <Box key="unit-actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
           <Button key="unit-plan" hotkey="p" onPress={() => $.prompt.submit({ text: PLAN_UNIT_PROMPT })}>
             {actionLabel({ text: keyed('p', suitesHeld.length === 0 ? 'Plan' : 'Plan again'), primary: suitesHeld.length === 0 })}
           </Button>
@@ -2274,7 +2277,7 @@ export const register: Register = (on, options) => {
       )
 
       return [
-        <Box key="tests-as" flexDirection="row" gap={2}>
+        <Box key="tests-as" flexDirection="row" flexWrap="wrap" columnGap={2}>
           {as('e2e', keyed('e', 'E2E'), 'e', suitesOf(scenariosHeld, picked))}
           {as('unit', keyed('u', 'Unit tests'), 'u', suitesOf(suitesHeld, picked))}
         </Box>,
@@ -2296,7 +2299,7 @@ export const register: Register = (on, options) => {
       )
 
       const switcher = (
-        <Box key="renders-as" flexDirection="row" gap={2}>
+        <Box key="renders-as" flexDirection="row" flexWrap="wrap" columnGap={2}>
           {as('tree', keyed('t', 'Renders'), 't')}
           {as('dom', keyed('d', 'DOM'), 'd')}
           {as('actions', keyed('a', 'Actions'), 'a')}
@@ -2336,7 +2339,7 @@ export const register: Register = (on, options) => {
         children: [
           summary,
           // Where to look, by number
-          <Box key="views" flexDirection="row" gap={2}>
+          <Box key="views" flexDirection="row" flexWrap="wrap" columnGap={2}>
             {tab('logs', 'Logs', '1')}
             {tab('errors', news > 0 ? `Errors · ${news} new` : 'Errors', '2')}
             {tab('renders', 'Page', '3')}
@@ -2346,7 +2349,7 @@ export const register: Register = (on, options) => {
             {...(list.some(({ label }) => factsOf(label).database !== undefined) ? [tab('database', 'Database', '7')] : [])}
           </Box>,
           // What is done to all of it, by letter
-          <Box key="actions" flexDirection="row" gap={2}>
+          <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={2}>
             <Button key="refresh" hotkey="r" onPress={() => refresh($, asked)}>
               {actionLabel({ text: keyed('r', 'Refresh') })}
             </Button>
@@ -2393,6 +2396,7 @@ export const register: Register = (on, options) => {
               ]),
         ],
       }),
+      width,
     )
   })
 }

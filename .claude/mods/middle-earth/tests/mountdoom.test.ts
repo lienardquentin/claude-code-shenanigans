@@ -145,6 +145,38 @@ describe('mountdoom', () => {
     expect(world.toasts.filter(toast => toast.startsWith('Mount Doom'))).toHaveLength(1)
   })
 
+  test('draws each relic in the pane as where it stands, then its branch and keepers, then its pull request, the merged first', async ($, on) => {
+    const world = machine(on)
+    await $.session.start({} as never)
+    const mounted = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'mountdoom' })
+    // A look asks the forge afresh; the pane is drawn again on what it found
+    const pane = async () => {
+      await call($, 'mcp__middle-earth__relics')
+      await mounted.redraw()
+
+      return String((await $.tool.call({ tool: 'mcp__middle-earth__pane', pane: 'mountdoom' } as never)).result)
+    }
+
+    // Open: nothing to cast
+    const open = await pane()
+    expect(open).toMatch(/● watching 1  \[l Look again\]/)
+    expect(open).toMatch(/·\s+#34  open\n\s*fellowship\/34-gondor-quench-a-single-beacon · kept by fellowship\n\s*https:.*\/pull\/40/)
+    expect(open).not.toContain('Cast them into the fire')
+
+    // The forge could not say: it is unknown, never open, and why is said under it
+    world.forgeDown = 'gh: not logged in'
+    const unknown = await pane()
+    expect(unknown).toMatch(/#34  unknown\n/)
+    expect(unknown).toMatch(/The forge could not say whether it is merged: /)
+
+    // Merged: said so first, and cast from the pane
+    world.forgeDown = ''
+    world.state = 'MERGED'
+    const merged = await pane()
+    expect(merged).toMatch(/● 1 merged  \[l Look again\][\s\S]*🔥\s+#34  merged\n/)
+    expect(merged).toMatch(/\[c Cast them into the fire\]\*/)
+  })
+
   test('tells the person once that a pull request still open fell into conflict with its base, and again only after it eased', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)

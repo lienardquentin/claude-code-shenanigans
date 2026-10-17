@@ -9,6 +9,8 @@ import { gitlabPushers, isMergedFrom, rootOf, toolFailed } from '../flow'
 import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
+import { clip, keyed, shortRef } from '../look'
+import { settlingOf } from '../fellowship/quest'
 import { COUNCIL, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 
 type $ = EngineInterface
@@ -511,6 +513,7 @@ export function registerElrond(on: On): void {
           {head}
           {sitting === null && <Text dimColor>{HOW_TO}</Text>}
         </Box>,
+        e.props.bodyColumns,
       )
     }
 
@@ -529,43 +532,90 @@ export function registerElrond(on: On): void {
     const openRisks = open === undefined ? [] : risksFor(held, open.id)
     const unDecide = (index: number) => keep($, reopened(held, index))
     const asking = await read($, setOut)
+    const width = e.props.bodyColumns ?? 80
+    // What the Fellowship refuses to set out on, as its setOut's unsettledOf counts it: the questions not answered, the
+    // risks not decided, and those to cover with a task, which only a revision of the plan settles
+    const { unanswered, toCover, undecided } = settlingOf(held)
+    const blockers = [
+      ...(unanswered > 0 ? [`${unanswered} ${unanswered === 1 ? 'question' : 'questions'} to answer`] : []),
+      ...(undecided > 0 ? [`${undecided} ${undecided === 1 ? 'risk' : 'risks'} to decide`] : []),
+      ...(toCover > 0 ? [`${toCover} ${toCover === 1 ? 'risk' : 'risks'} to cover: revise the plan`] : []),
+    ]
+    const isAllDone = held.tasks.every(task => task.state === 'done')
+    // A task's mark and number keep a column of their own; what it waits on is said after its title, never cut
+    const markWidth = String(Math.max(0, ...held.tasks.map(task => task.id))).length + 6
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
-          {badge({ label: tally(held), tone: held.tasks.every(task => task.state === 'done') ? 'success' : 'info' })}
-          <Text bold wrap="truncate-end">{held.title}</Text>
+        <Box flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {badge({ label: tally(held), tone: isAllDone ? 'success' : 'info' })}
+            {blockers.length > 0 && badge({ label: blockers.join(' · '), tone: 'warning' })}
+          </Box>
+          <Text bold>{`${shortRef(held.ref)} ${held.title}`}</Text>
+          {held.url !== '' && <Text dimColor wrap="truncate-middle">{held.url}</Text>}
         </Box>
-        <Text dimColor>{`${held.ref} · ${held.url}`}</Text>
         {head}
         {held.summary !== '' && <Text>{held.summary}</Text>}
         {held.approach !== '' && <Text dimColor>{held.approach}</Text>}
         <Box flexDirection="column" borderStyle="round" paddingX={1}>
-          {held.tasks.map(task => (
-            <Button key={`task-${task.id}`} plain onPress={() => update($, selected, was => (was === task.id ? 0 : task.id))}>
-              {`${task.id === openId ? '▸' : ' '} ${MARK[task.state]} ${task.id}. ${task.title}${task.dependsOn.length > 0 ? `  (after ${task.dependsOn.join(', ')})` : ''}${task.state === 'todo' && isNext.has(task.id) ? '  · ready' : ''}`}
-            </Button>
-          ))}
+          {held.tasks.map(task => {
+            const after = task.state === 'todo' && isNext.has(task.id) ? ' · ready' : task.dependsOn.length > 0 && task.state !== 'done' ? ` · after ${task.dependsOn.join(', ')}` : ''
+
+            return (
+              <Button key={`task-${task.id}`} plain onPress={() => update($, selected, was => (was === task.id ? 0 : task.id))}>
+                <Text color={task.state === 'done' ? 'success' : task.state === 'doing' ? 'suggestion' : undefined}>{`${task.id === openId ? '▸' : ' '} ${MARK[task.state]} ${task.id}.`.padEnd(markWidth)}</Text>
+                <Text bold={task.id === openId} dimColor={task.state === 'done'}>{clip(task.title, width - 4 - markWidth - after.length)}</Text>
+                {after !== '' && <Text color={after === ' · ready' ? 'suggestion' : undefined} dimColor={after !== ' · ready'}>{after}</Text>}
+              </Button>
+            )
+          })}
         </Box>
-        {!held.tasks.every(task => task.state === 'done') && (
-          <Box flexDirection="row" gap={2}>
-            <Button key="set-out" hotkey="s" variant="primary" onPress={() => update($, setOut, () => 'step')}>
-              Set out with the Fellowship
-            </Button>
-            <Button key="set-out-auto" hotkey="a" onPress={() => update($, setOut, () => 'auto')}>
-              Set out, auto
-            </Button>
-            <Text dimColor>{asking !== '' ? 'the Fellowship is setting out…' : 'it stops after each commit; auto goes on by itself and opens the pull request'}</Text>
+        {!isAllDone && (
+          <Box flexDirection="column">
+            <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+              <Button key="set-out" hotkey="s" variant={blockers.length > 0 ? 'secondary' : 'primary'} onPress={() => update($, setOut, () => 'step')}>
+                {keyed('s', 'Set out with the Fellowship')}
+              </Button>
+              <Button key="set-out-auto" hotkey="a" onPress={() => update($, setOut, () => 'auto')}>
+                {keyed('a', 'Set out, auto')}
+              </Button>
+            </Box>
+            {asking !== '' ? (
+              <Text color="suggestion">the Fellowship is setting out…</Text>
+            ) : blockers.length > 0 ? (
+              <Text color="warning">{`First ${blockers.join(' and ')}, below.`}</Text>
+            ) : (
+              <Text dimColor>It stops after each commit; auto goes on by itself and opens the pull request.</Text>
+            )}
           </Box>
         )}
         {open !== undefined && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
             <Text bold>{`${open.id}. ${open.title}`}</Text>
+            <Text dimColor>{[open.state, open.weight, open.dependsOn.length > 0 ? `after ${open.dependsOn.join(', ')}` : ''].filter(part => part !== '').join(' · ')}</Text>
             {open.why !== '' && <Text dimColor>{open.why}</Text>}
-            {open.steps.map((step, index) => (
-              <Text>{`${index + 1}) ${step}`}</Text>
-            ))}
-            {open.files.length > 0 && <Text color="suggestion">{open.files.join('  ')}</Text>}
+            {open.steps.length > 0 && (
+              <Box flexDirection="column" marginTop={1}>
+                {open.steps.map((step, index) => (
+                  <Box key={`step-${index}`} flexDirection="row">
+                    <Box width={String(open.steps.length).length + 2} flexShrink={0}>
+                      <Text dimColor>{`${index + 1})`}</Text>
+                    </Box>
+                    <Box flexShrink={1} flexGrow={1}>
+                      <Text>{step}</Text>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+            {open.files.length > 0 && (
+              <Box flexDirection="column" marginTop={1}>
+                {open.files.map(file => (
+                  <Text key={`file-${file}`} color="suggestion" wrap="truncate-start">{file}</Text>
+                ))}
+              </Box>
+            )}
             {open.acceptance !== '' && <Text color="success">{`Done when: ${open.acceptance}`}</Text>}
             {openRisks.map(risk => (
               <Text>
@@ -573,15 +623,15 @@ export function registerElrond(on: On): void {
                 <Text>{risk.text}</Text>
               </Text>
             ))}
-            <Box flexDirection="row" gap={2}>
+            <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
               {open.state !== 'done' && (
                 // Building a task here is a choice beside setting out with the Fellowship, not the way in
                 <Button key="begin" hotkey="b" onPress={() => setState(open.id, 'doing').then(() => $.prompt.submit({ text: beginText(held, open), asUser: true })).then(() => undefined)}>
-                  Build here myself
+                  {keyed('b', 'Build here myself')}
                 </Button>
               )}
               <Button key="done" hotkey="d" onPress={() => setState(open.id, open.state === 'done' ? 'todo' : 'done')}>
-                {open.state === 'done' ? 'Reopen' : 'Mark done'}
+                {keyed('d', open.state === 'done' ? 'Reopen' : 'Mark done')}
               </Button>
             </Box>
           </Box>
@@ -680,7 +730,7 @@ export function registerElrond(on: On): void {
                 </Text>
                 {risk.mitigation !== '' && <Text dimColor>{`Mitigation: ${risk.mitigation}`}</Text>}
                 {risk.tasks.length > 0 && <Text color="suggestion">{`Threatens ${risk.tasks.map(id => `task ${id}`).join(', ')}`}</Text>}
-                <Box flexDirection="row" gap={1} marginTop={1}>
+                <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
                   <Button key={`accept-risk-${index}`} onPress={() => keep($, acceptRisk(held, index))}>
                     Accept
                   </Button>
@@ -711,13 +761,14 @@ export function registerElrond(on: On): void {
             ))}
           </Box>
         )}
-        <Box flexDirection="row" gap={2}>
+        <Box flexDirection="column">
           <Button key="revise" hotkey="r" variant={carried.length > 0 ? 'primary' : 'secondary'} onPress={() => revise()}>
-            Revise the plan
+            {keyed('r', 'Revise the plan')}
           </Button>
-          <Text dimColor>{asked !== '' ? 'convening the council…' : carried.length > 0 ? `the council plans again with ${carried.join(', ')}` : 'the council plans the issue again'}</Text>
+          <Text dimColor>{asked !== '' ? 'Convening the council…' : carried.length > 0 ? `The council plans again with ${carried.join(', ')}.` : 'The council plans the issue again.'}</Text>
         </Box>
       </Box>,
+      width,
     )
   })
 }
