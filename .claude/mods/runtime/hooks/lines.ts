@@ -1,6 +1,6 @@
 import type { Action, Dom, DomIssue, Level, Line, Render, Request, Signature, Vitals, Watch } from '../types'
 
-// What turns the text an app wrote into lines palantir can sort: its time, its level, its message with the
+// What turns the text an app wrote into lines the runtime mod can sort: its time, its level, its message with the
 // secrets taken out. Nothing here reaches outside: text in, values out.
 
 const MAX_LINES = 1000
@@ -169,18 +169,18 @@ export const read = (text: string): Read => {
 }
 
 /**
- * A render as a frontend reports it in its log: a JSON line that says `"palantir":"render"`, the component, and the
+ * A render as a frontend reports it in its log: a JSON line that says `"runtime":"render"`, the component, and the
  * chain that led to it, the cause first. Such a line is no line of the timeline: it is counted, chain by chain.
  */
 export const renderOf = (text: string): { component: string; chain: string[]; values: string[]; whole: string[]; count: number; inside: number; file: string; at?: number } | undefined => {
   const trimmed = text.trim()
 
-  if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
+  if (!trimmed.startsWith('{') || !trimmed.includes('"runtime"')) return undefined
 
   try {
     const fields = JSON.parse(trimmed) as Record<string, unknown>
 
-    if (fields.palantir !== 'render' || typeof fields.component !== 'string' || !Array.isArray(fields.chain)) return undefined
+    if (fields.runtime !== 'render' || typeof fields.component !== 'string' || !Array.isArray(fields.chain)) return undefined
 
     const chain = fields.chain.slice(0, MAX_STEPS).map(step => redact(String(step)).slice(0, 120))
     const values: unknown[] = Array.isArray(fields.values) ? fields.values : []
@@ -214,19 +214,19 @@ export const renderOf = (text: string): { component: string; chain: string[]; va
 }
 
 /**
- * A page as a frontend reports it in its log: a JSON line that says `"palantir":"dom"`, the page's address and
+ * A page as a frontend reports it in its log: a JSON line that says `"runtime":"dom"`, the page's address and
  * title, and its elements, each `[depth, tag, attributes, text, component]`. Such a line is no line of the
  * timeline: the last one is the page as it stands.
  */
 export const domOf = (text: string): Omit<Dom, 'at'> & { at?: number } | undefined => {
   const trimmed = text.trim()
 
-  if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
+  if (!trimmed.startsWith('{') || !trimmed.includes('"runtime"')) return undefined
 
   try {
     const fields = JSON.parse(trimmed) as Record<string, unknown>
 
-    if (fields.palantir !== 'dom' || !Array.isArray(fields.elements)) return undefined
+    if (fields.runtime !== 'dom' || !Array.isArray(fields.elements)) return undefined
 
     const said = (value: unknown, most: number): string => (typeof value === 'string' ? redact(value).slice(0, most) : '')
 
@@ -262,21 +262,21 @@ type Told =
 const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0)
 
 /**
- * What else a page says of itself, a JSON line each, none of them a line of the timeline: `"palantir":"action"`,
- * something the person did and what followed; `"palantir":"request"`, something the page asked for and how long the
- * answer took; `"palantir":"vitals"`, how the page loaded and answers the hand.
+ * What else a page says of itself, a JSON line each, none of them a line of the timeline: `"runtime":"action"`,
+ * something the person did and what followed; `"runtime":"request"`, something the page asked for and how long the
+ * answer took; `"runtime":"vitals"`, how the page loaded and answers the hand.
  */
 export const toldOf = (text: string, now: number): Told | undefined => {
   const trimmed = text.trim()
 
-  if (!trimmed.startsWith('{') || !trimmed.includes('"palantir"')) return undefined
+  if (!trimmed.startsWith('{') || !trimmed.includes('"runtime"')) return undefined
 
   try {
     const fields = JSON.parse(trimmed) as Record<string, unknown>
     const said = (value: unknown, most: number): string => (typeof value === 'string' ? redact(value).slice(0, most) : '')
     const list = (value: unknown, most: number): string[] => (Array.isArray(value) ? value.slice(0, most).map(item => said(item, 160)).filter(item => item !== '') : [])
 
-    if (fields.palantir === 'action' && typeof fields.kind === 'string') {
+    if (fields.runtime === 'action' && typeof fields.kind === 'string') {
       // How many times each component rendered, as `Name ×n`, the busiest first
       const rendered = Object.entries(typeof fields.renders === 'object' && fields.renders !== null ? fields.renders : {})
         .flatMap(([name, times]) => (count(times) > 0 ? [[redact(name).slice(0, 60), count(times)] as const] : []))
@@ -290,11 +290,11 @@ export const toldOf = (text: string, now: number): Told | undefined => {
       }
     }
 
-    if (fields.palantir === 'request' && typeof fields.url === 'string') {
+    if (fields.runtime === 'request' && typeof fields.url === 'string') {
       return { kind: 'request', url: said(fields.url, 200), status: fields.status === -1 ? -1 : count(fields.status), ms: count(fields.ms), at: timeOf(fields.at ?? fields.time) }
     }
 
-    if (fields.palantir === 'vitals') {
+    if (fields.runtime === 'vitals') {
       return {
         kind: 'vitals',
         vitals: {
@@ -399,7 +399,7 @@ const grown = (trace: readonly string[], text: string): string[] => {
 export const absorb = (watch: Watch, raws: readonly string[], now: number): Watch => {
   const held = [...watch.lines]
   const drafts: Draft[] = []
-  // A watch held from before palantir counted renders has none
+  // A watch held from before the runtime mod counted renders has none
   const renders: Render[] = (watch.renders ?? []).map(render => ({ ...render }))
   let dom = watch.dom
   let actions = watch.actions ?? []

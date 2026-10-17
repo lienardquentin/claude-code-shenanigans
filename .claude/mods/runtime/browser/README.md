@@ -1,11 +1,11 @@
 # Renders, the page and what is done on it, read from the browser
 
-Why a frontend's components render, and how its page stands, are in no log. palantir asks the browser itself, over
+Why a frontend's components render, and how its page stands, are in no log. The runtime mod asks the browser itself, over
 the DevTools protocol of a Chrome started with a debug port, and the app holds nothing for it: no plugin, no
 endpoint, no line in its log.
 
 ```
- palantir --> node browser/ask.mjs --> Chrome's debug port, 127.0.0.1:9222 --> each tab --> browser/page.js
+ the runtime mod --> node browser/ask.mjs --> Chrome's debug port, 127.0.0.1:9222 --> each tab --> browser/page.js
 ```
 
 At each read (the pane's timer, Refresh, the Page view, a tool that asks of the page), [`ask.mjs`](ask.mjs)
@@ -14,12 +14,12 @@ console holds. What comes back is read as what a log says:
 
 | What | Tool | In the pane's Page view (`3`) |
 | --- | --- | --- |
-| Why components rendered, and which renders came with nothing changed | `mcp__palantir__renders` | Renders (`t`) |
-| What the last edit did to the renders | `mcp__palantir__renders_since_edit` | |
-| The page's elements, and what a reader who does not see it cannot use | `mcp__palantir__dom` | DOM (`d`) |
-| What was done on the page and what followed, across every watched app | `mcp__palantir__interactions` | Actions (`a`) |
-| What the page asked for and how it loaded | `mcp__palantir__network` | Network (`n`) |
-| The errors and warnings of the page's console | `mcp__palantir__logs`, `mcp__palantir__errors_since_edit` | the timeline, led by `in the page:` |
+| Why components rendered, and which renders came with nothing changed | `mcp__runtime__renders` | Renders (`t`) |
+| What the last edit did to the renders | `mcp__runtime__renders_since_edit` | |
+| The page's elements, and what a reader who does not see it cannot use | `mcp__runtime__dom` | DOM (`d`) |
+| What was done on the page and what followed, across every watched app | `mcp__runtime__interactions` | Actions (`a`) |
+| What the page asked for and how it loaded | `mcp__runtime__network` | Network (`n`) |
+| The errors and warnings of the page's console | `mcp__runtime__logs`, `mcp__runtime__errors_since_edit` | the timeline, led by `in the page:` |
 
 ## End-to-end scenarios
 
@@ -28,16 +28,16 @@ page, and Unit tests (`u`), below.
 
 | What | Tool | In the E2E tab |
 | --- | --- | --- |
-| Claude writes the checklist: each scenario's steps and what must be seen at the end | `mcp__palantir__e2e_plan` | Plan (`p`) asks Claude for it |
-| Scenarios are run, all or the ones named | `mcp__palantir__e2e_run` | Run all (`g`), Run the ones not passed (`f`) |
-| What came of each, with what its subagent reported | `mcp__palantir__e2e` | a row per scenario, why it failed under it; a row opens on its steps and the report |
-| The run is stopped | `mcp__palantir__e2e_stop` | Stop (`s`) |
+| Claude writes the checklist: each scenario's steps and what must be seen at the end | `mcp__runtime__e2e_plan` | Plan (`p`) asks Claude for it |
+| Scenarios are run, all or the ones named | `mcp__runtime__e2e_run` | Run all (`g`), Run the ones not passed (`f`) |
+| What came of each, with what its subagent reported | `mcp__runtime__e2e` | a row per scenario, why it failed under it; a row opens on its steps and the report |
+| The run is stopped | `mcp__runtime__e2e_stop` | Stop (`s`) |
 | Claude is asked to fix what failed, then to run it again | | Fix with Claude under a failed scenario, Fix all with Claude (`x`) when several failed |
 
-Each scenario is run by a subagent of its own, of the type `palantir:e2e`: on Haiku, with the session's tools less
+Each scenario is run by a subagent of its own, of the type `runtime:e2e`: on Haiku, with the session's tools less
 those that change the project (`Edit`, `Write`, `NotebookEdit`, `Bash`, `Agent`), so it drives the page with
 whatever browser tools the session has (a Chrome DevTools MCP server on the same debug port) and reads what
-followed with palantir's own. It sees nothing of the conversation: only the scenario and the address of the app's
+followed with the runtime mod's own. It sees nothing of the conversation: only the scenario and the address of the app's
 tab. They run one after another, as they share the page. The browser is asked before a run starts: where no Chrome
 answers on the debug port, the scenarios are said blocked on that and no subagent is started. A subagent ends on `VERDICT: pass`, `fail: <why>` or
 `blocked: <why>`; one that gives none, is interrupted or does not start leaves its scenario blocked. Stop empties
@@ -52,14 +52,14 @@ The Unit tests tab of the Tests view holds the project's unit test suites, each 
 
 | What | Tool | In the Unit tests tab |
 | --- | --- | --- |
-| Claude names the suites: a command each, as a list of arguments, and the folder it runs in | `mcp__palantir__unit_plan` | Plan (`p`) asks Claude for it |
+| Claude names the suites: a command each, as a list of arguments, and the folder it runs in | `mcp__runtime__unit_plan` | Plan (`p`) asks Claude for it |
 | Suites are run, one after another | none: the person runs them | Run all (`g`), Run the ones not passed (`f`) |
-| How each stands, and the end of what a failing one printed | `mcp__palantir__unit` | a row per suite; a row opens on its command and its output |
+| How each stands, and the end of what a failing one printed | `mcp__runtime__unit` | a row per suite; a row opens on its command and its output |
 | Claude is asked to fix what failed | | Fix with Claude under a failed suite, Fix all with Claude (`x`) |
 
 A suite passes on exit 0, fails on any other, and is blocked when its command does not start or runs past ten
 minutes. A command is a list of arguments that must end by itself: no pipe, no `&&`, no watch mode. A suite runs
-only when the person presses Run, having seen its command on its row; palantir gives Claude no tool that runs one.
+only when the person presses Run, having seen its command on its row; The runtime mod gives Claude no tool that runs one.
 
 ## What it needs
 
@@ -75,14 +75,14 @@ The debug port is full control of that Chrome profile: keep personal accounts ou
 ## Which tab is which app
 
 A tab is an attachment's page when its components' source files are under one of the attachment's roots (the
-folders after `@` in `.claude/palantir`), which holds whatever port the page is reached on, through a tunnel too.
+folders after `@` in `.claude/runtime`), which holds whatever port the page is reached on, through a tunnel too.
 Failing that, when the page's port is the attachment's (`#port`). A tab that is none of the watched apps is left
 alone: nothing is read of it and nothing left in it.
 
 ## What a page says
 
 - **Its renders**, for a Vue 3.5 app in development (Nuxt included; Vue names no trigger in a production build).
-  The first asking hangs a listener on every component's render effect, kept under `window.__palantir__`, and each
+  The first asking hangs a listener on every component's render effect, kept under `window.__runtime__`, and each
   asking takes the chains counted since the last one. A chain is what changed, through what, down to the component
   that rendered, with the value each state and prop held: said to two levels and cut short, whole beside it where
   that leaves some out, and `***` for one that goes by a secret's name. A page that is reloaded is listened to
@@ -105,7 +105,7 @@ alone: nothing is read of it and nothing left in it.
   not made to be clicked and shows no hand is none; the click that sends a form is said as the sending (`submit
   form "Spears" with button "Send"`). What follows within a second and a half, or until the next thing done, is
   its doing: the components that rendered and how often (what a library's component is made of left out), what
-  the page asked for. It is handed over once that time has passed, and palantir adds what the watched apps wrote
+  the page asked for. It is handed over once that time has passed, and the runtime mod adds what the watched apps wrote
   in the two seconds after, so one click reads from the page to the backend. Where lines name a path the action
   asked for (as the page knows it, or without its first parts: `/api/realm/beacons` is `/beacons` to the server
   behind), those lines are said, with the ones that share their request id (`rid=`, `request_id=`, `trace_id=`)
@@ -123,7 +123,7 @@ alone: nothing is read of it and nothing left in it.
   not load. `ask.mjs` asks the tab for them over the protocol (`Runtime.enable`, `Log.enable`), which hands over
   what the console already holds, so what went wrong while the page loaded is read though nobody was asking
   then. Nothing of the console is wrapped. Each is a line of the app's own timeline, an error counted as its
-  errors are: `mcp__palantir__errors_since_edit` says the ones an edit brought.
+  errors are: `mcp__runtime__errors_since_edit` says the ones an edit brought.
 - **What a reader who does not see the page cannot use**: a button or a link with no name, an image with no
   `alt`, a field with no label, an id used twice, a page that names no language or has no `h1`. Thirty at most.
 - **Its elements**, for any page: 300 at most, no script or style, a drawing as one element, the component each is
@@ -166,10 +166,10 @@ warning tone.
 
 | What | Tool | In the Logs view (`1`) |
 | --- | --- | --- |
-| The lines of every app, in the order they were written | `mcp__palantir__logs` | each app's name in a color of its own |
-| The lines that hold a text | `mcp__palantir__logs` with `grep` | the Filter field; sent empty, every line again |
-| One request across every app | `mcp__palantir__logs` with `request` | `⇢` at the end of a line that names one; `f` stops |
-| The errors alone | `mcp__palantir__logs` with `level` | `e` |
+| The lines of every app, in the order they were written | `mcp__runtime__logs` | each app's name in a color of its own |
+| The lines that hold a text | `mcp__runtime__logs` with `grep` | the Filter field; sent empty, every line again |
+| One request across every app | `mcp__runtime__logs` with `request` | `⇢` at the end of a line that names one; `f` stops |
+| The errors alone | `mcp__runtime__logs` with `level` | `e` |
 | The timeline held still while it is read | | `p` |
 
 - **A request** is told by the id its lines name (`rid=`, `request_id=`, `req_id=`, `trace_id=`,
@@ -183,7 +183,7 @@ warning tone.
 - **The time an app writes at the head of its own line** is taken out of the message: the timeline says it once.
 - **A stack trace** is folded under the line it hangs from and kept with it, secrets taken out: its first twelve
   lines and its last twenty-four, with how many are left out between. The timeline says how many lines it is;
-  `mcp__palantir__logs` with `traces` says them, a request followed says them too, and so does every error below.
+  `mcp__runtime__logs` with `traces` says them, a request followed says them too, and so does every error below.
 - **A Kubernetes workload is read through its pods**, the ones its selector matches: every replica's lines as one,
   why a pod is not ready (`0/1 ready, CrashLoopBackOff`), and how often its containers died. A container that died
   since the last read is asked for what it wrote before (`kubectl logs --previous`): why it died is said there.
@@ -192,11 +192,11 @@ warning tone.
 
 | What | Tool | In the Errors view (`2`) |
 | --- | --- | --- |
-| Every kind of error once: how often, first and last written | `mcp__palantir__status` counts them | a row a kind, the new ones first |
-| The ones that are new since the last edit to the app | `mcp__palantir__errors_since_edit` | `new` on the row |
+| Every kind of error once: how often, first and last written | `mcp__runtime__status` counts them | a row a kind, the new ones first |
+| The ones that are new since the last edit to the app | `mcp__runtime__errors_since_edit` | `new` on the row |
 | Every kind held, whatever it is new since, each with its trace | the same, with `since` `"all"` | a row opens on its trace |
 | Since a mark, or since the app last started over | the same, with `since` | `b` goes from one to the next |
-| A mark set now, on every app | `mcp__palantir__mark` | `m` |
+| A mark set now, on every app | `mcp__runtime__mark` | `m` |
 | One error handed to Claude, with what led to it | | a row opens on it; `d`, Diagnose with Claude |
 
 - **A kind** is the errors that say the same once their numbers and ids are taken out. Opened, it shows the last
@@ -211,7 +211,7 @@ warning tone.
   commit writes no file and is no edit. Where the project is no git repository, only the tools' edits count.
 - **Claude is told without asking.** An error that first shows after an edit of the session is handed to it once,
   beside the result of the next tool it calls, or with the person's next prompt where it calls none. Reading
-  `mcp__palantir__errors_since_edit` counts as told.
+  `mcp__runtime__errors_since_edit` counts as told.
 - **Guarding** (`g`, or the option `guard`) goes further: seen while no turn runs, such an error is submitted to
   Claude as a prompt at once, asking it to look. Each error is submitted once.
 - **Started over** is a container that restarted or was made again, or a workload rolled out to a new revision,
@@ -228,20 +228,20 @@ nothing is set for it. A broker is a Redpanda or a Kafka image, a database a Pos
 Where they are not all apps, the pane draws each kind in a table of its own, under its name (Apps, Brokers,
 Databases), the last two with what they run; a broker's row says how many topics it holds and how far behind its
 groups are in all. The summary counts each kind, the filter row lists them in that order, and
-`mcp__palantir__status` answers under the same three names. A database is told apart and watched as an app is (its
+`mcp__runtime__status` answers under the same three names. A database is told apart and watched as an app is (its
 log, its state, what it consumes, its environment); nothing is asked of it yet.
 
 ## A broker
 
 A broker has what it holds read too, through its own command line, run inside it (`docker exec`, `docker compose
-exec`, `kubectl exec`): the one thing palantir runs inside what it watches, and only commands that read.
+exec`, `kubectl exec`): the one thing the runtime mod runs inside what it watches, and only commands that read.
 
 | What | Tool | In the pane's Broker view (`6`) |
 | --- | --- | --- |
-| The topics, with how many records each holds | `mcp__palantir__broker` | a row per topic |
-| The last messages of a topic: key, headers, value, secrets taken out | `mcp__palantir__broker` with `topic`, and `grep` to search them | a topic's row, pressed, opens on its last ten of each partition; pressed again, closes. Read again with the broker while the view is on it |
-| The consumer groups: state, members, lag, and partition by partition where records wait | `mcp__palantir__broker` | a row per group |
-| A broker with a group behind | `mcp__palantir__status` | the Lag of its row |
+| The topics, with how many records each holds | `mcp__runtime__broker` | a row per topic |
+| The last messages of a topic: key, headers, value, secrets taken out | `mcp__runtime__broker` with `topic`, and `grep` to search them | a topic's row, pressed, opens on its last ten of each partition; pressed again, closes. Read again with the broker while the view is on it |
+| The consumer groups: state, members, lag, and partition by partition where records wait | `mcp__runtime__broker` | a row per group |
+| A broker with a group behind | `mcp__runtime__status` | the Lag of its row |
 
 - **Only Redpanda is read**, through `rpk` (`rpk topic describe`, `rpk group describe`, `rpk topic consume`). A
   Kafka image (`apache/kafka`, `cp-kafka`) is known for a broker and said not read; its log is read as any other.
@@ -254,18 +254,18 @@ exec`, `kubectl exec`): the one thing palantir runs inside what it watches, and 
   as it stood, and the lag is then said against it: what one app sends is what another reads.
 - **The last records** are read as no group, so nothing is marked as read and no group is moved. `rpk` is told to
   wait for as many records as the topic's partitions hold of the last ones, so that it ends by itself.
-- palantir writes no record and moves no group: a poison record is produced, and a group moved past it, by hand.
+- the runtime mod writes no record and moves no group: a poison record is produced, and a group moved past it, by hand.
 - **A group that is stuck, or behind with no member**, has a button under the groups: Diagnose with Claude hands
   it over with how it stands. The Database view has the same for a session that waits for a lock, sits idle in a
   transaction or runs long.
 
 ## From a log instead
 
-A frontend that is not in that Chrome, or of another framework, may write the same to its log, which palantir
+A frontend that is not in that Chrome, or of another framework, may write the same to its log, which the runtime mod
 reads as it reads what the browser says. A render is one JSON line per chain:
 
 ```
-{"palantir":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":3}
+{"runtime":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":3}
 ```
 
 `chain` is what changed, through what, down to the component that rendered; `values`, which may be left out, is
@@ -279,7 +279,7 @@ component is written; a `time` in milliseconds is used when there is one. An app
 The page is one JSON line, written again when the page has changed:
 
 ```
-{"palantir":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\"main\"","","App"],[2,"h1","","Your cart",""]],"left":0}
+{"runtime":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\"main\"","","App"],[2,"h1","","Your cart",""]],"left":0}
 ```
 
 An element is `[depth, tag, attributes, text, component]`: how deep it is nested (each comes after the one that
@@ -291,9 +291,9 @@ use, each `[what is wrong, tag, component]`, and `files` where each component is
 The rest is a JSON line each too:
 
 ```
-{"palantir":"action","at":1791892034014,"kind":"click","what":"button \"Add\"","component":"Cart","renders":{"Cart":3},"requests":["200 /api/cart 41ms"]}
-{"palantir":"request","url":"/api/cart","status":200,"ms":41,"at":1791892034020}
-{"palantir":"vitals","loadedAt":1791892029005,"ttfb":40,"lcp":310,"load":420,"cls":0.021,"inp":80,"longTasks":1,"longMs":120}
+{"runtime":"action","at":1791892034014,"kind":"click","what":"button \"Add\"","component":"Cart","renders":{"Cart":3},"requests":["200 /api/cart 41ms"]}
+{"runtime":"request","url":"/api/cart","status":200,"ms":41,"at":1791892034020}
+{"runtime":"vitals","loadedAt":1791892029005,"ttfb":40,"lcp":310,"load":420,"cls":0.021,"inp":80,"longTasks":1,"longMs":120}
 ```
 
 None of these lines is kept in the timeline. An error of the page is an ordinary line of the log.

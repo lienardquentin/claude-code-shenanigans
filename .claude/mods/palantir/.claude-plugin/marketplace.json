@@ -1,5 +1,0 @@
-{
-  "name": "palantir-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "palantir", "source": "./" }]
-}

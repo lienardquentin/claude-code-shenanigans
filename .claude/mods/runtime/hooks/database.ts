@@ -25,7 +25,7 @@ export const psqlArgv = (sql: string, isBounded = false): readonly string[] => [
 const MAX_QUERY = 300
 
 /**
- * Everything said of a database, as one JSON object on one line: the sessions of its clients (palantir's own left
+ * Everything said of a database, as one JSON object on one line: the sessions of its clients (The runtime mod's own left
  * out) and its tables, with what the database counted of each. Only the database the image was started with.
  */
 export const HOLDS_SQL = `SELECT json_build_object(
@@ -137,11 +137,11 @@ export const settleDatabase = (was: Database | undefined, read: Read, label: str
   const wasNearly = was !== undefined && was.max > 0 && was.sessions.length >= was.max * NEARLY
 
   const said = [
-    ...read.sessions.filter(session => isBlocked(session) && !isBlocked(before.get(session.pid) ?? { ...session, blockers: [] })).map(session => `palantir: ${label}: ${who(session)} waits for a lock held by pid ${session.blockers.join(', ')}`),
+    ...read.sessions.filter(session => isBlocked(session) && !isBlocked(before.get(session.pid) ?? { ...session, blockers: [] })).map(session => `runtime: ${label}: ${who(session)} waits for a lock held by pid ${session.blockers.join(', ')}`),
     ...read.sessions
       .filter(session => isIdling(session) && !isIdling(before.get(session.pid) ?? { ...session, seconds: 0 }))
-      .map(session => `palantir: ${label}: ${who(session)} has held a transaction open and idle for ${session.seconds}s`),
-    ...(read.max > 0 && read.sessions.length >= read.max * NEARLY && !wasNearly ? [`palantir: ${label}: ${read.sessions.length} of the ${read.max} sessions it lets in are taken`] : []),
+      .map(session => `runtime: ${label}: ${who(session)} has held a transaction open and idle for ${session.seconds}s`),
+    ...(read.max > 0 && read.sessions.length >= read.max * NEARLY && !wasNearly ? [`runtime: ${label}: ${read.sessions.length} of the ${read.max} sessions it lets in are taken`] : []),
   ]
 
   return { database: { ...read, engine: 'postgresql', at: now, note: '' }, said }
@@ -183,7 +183,7 @@ export const databaseLine = (database: Database | undefined): string => {
     blocked > 0 ? `${blocked} waiting for a lock` : '',
     idling > 0 ? `${idling} idle in an open transaction` : '',
     blocked + idling === 0 ? 'none waiting' : '',
-    'mcp__palantir__database says more',
+    'mcp__runtime__database says more',
   ]
     .filter(part => part !== '')
     .join('; ')
@@ -209,7 +209,7 @@ const describeDatabase = (label: string, database: Database): string => {
 }
 
 export const NO_DATABASE =
-  "No watched app is a database palantir reads. A PostgreSQL container, compose service or Kubernetes workload is told by its image and asked through its own psql, with nothing to set: watch it like any other app, in the compose file or as a line of .claude/palantir."
+  "No watched app is a database the runtime mod reads. A PostgreSQL container, compose service or Kubernetes workload is told by its image and asked through its own psql, with nothing to set: watch it like any other app, in the compose file or as a line of .claude/runtime."
 
 type Known = Record<string, Facts>
 
@@ -219,7 +219,7 @@ export const databaseText = (attachments: readonly Attachment[], known: Known, a
   const databases = attachments.flatMap(({ label }) => (known[label]?.database === undefined || (target !== '' && label !== target) ? [] : [{ label, database: known[label].database }]))
 
   if (databases.length > 0) return databases.map(({ label, database }) => describeDatabase(label, database)).join('\n')
-  if (target !== '' && attachments.some(({ label }) => label === target)) return `${target} is not a database palantir reads. ${NO_DATABASE}`
+  if (target !== '' && attachments.some(({ label }) => label === target)) return `${target} is not a database the runtime mod reads. ${NO_DATABASE}`
 
   return NO_DATABASE
 }
@@ -289,7 +289,7 @@ export const querySql = (written: unknown, limit: number): { sql: string } | { r
 
   if (statement === '') return { refused: 'No statement was given.' }
   if (statement.includes(';')) return { refused: 'Only one statement is run, and it may hold no `;`: write it as a single SELECT.' }
-  if (!/^(select|with|table|values)\b/i.test(statement)) return { refused: 'Only a statement that reads is run: a SELECT (or WITH, TABLE, VALUES). palantir changes nothing in a database.' }
+  if (!/^(select|with|table|values)\b/i.test(statement)) return { refused: 'Only a statement that reads is run: a SELECT (or WITH, TABLE, VALUES). The runtime mod changes nothing in a database.' }
 
   // Closed on a line of its own: a comment that ends the statement does not take the rest with it
   return { sql: `SELECT row_to_json(t) FROM (${statement}\n) t LIMIT ${Math.round(limit)}` }
@@ -305,13 +305,13 @@ export const answerRowsText = (label: string, limit: number, rows: readonly stri
  */
 export const askPrompt = (databases: readonly { label: string; database: Database }[], question: string): string =>
   [
-    `About ${databases.length === 1 ? 'the database' : 'the databases'} palantir watches (${databases
+    `About ${databases.length === 1 ? 'the database' : 'the databases'} the runtime mod watches (${databases
       .map(({ label, database }) => `${label}: PostgreSQL${database.name === '' ? '' : `, database ${database.name}, ${database.tables.length === 0 ? 'no table' : `tables ${database.tables.map(({ name }) => name).join(', ')}`}`}`)
       .join('; ')}):`,
     '',
     question.trim(),
     '',
-    `Answer it by querying ${databases.length === 1 ? 'it' : 'them'} with mcp__palantir__database${databases.length === 1 ? ` (target ${databases[0]?.label ?? ''})` : ''}: \`sql\` takes one SELECT, run with writing turned off, and \`table\` shows the last rows of a table, which is how to see its columns. Say the statement you ran along with the answer. If it cannot be answered by reading, say so: nothing is to be changed in the database.`,
+    `Answer it by querying ${databases.length === 1 ? 'it' : 'them'} with mcp__runtime__database${databases.length === 1 ? ` (target ${databases[0]?.label ?? ''})` : ''}: \`sql\` takes one SELECT, run with writing turned off, and \`table\` shows the last rows of a table, which is how to see its columns. Say the statement you ran along with the answer. If it cannot be answered by reading, say so: nothing is to be changed in the database.`,
   ].join('\n')
 
 /** What is handed to Claude when the person asks why sessions of a database wait: the ones that do, as they stand. */
@@ -319,10 +319,10 @@ export const diagnoseSessionsPrompt = (label: string, database: Database): strin
   const waiting = troubled(database)
 
   return [
-    `Find why ${waiting.length === 1 ? 'this session' : 'these sessions'} of the database ${label}, which palantir watches, ${waiting.length === 1 ? 'is' : 'are'} held up:`,
+    `Find why ${waiting.length === 1 ? 'this session' : 'these sessions'} of the database ${label}, which the runtime mod watches, ${waiting.length === 1 ? 'is' : 'are'} held up:`,
     '',
     ...waiting.map(session => `  pid ${session.pid} (${session.app || session.user}): ${sessionStanding(session)}; ${session.query}`),
     '',
-    `mcp__palantir__database (target ${label}) reads the sessions afresh, each with the session that holds the lock it waits for, and \`sql\` runs one SELECT. Find in the code of the app that opened them which transaction is left open or which statement holds the lock (mcp__palantir__logs says what the apps wrote), and fix it there. Nothing is to be changed in the database, and no session ended.`,
+    `mcp__runtime__database (target ${label}) reads the sessions afresh, each with the session that holds the lock it waits for, and \`sql\` runs one SELECT. Find in the code of the app that opened them which transaction is left open or which statement holds the lock (mcp__runtime__logs says what the apps wrote), and fix it there. Nothing is to be changed in the database, and no session ended.`,
   ].join('\n')
 }

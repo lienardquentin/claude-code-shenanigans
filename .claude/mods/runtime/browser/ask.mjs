@@ -1,6 +1,6 @@
 // Asks the tabs of a Chrome that listens on a debug port what `page.js` says of each, and what the console of each
 // holds of errors and warnings, and prints the answers as
-// one JSON line: {"tabs": 3, "pages": [...]}, or {"error": "..."} when the browser could not be asked. palantir
+// one JSON line: {"tabs": 3, "pages": [...]}, or {"error": "..."} when the browser could not be asked. The runtime mod
 // runs it with Node, which its own environment is not: the DevTools protocol is spoken over a WebSocket.
 //
 //   node ask.mjs <debug port> '<the watched apps as JSON: [{"label","roots","port"}]>'
@@ -115,7 +115,7 @@ const askTab = ({ webSocketDebuggerUrl }) =>
       if (fresh.length === 0) return done(page)
 
       // Left in the page: one that is loaded again is read from its start
-      send(4, 'Runtime.evaluate', { expression: `window.__palantir_heard__ = ${Math.max(...said.map(line => (typeof line.at === 'number' ? line.at : 0)))}` })
+      send(4, 'Runtime.evaluate', { expression: `window.__runtime_heard__ = ${Math.max(...said.map(line => (typeof line.at === 'number' ? line.at : 0)))}` })
     }
 
     socket.onopen = () => send(1, 'Runtime.evaluate', { expression, returnByValue: true })

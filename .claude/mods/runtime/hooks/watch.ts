@@ -101,8 +101,8 @@ export const settle = (held: Record<string, Watch>, reads: readonly Read[], now:
     const watch = absorb({ ...was, cursor, error, health, ...(isRolled ? { rolledAt: now } : {}) }, raws, now)
     const unsaid = fresh(watch).filter(signature => !signature.isAnnounced)
 
-    if (health.state === 'down' && was.health.state !== 'down') said.push(`palantir: ${label} is down${health.detail === '' ? '' : ` (${health.detail})`}`)
-    if (unsaid.length > 0) said.push(`palantir: ${label} has ${unsaid.length} new error${unsaid.length === 1 ? '' : 's'} since the edit to ${watch.editedPath}`)
+    if (health.state === 'down' && was.health.state !== 'down') said.push(`runtime: ${label} is down${health.detail === '' ? '' : ` (${health.detail})`}`)
+    if (unsaid.length > 0) said.push(`runtime: ${label} has ${unsaid.length} new error${unsaid.length === 1 ? '' : 's'} since the edit to ${watch.editedPath}`)
 
     watches[label] = { ...watch, signatures: watch.signatures.map(signature => (unsaid.includes(signature) ? { ...signature, isAnnounced: true } : signature)) }
   }

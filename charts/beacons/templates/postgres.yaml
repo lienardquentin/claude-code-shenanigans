@@ -1,6 +1,6 @@
 {{- $realm := dict "root" . "realm" "postgres" -}}
 # Gondor's archives: one database, which keeps nothing when its pod goes. Reached inside the cluster alone; its own
-# `psql` is what palantir asks for the sessions and the tables.
+# `psql` is what the runtime mod asks for the sessions and the tables.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -93,7 +93,7 @@ _Avoid_: Session usage, context usage, tokens left
 The pipeline mods (`.claude/mods`, the `pipeline` marketplace) take an issue, or a pull request's review, to committed
 and reviewed work. The `pipeline` plugin holds the parts of the workflow: the issues pane lists the issues,
 the planner plans, the build builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
-review, and the cleanup clears what is merged. The recorder and the palantír, plugins of their own, watch what the code does.
+review, and the cleanup clears what is merged. The recorder and the runtime, plugins of their own, watch what the code does.
 
 **Part**:
 One of the workflow's seven pieces inside the `pipeline` plugin (the issues pane, the planner, the build, tests first,

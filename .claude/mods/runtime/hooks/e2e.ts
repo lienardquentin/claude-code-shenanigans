@@ -6,7 +6,7 @@ import type { TreeNode } from './kit/tree'
 // hooks module's. Values in, values out.
 
 /** The agent type a scenario is run by, as the engine names it. */
-export const AGENT_TYPE = 'palantir:e2e'
+export const AGENT_TYPE = 'runtime:e2e'
 
 const MAX_SCENARIOS = 40
 const MAX_STEPS = 20
@@ -19,7 +19,7 @@ const REPORT_CHARS = 2_000
  */
 export const AGENT = {
   name: 'e2e',
-  description: 'Runs one end-to-end scenario of the palantir checklist on the page of a watched frontend, in the browser, and says whether it passed.',
+  description: 'Runs one end-to-end scenario of the runtime checklist on the page of a watched frontend, in the browser, and says whether it passed.',
   model: 'haiku',
   disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Bash', 'Agent'],
   maxTurns: 60,
@@ -30,7 +30,7 @@ export const AGENT = {
     '',
     "Drive the page with the browser tools you have: a Chrome DevTools server's (list the pages, select one, navigate, take a snapshot, click, fill, press a key, wait for a text). If none is listed, find them with ToolSearch. Work in the tab that shows the app; open the address in a new tab only when none does.",
     '',
-    'Do the steps in order, as a person would, and read the page after each one before going on. The palantir tools say what the page and the apps did: mcp__palantir__dom the elements of the page, mcp__palantir__interactions what a click led to, mcp__palantir__logs and mcp__palantir__errors_since_edit what the apps wrote.',
+    'Do the steps in order, as a person would, and read the page after each one before going on. The the runtime mod tools say what the page and the apps did: mcp__runtime__dom the elements of the page, mcp__runtime__interactions what a click led to, mcp__runtime__logs and mcp__runtime__errors_since_edit what the apps wrote.',
     '',
     'Change no file and run no command. Do the steps as they are written: when one cannot be done on the page, do not find another way around it, the scenario has failed. It is blocked, not failed, when it could not be tried at all: no browser tool, no tab and no address, the app not answering.',
     '',
@@ -42,11 +42,11 @@ export const AGENT = {
 } as const
 
 export const HOW_TO_PLAN =
-  'No scenario yet. Plan has Claude write the checklist of what a person does on the frontend (mcp__palantir__e2e_plan). Each scenario is then run on the page, in the debug Chrome, by a Haiku subagent of its own, one after another.'
+  'No scenario yet. Plan has Claude write the checklist of what a person does on the frontend (mcp__runtime__e2e_plan). Each scenario is then run on the page, in the debug Chrome, by a Haiku subagent of its own, one after another.'
 
 /** What the pane's Plan button asks of Claude. */
 export const PLAN_PROMPT =
-  'Plan the end-to-end scenarios of the frontend palantir watches: read its routes and its pages, then write the checklist with mcp__palantir__e2e_plan, one scenario per thing a person does there (the steps as they would do them, and what must be seen at the end). Do not run them yet.'
+  'Plan the end-to-end scenarios of the frontend the runtime mod watches: read its routes and its pages, then write the checklist with mcp__runtime__e2e_plan, one scenario per thing a person does there (the steps as they would do them, and what must be seen at the end). Do not run them yet.'
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
 
@@ -147,7 +147,7 @@ export const addressOf = ({ target }: Scenario, { pages }: Browser, attachments:
 export const scenarioPrompt = (scenario: Scenario, { url, isOpen }: Address): string =>
   [
     `Scenario: ${scenario.name}`,
-    ...(scenario.target === '' ? [] : [`App: ${scenario.target}, as palantir names it.`]),
+    ...(scenario.target === '' ? [] : [`App: ${scenario.target}, as the runtime mod names it.`]),
     isOpen
       ? `The app is open in a tab of the browser at ${url}`
       : url === ''
@@ -221,7 +221,7 @@ const said = (scenario: Scenario, isReported: boolean): string[] => [
 
 /** The checklist as the model reads it: each scenario with its steps, how it stands, and what its subagent reported. */
 export const e2eText = (held: readonly Scenario[], asked: { id?: unknown } = {}): string => {
-  if (held.length === 0) return 'No end-to-end scenario is planned. mcp__palantir__e2e_plan writes the checklist.'
+  if (held.length === 0) return 'No end-to-end scenario is planned. mcp__runtime__e2e_plan writes the checklist.'
 
   const id = text(asked.id)
   const shown = held.filter(scenario => id === '' || scenario.id === id)
@@ -241,6 +241,6 @@ export const e2eText = (held: readonly Scenario[], asked: { id?: unknown } = {})
  */
 export const fixPrompt = (failed: readonly Scenario[]): string =>
   [
-    `Fix what makes ${failed.length === 1 ? 'this end-to-end scenario' : `these ${failed.length} end-to-end scenarios`} of the palantir checklist fail. Find the cause in the app's code, frontend or backend (mcp__palantir__logs and mcp__palantir__errors_since_edit say what the apps wrote), and fix it there, not around it. Where the scenario is what is wrong and the app does what it should, say so and change no code for it. Then run ${failed.length === 1 ? 'it' : 'them'} again with mcp__palantir__e2e_run, ids ${failed.map(({ id }) => id).join(', ')}, and read mcp__palantir__e2e once the run is over before saying what is fixed.`,
+    `Fix what makes ${failed.length === 1 ? 'this end-to-end scenario' : `these ${failed.length} end-to-end scenarios`} of the runtime checklist fail. Find the cause in the app's code, frontend or backend (mcp__runtime__logs and mcp__runtime__errors_since_edit say what the apps wrote), and fix it there, not around it. Where the scenario is what is wrong and the app does what it should, say so and change no code for it. Then run ${failed.length === 1 ? 'it' : 'them'} again with mcp__runtime__e2e_run, ids ${failed.map(({ id }) => id).join(', ')}, and read mcp__runtime__e2e once the run is over before saying what is fixed.`,
     ...failed.flatMap(scenario => ['', ...said(scenario, true)]),
   ].join('\n')

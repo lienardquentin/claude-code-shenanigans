@@ -4,7 +4,10 @@ import { workloadOf } from './runtime'
 // What a session watches, and which of it an edit counts against. Text in, attachments out.
 
 /** The project's own list of attachments, one per line, beside its other Claude files. */
-export const PROJECT_FILE = '.claude/palantir'
+export const PROJECT_FILE = '.claude/runtime'
+
+/** The same list under the mod's old name, read where the project has not moved it yet. */
+export const OLD_PROJECT_FILE = '.claude/palantir'
 
 const RUNTIME: Record<string, RuntimeId> = {
   local: 'local',

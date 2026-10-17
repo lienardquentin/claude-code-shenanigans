@@ -3,14 +3,14 @@
 #
 #     docker compose up --build
 #
-# At the repo's root, where palantir looks for a compose project. The page is at http://127.0.0.1:8100. The ports are
+# At the repo's root, where the runtime mod looks for a compose project. The page is at http://127.0.0.1:8100. The ports are
 # published on this machine's loopback only, and are the ones beacons/muster.py uses, so the two do not run together.
 # Everything is said on stdout: docker compose logs -f
 name: beacons
 
 services:
   # One node that speaks Kafka's protocol, reached by the realms alone: no port of it is published. Its own `rpk`
-  # is what palantir asks for the topics and the consumer groups.
+  # is what the runtime mod asks for the topics and the consumer groups.
   redpanda:
     image: redpandadata/redpanda:v26.2.4
     command: [redpanda, start, --mode, dev-container, --smp, "1", --overprovisioned, --kafka-addr, "PLAINTEXT://0.0.0.0:9092", --advertise-kafka-addr, "PLAINTEXT://redpanda:9092"]
@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
 
   # Gondor's archives, reached by Gondor alone: no port of it is published, and it keeps nothing when its container
-  # goes. Its own `psql` is what palantir asks for the sessions and the tables.
+  # goes. Its own `psql` is what the runtime mod asks for the sessions and the tables.
   postgres:
     image: postgres:18-alpine
     environment:

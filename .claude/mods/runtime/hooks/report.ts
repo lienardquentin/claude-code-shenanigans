@@ -13,15 +13,15 @@ import { traceOf, traceText } from './trace'
 // What the tools answer the model: the watches as text, bounded, the secrets already out of every line.
 
 export const HOW_TO_ATTACH =
-  "Nothing is attached. palantir watches a compose project's services by itself; name anything else in .claude/palantir, one per line, as label=runtime:ref@root: api=docker:my-api@api, web=local:logs/web.log@web#3000 (the port a local app listens on, which is how what it consumes is measured), kafka=k8s:staging/statefulset/kafka. Then /palantir."
+  "Nothing is attached. The runtime mod watches a compose project's services by itself; name anything else in .claude/runtime, one per line, as label=runtime:ref@root: api=docker:my-api@api, web=local:logs/web.log@web#3000 (the port a local app listens on, which is how what it consumes is measured), kafka=k8s:staging/statefulset/kafka. Then /runtime."
 
-/** What is handed to Claude when the person asks it to name what palantir should watch. */
+/** What is handed to Claude when the person asks it to name what the runtime mod should watch. */
 export const ATTACH_PROMPT =
-  'Set up what the palantir mod watches in this project. Find what runs here and how (a compose file, Kubernetes manifests or a chart, containers, dev servers that write a log), then write .claude/palantir, one line per thing as label=runtime:ref@root: runtime is local (a log file, ended with #port, the port its process listens on), docker (a container), compose (a service) or k8s ([context/]namespace/kind/name); root is the source folder whose edits count against it. A compose project\'s services are watched by themselves and need no line. Then call mcp__palantir__status and say what is watched and how it stands.'
+  'Set up what the runtime mod watches in this project. Find what runs here and how (a compose file, Kubernetes manifests or a chart, containers, dev servers that write a log), then write .claude/runtime, one line per thing as label=runtime:ref@root: runtime is local (a log file, ended with #port, the port its process listens on), docker (a container), compose (a service) or k8s ([context/]namespace/kind/name); root is the source folder whose edits count against it. A compose project\'s services are watched by themselves and need no line. Then call mcp__runtime__status and say what is watched and how it stands.'
 
-/** What is handed to Claude when the person asks it to bring a page under palantir's eye. */
+/** What is handed to Claude when the person asks it to bring a page under the runtime mod's eye. */
 export const BROWSER_PROMPT = (port: number, labels: readonly string[]): string =>
-  `palantir reads the page of a watched frontend (${labels.join(', ')}) from a Chrome that listens on the debug port ${port} of this machine's loopback, and none shows one now. Find out why and say exactly what I should run: whether a Chrome answers on that port (curl -s http://127.0.0.1:${port}/json/version), which of the watched apps is a frontend and at what address it is served, and the command that starts Chrome with --remote-debugging-port=${port} and a --user-data-dir of its own, opened on that address. docs/remote-browser.md says how to bring the port here where this machine is a remote one. Start nothing yourself that opens a window; once I say it is open, check with mcp__palantir__status.`
+  `The runtime mod reads the page of a watched frontend (${labels.join(', ')}) from a Chrome that listens on the debug port ${port} of this machine's loopback, and none shows one now. Find out why and say exactly what I should run: whether a Chrome answers on that port (curl -s http://127.0.0.1:${port}/json/version), which of the watched apps is a frontend and at what address it is served, and the command that starts Chrome with --remote-debugging-port=${port} and a --user-data-dir of its own, opened on that address. docs/remote-browser.md says how to bring the port here where this machine is a remote one. Start nothing yourself that opens a window; once I say it is open, check with mcp__runtime__status.`
 
 type Held = Record<string, Watch>
 
@@ -98,7 +98,7 @@ export const statusText = (attachments: readonly Attachment[], held: Held, known
     return [
       `${describeAttachment(attachment, watch, known[attachment.label]?.usage, page)}${engine === '' ? '' : `; it runs ${engine}`}`,
       ...kinds.slice(0, MAX_KINDS_SAID).map(signature => `  ${news.includes(signature) ? 'new ' : ''}x${signature.count}, last at ${clockTime(signature.lastAt)}: ${signature.sample.slice(0, 200)}`),
-      kinds.length > MAX_KINDS_SAID ? `  and ${kinds.length - MAX_KINDS_SAID} more kind${kinds.length - MAX_KINDS_SAID === 1 ? '' : 's'}: mcp__palantir__errors_since_edit with since "all" says each with its trace` : '',
+      kinds.length > MAX_KINDS_SAID ? `  and ${kinds.length - MAX_KINDS_SAID} more kind${kinds.length - MAX_KINDS_SAID === 1 ? '' : 's'}: mcp__runtime__errors_since_edit with since "all" says each with its trace` : '',
       brokerLine(known[attachment.label]?.broker, now),
       databaseLine(known[attachment.label]?.database),
       ...unreadNow(watch, browser, attachment.label),
@@ -184,7 +184,7 @@ export const envText = (attachments: readonly Attachment[], known: Known, ask: {
 }
 
 export const HOW_TO_REPORT_RENDERS =
-  'No render has been reported. Renders are read from the browser itself: a tab of the Chrome that listens on its debug port, showing a watched Vue app in development, says why its components rendered, with nothing added to the app. Any other frontend may write them to its log, a JSON line each: {"palantir":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":1}.'
+  'No render has been reported. Renders are read from the browser itself: a tab of the Chrome that listens on its debug port, showing a watched Vue app in development, says why its components rendered, with nothing added to the app. Any other frontend may write them to its log, a JSON line each: {"runtime":"render","component":"Cart","chain":["items (ref) set","total (computed)","Cart"],"values":["[3] (was [2])","42",null],"count":1}.'
 
 const MAX_CHAINS = 40
 
@@ -609,7 +609,7 @@ export const renderTree = (renders: readonly Render[], { scope = '', opened = []
 
 export const HOW_TO_READ_RENDERS = 'Colored: it rendered, × times, + what a library\'s component is made of. Unchanged: rendered with the values of the time before. ▸ opens a value whole. The pane scrolls.'
 export const HOW_TO_REPORT_DOM =
-  'No page has been reported. The page is read from the browser itself: the tab of the Chrome that listens on its debug port which shows a watched app hands its elements over, with nothing added to the app. A frontend may also write its page to its log, as one JSON line: {"palantir":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\\"main\\"","","App"],[2,"h1","","Your cart",""]],"left":0}.'
+  'No page has been reported. The page is read from the browser itself: the tab of the Chrome that listens on its debug port which shows a watched app hands its elements over, with nothing added to the app. A frontend may also write its page to its log, as one JSON line: {"runtime":"dom","url":"/cart","title":"Cart","elements":[[0,"body","","",""],[1,"main#app","role=\\"main\\"","","App"],[2,"h1","","Your cart",""]],"left":0}.'
 
 export const HOW_TO_READ_DOM = 'Colored: the outermost element of a component, named after it. › : an element that holds only the next.'
 

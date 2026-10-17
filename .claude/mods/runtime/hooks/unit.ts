@@ -14,11 +14,11 @@ const OUTPUT_CHARS = 4_000
 export const SUITE_TIMEOUT_MS = 600_000
 
 export const HOW_TO_PLAN_UNIT =
-  "No suite yet. Plan has Claude find the project's unit test commands and name them here (mcp__palantir__unit_plan), each under the app it tests. Each is then run from this pane, one after another, and read by how it exits; its tests are listed under it, read off what it printed."
+  "No suite yet. Plan has Claude find the project's unit test commands and name them here (mcp__runtime__unit_plan), each under the app it tests. Each is then run from this pane, one after another, and read by how it exits; its tests are listed under it, read off what it printed."
 
 /** What the pane's Plan button asks of Claude. */
 export const PLAN_UNIT_PROMPT =
-  "Find the unit test suites of this project (each app's own: its package.json scripts, pyproject, Makefile, CI), then name them with mcp__palantir__unit_plan, one suite per command, each with the folder it runs in and the watched app it tests as its target. Have each command print a line per test (pytest -v, vitest --reporter=verbose, go test -v), so the pane can list them. Do not run them."
+  "Find the unit test suites of this project (each app's own: its package.json scripts, pyproject, Makefile, CI), then name them with mcp__runtime__unit_plan, one suite per command, each with the folder it runs in and the watched app it tests as its target. Have each command print a line per test (pytest -v, vitest --reporter=verbose, go test -v), so the pane can list them. Do not run them."
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
@@ -166,7 +166,7 @@ const said = (suite: Suite, isPrinted: boolean, isListed = false): string[] => [
 
 /** The suites as the model reads them: each with its command, how it stands, and what a failing one printed. */
 export const unitText = (held: readonly Suite[], asked: { id?: unknown } = {}): string => {
-  if (held.length === 0) return 'No unit test suite is named. mcp__palantir__unit_plan names them.'
+  if (held.length === 0) return 'No unit test suite is named. mcp__runtime__unit_plan names them.'
 
   const id = text(asked.id)
   const shown = held.filter(suite => id === '' || suite.id === id)

@@ -1,7 +1,7 @@
 [project]
 name = "beacons"
 version = "0.1.0"
-description = "The Beacons of Gondor: two FastAPI services and the riders between them, something for palantir to watch"
+description = "The Beacons of Gondor: two FastAPI services and the riders between them, something for the runtime mod to watch"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
