@@ -41,7 +41,8 @@ only the files that changed, and what no run used for a week is let go. On Djang
 takes half a second with it kept, where it took four without. Deleting the folder costs one slower run. What is kept
 includes the literals each call passes, which may be secrets written into the code: the folder is its owner's
 alone, inside `.git`, which git neither tracks nor pushes. Orcrist keeps nothing where `orcrist-cache` is a link, a
-file, or a folder others may read or write in, and lets go only of what it wrote there.
+file, or, on unix, a folder others may read or write in or another user owns, and lets go only of what it wrote there.
+Elsewhere, the folder's privacy is the system's to keep.
 
 | Language | Files |
 | --- | --- |
@@ -56,11 +57,11 @@ file, or a folder others may read or write in, and lets go only of what it wrote
 | Rule | What it finds | Rust | Python | TypeScript, JavaScript, Vue |
 | --- | --- | --- | --- | --- |
 | `restating-comment` | A comment three quarters of whose words, the filler left out, are in the line of code below it | ✓ | ✓ | ✓ |
-| `swallowed-error` | An error dropped where someone needed to know of it | `call().ok();`, `let _ = call();` | `except …: pass`, Ctrl+C's `KeyboardInterrupt` aside | `catch {}`, `.catch(() => {})` |
+| `swallowed-error` | An error dropped where someone needed to know of it | `call().ok();`, `let _ = call();`, `if let Err(_) = call() {}` | `except …: pass` or `...`, Ctrl+C's `KeyboardInterrupt` and an optional import's `ImportError` aside | `catch {}`, `catch { return }`, `.catch(() => {})` |
 | `vague-name` | A function, variable or parameter every word of whose name could name anything (`data`, `tmp2`, `info`); a verb such as `process` or `handle` only in a function's name | ✓ | ✓ | ✓ |
-| `impossible-guard` | A check on a parameter that its own annotation decides: `isinstance`/`typeof` of the type it has, a None, null or undefined check, `?.` | | ✓ | ✓ |
+| `impossible-guard` | A check on a parameter that its own annotation decides: `isinstance`/`typeof` of the type it has, a None, null or undefined check, `?.`; built-in types alone, an alias's or a generic's values being unknown | | ✓ | ✓ |
 | `single-use-abstraction` | An interface one type implements in the whole project; a parameter every one of at least two calls passes the same literal for | traits | ABCs | interfaces, abstract classes |
-| `duplicate-helper` | A function whose parameters and body are piece for piece another's of the project, the names each declares itself aside | ✓ | ✓ | ✓ |
+| `duplicate-helper` | A function whose parameters and body are piece for piece another's of the project, the names each declares itself aside; a closure, a lambda or an arrow function held by a name among them | ✓ | ✓ | ✓ |
 | `unexplained-spare` | A spare that does not say why | ✓ | ✓ | ✓ |
 
 ## Sparing a finding

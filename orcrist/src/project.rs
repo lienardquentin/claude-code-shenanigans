@@ -27,17 +27,19 @@ impl File {
     /// the function, as in `const light = (beacon) => …`.
     pub fn defined<'a>(&'a self, node: Node<'a>) -> Option<(&'a str, Node<'a>)> {
         let syntax = self.language.syntax();
-        let function = if syntax.functions.contains(&node.kind()) {
-            node
-        } else if syntax.bindings.contains(&node.kind()) {
-            node.child_by_field_name("value")
-                .filter(|value| syntax.function_values.contains(&value.kind()))?
+        let (name, function) = if syntax.functions.contains(&node.kind()) {
+            (node.child_by_field_name("name")?, node)
         } else {
-            return None;
+            let binding = syntax.bindings.iter().find(|binding| binding.kind == node.kind())?;
+            let value = node
+                .child_by_field_name(binding.value)
+                .filter(|value| syntax.function_values.contains(&value.kind()))?;
+            // A name, not `{ a, b }`, `(a, b)` or `self.light`
+            let name = node
+                .child_by_field_name(binding.name)
+                .filter(|name| name.kind() == "identifier")?;
+            (name, value)
         };
-        let name = node
-            .child_by_field_name("name")
-            .filter(|name| !matches!(name.kind(), "object_pattern" | "array_pattern"))?;
         Some((&self.code[name.byte_range()], function))
     }
 
@@ -174,7 +176,7 @@ fn parse_source(path: PathBuf, language: Language, source: &str) -> File {
     let code = language.code(source).into_owned();
     let mut parser = Parser::new();
     parser
-        .set_language(&language.grammar())
+        .set_language(&language.grammar(source))
         .expect("every grammar matches tree-sitter's version");
     let tree = parser
         .parse(&code, None)

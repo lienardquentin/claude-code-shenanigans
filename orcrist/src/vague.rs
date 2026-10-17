@@ -43,8 +43,8 @@ fn vague(name: &str, declared: Declared, settings: &Settings) -> bool {
 }
 
 /// Whether `name` is a parameter of a function passed to a method of a collection whose name says what `name` is one
-/// of: `item` in `items.map((item) => …)`, `todo` in `this.todos.filter((todo) => …)`. TypeScript's and JavaScript's
-/// alone: a Rust closure is no function value of its table, and a Python lambda's parameters are not judged.
+/// of: `item` in `items.map((item) => …)`, `todo` in `this.todos.filter((todo) => …)`. Matched on TypeScript's and
+/// JavaScript's trees alone: Rust's and Python's calls hold what they call and what they pass in other fields.
 fn names_an_element(name: Node, text: &str, source: &str, language: Language) -> bool {
     let element = text.to_lowercase();
     // The parameter's name, its parameter, their list, the function: no further above

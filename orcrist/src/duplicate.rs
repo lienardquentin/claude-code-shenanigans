@@ -87,9 +87,13 @@ fn shape<'a>(node: Node<'a>, file: &'a File, smallest: usize) -> Option<(&'a str
     let parameters = project::parameters(function)?;
     let body = function.child_by_field_name("body")?;
     let mut own = HashSet::new();
-    // `beacon => …`: its one parameter is a name of its own, though no declaration names it
-    if parameters.kind() == "identifier" {
-        own.insert(&file.code[parameters.byte_range()]);
+    // Its parameters are names of its own, `|beacon|` and `lambda beacon:` among them, which no declaration names
+    for parameter in file
+        .function(node)
+        .map(|(_, parameters)| parameters)
+        .unwrap_or_default()
+    {
+        own.insert(&file.code[parameter.byte_range()]);
     }
     for part in [parameters, body] {
         visit(part, &mut |piece| {

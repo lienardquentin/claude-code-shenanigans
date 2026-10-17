@@ -1,6 +1,7 @@
 //! The languages orcrist reads, told apart by the extension of a file's name.
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::path::Path;
 
 use tree_sitter::Node;
@@ -45,10 +46,15 @@ impl Language {
         }
     }
 
-    pub fn grammar(self) -> tree_sitter::Language {
+    /// The grammar `source` is read with: a Vue component's TSX's when a `<script>` of it says `lang="tsx"` or `"jsx"`,
+    /// which Vue asks all its scripts to share.
+    pub fn grammar(self, source: &str) -> tree_sitter::Language {
+        let jsx =
+            |(tag, _): (&str, Range<usize>)| ["tsx", "jsx"].iter().any(|lang| attribute(tag, "lang") == Some(lang));
         match self {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
+            Language::Vue if scripts(source).into_iter().any(jsx) => tree_sitter_typescript::LANGUAGE_TSX.into(),
             Language::TypeScript | Language::Vue => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Language::Jsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         }
@@ -67,27 +73,86 @@ impl Language {
         self.syntax().comments.contains(&node.kind())
     }
 
-    /// The code of `source` its grammar reads, line for line where it stands in the file: a Vue component's lines
-    /// outside its `<script>` left empty.
+    /// The code of `source` its grammar reads, each byte where it stands in the file: a Vue component's outside its
+    /// `<script>` blocks made spaces, its line ends kept.
     pub fn code(self, source: &str) -> Cow<'_, str> {
         if self != Language::Vue {
             return Cow::Borrowed(source);
         }
-        let mut in_script = false;
-        let mut code = String::with_capacity(source.len());
-        for line in source.lines() {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("</script") {
-                in_script = false;
-            } else if in_script {
-                code.push_str(line);
-            } else if trimmed.starts_with("<script") {
-                in_script = true;
-            }
-            code.push('\n');
+        let mut code: Vec<u8> = source
+            .bytes()
+            .map(|byte| if byte == b'\n' { b'\n' } else { b' ' })
+            .collect();
+        for (_, script) in scripts(source) {
+            code[script.clone()].copy_from_slice(&source.as_bytes()[script]);
         }
-        Cow::Owned(code)
+        Cow::Owned(String::from_utf8(code).expect("only whole characters are copied, the rest are spaces"))
     }
+}
+
+/// Each `<script>` block of a Vue component: its opening tag, and where its code is.
+fn scripts(source: &str) -> Vec<(&str, Range<usize>)> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(open) = source[from..].find("<script").map(|at| from + at) {
+        // A `<script` in an HTML comment is no script: past the comment's end
+        if let Some(comment) = source[from..open].rfind("<!--").map(|at| from + at)
+            && !source[comment..open].contains("-->")
+        {
+            from = source[open..].find("-->").map_or(source.len(), |at| open + at + 3);
+            continue;
+        }
+        // `<script` and no more of a tag's name: not `<scripted>`
+        let named = source[open + "<script".len()..]
+            .chars()
+            .next()
+            .is_some_and(|after| after.is_whitespace() || after == '>' || after == '/');
+        if !named {
+            from = open + "<script".len();
+            continue;
+        }
+        let Some(code_start) = tag_end(source, open) else {
+            break;
+        };
+        let tag = &source[open..code_start];
+        if tag.ends_with("/>") {
+            from = code_start;
+            continue;
+        }
+        let code_end = source[code_start..]
+            .find("</script")
+            .map_or(source.len(), |at| code_start + at);
+        found.push((tag, code_start..code_end));
+        from = code_end;
+    }
+    found
+}
+
+/// Where the tag opened at `open` ends, past its `>`: the first outside its attributes' quotes, as
+/// `generic="T extends Map<K, V>"` holds some.
+fn tag_end(source: &str, open: usize) -> Option<usize> {
+    let mut quote = None;
+    for (at, character) in source[open..].char_indices() {
+        match quote {
+            Some(open_quote) if character == open_quote => quote = None,
+            Some(_) => {}
+            None if matches!(character, '"' | '\'') => quote = Some(character),
+            None if character == '>' => return Some(open + at + 1),
+            None => {}
+        }
+    }
+    None
+}
+
+/// The value an opening tag gives `name`, in double or single quotes: `lang="ts"`, not `data-lang="ts"`.
+fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let given = format!("{name}=");
+    let (at, _) = tag
+        .match_indices(&given)
+        .find(|(at, _)| tag[..*at].ends_with(char::is_whitespace))?;
+    let after = &tag[at + given.len()..];
+    let quote = after.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+    after[1..].split(quote).next()
 }
 
 /// What a comment says, without the marks that make it one.
@@ -113,13 +178,17 @@ pub fn declared(name: Node, language: Language) -> Option<Declared> {
     };
     let syntax = language.syntax();
     let kind = parent.kind();
-    let value_is_function = || {
-        parent
-            .child_by_field_name("value")
-            .is_some_and(|value| syntax.function_values.contains(&value.kind()))
-    };
-    if syntax.functions.contains(&kind) || (syntax.bindings.contains(&kind) && value_is_function()) {
+    if syntax.functions.contains(&kind) {
         return is("name").then_some(Declared::Function);
+    }
+    let binding = syntax.bindings.iter().find(|binding| binding.kind == kind);
+    let binds_function = binding.filter(|binding| {
+        parent
+            .child_by_field_name(binding.value)
+            .is_some_and(|value| syntax.function_values.contains(&value.kind()))
+    });
+    if let Some(binding) = binds_function {
+        return is(binding.name).then_some(Declared::Function);
     }
     let (_, place) = syntax.declarations.iter().find(|(declaring, _)| *declaring == kind)?;
     let declares = match place {
