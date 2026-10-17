@@ -33,7 +33,7 @@ import {
 } from './quest'
 import type { Retry } from './quest'
 import { canMove, restingPhase } from './phases'
-import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, toolFailed } from '../flow'
+import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -727,6 +727,16 @@ async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgemen
   const out = held.march
 
   if (judged.verdict === 'sitting') return
+
+  // Minor findings of a pass send its member back once to tidy them; those of the judgement after are committed as they
+  // are, and a member that cannot be reached spends no try on them
+  if (judged.verdict === 'pass' && judged.minor.length > 0 && out.isTidied !== true && (await sendBack($, out.agentId, typeOf(out.member), tidyPrompt(judged.minor)))) {
+    await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isTidied: true, answer: '' } }))
+    await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} to tidy the minor findings: ${judged.line}`)
+
+    return
+  }
+
   if (judged.verdict === 'pass') return void (await commitNow($, ref, judged.minor))
   if (judged.verdict === 'fail') return again($, ref, { findings: judged.blocking }, judged.line)
 

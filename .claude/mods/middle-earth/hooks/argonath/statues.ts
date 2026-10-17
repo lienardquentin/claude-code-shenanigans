@@ -4,7 +4,7 @@ export { isChanging } from '../flow'
 
 /** The two kings carved beside the river: each judges a settled change by the reviews it is given. */
 export const STATUES: readonly { name: ArgonathStatue; title: string; focus: string }[] = [
-  { name: 'isildur', title: 'Isildur', focus: 'you check what the change does: whether it is correct, and whether what it claims holds' },
+  { name: 'isildur', title: 'Isildur', focus: 'you check what the change does: whether it is correct, whether what it claims holds, and whether it is the smallest change that does what it is for' },
   { name: 'anarion', title: 'Anárion', focus: 'you check what the change lets in: whether it can be abused, and what it exposes' },
 ]
 

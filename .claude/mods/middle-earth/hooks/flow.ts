@@ -410,3 +410,12 @@ export const sendBackPrompt = (why: { proof?: string; findings?: string[] }): st
         (why.proof ?? '').trim(),
         '</proof>',
       ].join('\n')
+
+/** What a builder is sent back with once its change passed with minor findings: to tidy them, and change nothing else. */
+export const tidyPrompt = (minor: readonly string[]): string =>
+  [
+    'Your change passed its review, with minor findings. Tidy each one that is about what your change itself wrote, with the smallest edit that answers it, and change no behaviour; leave one you judge wrong, and say why in your account. Then prove it again, and end your turn with your account as before. Minor findings of the review after this one are left as they are.',
+    '<findings>',
+    ...minor,
+    '</findings>',
+  ].join('\n')

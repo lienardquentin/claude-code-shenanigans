@@ -382,7 +382,8 @@ const GITHUB = JSON.stringify({
 const WEIGHTS = '```json\n[{ "id": "r1", "weight": "light", "kind": "change" }, { "id": "r2", "weight": "standard", "kind": "change" }]\n```'
 
 type Proof = 'pinned' | 'bare' | 'unlooked' | 'unhandled'
-type Verdict = 'pass' | 'fail'
+// A pass, a pass with a minor finding of Isildur's, a failure
+type Verdict = 'pass' | 'minor' | 'fail'
 type Vision = 'shown' | 'empty' | 'clouded'
 
 /** The first of what is queued, and the last one again once it is the only one left. */
@@ -682,8 +683,8 @@ const start = async ($: Engine, world: World) => {
 
 /**
  * Lets the clock do what was asked of it. Galadriel and the statues end their turns as the world has them: she shows
- * what is queued; the statues find what is queued, Isildur the minor finding of a pass, the last sent the blocking one
- * of a failure.
+ * what is queued; the statues find what is queued, Isildur the minor finding of a pass that has one, the last sent the
+ * blocking one of a failure.
  */
 const settle = async ($: Engine, world: World) => {
   for (let at = 0; at < 16; at += 1) {
@@ -704,7 +705,7 @@ const settle = async ($: Engine, world: World) => {
       world.statues.push(sat.map(one => one.replace(/-1$/, '')))
       for (const [index, agentId] of sat.entries()) {
         const found =
-          verdict === 'pass' && index === 0
+          verdict === 'minor' && index === 0
             ? [{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]
             : verdict === 'fail' && index === sat.length - 1
               ? [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]
@@ -785,6 +786,7 @@ describe('fellowship', () => {
 
   test('proves what the member built in its worktree, sends the statues to judge it there, and commits it there once they pass it', async ($, on) => {
     const world = machine(on)
+    world.judgements = ['minor']
     await start($, world)
     await call($, 'mcp__middle-earth__set_out')
     await settle($, world)
@@ -804,6 +806,18 @@ describe('fellowship', () => {
     expect(world.judged[0]).toMatchObject({ cwd: TREE })
     expect(world.judged[1]).toMatchObject({ cwd: TREE })
     expect(aboutOf(world.judged[0])).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
+
+    // A pass with a minor finding sends the member back once to tidy it, and commits nothing yet
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
+    expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1'])
+    expect(world.sent[0]?.text).toMatch(/passed its review, with minor findings[\s\S]*change no behaviour[\s\S]*<findings>\n- Isildur, app\.py:70: lit could be named burning\.\n<\/findings>/)
+
+    // The minor finding of the judgement after is committed as it is
+    await ends($, 'frodo-1', 'Tidied.', world)
+    await settle($, world)
+
+    expect(world.sent).toHaveLength(1)
+    expect(world.judged).toHaveLength(4)
     expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Isildur, app\.py:70: lit could be named burning\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
     // No Claude is woken: the statues are the judges
