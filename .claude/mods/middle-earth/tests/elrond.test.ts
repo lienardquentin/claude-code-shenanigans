@@ -488,6 +488,24 @@ describe('elrond', () => {
     expect(revised).toContain('Risks the person accepted as they are:\n- A log message has a typo\n- An old plain risk')
   })
 
+  test('keeps what a task waits on in a narrow pane, its title cut to the room the box leaves', async ($, on) => {
+    machine(on)
+    await $.session.start({ source: 'startup', cwd: CWD } as never)
+    await call($, 'mcp__middle-earth__convene', { issue: '#12' })
+    await ends($, 'council-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
+
+    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 30 } as never, requestId: 'elrond' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })
+    // The text read off a button is trimmed: a row that is not opened gives back the two cells before its mark
+    const rows = [...drawn.matchAll(/\[((?:▸ )?[○◐●] \d\.[^\]]*)\]/g)].map(found => (found[1] ?? '').replace(/^(?!▸)/, '  '))
+
+    // The box's border and padding take 4 of the 30: every row fits what is left, and says what it waits on whole
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatch(/^▸ ○ 1\. Keep wh.*… · ready$/)
+    expect(rows[1]).toMatch(/^ {2}○ 2\. .*… · after 1$/)
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(26)
+  })
+
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`sets the Fellowship out from the pane, stopping after each task or going on by itself, and builds a task here only by choice, on ${surface}`, async ($, on) => {
       const world = machine(on)
@@ -496,7 +514,7 @@ describe('elrond', () => {
       await ends($, 'council-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
 
       const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'elrond' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/\[Set out with the Fellowship\]\*\s+\[Set out, auto\][\s\S]*\[Build here myself\]/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/\[s Set out with the Fellowship\]\*\s+\[a Set out, auto\][\s\S]*\[b Build here myself\]/)
 
       // The press only asks: the Fellowship's clock sets out on the plan in force, by its issue, as quests on other
       // issues may be under way beside it
@@ -517,13 +535,17 @@ describe('elrond', () => {
       const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'elrond' })
 
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/Questions\s+● 0 of 2 answered[\s\S]*\? Q1  Is an unlit beacon 0 or null\?\s*\[null\]\* suggested\s*\[0\]\s*Or your own: \[\][\s\S]*\? Q2  Which log level\?\s*Your answer: \[\]/)
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toContain('[Revise the plan]  the council plans the issue again')
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toContain('[r Revise the plan]\nThe council plans the issue again.')
+      // What stops the Fellowship setting out is said, as its refusal counts it: Set out is no longer the main action
+      const blocked = await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })
+      expect(blocked).toMatch(/● 0\/2 done {2}● 2 questions to answer/)
+      expect(blocked).toMatch(/\[s Set out with the Fellowship\] \[a Set out, auto\]\nFirst 2 questions to answer, below\./)
 
       await pane.press({ key: 'option-0-0' })
       await pane.input({ key: 'own-1', text: 'info, as quench logs' })
 
       expect(await call($, 'mcp__middle-earth__plan')).toContain('- Is an unlit beacon 0 or null?\n  → null\n- Which log level?\n  → info, as quench logs')
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/● 2 of 2 answered[\s\S]*✓ Q1  Is an unlit beacon 0 or null\?\s*→ null\s+\[change\][\s\S]*\[Revise the plan\]\*\s+the council plans again with 2 answers/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'elrond' })).toMatch(/● 2 of 2 answered[\s\S]*✓ Q1  Is an unlit beacon 0 or null\?\s*→ null\s+\[change\][\s\S]*\[r Revise the plan\]\*\s+The council plans again with 2 answers/)
 
       // The press only asks: outside a hook, where the council would sit unheld, Claude is asked to call for it, once
       await pane.press({ key: 'revise' })

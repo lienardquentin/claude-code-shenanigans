@@ -5,6 +5,7 @@ import type { MountdoomRelic } from '../../types'
 import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { keyed, shortRef } from '../look'
 import { UNMODDED, errorText, forgeOfHost, pullStateOf, rootOf, toolFailed } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
@@ -293,26 +294,48 @@ export function registerMountdoom(on: On): void {
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
-          {badge({ label: merged.length > 0 ? `${merged.length} merged` : held.length > 0 ? 'watching' : 'nothing kept', tone: merged.length > 0 ? 'danger' : 'neutral' })}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          {badge({ label: merged.length > 0 ? `${merged.length} merged` : held.length > 0 ? `watching ${held.length}` : 'nothing kept', tone: merged.length > 0 ? 'danger' : 'neutral' })}
           <Button key="look" hotkey="l" onPress={() => watch($).then(() => undefined)}>
-            Look again
+            {keyed('l', 'Look again')}
           </Button>
         </Box>
         {busy !== '' && <Text color="suggestion">{busy}</Text>}
         {problem !== '' && <Text>{problem}</Text>}
         {held.length === 0 && <Text dimColor>{HOW_TO}</Text>}
-        {held.map(relic => (
-          <Text key={relic.branch} color={relic.isMerged ? 'error' : undefined} dimColor={!relic.isMerged} wrap="truncate-end">
-            {relicLine(relic)}
-          </Text>
-        ))}
+        {held.length > 0 && (
+          <Box flexDirection="column" gap={1}>
+            {/* The merged first: they are what the fire waits on */}
+            {[...merged, ...held.filter(relic => !relic.isMerged)].map(relic => {
+              // Where the forge could not say, it is said unknown: the line under it says why
+              const standing = [relic.isMerged ? 'merged' : relic.unknown !== undefined ? 'unknown' : 'open', ...(relic.isConflicting === true ? ['in conflict with its base'] : [])].join(' · ')
+
+              return (
+                <Box key={relic.branch} flexDirection="row">
+                  <Box width={3} flexShrink={0}>
+                    <Text>{relic.isMerged ? '🔥' : '·'}</Text>
+                  </Box>
+                  <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                    <Text>
+                      <Text bold={relic.isMerged}>{relic.ref !== '' ? shortRef(relic.ref) : relic.branch}</Text>
+                      <Text color={relic.isMerged ? 'error' : relic.isConflicting === true ? 'warning' : undefined} dimColor={!relic.isMerged && relic.isConflicting !== true}>{`  ${standing}`}</Text>
+                    </Text>
+                    <Text dimColor>{`${relic.branch} · kept by ${relic.keepers.join(', ')}`}</Text>
+                    <Text dimColor wrap="truncate-middle">{relic.pr !== '' ? relic.pr : 'no pull request known'}</Text>
+                    {relic.unknown !== undefined && <Text color="warning">{`The forge could not say whether it is merged: ${relic.unknown}`}</Text>}
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
+        )}
         {merged.length > 0 && (
           <Button key="cast" hotkey="c" variant="primary" onPress={() => cast($, '').then(said => update($, note, () => said))}>
-            Cast them into the fire
+            {keyed('c', 'Cast them into the fire')}
           </Button>
         )}
       </Box>,
+      e.props.bodyColumns,
     )
   })
 }

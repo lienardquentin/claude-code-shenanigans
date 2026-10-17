@@ -196,16 +196,24 @@ export const reviewTasks = (given: unknown): FellowshipTask[] =>
     .map((one, at) => ({ ...taskOf({ ...one, id: at + 1, dependsOn: [], steps: [], state: 'todo' }), acceptance: text(one.acceptance) || 'What the comment asks for is done, and nothing else of the pull request.' }))
     .filter(task => task.title !== '' || (task.brief ?? '') !== '')
 
+/**
+ * How much of a plan the council left open, which no quest sets out with: its questions not answered, its risks to cover
+ * with a task (only a revision settles those), and those not decided. Elrond's pane counts with it too.
+ */
+export const settlingOf = (plan: { questions: readonly { answer: string }[]; risks: readonly { wantsTask: boolean }[] }): { unanswered: number; toCover: number; undecided: number } => ({
+  unanswered: plan.questions.filter(question => question.answer.trim() === '').length,
+  toCover: plan.risks.filter(risk => risk.wantsTask).length,
+  undecided: plan.risks.filter(risk => !risk.wantsTask).length,
+})
+
 /** What the council left open, which the quest does not set out with: unanswered questions, risks not decided. */
 export const unsettledOf = (plan: FellowshipPlan): string[] => {
-  const open = plan.questions.filter(question => question.answer.trim() === '')
-  const toCover = plan.risks.filter(risk => risk.wantsTask)
-  const undecided = plan.risks.filter(risk => !risk.wantsTask)
+  const { unanswered, toCover, undecided } = settlingOf(plan)
 
   return [
-    ...(open.length > 0 ? [`${open.length} unanswered ${open.length === 1 ? 'question' : 'questions'}`] : []),
-    ...(toCover.length > 0 ? [`${toCover.length} ${toCover.length === 1 ? 'risk' : 'risks'} to cover with a task: revise the plan first`] : []),
-    ...(undecided.length > 0 ? [`${undecided.length} undecided ${undecided.length === 1 ? 'risk' : 'risks'} (accept each, or have it covered or asked about)`] : []),
+    ...(unanswered > 0 ? [`${unanswered} unanswered ${unanswered === 1 ? 'question' : 'questions'}`] : []),
+    ...(toCover > 0 ? [`${toCover} ${toCover === 1 ? 'risk' : 'risks'} to cover with a task: revise the plan first`] : []),
+    ...(undecided > 0 ? [`${undecided} undecided ${undecided === 1 ? 'risk' : 'risks'} (accept each, or have it covered or asked about)`] : []),
   ]
 }
 

@@ -33,11 +33,12 @@ import {
 } from './quest'
 import type { Retry } from './quest'
 import { canMove, restingPhase } from './phases'
-import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
+import { UNMODDED, errorText, git, gitRootOf, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
 import { gazeFor, mirrorIn } from '../lothlorien/register'
@@ -66,6 +67,25 @@ const selected = atom({ plugin: 'middle-earth', key: 'fellowshipSelected' } as c
 
 export const fellowshipView = paneView({ id: PANE, title: TITLE, command: '/fellowship' })
 const view = fellowshipView
+
+// The project's folder, by the session's: the pane draws often, and git is asked once a folder. Where git could not
+// say, the session's folder stands in, and git is asked again at the next drawing
+const roots = new Map<string, string>()
+
+async function paneRoot($: $): Promise<string> {
+  const cwd = await $.session.cwd()
+  const known = roots.get(cwd)
+
+  if (known !== undefined) return known
+
+  const found = await gitRootOf($)
+
+  if (found === undefined) return cwd.replace(/\/+$/, '')
+
+  roots.set(cwd, found)
+
+  return found
+}
 
 const REF = { type: 'string', description: 'The quest, by its ref; the one the pane shows when left out.' } as const
 
@@ -1489,6 +1509,7 @@ export function registerFellowship(on: On): void {
       await pumpFellowship($, ref === '' ? undefined : ref)
     }
     const general = said[''] ?? ''
+    const width = e.props.bodyColumns ?? 80
 
     if (held === null) {
       return view.keep(
@@ -1498,9 +1519,10 @@ export function registerFellowship(on: On): void {
           {general !== '' && <Text color="warning">{general}</Text>}
           <Text dimColor>{HOW_TO}</Text>
           <Button key="set-out" hotkey="s" variant="primary" onPress={() => press('', 'set out')}>
-            Set out on the Elrond plan
+            {keyed('s', 'Set out on the Elrond plan')}
           </Button>
         </Box>,
+        width,
       )
     }
 
@@ -1511,79 +1533,116 @@ export function registerFellowship(on: On): void {
     const problem = said[held.ref] ?? ''
     const busyLine = doing[held.ref] ?? ''
     const asked = queue.find(one => one.ref === held.ref)
+    const root = await paneRoot($)
+    // A task's mark and number keep a column of their own: its title wraps under itself, and its last words are never cut
+    const markWidth = String(Math.max(0, ...(made?.tasks ?? []).map(task => task.id))).length + 4
+    const toneOf = (task: FellowshipTask): string | undefined => (out?.taskId === task.id ? (held.phase === 'stuck' ? 'error' : 'suggestion') : task.state === 'done' ? 'success' : task.state === 'asked' ? 'warning' : undefined)
+    // What is said of a task after its title: its weight, and who built it, or who is on it
+    const metaOf = (task: FellowshipTask): string => {
+      const commit = commitOf(task.id)
+
+      return [task.weight, commit !== undefined ? `${commit.by} ${commit.sha.slice(0, 7) || 'no change'}` : '', out?.taskId === task.id ? `${MEMBERS[out.member].title}, ${held.phase}` : ''].filter(part => part !== '').join(' · ')
+    }
+    const isSailable = held.phase === 'arrived' || (held.kind === 'review' && held.phase !== 'sailed' && !OUT.includes(held.phase) && held.commits.length > 0)
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
         {all.length > 1 && (
           <Box flexDirection="column">
-            {all.map(one => (
-              <Button key={`quest-${one.ref}`} plain onPress={() => update($, selected, () => one.ref)}>
-                {`${one.ref === held.ref ? '▸' : ' '} ${one.ref} · ${one.kind} · ${one.phase}${one.isAuto ? ' · auto' : ''}`}
-              </Button>
-            ))}
+            {all.map(one => {
+              // A quest kept by a session from before errands and reviews has no kind: it is a plan's, as questRelics takes it
+              const kind = `${one.kind ?? 'plan'}${one.isAuto ? ' · auto' : ''}`
+
+              return (
+                <Button key={`quest-${one.ref}`} plain onPress={() => update($, selected, () => one.ref)}>
+                  {/* A plain Button draws its label alone: its mark and ref (3 more), the badge's dot (2 more), its kind between spaces, the title */}
+                  {`${one.ref === held.ref ? '▸' : ' '} ${shortRef(one.ref)} `}
+                  {badge({ label: one.phase, tone: PHASE_TONE[one.phase] })}
+                  <Text dimColor>{` ${kind} `}</Text>
+                  <Text>{clip(one.title, width - shortRef(one.ref).length - one.phase.length - kind.length - 7)}</Text>
+                </Button>
+              )
+            })}
           </Box>
         )}
-        <Box flexDirection="row" gap={2}>
-          {badge({ label: held.phase, tone: PHASE_TONE[held.phase] })}
-          {made !== null && badge({ label: tally(made), tone: isAllDone(made) ? 'success' : 'info' })}
-          <Text bold wrap="truncate-end">{held.title}</Text>
-        </Box>
-        <Text dimColor>{`${held.ref} · ${held.kind} · ${held.branch} ← ${held.base}${held.isAuto ? ' · auto' : ''}`}</Text>
-        <Text dimColor wrap="truncate-start">{held.tree}</Text>
         <Box flexDirection="column">
-          {busyLine !== '' && <Text color="suggestion">{busyLine}</Text>}
-          {asked !== undefined && busyLine === '' && <Text dimColor>{`${asked.what}…`}</Text>}
-          {problem !== '' && <Text color="warning">{problem}</Text>}
-          {general !== '' && <Text dimColor>{general}</Text>}
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {badge({ label: held.phase, tone: PHASE_TONE[held.phase] })}
+            {made !== null && badge({ label: tally(made), tone: isAllDone(made) ? 'success' : 'info' })}
+            {held.isAuto && badge({ label: 'auto', tone: 'accent' })}
+          </Box>
+          <Text bold>{`${shortRef(held.ref)} ${held.title}`}</Text>
+          <Text dimColor>{`${held.kind ?? 'plan'} · ${held.branch} ← ${held.base}`}</Text>
+          {held.tree !== root && <Text dimColor wrap="truncate-start">{homePath(held.tree, root)}</Text>}
         </Box>
+        {(busyLine !== '' || asked !== undefined || problem !== '' || general !== '') && (
+          <Box flexDirection="column">
+            {busyLine !== '' && <Text color="suggestion">{busyLine}</Text>}
+            {asked !== undefined && busyLine === '' && <Text dimColor>{`${asked.what}…`}</Text>}
+            {problem !== '' && <Text color="warning">{problem}</Text>}
+            {general !== '' && <Text dimColor>{general}</Text>}
+          </Box>
+        )}
         {made !== null && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
             {made.tasks.map(task => (
-              <Text key={`task-${task.id}`} color={out?.taskId === task.id ? 'suggestion' : task.state === 'done' ? 'success' : task.state === 'asked' ? 'warning' : undefined} dimColor={task.state === 'todo' && out?.taskId !== task.id} wrap="truncate-end">
-                {`${MARK[task.state]} ${task.id}. ${task.title}  · ${task.weight}${commitOf(task.id) !== undefined ? ` · ${commitOf(task.id)?.by ?? ''} ${commitOf(task.id)?.sha.slice(0, 7) || 'no change'}` : ''}${out?.taskId === task.id ? ` · ${MEMBERS[out.member].title}, ${held.phase}` : ''}${task.note !== undefined && task.note !== '' ? ` · ${task.note}` : ''}`}
-              </Text>
+              <Box key={`task-${task.id}`} flexDirection="row">
+                <Box width={markWidth} flexShrink={0}>
+                  <Text color={toneOf(task)} dimColor={task.state === 'todo' && out?.taskId !== task.id}>{`${MARK[task.state]} ${task.id}.`}</Text>
+                </Box>
+                <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                  <Text color={toneOf(task)} dimColor={task.state === 'todo' && out?.taskId !== task.id}>
+                    {task.title}
+                    <Text dimColor>{`  ${metaOf(task)}`}</Text>
+                  </Text>
+                  {task.note !== undefined && task.note !== '' && <Text color="warning">{task.note}</Text>}
+                </Box>
+              </Box>
             ))}
           </Box>
         )}
         {held.phase === 'gazing' && <Text color="suggestion">{`Galadriel gazes into the Mirror: task ${held.gazed ?? ''}'s tests are written first, red`}</Text>}
         {held.phase === 'warding' && <Text color="suggestion">{`${WARDING} before it sails`}</Text>}
         {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isWarded === true ? 'success' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
-        {held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {out !== null && (
-          <Box flexDirection="column" borderStyle="round" paddingX={1}>
-            <Text bold>{`${MEMBERS[out.member].title} ${held.phase === 'stuck' ? 'back from' : 'on'} task ${out.taskId}: ${out.title}`}</Text>
-            <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${new Date(out.at).toLocaleTimeString()}`}</Text>
+          <Box flexDirection="column" borderStyle="round" borderColor={held.phase === 'stuck' ? 'error' : undefined} paddingX={1}>
+            <Text bold>{`${MEMBERS[out.member].title} ${held.phase === 'stuck' ? 'is back from' : 'is on'} task ${out.taskId}: ${out.title}`}</Text>
+            <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${clockOf(out.at)}`}</Text>
+            {held.vision !== undefined && held.vision !== null && held.vision.taskId === out.taskId && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} to make pass`}</Text>}
             {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`Argonath's proof: ${held.proofLine}`}</Text>}
             {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
           </Box>
         )}
+        {(out === null || held.vision?.taskId !== out.taskId) && held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {held.pr !== '' && <Text color="success">{`Pull request: ${held.pr}`}</Text>}
-        <Box flexDirection="row" gap={1}>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
           {(held.phase === 'ready' || held.phase === 'stuck') && (
             <Button key="next" hotkey="n" variant="primary" onPress={() => press(held.ref, 'next')}>
-              {held.phase === 'stuck' ? 'Send again' : 'Send the next task'}
+              {keyed('n', held.phase === 'stuck' ? 'Send again' : 'Send the next task')}
             </Button>
           )}
           {held.phase === 'stuck' && out !== null && (
             <Button key="commit" hotkey="c" onPress={() => resubmit($, held.ref).then(text => say($, held.ref, text)).then(() => pumpFellowship($, held.ref))}>
-              Put it before the Argonath
+              {keyed('c', 'Put it before the Argonath')}
             </Button>
           )}
-          {(held.phase === 'arrived' || (held.kind === 'review' && held.phase !== 'sailed' && !OUT.includes(held.phase) && held.commits.length > 0)) && (
+          {isSailable && (
             <Button key="sail" hotkey="p" variant={held.phase === 'arrived' ? 'primary' : 'secondary'} onPress={() => press(held.ref, 'sail')}>
-              {held.kind === 'review' ? 'Push the answers' : 'Push and open the pull request'}
+              {keyed('p', held.kind === 'review' ? 'Push the answers' : 'Push and open the pull request')}
             </Button>
           )}
           {held.phase !== 'sailed' && (
             <Button key="auto" hotkey="a" onPress={() => keep($, held.ref, was => ({ ...was, isAuto: !was.isAuto })).then(() => undefined)}>
-              {held.isAuto ? '✓ Going on by itself' : 'Go on by itself'}
+              {keyed('a', held.isAuto ? '✓ Going on by itself' : 'Go on by itself')}
             </Button>
           )}
+          {/* Quests on other issues run beside this one: the plan in force sets out from here too */}
           <Button key="set-out" hotkey="s" onPress={() => press('', 'set out')}>
-            Set out on the Elrond plan
+            {keyed('s', 'Set out on the Elrond plan')}
           </Button>
         </Box>
       </Box>,
+      width,
     )
   })
 }

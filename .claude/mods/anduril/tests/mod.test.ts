@@ -151,8 +151,8 @@ const watching = (on: On, records: AndurilRun[] = []) => {
   return world
 }
 
-const mountPane = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') =>
-  $.ui.mount({ plugin: 'anduril', surface, component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'anduril' })
+const mountPane = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal', bodyColumns = 100) =>
+  $.ui.mount({ plugin: 'anduril', surface, component: 'Pane', props: { bodyColumns } as never, requestId: 'anduril' })
 
 // The facts a system prompt is composed from, as far as a test names them
 const FACTS = { model: 'claude-test', promptModel: 'claude-test', surfaces: [], tools: [], outputStyle: null, traits: [] } as never
@@ -314,6 +314,20 @@ describe('anduril', () => {
       expect(await call($, 'mcp__anduril__pane')).not.toContain('ls --format json')
     })
   }
+
+  test('gives the command the room of who ran it and how long it took in a narrow pane, and says both once the run is opened', async ($, on) => {
+    watching(on, [LISTED, MISSING, PANICKED])
+    const pane = await mountPane($, 'terminal', 50)
+    await pane.press({ key: 'refresh' })
+
+    const drawn = await call($, 'mcp__anduril__pane')
+    expect(drawn).toMatch(/AT\s+EXIT\s+COMMAND/)
+    expect(drawn).not.toMatch(/\bBY\b|\bTOOK\b/)
+    expect(drawn).toMatch(/\s0\s+\[narsil ls --format json\]/)
+
+    await pane.press({ key: 'run-2000-2' })
+    expect(await call($, 'mcp__anduril__pane')).toMatch(/exit 1 · by you at \d\d:\d\d:\d\d · /)
+  })
 
   test('puts a launcher in place for each tool, once, and says when a tool is not built', async ($, on) => {
     const world = watching(on)

@@ -180,7 +180,7 @@ const agoOf = (ms: number): string => {
  * `command` is what opens the pane, as the person types it (`/timeline`).
  */
 export const paneView = ({ id, title, command }: { id: string; title: string; command: string }) => {
-  let kept: { tree: unknown; at: number } | undefined
+  let kept: { tree: unknown; at: number; columns: number } | undefined
 
   return {
     /** What `$.tool.register` takes. */
@@ -188,9 +188,12 @@ export const paneView = ({ id, title, command }: { id: string; title: string; co
       name: 'pane',
       description: `Reads the "${title}" side pane (${command}) as text: what it shows the person right now, or last showed. Call it when they speak of that pane or of something only it shows.`,
     },
-    /** Keeps the tree as the pane's latest drawing, and hands it back to be returned. */
-    keep: <T>(tree: T): T => {
-      kept = { tree, at: Date.now() }
+    /**
+     * Keeps the tree as the pane's latest drawing, and hands it back to be returned. `columns` is the pane's
+     * `bodyColumns` as it was drawn: the reader is told how wide the drawing was, where its text wraps.
+     */
+    keep: <T>(tree: T, columns?: number): T => {
+      kept = { tree, at: Date.now(), columns: count(columns) }
 
       return tree
     },
@@ -215,7 +218,7 @@ export const paneView = ({ id, title, command }: { id: string; title: string; co
         return { result: `The "${title}" pane has drawn nothing in this session${standing !== '' ? ` (${standing})` : ''}. ${command} opens it.` }
       }
 
-      const drawn = `drawn ${agoOf(Date.now() - kept.at)}`
+      const drawn = `drawn ${agoOf(Date.now() - kept.at)}${kept.columns > 0 ? `, ${kept.columns} columns wide` : ''}`
       const head =
         standing === 'open and shown' || standing === ''
           ? `The "${title}" pane${standing !== '' ? `, ${standing}` : ''} (${drawn}):`

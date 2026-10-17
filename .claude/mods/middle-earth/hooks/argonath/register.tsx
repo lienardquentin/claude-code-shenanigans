@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ArgonathJudgement, ArgonathRadius, ArgonathSeat, ArgonathState, ArgonathTarget } from '../../types'
+import type { ArgonathJudgement, ArgonathRadius, ArgonathSeam, ArgonathSeat, ArgonathState, ArgonathTarget } from '../../types'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { clip, keyed } from '../look'
 import { dealt, judgementShape, judgementText, parseFindings, seated, statuePrompt, verdictOf, verdictPrompt } from './statues'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
@@ -660,6 +661,12 @@ async function settle($: $): Promise<void> {
 }
 
 const TONE: Record<ArgonathState, Tone> = { bare: 'danger', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'danger' }
+// The same, as a Text paints it
+const STATE_COLOR: Record<ArgonathState, string> = { bare: 'error', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'error' }
+// From how wide a pane the runs are drawn as a table; narrower, each is a row of its own
+const WIDE_COLUMNS = 100
+// The column a run's state is said in, as a row of its own
+const STATE_WIDTH = 8
 
 const VERDICT_TONE: Record<ArgonathSeat['state'], Tone> = { sitting: 'info', pass: 'success', fail: 'danger', silent: 'warning' }
 const VERDICT_TONE_COLOR: Record<ArgonathSeat['state'], string> = { sitting: 'suggestion', pass: 'success', fail: 'error', silent: 'warning' }
@@ -908,42 +915,64 @@ export function registerArgonath(on: On): void {
     if (list.length === 0) {
       return view.keep(
         <Box flexDirection="column" gap={1}>
-          <Box flexDirection="row" gap={2}>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             {badge({ label: 'no target known', tone: 'neutral' })}
             <Button key="refresh" hotkey="r" onPress={() => setUp($).then(() => undefined)}>
-              Refresh
+              {keyed('r', 'Refresh')}
             </Button>
           </Box>
           <Text>{HOW_TO}</Text>
         </Box>,
+        e.props.bodyColumns,
       )
     }
+
+    const width = e.props.bodyColumns ?? 80
+    // Wide, the runs are a table; in a side pane each is a row of its own, its tests under it, so no run is cut short
+    const isTabled = width >= WIDE_COLUMNS
 
     const section = (target: ArgonathTarget) => {
       const one = held.find(({ label }) => label === target.label)
       const open = one?.seams.find(seam => `${one.label} ${seam.line}` === openKey)
+      const testsOf = (seam: ArgonathSeam) => seam.tests.map(test => (one?.isProved === true ? `${test.name} (${test.from} → ${test.to})` : test.name)).join(', ')
+      const pick = (seam: ArgonathSeam) => update($, selected, was => (was === `${target.label} ${seam.line}` ? '' : `${target.label} ${seam.line}`))
       const rows = (one?.seams ?? []).map((seam): TableCell[] => [
         { text: seam.state, tone: TONE[seam.state] },
-        <Button key={`seam-${target.label}-${seam.line}`} plain onPress={() => update($, selected, was => (was === `${target.label} ${seam.line}` ? '' : `${target.label} ${seam.line}`))}>
+        <Button key={`seam-${target.label}-${seam.line}`} plain onPress={() => pick(seam)}>
           {`${target.label} ${seam.line}` === openKey ? '▸ ' : ''}
           {seam.line}
         </Button>,
-        seam.tests.length === 0 ? '' : seam.tests.map(test => (one?.isProved === true ? `${test.name} (${test.from} → ${test.to})` : test.name)).join(', '),
+        testsOf(seam),
       ])
+      const listed = (one?.seams ?? []).map(seam => (
+        <Box key={`seam-row-${target.label}-${seam.line}`} flexDirection="row">
+          <Box width={STATE_WIDTH} flexShrink={0}>
+            <Text color={STATE_COLOR[seam.state]}>{seam.state}</Text>
+          </Box>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            <Button key={`seam-${target.label}-${seam.line}`} plain onPress={() => pick(seam)}>
+              {`${target.label} ${seam.line}` === openKey ? '▸ ' : ''}
+              {clip(seam.line, width - 4 - STATE_WIDTH - 2)}
+            </Button>
+            {seam.tests.length > 0 && <Text dimColor>{testsOf(seam)}</Text>}
+          </Box>
+        </Box>
+      ))
 
       return (
         <Box flexDirection="column" borderStyle="round" paddingX={1}>
-          <Box flexDirection="row" gap={2}>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             <Text bold>{target.label}</Text>
             <Text dimColor>{target.kind}</Text>
-            {one === undefined ? badge({ label: 'not looked at', tone: 'neutral' }) : badge({ label: radiusLine(one), tone: one.seams.length === 0 ? 'success' : toneOf(one) })}
+            {one === undefined ? badge({ label: 'not looked at', tone: 'neutral' }) : badge({ label: radiusLine(one).replace(`${one.label}: `, ''), tone: one.seams.length === 0 ? 'success' : toneOf(one) })}
             {owedTo.includes(target.label) && <Text color="warning">edited since</Text>}
           </Box>
-          {one !== undefined && <Text dimColor>{one.summary}</Text>}
+          {one !== undefined && <Text dimColor>{one.summary.replace(`${one.label}: `, '')}</Text>}
           {one !== undefined && one.live !== '' && <Text dimColor>{one.live}</Text>}
-          {one !== undefined && one.seams.length > 0 && table({ columns: [{ header: 'STATE', width: 7 }, { header: 'RUN' }, { header: 'TEST', wrap: true }], rows })}
+          {one !== undefined && one.seams.length > 0 && (isTabled ? table({ columns: [{ header: 'STATE', width: 7 }, { header: 'RUN' }, { header: 'TEST', wrap: true }], rows }) : <Box flexDirection="column">{listed}</Box>)}
           {open !== undefined && (
-            <Box flexDirection="column">
+            <Box flexDirection="column" marginTop={1}>
+              <Text bold>{open.line}</Text>
               <Text color={open.state === 'pinned' ? 'success' : 'warning'}>{owed(open)}</Text>
               {open.evidence !== '' && <Code source={open.evidence} format="diff" />}
             </Box>
@@ -956,14 +985,16 @@ export function registerArgonath(on: On): void {
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
+        <Box flexDirection="column">
           {badge({ label: `${list.length} ${list.length === 1 ? 'target' : 'targets'} · ${unsettled(held).length} with a change no test pins`, tone: unsettled(held).length > 0 ? 'warning' : 'success' })}
-          <Button key="radius" hotkey="r" variant="primary" onPress={() => run(false)}>
-            Radius
-          </Button>
-          <Button key="prove" hotkey="p" onPress={() => run(true)}>
-            Prove
-          </Button>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Button key="radius" hotkey="r" variant="primary" onPress={() => run(false)}>
+              {keyed('r', 'Radius')}
+            </Button>
+            <Button key="prove" hotkey="p" onPress={() => run(true)}>
+              {keyed('p', 'Prove')}
+            </Button>
+          </Box>
         </Box>
         {doing !== '' && <Text color="suggestion">{doing}</Text>}
         {problem !== '' && <Text color="warning">{problem}</Text>}
@@ -983,13 +1014,25 @@ export function registerArgonath(on: On): void {
                   <Text color={VERDICT_TONE_COLOR[seat.state]}>{`${seat.state}${seat.why !== '' ? `, ${seat.why}` : ''}`}</Text>
                 </Text>
                 {seat.findings.map(finding => (
-                  <Text color={finding.severity === 'blocking' ? 'error' : undefined} dimColor={finding.severity === 'minor'}>{`  ${finding.severity === 'blocking' ? '✗' : '·'} ${finding.where !== '' ? `${finding.where}: ` : ''}${finding.text}`}</Text>
+                  // A finding's mark keeps its column: its text wraps under itself
+                  <Box flexDirection="row">
+                    <Box width={4} flexShrink={0}>
+                      <Text color={finding.severity === 'blocking' ? 'error' : undefined} dimColor={finding.severity === 'minor'}>{`  ${finding.severity === 'blocking' ? '✗' : '·'}`}</Text>
+                    </Box>
+                    <Box flexGrow={1} flexShrink={1}>
+                      <Text color={finding.severity === 'blocking' ? 'error' : undefined} dimColor={finding.severity === 'minor'}>
+                        {finding.where !== '' && <Text bold>{`${finding.where}: `}</Text>}
+                        {finding.text}
+                      </Text>
+                    </Box>
+                  </Box>
                 ))}
               </Box>
             ))}
           </Box>
         )}
       </Box>,
+      width,
     )
   })
 }

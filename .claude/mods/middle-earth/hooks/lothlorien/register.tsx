@@ -7,6 +7,7 @@ import type { Shown } from './mirror'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { clockOf, shortRef } from '../look'
 import { errorText, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
@@ -380,6 +381,7 @@ export function registerLothlorien(on: On): void {
           {badge({ label: 'still', tone: 'neutral' })}
           <Text dimColor>{HOW_TO}</Text>
         </Box>,
+        e.props.bodyColumns,
       )
     }
 
@@ -387,23 +389,35 @@ export function registerLothlorien(on: On): void {
     const locked = await isLocked($, place, held)
     const others = await read($, visions)
     const elsewhere = Object.keys(others).filter(tree => tree !== place.tree).length
+    // Her tests by the file they are in: a path is long, and said once above the names it holds
+    const files = [...new Set(held.tests.map(test => test.file))]
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
-          {badge({ label: held.state, tone: STATE_TONE[held.state] })}
-          {held.state === 'shown' && badge({ label: locked ? 'locked' : 'committed', tone: locked ? 'warning' : 'success' })}
-          <Text dimColor>{new Date(held.at).toLocaleTimeString()}</Text>
+        <Box flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {badge({ label: held.state, tone: STATE_TONE[held.state] })}
+            {held.state === 'shown' && badge({ label: locked ? 'locked' : 'committed', tone: locked ? 'warning' : 'success' })}
+            {held.tests.length > 0 && <Text color="error">{`${held.tests.length} red ${held.tests.length === 1 ? 'test' : 'tests'}`}</Text>}
+            <Text dimColor>{clockOf(held.at)}</Text>
+          </Box>
+          {!place.isHome && <Text dimColor>{`In the quest's worktree ${place.tree.split('/').slice(-1)[0] ?? ''}${held.ref !== undefined ? `, for ${shortRef(held.ref)}` : ''}`}</Text>}
+          {elsewhere > 0 && <Text dimColor>{`${elsewhere} more ${elsewhere === 1 ? 'vision' : 'visions'} in other quests' worktrees`}</Text>}
         </Box>
-        {!place.isHome && <Text dimColor>{`In the quest's worktree ${place.tree.split('/').slice(-1)[0] ?? ''}${held.ref !== undefined ? `, for ${held.ref}` : ''}`}</Text>}
-        {elsewhere > 0 && <Text dimColor>{`${elsewhere} more ${elsewhere === 1 ? 'vision' : 'visions'} in other quests' worktrees`}</Text>}
         {problem !== '' && <Text color="warning">{problem}</Text>}
-        <Text dimColor wrap="truncate-end">{held.purpose.split('\n')[0] ?? ''}</Text>
+        <Text>{held.purpose.split('\n')[0] ?? ''}</Text>
         {held.why !== '' && <Text color={held.state === 'clouded' ? 'error' : undefined}>{held.why}</Text>}
         {held.tests.length > 0 && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
-            {held.tests.map(test => (
-              <Text key={`${test.file}:${test.name}`} color="error">{`✗ ${test.file}  ${test.name}`}</Text>
+            {files.map(file => (
+              <Box key={`file-${file}`} flexDirection="column">
+                <Text dimColor wrap="truncate-start">{file}</Text>
+                {held.tests
+                  .filter(test => test.file === file)
+                  .map(test => (
+                    <Text key={`${test.file}:${test.name}`} color="error">{`  ✗ ${test.name}`}</Text>
+                  ))}
+              </Box>
             ))}
           </Box>
         )}
@@ -417,6 +431,7 @@ export function registerLothlorien(on: On): void {
           </Box>
         )}
       </Box>,
+      e.props.bodyColumns,
     )
   })
 }

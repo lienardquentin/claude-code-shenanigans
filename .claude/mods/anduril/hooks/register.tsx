@@ -54,6 +54,11 @@ const KEPT_CHARS = 8_000
 const DRAWN_LINES = 40
 // A comparison builds what it compares: as long as a host command may run
 const DIFF_TIMEOUT_MS = 600_000
+// From how wide a pane the runs say who ran them and how long they took; narrower, the command keeps that room
+const WIDE_COLUMNS = 90
+
+// A button's label with the key that presses it: a Button that is not plain draws no hotkey
+const keyed = (hotkey: string, text: string): string => `${hotkey} ${text}`
 
 const targets = atom({ plugin: 'anduril', key: 'targets' } as const, [] as AndurilTarget[])
 const runs = atom({ plugin: 'anduril', key: 'runs' } as const, [] as AndurilRun[])
@@ -412,6 +417,8 @@ export const register: Register = (on, options) => {
     const failedOnly = await read($, isFailedOnly)
     const problems = await read($, note)
     const room = Math.max(5, (e.viewport?.rows ?? 30) - 12)
+    const width = e.props.bodyColumns ?? 80
+    const isWide = width >= WIDE_COLUMNS
 
     // Reads the project's file again too: the way to have a tool watched once it is named there
     const refresh = (
@@ -423,19 +430,20 @@ export const register: Register = (on, options) => {
           await pull($).catch(() => undefined)
         }}
       >
-        Refresh
+        {keyed('r', 'Refresh')}
       </Button>
     )
 
     if (list.length === 0) {
       return view.keep(
         <Box flexDirection="column" gap={1}>
-          <Box flexDirection="row" gap={2}>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             {badge({ label: 'no tool watched', tone: 'neutral' })}
             {refresh}
           </Box>
           <Text>{HOW_TO_WATCH}</Text>
         </Box>,
+        width,
       )
     }
 
@@ -445,9 +453,9 @@ export const register: Register = (on, options) => {
 
     const rows = shown.map((run): TableCell[] => [
       clock(run.startedAt),
-      run.by === 'claude' ? 'claude' : 'you',
+      ...(isWide ? [run.by === 'claude' ? 'claude' : 'you'] : []),
       { text: ending(run), tone: run.exitCode === 0 ? 'success' : 'danger' },
-      duration(run.durationMs),
+      ...(isWide ? [duration(run.durationMs)] : []),
       <Button key={`run-${run.id}`} plain onPress={() => update($, selected, was => (was === run.id ? '' : run.id))}>
         {run.id === openId ? '▸ ' : ''}
         {commandLine(run)}
@@ -507,23 +515,25 @@ export const register: Register = (on, options) => {
 
     return view.keep(
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" gap={2}>
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
           {badge({ label: `${all.length} ${all.length === 1 ? 'run' : 'runs'} · ${failed.length} failed`, tone: failed.length > 0 ? 'warning' : 'success' })}
-          {refresh}
-          <Button key="failed-only" hotkey="f" variant={failedOnly ? 'primary' : 'secondary'} onPress={() => update($, isFailedOnly, value => !value)}>
-            Failed only
-          </Button>
+          <Box flexDirection="row" columnGap={1}>
+            {refresh}
+            <Button key="failed-only" hotkey="f" variant={failedOnly ? 'primary' : 'secondary'} onPress={() => update($, isFailedOnly, value => !value)}>
+              {keyed('f', 'Failed only')}
+            </Button>
+          </Box>
         </Box>
         <Box flexDirection="column">
           {list.map(({ label, binary }) => (
-            <Text dimColor>
+            <Text dimColor wrap="truncate-start">
               {label} runs {binary}
             </Text>
           ))}
           {problems !== '' && <Text color="warning">{problems}</Text>}
         </Box>
         <Box flexDirection="column" gap={1} borderStyle="round" paddingX={1}>
-          <Box flexDirection="row" gap={2}>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
             <Text bold>
               {kept.length} kept {kept.length === 1 ? 'run' : 'runs'}
             </Text>
@@ -537,11 +547,11 @@ export const register: Register = (on, options) => {
                 if (typeof answered === 'string') await update($, note, () => answered)
               }}
             >
-              {`Diff against ${base}`}
+              {keyed('d', `Diff against ${base}`)}
             </Button>
             {made !== null && (
               <Button key="diff-hide" hotkey="x" onPress={() => update($, diff, () => null)}>
-                Hide
+                {keyed('x', 'Hide')}
               </Button>
             )}
           </Box>
@@ -552,14 +562,14 @@ export const register: Register = (on, options) => {
           {made !== null && playing === '' && comparison(made)}
         </Box>
         {table({
-          columns: [{ header: 'AT', width: 8 }, { header: 'BY', width: 6 }, { header: 'EXIT', width: 11 }, { header: 'TOOK', width: 8 }, { header: 'COMMAND' }],
+          columns: [{ header: 'AT', width: 8 }, ...(isWide ? [{ header: 'BY', width: 6 }] : []), { header: 'EXIT', width: 11 }, ...(isWide ? [{ header: 'TOOK', width: 8 }] : []), { header: 'COMMAND' }],
           rows,
           empty: failedOnly && all.length > 0 ? 'No run failed.' : `No run yet. Run ${list[0]?.label ?? 'the tool'} by its name, here or with ${HOME}/bin first on the PATH of a terminal of your own.`,
         })}
         {open !== undefined && (
           <Box flexDirection="column" gap={1} borderStyle="round" paddingX={1}>
             <Box flexDirection="column">
-              <Box flexDirection="row" gap={2}>
+              <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
                 <Text bold>{commandLine(open)}</Text>
                 {kept.includes(commandLine(open)) ? (
                   <Text dimColor>kept</Text>
@@ -574,12 +584,12 @@ export const register: Register = (on, options) => {
                       await setUp($).catch(() => undefined)
                     }}
                   >
-                    Keep
+                    {keyed('k', 'Keep')}
                   </Button>
                 )}
               </Box>
               <Text dimColor>
-                {`exit ${ending(open)} · ${duration(open.durationMs)} · cpu ${duration(open.userMs + open.sysMs)} · ${size(open.maxRssKb * 1024)} · in ${open.cwd}`}
+                {`exit ${ending(open)} · by ${open.by === 'claude' ? 'claude' : 'you'} at ${clock(open.startedAt)} · ${duration(open.durationMs)} · cpu ${duration(open.userMs + open.sysMs)} · ${size(open.maxRssKb * 1024)} · in ${open.cwd}`}
               </Text>
               <Text dimColor>
                 {`stdout ${open.isStdoutTty ? 'a terminal' : 'piped'}, stderr ${open.isStderrTty ? 'a terminal' : 'piped'}${open.columns > 0 ? `, ${open.columns} columns` : ''}${Object.keys(open.env).length > 0 ? ` · ${Object.entries(open.env).map(([name, value]) => `${name}=${value}`).join(' ')}` : ''}`}
@@ -593,6 +603,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
       </Box>,
+      width,
     )
   })
 }

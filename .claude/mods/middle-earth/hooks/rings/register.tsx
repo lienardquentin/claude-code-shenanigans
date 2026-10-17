@@ -9,6 +9,7 @@ import { askErrand, questRelics } from '../fellowship/register'
 import { errorText, git, run } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
+import { clip, keyed } from '../look'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -101,12 +102,15 @@ export function registerRings(on: On): void {
     const open = listed.find(one => one.number === openNumber)
     const standing = await standings($, listed)
     const said = (text: string) => update($, note, () => text)
+    const width = e.props.bodyColumns ?? 80
+    // The widest number keeps the titles in a column
+    const numberWidth = Math.max(0, ...listed.map(issue => String(issue.number).length)) + 1
 
     const head = (
-      <Box flexDirection="row" gap={2}>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         {badge({ label: from === '' ? 'not read' : `${listed.length} open · ${from}`, tone: 'neutral' })}
         <Button key="refresh" hotkey="r" onPress={() => refreshed($).then(() => undefined)}>
-          Refresh
+          {keyed('r', 'Refresh')}
         </Button>
       </Box>
     )
@@ -119,6 +123,7 @@ export function registerRings(on: On): void {
           {problem !== '' && <Text color="warning">{problem}</Text>}
           <Text dimColor>{from === '' ? HOW_TO : `No open issue on ${from}.`}</Text>
         </Box>,
+        width,
       )
     }
 
@@ -133,35 +138,54 @@ export function registerRings(on: On): void {
         {busy !== '' && <Text color="suggestion">{busy}</Text>}
         {problem !== '' && <Text color="warning">{problem}</Text>}
         <Box flexDirection="column">
-          {listed.map(issue => (
-            <Button key={`issue-${issue.number}`} plain onPress={() => update($, selected, was => (was === issue.number ? 0 : issue.number))}>
-              {issue.number === openNumber ? '▸ ' : '  '}
-              {`#${issue.number} ${issue.title}`}
-              {issue.labels.length > 0 && <Text dimColor>{` [${issue.labels.join(', ')}]`}</Text>}
-              {(standing.get(issue.ref) ?? '') !== '' && <Text color="suggestion">{` ${standing.get(issue.ref) ?? ''}`}</Text>}
-            </Button>
-          ))}
+          {listed.map(issue => {
+            const stands = standing.get(issue.ref) ?? ''
+            // One line an issue: its title is cut to leave room for where it stands, which is never cut; opened, it is whole
+            const room = width - 2 - numberWidth - 1 - (stands === '' ? 0 : stands.length + 1)
+            // Its labels, where the whole title leaves room for them
+            const labels = issue.labels.length > 0 ? ` [${issue.labels.join(', ')}]` : ''
+
+            return (
+              <Button key={`issue-${issue.number}`} plain onPress={() => update($, selected, was => (was === issue.number ? 0 : issue.number))}>
+                {issue.number === openNumber ? '▸ ' : '  '}
+                <Text bold={issue.number === openNumber}>{`#${issue.number}`.padEnd(numberWidth + 1)}</Text>
+                <Text bold={issue.number === openNumber}>{clip(issue.title, room)}</Text>
+                {labels !== '' && issue.title.length + labels.length <= room && <Text dimColor>{labels}</Text>}
+                {stands !== '' && <Text color="suggestion">{` ${stands}`}</Text>}
+              </Button>
+            )
+          })}
         </Box>
         {open !== undefined && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
-            <Text bold wrap="truncate-end">{`#${open.number} ${open.title}`}</Text>
-            <Text dimColor>{[open.author !== '' ? `by ${open.author}` : '', open.updatedAt !== '' ? `updated ${open.updatedAt.slice(0, 10)}` : '', open.url].filter(part => part !== '').join(' · ')}</Text>
-            {open.body !== '' && <Text>{open.body}</Text>}
-            {isOnQuest ? (
-              <Text color="suggestion">{`The Fellowship is on it (${openStanding}): /fellowship goes on with it.`}</Text>
-            ) : (
-              <Box flexDirection="row" gap={1}>
-                <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the Fellowship pane shows it set out.`))}>
-                  Errand
-                </Button>
-                <Button key="council" hotkey="c" onPress={() => askCouncil($, open.ref).then(said)}>
-                  {isPlanned ? 'Open its plan' : 'Send to the council'}
-                </Button>
+            <Text bold>{`#${open.number} ${open.title}`}</Text>
+            <Text dimColor>{[open.author !== '' ? `by ${open.author}` : '', open.updatedAt !== '' ? `updated ${open.updatedAt.slice(0, 10)}` : ''].filter(part => part !== '').join(' · ')}</Text>
+            {open.labels.length > 0 && <Text color="suggestion">{open.labels.map(label => `[${label}]`).join(' ')}</Text>}
+            {open.body !== '' && (
+              // As the Rings read it, up to its first 600 characters: the rest is the forge's to show
+              <Box flexDirection="column" marginTop={1}>
+                <Text>{open.body.trimEnd()}</Text>
               </Box>
             )}
+            {open.url !== '' && <Text dimColor wrap="truncate-middle">{open.url}</Text>}
+            <Box marginTop={1}>
+              {isOnQuest ? (
+                <Text color="suggestion">{`The Fellowship is on it (${openStanding}): /fellowship goes on with it.`}</Text>
+              ) : (
+                <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+                  <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the Fellowship pane shows it set out.`))}>
+                    {keyed('e', 'Errand')}
+                  </Button>
+                  <Button key="council" hotkey="c" onPress={() => askCouncil($, open.ref).then(said)}>
+                    {keyed('c', isPlanned ? 'Open its plan' : 'Send to the council')}
+                  </Button>
+                </Box>
+              )}
+            </Box>
           </Box>
         )}
       </Box>,
+      width,
     )
   })
 }
