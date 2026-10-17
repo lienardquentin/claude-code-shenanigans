@@ -22,6 +22,13 @@ narsil.affected=cargo test --manifest-path narsil/Cargo.toml
 # touches Cargo.toml or Cargo.lock; none is named while cargo-audit is not installed
 narsil.check=cargo clippy --manifest-path narsil/Cargo.toml --all-targets --quiet -- -D warnings && cargo fmt --manifest-path narsil/Cargo.toml --check
 
+# orcrist, the linter: its runs are kept by anduril, in .claude/anduril, and it is proved and checked as narsil is.
+orcrist=cli@orcrist
+orcrist.tests=orcrist/tests
+orcrist.test=cargo test --manifest-path orcrist/Cargo.toml --test cli -- --exact {tests}
+orcrist.affected=cargo test --manifest-path orcrist/Cargo.toml
+orcrist.check=cargo clippy --manifest-path orcrist/Cargo.toml --all-targets --quiet -- -D warnings && cargo fmt --manifest-path orcrist/Cargo.toml --check
+
 # Gondor, the FastAPI realm: its kept requests are played in-process on HEAD's app and the working tree's, with no
 # broker and a Rohan that never answers.
 gondor=service:gondor.app:app@beacons/gondor
