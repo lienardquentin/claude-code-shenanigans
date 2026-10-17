@@ -680,10 +680,10 @@ export type MiddleEarthSpend = {
   at: number
 }
 
-// --- The Rings: the open issues, each to an errand or to the council ------------------------------------------------------
+// --- Issues: the open issues, each to an errand or to the council --------------------------------------------------------
 
-/** An open issue as the Rings list it. */
-export type RingsIssue = {
+/** An open issue as the issues pane lists it. */
+export type ListedIssue = {
   /** The ref Elrond and the Fellowship know it by: `github:owner/repo#12`. */
   ref: string
   number: number
@@ -763,14 +763,14 @@ declare module 'claude-code' {
       blackgateWorking: string
 
       /** The open issues as last read, the most recently updated first. */
-      ringsIssues: RingsIssue[]
+      issuesIssues: ListedIssue[]
       /** The repository they were read from, `owner/repo`; empty before any read. */
-      ringsRepo: string
+      issuesRepo: string
       /** What came of the last read or press; empty when nothing is to say. */
-      ringsNote: string
-      ringsWorking: string
+      issuesNote: string
+      issuesWorking: string
       /** The issue the pane opens, by its number; 0 for none. */
-      ringsSelected: number
+      issuesSelected: number
 
       cleanupLeftovers: Leftover[]
       /** The pull requests the person was told are merged: each is told once. */

@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { parseIssues } from '../core/forge'
-import { ringsOf, standingOf } from '../hooks/rings/rings'
+import { listedOf, standingOf } from '../hooks/issues/listed'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -92,14 +92,14 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 
 const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 
-describe('the rings', () => {
+describe('the issues listed', () => {
   test('read each issue with the ref Elrond and the Fellowship know it by, from either forge, its body cut for the pane', () => {
-    expect(ringsOf(parseIssues(GH_LIST) ?? [], ORIGIN)).toEqual([
+    expect(listedOf(parseIssues(GH_LIST) ?? [], ORIGIN)).toEqual([
       { ref: `github:${REPO}#12`, number: 12, title: 'Beacons answer how long they have burned', url: `https://github.com/${REPO}/issues/12`, labels: ['ready-for-agent'], author: 'quent', updatedAt: '2026-10-14T09:00:00Z', body: 'The body of #12.' },
       expect.objectContaining({ ref: `github:${REPO}#21`, labels: [] }),
     ])
 
-    const gitlab = ringsOf(parseIssues(JSON.stringify([{ iid: 3, title: 'T', web_url: 'https://git.example.com/g/p/-/issues/3', labels: ['bug'], author: { username: 'ann' }, updated_at: '2026-10-01', description: 'x'.repeat(700) }])) ?? [], { forge: 'gitlab', server: 'git.example.com', repo: 'g/p' })
+    const gitlab = listedOf(parseIssues(JSON.stringify([{ iid: 3, title: 'T', web_url: 'https://git.example.com/g/p/-/issues/3', labels: ['bug'], author: { username: 'ann' }, updated_at: '2026-10-01', description: 'x'.repeat(700) }])) ?? [], { forge: 'gitlab', server: 'git.example.com', repo: 'g/p' })
 
     expect(gitlab).toEqual([expect.objectContaining({ ref: 'gitlab:git.example.com/g/p#3', number: 3, labels: ['bug'], author: 'ann', body: `${'x'.repeat(600)}…` })])
   })
@@ -111,19 +111,19 @@ describe('the rings', () => {
   })
 })
 
-describe('rings', () => {
+describe('issues', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`lists the open issues, and sends the one opened as an errand to the Fellowship, on ${surface}`, async ($, on) => {
       const world = machine(on)
       await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-      expect((await $.command.run({ command: 'rings', args: '' } as never)).text).toBe(`2 open issues on ${REPO}.`)
+      expect((await $.command.run({ command: 'issues', args: '' } as never)).text).toBe(`2 open issues on ${REPO}.`)
 
-      const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'rings' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/2 open · lienardquentin\/claude-code-shenanigans[\s\S]*#12 Beacons answer how long they have burned \[ready-for-agent\][\s\S]*#21 Quench answers 404/)
+      const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/2 open · lienardquentin\/claude-code-shenanigans[\s\S]*#12 Beacons answer how long they have burned \[ready-for-agent\][\s\S]*#21 Quench answers 404/)
 
       await pane.press({ key: 'issue-21' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the council\]/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the council\]/)
 
       // The press only asks: the Fellowship's clock sets the errand out, which sends no agent
       await pane.press({ key: 'errand' })
@@ -132,49 +132,49 @@ describe('rings', () => {
       expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(new RegExp(`^Fellowship: The Fellowship sets out on github:${REPO}#21, "Quench answers 404 for an unknown beacon"`))
 
       // Once on the Fellowship's road, the issue is the Fellowship's: no second errand, no council
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The Fellowship is on it \(errand · \w+\): \/fellowship goes on with it\./)
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).not.toContain('[e Errand]')
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The Fellowship is on it \(errand · \w+\): \/fellowship goes on with it\./)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).not.toContain('[e Errand]')
     })
   }
 
   test('sends the issue opened to the council, which sits where it is held, and opens a kept plan rather than planning afresh', async ($, on) => {
     const world = machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
-    await $.command.run({ command: 'rings', args: '' } as never)
+    await $.command.run({ command: 'issues', args: '' } as never)
 
-    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'rings' })
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
     await pane.press({ key: 'council' })
 
     // Outside a hook the council would sit unheld: the press asks, and it is convened where Claude calls for it
     expect(world.spawned).toEqual([])
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] asked of the council/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] asked of the council/)
     await call($, 'mcp__middle-earth__pump')
     expect(world.spawned.map(one => one.subagentType ?? one.subagent_type)).toEqual(['middle-earth:council'])
     await world.clock.advance(600)
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] in council/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] in council/)
 
     // A plan kept of the issue is opened, and no council sits on it again
     world.store[`plan:github:${REPO}#21`] = { ref: `github:${REPO}#21`, url: '', title: 'Quench answers 404 for an unknown beacon', summary: '', approach: '', tasks: [{ id: 1, title: 'Answer 404', why: '', steps: [], files: [], dependsOn: [], acceptance: '', weight: 'light', state: 'todo' }], questions: [], risks: [], accepted: [], at: 1_800_000_000_000 }
     await pane.press({ key: 'issue-21' })
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[c Open its plan\]/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[c Open its plan\]/)
     await ends($, 'council-1', 'No plan.')
     await pane.press({ key: 'council' })
     await call($, 'mcp__middle-earth__pump')
     expect(world.spawned).toHaveLength(1)
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(new RegExp(`A plan of github:${REPO}#21 is kept from \\d{4}-\\d\\d-\\d\\d \\(0/1 done\\): shown in the pane\\.`))
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(new RegExp(`A plan of github:${REPO}#21 is kept from \\d{4}-\\d\\d-\\d\\d \\(0/1 done\\): shown in the pane\\.`))
   })
 
   test('keeps where an issue stands in a narrow pane, its title cut and whole once opened', async ($, on) => {
     machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
-    await $.command.run({ command: 'rings', args: '' } as never)
+    await $.command.run({ command: 'issues', args: '' } as never)
 
-    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 40 } as never, requestId: 'rings' })
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 40 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
     await pane.press({ key: 'council' })
 
-    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'rings' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'issues' })
     // Each row fits the pane: the title gives way, where the issue stands does not, and no label crowds it out
     expect(drawn).toContain('40 columns wide')
     const row = /\[(▸ #12 [^\]]*)\]/.exec(drawn)?.[1] ?? ''
@@ -190,8 +190,8 @@ describe('rings', () => {
     world.list = ''
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-    expect((await $.command.run({ command: 'rings', args: '' } as never)).text).toBe(`gh could not list the issues of ${REPO}: not found`)
-    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'rings' })
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'rings' })).toMatch(/not read[\s\S]*gh could not list the issues/)
+    expect((await $.command.run({ command: 'issues', args: '' } as never)).text).toBe(`gh could not list the issues of ${REPO}: not found`)
+    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/not read[\s\S]*gh could not list the issues/)
   })
 })
