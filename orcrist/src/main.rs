@@ -3,7 +3,6 @@ mod restating;
 mod rules;
 mod swallowed;
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -32,10 +31,9 @@ enum Command {
 
 fn main() -> ExitCode {
     let Command::Check { files, since } = Cli::parse().command;
-    // Each file with the lines judged in it, None for all of them
-    let targets: Vec<(PathBuf, Option<BTreeSet<usize>>)> = match since {
+    let targets: Vec<(PathBuf, diff::Added)> = match since {
         Some(since) => match diff::added_lines(&since) {
-            Ok(added) => added.into_iter().map(|(file, lines)| (file, Some(lines))).collect(),
+            Ok(added) => added.into_iter().collect(),
             Err(error) => {
                 eprintln!("orcrist: {error}");
                 return ExitCode::from(2);

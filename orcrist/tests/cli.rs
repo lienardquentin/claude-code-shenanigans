@@ -79,6 +79,48 @@ fn since_a_commit_only_the_comments_it_added_are_judged() {
 }
 
 #[test]
+fn since_a_commit_a_file_git_does_not_track_yet_is_judged_whole() {
+    let folder = folder("since-untracked");
+    git(&folder, &["init", "--quiet"]);
+    git(&folder, &["commit", "--quiet", "--allow-empty", "-m", "start"]);
+    fs::write(
+        folder.join("load.rs"),
+        "fn load() {\n    // read the config file\n    let config = read_config_file();\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "--since", "HEAD"]);
+
+    assert_eq!(
+        stdout(&output),
+        "load.rs:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn since_a_commit_a_file_whose_name_git_quotes_is_judged() {
+    let folder = folder("since-quoted");
+    git(&folder, &["init", "--quiet"]);
+    fs::write(folder.join("été.rs"), "fn load() {}\n").unwrap();
+    git(&folder, &["add", "été.rs"]);
+    git(&folder, &["commit", "--quiet", "-m", "load"]);
+    fs::write(
+        folder.join("été.rs"),
+        "fn load() {\n    // read the config file\n    let config = read_config_file();\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "--since", "HEAD"]);
+
+    assert_eq!(
+        stdout(&output),
+        "été.rs:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
 fn since_is_only_ever_a_commit_to_git() {
     let folder = folder("since-option");
     git(&folder, &["init", "--quiet"]);
