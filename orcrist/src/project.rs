@@ -17,20 +17,33 @@ pub struct File {
 }
 
 impl File {
+    /// The name of the function `node` defines, and the function itself: `node`, or its value where a variable holds
+    /// the function, as in `const light = (beacon) => …`.
+    pub fn defined<'a>(&'a self, node: Node<'a>) -> Option<(&'a str, Node<'a>)> {
+        let function = match (self.language, node.kind()) {
+            (Language::Rust, "function_item")
+            | (Language::Python, "function_definition")
+            | (Language::TypeScript | Language::Vue, "function_declaration" | "method_definition") => node,
+            (Language::TypeScript | Language::Vue, "variable_declarator") => node
+                .child_by_field_name("value")
+                .filter(|value| matches!(value.kind(), "arrow_function" | "function_expression"))?,
+            _ => return None,
+        };
+        let name = node
+            .child_by_field_name("name")
+            .filter(|name| !matches!(name.kind(), "object_pattern" | "array_pattern"))?;
+        Some((&self.code[name.byte_range()], function))
+    }
+
     /// The name of the function `node` defines, and the names of the parameters a call passes, a method's own receiver
     /// left out.
     pub fn function<'a>(&'a self, node: Node<'a>) -> Option<(&'a str, Vec<Node<'a>>)> {
-        let defines = matches!(
-            (self.language, node.kind()),
-            (Language::Rust, "function_item")
-                | (Language::Python, "function_definition")
-                | (
-                    Language::TypeScript | Language::Vue,
-                    "function_declaration" | "method_definition"
-                )
-        );
-        let name = node.child_by_field_name("name").filter(|_| defines)?;
-        let parameters = node.child_by_field_name("parameters")?;
+        let (name, function) = self.defined(node)?;
+        let parameters = parameters(function)?;
+        // `beacon => …`, its one parameter without parentheses
+        if parameters.kind() == "identifier" {
+            return Some((name, vec![parameters]));
+        }
         let mut cursor = parameters.walk();
         let names = parameters
             .named_children(&mut cursor)
@@ -43,8 +56,15 @@ impl File {
             })
             .filter(|name| !matches!(&self.code[name.byte_range()], "self" | "cls"))
             .collect();
-        Some((&self.code[name.byte_range()], names))
+        Some((name, names))
     }
+}
+
+/// What holds a function's parameters: their list, or the one name of an arrow function written without parentheses.
+pub fn parameters(function: Node) -> Option<Node> {
+    function
+        .child_by_field_name("parameters")
+        .or_else(|| function.child_by_field_name("parameter"))
 }
 
 pub struct Project {

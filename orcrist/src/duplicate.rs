@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tree_sitter::Node;
 
 use crate::lang::{Language, declared};
-use crate::project::{File, Project};
+use crate::project::{self, File, Project};
 use crate::rules::{Finding, visit};
 
 /// Pieces of code below which two functions alike are alike by chance: a getter, a call passed on.
@@ -59,13 +59,18 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
 /// The name of the function `node` defines, and what it does: the pieces of its parameters and body in order, each
 /// name it declares itself given by when it first comes, every other piece as it is written.
 fn shape<'a>(node: Node<'a>, file: &'a File) -> Option<(&'a str, Vec<String>)> {
-    let (name, _) = file.function(node)?;
-    let parameters = node.child_by_field_name("parameters")?;
-    let body = node.child_by_field_name("body")?;
+    let (name, function) = file.defined(node)?;
+    let parameters = project::parameters(function)?;
+    let body = function.child_by_field_name("body")?;
     let mut own = HashSet::new();
+    // `beacon => …`: its one parameter is a name of its own, though no declaration names it
+    if parameters.kind() == "identifier" {
+        own.insert(&file.code[parameters.byte_range()]);
+    }
     for part in [parameters, body] {
         visit(part, &mut |piece| {
-            if declared(piece, file.language).is_some() {
+            // Only an identifier is renamed below, so only an identifier's declaring is asked: asking climbs the tree
+            if piece.kind() == "identifier" && declared(piece, file.language).is_some() {
                 own.insert(&file.code[piece.byte_range()]);
             }
         });
