@@ -736,7 +736,7 @@ export function registerArgonath(on: On): void {
   // A shell command edits too (a `git checkout`, a `sed`, a formatter): a target whose folders it changed is edited
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     // A command of an agent that only reads is not looked at for edits
-    if ((await read($, targets)).length === 0 || ['council', 'statue'].includes((await roleOf($, e.agentId)) ?? '')) return next(e)
+    if ((await read($, targets)).length === 0 || ['planner', 'statue'].includes((await roleOf($, e.agentId)) ?? '')) return next(e)
 
     const before = await fingerprints($)
     const done = await next(e)

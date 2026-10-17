@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { ListedIssue } from '../../types'
 import { HOW_TO, listedOf, standingOf } from './listed'
 import { parseRemote } from '../../core/forge'
-import { askCouncil, planStanding } from '../elrond/register'
+import { askPlanner, planStanding } from '../planner/register'
 import { askErrand, questLeftovers } from '../fellowship/register'
 import { errorText, forgeIn, git } from '../flow'
 import { badge } from '../kit/badge'
@@ -61,7 +61,7 @@ async function refreshed($: $): Promise<string> {
   return said
 }
 
-/** Where each listed issue stands with the Fellowship and Elrond, by its ref. */
+/** Where each listed issue stands with the Fellowship and the planner, by its ref. */
 async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<string, string>> {
   const quests = await questLeftovers($).catch(() => [])
   const found = new Map<string, string>()
@@ -78,7 +78,7 @@ async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<stri
 
 /** The issues pane at the session's start: its command. The issues are read once the pane is opened. */
 export async function startIssues($: $): Promise<void> {
-  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the Fellowship, or sent to the council to be planned' })
+  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the Fellowship, or sent to the planner' })
 }
 
 export function registerIssues(on: On): void {
@@ -172,8 +172,8 @@ export function registerIssues(on: On): void {
                   <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the Fellowship pane shows it set out.`))}>
                     {keyed('e', 'Errand')}
                   </Button>
-                  <Button key="council" hotkey="c" onPress={() => askCouncil($, open.ref).then(said)}>
-                    {keyed('c', isPlanned ? 'Open its plan' : 'Send to the council')}
+                  <Button key="planner" hotkey="c" onPress={() => askPlanner($, open.ref).then(said)}>
+                    {keyed('c', isPlanned ? 'Open its plan' : 'Send to the planner')}
                   </Button>
                 </Box>
               )}

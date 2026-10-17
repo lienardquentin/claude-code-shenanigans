@@ -58,7 +58,7 @@ const machine = (on: On) => {
 
     return { model: 'opus' } as never
   })
-  on('agent.list', () => ({ value: [{ id: 'council-1', description: 'Plan', type: 'middle-earth:council', status: 'running' }] }) as never)
+  on('agent.list', () => ({ value: [{ id: 'planner-1', description: 'Plan', type: 'middle-earth:planner', status: 'running' }] }) as never)
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
 
@@ -73,7 +73,7 @@ const machine = (on: On) => {
   })
   on('store.keys', () => ({ value: Object.keys(world.store) }) as never)
   on('command.register', () => ({ value: undefined }) as never)
-  on('agent.register', () => ({ value: { agent: 'middle-earth:council' } }) as never)
+  on('agent.register', () => ({ value: { agent: 'middle-earth:planner' } }) as never)
   on('tool.register', () => ({ value: undefined }) as never)
   on('session.start', () => ({ cwd: CWD }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
@@ -123,7 +123,7 @@ describe('issues', () => {
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/2 open · lienardquentin\/claude-code-shenanigans[\s\S]*#12 Beacons answer how long they have burned \[ready-for-agent\][\s\S]*#21 Quench answers 404/)
 
       await pane.press({ key: 'issue-21' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the council\]/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the planner\]/)
 
       // The press only asks: the Fellowship's clock sets the errand out, which sends no agent
       await pane.press({ key: 'errand' })
@@ -144,22 +144,22 @@ describe('issues', () => {
 
     const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
-    await pane.press({ key: 'council' })
+    await pane.press({ key: 'planner' })
 
     // Outside a hook the council would sit unheld: the press asks, and it is convened where Claude calls for it
     expect(world.spawned).toEqual([])
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] asked of the council/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] asked of the planner/)
     await call($, 'mcp__middle-earth__pump')
-    expect(world.spawned.map(one => one.subagentType ?? one.subagent_type)).toEqual(['middle-earth:council'])
+    expect(world.spawned.map(one => one.subagentType ?? one.subagent_type)).toEqual(['middle-earth:planner'])
     await world.clock.advance(600)
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] in council/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#12 Beacons answer how long they have burned \[ready-for-agent\] being planned/)
 
     // A plan kept of the issue is opened, and no council sits on it again
     world.store[`plan:github:${REPO}#21`] = { ref: `github:${REPO}#21`, url: '', title: 'Quench answers 404 for an unknown beacon', summary: '', approach: '', tasks: [{ id: 1, title: 'Answer 404', why: '', steps: [], files: [], dependsOn: [], acceptance: '', weight: 'light', state: 'todo' }], questions: [], risks: [], accepted: [], at: 1_800_000_000_000 }
     await pane.press({ key: 'issue-21' })
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon planned · 0\/1 done[\s\S]*\[c Open its plan\]/)
-    await ends($, 'council-1', 'No plan.')
-    await pane.press({ key: 'council' })
+    await ends($, 'planner-1', 'No plan.')
+    await pane.press({ key: 'planner' })
     await call($, 'mcp__middle-earth__pump')
     expect(world.spawned).toHaveLength(1)
     expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(new RegExp(`A plan of github:${REPO}#21 is kept from \\d{4}-\\d\\d-\\d\\d \\(0/1 done\\): shown in the pane\\.`))
@@ -172,13 +172,13 @@ describe('issues', () => {
 
     const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 40 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
-    await pane.press({ key: 'council' })
+    await pane.press({ key: 'planner' })
 
     const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'issues' })
     // Each row fits the pane: the title gives way, where the issue stands does not, and no label crowds it out
     expect(drawn).toContain('40 columns wide')
     const row = /\[(▸ #12 [^\]]*)\]/.exec(drawn)?.[1] ?? ''
-    expect(row).toMatch(/^▸ #12 Beacons answ.*… asked of the council$/)
+    expect(row).toMatch(/^▸ #12 Beacons answ.*… asked of the planner$/)
     expect(row.length).toBeLessThanOrEqual(40)
     expect(row).not.toContain('ready-for-agent')
     // Opened, the title is said whole, and the labels with it

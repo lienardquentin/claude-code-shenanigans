@@ -1,11 +1,11 @@
-// --- Elrond: the plan of an issue ----------------------------------------------------------------------------------------
+// --- the planner: the plan of an issue ----------------------------------------------------------------------------------------
 
 /** Where an issue lives: the forge that serves it, which says the CLI and the API it is read through. */
-export type ElrondForge = 'github' | 'gitlab'
+export type PlanForge = 'github' | 'gitlab'
 
 /** One issue, by where it lives. */
-export type ElrondRef = {
-  forge: ElrondForge
+export type PlanRef = {
+  forge: PlanForge
   /** The host that serves it, `github.com`, `gitlab.com` or a self-hosted one. */
   server: string
   /** The repository's path on that host: `owner/repo`, or `group/sub/project` on GitLab. */
@@ -14,16 +14,16 @@ export type ElrondRef = {
 }
 
 /** Where a task stands. */
-export type ElrondTaskState = 'todo' | 'doing' | 'done'
+export type PlanTaskState = 'todo' | 'doing' | 'done'
 
 /**
  * How much a task asks of whoever builds it: `light` for docs, config, a rename or a test to adjust; `standard` for
  * one module's change and its test; `heavy` for one that crosses targets or touches what is risky to change.
  */
-export type ElrondWeight = 'light' | 'standard' | 'heavy'
+export type PlanWeight = 'light' | 'standard' | 'heavy'
 
 /** One step of the quest: something a single change can do and a reviewer can check. */
-export type ElrondTask = {
+export type PlanTask = {
   id: number
   title: string
   /** Why it is needed, in a sentence. */
@@ -37,29 +37,29 @@ export type ElrondTask = {
   /** How to tell it is done: a test that passes, a behaviour that is seen. */
   acceptance: string
   /** How much it asks of its builder; `standard` in a plan made before weights were. */
-  weight: ElrondWeight
+  weight: PlanWeight
   /** Whether the planner named no weight that reads, so that its `standard` is no one's choice. */
   isUnweighed?: boolean
-  state: ElrondTaskState
+  state: PlanTaskState
 }
 
 /** Something the issue leaves open, for the person to decide. */
-export type ElrondQuestion = {
+export type PlanQuestion = {
   text: string
-  /** Short answers the council offers to pick from; the person may write their own. */
+  /** Short answers the planner offers to pick from; the person may write their own. */
   options: string[]
   /** What the person answered; empty while unanswered. */
   answer: string
 }
 
 /** How much a risk could hurt the change: what breaks or is lost if it comes true. */
-export type ElrondSeverity = 'high' | 'medium' | 'low'
+export type RiskSeverity = 'high' | 'medium' | 'low'
 
 /** Something that could go wrong with the change, and what the person chose to do about it. */
-export type ElrondRisk = {
+export type PlanRisk = {
   text: string
-  severity: ElrondSeverity
-  /** How to make it less likely or less harmful; empty when the council named no way. */
+  severity: RiskSeverity
+  /** How to make it less likely or less harmful; empty when the planner named no way. */
   mitigation: string
   /** The tasks it threatens, by id. */
   tasks: number[]
@@ -68,41 +68,41 @@ export type ElrondRisk = {
 }
 
 /** A question the person answered: decided, and carried into every plan of the issue after it. */
-export type ElrondDecision = { text: string; answer: string }
+export type PlanDecision = { text: string; answer: string }
 
-/** The plan the council made of one issue. */
-export type ElrondPlan = {
+/** The plan the planner made of one issue. */
+export type IssuePlan = {
   /** The issue as written short, `github:owner/repo#12`. */
   ref: string
   url: string
   title: string
-  /** What the issue asks for, in the council's words. */
+  /** What the issue asks for, in the planner's words. */
   summary: string
   /** How it will be done, in a paragraph. */
   approach: string
-  tasks: ElrondTask[]
+  tasks: PlanTask[]
   /** What the issue leaves open, for the person to answer. */
-  questions: ElrondQuestion[]
-  /** What the person decided in this plan's revisions before it: handed to the council, and asked no more. */
-  decided: ElrondDecision[]
-  risks: ElrondRisk[]
+  questions: PlanQuestion[]
+  /** What the person decided in this plan's revisions before it: handed to the planner, and asked no more. */
+  decided: PlanDecision[]
+  risks: PlanRisk[]
   /** Risks the person accepted as they are: carried into every revision, and raised no more. */
   accepted: string[]
   /** When it was made, epoch milliseconds. */
   at: number
 }
 
-/** A council in session: the planner subagent studying one issue. */
-export type ElrondCouncil = {
+/** A planner in session: the planner subagent studying one issue. */
+export type Planning = {
   ref: string
   url: string
   title: string
   agentId: string
-  /** Who convened it: the person's command, or Claude through the tool, which is woken with the plan. */
+  /** Who sent it: the person's command, or Claude through the tool, which is woken with the plan. */
   by: 'command' | 'tool'
   at: number
   /** What the person decided of the issue so far: the plan it lays keeps them. */
-  decided?: ElrondDecision[]
+  decided?: PlanDecision[]
   /** Risks the person accepted before it: the plan it lays keeps them. */
   accepted?: string[]
   /** The file it writes its plan to. */
@@ -114,18 +114,18 @@ export type ElrondCouncil = {
 // --- The Fellowship: quests and their tasks ------------------------------------------------------------------------------
 
 /**
- * Where a task stands: as Elrond keeps it for a plan, as the quest keeps it for an errand or a review. `asked`: its
+ * Where a task stands: as the planner keeps it for a plan, as the quest keeps it for an errand or a review. `asked`: its
  * builder handed it back for the person to answer (a review comment that asks a question), and it is built no more.
  */
 export type FellowshipTaskState = 'todo' | 'doing' | 'done' | 'asked'
 
-/** How much a task asks of whoever builds it, as the council or the weigher weighed it. */
+/** How much a task asks of whoever builds it, as the planner or the weigher weighed it. */
 export type FellowshipWeight = 'light' | 'standard' | 'heavy'
 
 /** A member of the Fellowship, by the agent type it is sent as. */
 export type FellowshipMember = 'gandalf' | 'aragorn' | 'legolas' | 'gimli' | 'boromir' | 'frodo' | 'samwise' | 'merry' | 'pippin'
 
-/** One task of a quest: a task of an Elrond plan, the whole issue of an errand, or one review comment to answer. */
+/** One task of a quest: a task of a plan, the whole issue of an errand, or one review comment to answer. */
 export type FellowshipTask = {
   id: number
   title: string
@@ -151,9 +151,9 @@ export type FellowshipTask = {
   isAnswered?: boolean
 }
 
-/** The work of a quest as one plan: Elrond's for a plan, and one the quest makes of its own tasks for any other. */
+/** The work of a quest as one plan: the planner's for a plan, and one the quest makes of its own tasks for any other. */
 export type FellowshipPlan = {
-  /** The issue as Elrond writes it short, `github:owner/repo#12`; `review:owner/repo#13` for a review. */
+  /** The issue as the planner writes it short, `github:owner/repo#12`; `review:owner/repo#13` for a review. */
   ref: string
   url: string
   title: string
@@ -168,7 +168,7 @@ export type FellowshipPlan = {
 
 /**
  * What a quest is:
- * - `plan`: an Elrond plan, task by task, to the pull request that closes its issue
+ * - `plan`: a plan, task by task, to the pull request that closes its issue
  * - `errand`: an issue small enough for one change, to the pull request that closes it
  * - `review`: the review comments of an open pull request the review follow-up handed over, answered on its branch and pushed
  */
@@ -260,7 +260,7 @@ export type FellowshipQuest = {
   base: string
   /** The folder it is built in, absolute: its worktree, or the project's own folder where its branch is checked out. */
   tree: string
-  /** The tasks of an errand or a review, which the quest keeps itself; a plan's are Elrond's. */
+  /** The tasks of an errand or a review, which the quest keeps itself; a plan's are the planner's. */
   tasks?: FellowshipTask[]
   /** Whether it goes on by itself: each task sent once the one before is committed, and a plan or an errand's pull request opened at the end. */
   isAuto: boolean
@@ -519,7 +519,7 @@ export type ArgonathJudgement = {
   /** The change judged: HEAD, the diff against it and the new files, as one fingerprint. */
   fingerprint: string
   at: number
-  /** Who convened it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
+  /** Who sent it: the end of the session's turn, whose Claude is told the verdict, or a mod through the tool. */
   by: 'turn' | 'tool'
   seats: ArgonathSeat[]
   /** What the change was taken against: its merge base with HEAD is diffed. HEAD when left out. */
@@ -641,13 +641,13 @@ export type Leftover = {
 
 /**
  * What an agent is to the mod:
- * - `council`: Elrond's planner, which reads and writes its plan file alone
+ * - `planner`: the planner's planner, which reads and writes its plan file alone
  * - `member`: a member of the Fellowship, building one task in its quest's worktree
  * - `test-writer`: writing a task's tests first, and only tests
  * - `statue`: Isildur or Anárion, judging a change and changing nothing
  * - `other`: an agent the mod did not send, known only by the folder its spawn named
  */
-export type MiddleEarthRole = 'council' | 'member' | 'test-writer' | 'statue' | 'other'
+export type MiddleEarthRole = 'planner' | 'member' | 'test-writer' | 'statue' | 'other'
 
 /** One agent, as the mod sent it or saw it spawned: what it is, and the folder it works in. */
 export type MiddleEarthAgent = {
@@ -656,9 +656,9 @@ export type MiddleEarthAgent = {
   root: string
   /** The folder it works in, absolute: the project's own, or a quest's worktree. */
   tree: string
-  /** A member's: the files its task names, which may be a mod's source. The council's: the plan file it writes. */
+  /** A member's: the files its task names, which may be a mod's source. The planner's: the plan file it writes. */
   files?: string[]
-  /** The issue it works for, as Elrond spells it, where the part that sent it knew: what its turns cost is counted to it. */
+  /** The issue it works for, as the planner spells it, where the part that sent it knew: what its turns cost is counted to it. */
   ref?: string
 }
 
@@ -680,11 +680,11 @@ export type MiddleEarthSpend = {
   at: number
 }
 
-// --- Issues: the open issues, each to an errand or to the council --------------------------------------------------------
+// --- Issues: the open issues, each to an errand or to the planner --------------------------------------------------------
 
 /** An open issue as the issues pane lists it. */
 export type ListedIssue = {
-  /** The ref Elrond and the Fellowship know it by: `github:owner/repo#12`. */
+  /** The ref the planner and the Fellowship know it by: `github:owner/repo#12`. */
   ref: string
   number: number
   title: string
@@ -702,14 +702,14 @@ declare module 'claude-code' {
       /** Every agent the mod sent, and every other whose spawn named a folder, by agent id: the one guard reads it. */
       agents: Record<string, MiddleEarthAgent>
 
-      elrondPlan: ElrondPlan | null
-      elrondCouncil: ElrondCouncil | null
-      elrondNote: string
-      elrondSelected: number
-      /** The issue a press asked to convene again on: the clock convenes it, outside the press. */
-      elrondWanted: string
+      plannerPlan: IssuePlan | null
+      plannerAtWork: Planning | null
+      plannerNote: string
+      plannerSelected: number
+      /** The issue a press asked to send again on: the clock sends it, outside the press. */
+      plannerWanted: string
       /** How a press asked the Fellowship to set out, stopping after each task or going on by itself: the clock asks it. */
-      elrondSetOut: '' | 'step' | 'auto'
+      plannerSetOut: '' | 'step' | 'auto'
 
       /** Every quest under way, by its ref. */
       fellowshipQuests: Record<string, FellowshipQuest>

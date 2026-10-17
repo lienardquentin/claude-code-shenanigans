@@ -7,7 +7,7 @@ const BODY_CHARS = 600
 
 export const HOW_TO = 'The issues pane lists the open issues of the repository the origin remote names: /issues reads them again.'
 
-/** The open issues the forge listed, each with the ref Elrond and the Fellowship know it by, its body cut for the pane. */
+/** The open issues the forge listed, each with the ref the planner and the Fellowship know it by, its body cut for the pane. */
 export const listedOf = (listed: readonly IssueSummary[], origin: Repo): ListedIssue[] =>
   listed.map(issue => ({ ...issue, ref: refText({ ...origin, number: issue.number }), body: issue.body.length > BODY_CHARS ? `${issue.body.slice(0, BODY_CHARS)}…` : issue.body }))
 

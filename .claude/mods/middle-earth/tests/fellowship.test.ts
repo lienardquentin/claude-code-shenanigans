@@ -95,11 +95,11 @@ const REVIEW = {
   ],
 }
 
-describe('the plan Elrond answers', () => {
-  test('is read from its JSON, and is none when Elrond holds none', () => {
+describe('the plan the planner answers', () => {
+  test('is read from its JSON, and is none when the planner holds none', () => {
     expect(plan().tasks[1]).toMatchObject({ id: 2, dependsOn: [1], state: 'todo' })
     expect(parsePlan('null')).toBeNull()
-    expect(parsePlan('No plan is in force.')).toMatch(/no plan Fellowship can read/)
+    expect(parsePlan('No plan is in force.')).toMatch(/no plan the Fellowship can read/)
   })
 
   test('is not set out on while a question is open or a risk undecided', () => {
@@ -137,7 +137,7 @@ describe('the issue, its branch and its worktree', () => {
 
   test('name the commit and the pull request that closes it, on either forge', () => {
     expect(commitMessage(QUEST, plan(), plan().tasks[0]!, 'Merry', ['- Isildur, app.py:70: lit could be named burning.'])).toMatch(
-      /^#12: Keep when a beacon is lit\n\nTask 1 of the Elrond plan for https:\/\/github\.com\/.*\/issues\/12, built by Merry of the Fellowship[\s\S]*Minor findings of the statues, left as they are:\n- Isildur, app\.py:70[\s\S]*Co-Authored-By: Claude/,
+      /^#12: Keep when a beacon is lit\n\nTask 1 of the plan for https:\/\/github\.com\/.*\/issues\/12, built by Merry of the Fellowship[\s\S]*Minor findings of the statues, left as they are:\n- Isildur, app\.py:70[\s\S]*Co-Authored-By: Claude/,
     )
 
     const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'fellowship/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Frodo', minor: ['- Isildur, app.py:70: lit could be named burning.'] }] } as unknown as FellowshipQuest
@@ -186,10 +186,10 @@ describe("a quest's course", () => {
 })
 
 describe('every agent the mod sends', () => {
-  const sent = (role: 'member' | 'statue' | 'council' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
+  const sent = (role: 'member' | 'statue' | 'planner' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
 
   test('stays in the sandbox, out of the home folder and the private folders of the machine, and runs nothing it downloads', () => {
-    for (const role of ['member', 'statue', 'council', 'test-writer'] as const) {
+    for (const role of ['member', 'statue', 'planner', 'test-writer'] as const) {
       for (const call of [
         { tool: 'Bash', command: 'cargo test', dangerouslyDisableSandbox: true },
         { tool: 'Bash', command: 'cat ~/.ssh/id_rsa' },
@@ -272,7 +272,7 @@ describe('what a quest cost', () => {
   const turn = (change: Partial<MiddleEarthSpend>): MiddleEarthSpend => ({ role: 'member', tree: TREE, model: 'claude-opus-5-5', input: 1, cacheRead: 0, cacheWrite: 0, output: 1, durationMs: 1, at: 1, ...change })
 
   test('counts the turns of its issue, and those sent into its worktree with no issue named, and no other', () => {
-    const turns = [turn({ ref: REF }), turn({ role: 'council', ref: REF, tree: CWD }), turn({ role: 'statue' }), turn({ role: 'statue', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
+    const turns = [turn({ ref: REF }), turn({ role: 'planner', ref: REF, tree: CWD }), turn({ role: 'statue' }), turn({ role: 'statue', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
 
     expect(spentOn({ ref: REF, tree: TREE }, CWD, turns)).toEqual(turns.slice(0, 3))
     // A quest built in the project's own folder takes none of the turns there that name no issue
@@ -834,7 +834,7 @@ const inForce = async ($: Engine, world: World) => {
   if (world.plan === null) return
 
   world.store[`plan:${world.plan.ref}`] = structuredClone(world.plan)
-  expect(await call($, 'mcp__middle-earth__convene', { issue: world.plan.ref.replace(/^github:/, '') })).toMatch(/is kept from/)
+  expect(await call($, 'mcp__middle-earth__make_plan', { issue: world.plan.ref.replace(/^github:/, '') })).toMatch(/is kept from/)
 }
 
 const start = async ($: Engine, world: World) => {
@@ -1261,7 +1261,7 @@ describe('fellowship', () => {
     expect((await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text).toMatch(/being abandoned/)
     await settle($, world)
 
-    expect(world.toasts.at(-1)).toBe(`Fellowship: The quest on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the Elrond plan.`)
+    expect(world.toasts.at(-1)).toBe(`Fellowship: The quest on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the plan.`)
     expect(world.ran).toContain(`git worktree remove ${TREE}`)
     expect(world.ran).toContain(`git branch -D ${BRANCH}`)
     expect(world.marked.at(-1)).toBe('1 todo')
@@ -1358,7 +1358,7 @@ describe('fellowship', () => {
     const world = machine(on)
     await start($, world)
 
-    expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the Elrond plan, going on by itself/)
+    expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the plan, going on by itself/)
     // The member is out before the command answers: no clock sent it
     expect(world.spawned).toHaveLength(1)
 

@@ -92,16 +92,16 @@ _Avoid_: Session usage, context usage, tokens left
 
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
 committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the issues pane lists the issues,
-Elrond plans, the Fellowship builds, the test writer writes tests first, the Argonath check and review, the review follow-up reads
+the planner plans, the Fellowship builds, the test writer writes tests first, the Argonath check and review, the review follow-up reads
 review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
-One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, Elrond, the Fellowship, tests first, the
+One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, the planner, the Fellowship, tests first, the
 Argonath, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
 **Sent agent**:
-A subagent a part sends (the council, a builder, the test writer, a statue), registered, recorded and guarded in one place:
+A subagent a part sends (the planner, a builder, the test writer, a statue), registered, recorded and guarded in one place:
 held to what its role allows under the session's own permission mode.
 _Avoid_: Worker, helper, bot
 
@@ -112,11 +112,11 @@ _Avoid_: Run, job, flow
 
 **Issues pane**:
 The pane of the origin's open issues (/issues), where the person sends one as an errand to the Fellowship or to the
-council to be planned; an issue a quest is on already is left to the Fellowship.
+planner; an issue a quest is on already is left to the Fellowship.
 _Avoid_: Rings, backlog, inbox
 
 **Plan**:
-Elrond's split of one issue into tasks, with the questions the person answers and the risks they decide before a quest
+The planner's (`/planner`) split of one issue into tasks, with the questions the person answers and the risks they decide before a quest
 on it may start.
 _Avoid_: Spec, ticket list
 
