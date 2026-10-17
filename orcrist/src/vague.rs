@@ -34,6 +34,9 @@ fn vague(name: &str, declared: Declared, settings: &Settings) -> bool {
     let words = words(name);
     let is_vague = |word: &String| {
         let word = word.trim_end_matches(|character: char| character.is_ascii_digit());
+        if settings.vague_allowed.iter().any(|allowed| allowed == word) {
+            return false;
+        }
         let vague_verb = VAGUE_VERBS.contains(&word) || settings.vague_verbs.iter().any(|verb| verb == word);
         VAGUE.contains(&word)
             || settings.vague_words.iter().any(|vague| vague == word)

@@ -1,0 +1,3 @@
+# A library whose API speaks of `data`, as requests' does: the word is meant here
+[rules.vague-name]
+allow = ["data"]

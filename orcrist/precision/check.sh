@@ -10,7 +10,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 cargo build --quiet --manifest-path "$root/orcrist/Cargo.toml"
 orcrist="$root/orcrist/target/debug/orcrist"
-cache=${ORCRIST_PRECISION_CACHE:-$(mktemp -d)}
+if [ -n "${ORCRIST_PRECISION_CACHE:-}" ]; then
+    cache=$ORCRIST_PRECISION_CACHE
+else
+    # A folder of this run's own, let go with what was fetched into it when the run ends
+    cache=$(mktemp -d)
+    trap 'rm -rf "$cache"' EXIT
+fi
 update=false
 if [ "${1:-}" = --update ]; then update=true; fi
 # git's empty tree: judged since it, every line of a project is one it added

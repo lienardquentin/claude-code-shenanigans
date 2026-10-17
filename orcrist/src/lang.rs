@@ -144,15 +144,21 @@ fn tag_end(source: &str, open: usize) -> Option<usize> {
     None
 }
 
-/// The value an opening tag gives `name`, in double or single quotes: `lang="ts"`, not `data-lang="ts"`.
+/// The value an opening tag gives `name`, quoted or not: `lang="ts"` or `lang=ts`, not `data-lang="ts"`.
 fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let given = format!("{name}=");
     let (at, _) = tag
         .match_indices(&given)
         .find(|(at, _)| tag[..*at].ends_with(char::is_whitespace))?;
     let after = &tag[at + given.len()..];
-    let quote = after.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
-    after[1..].split(quote).next()
+    match after.chars().next()? {
+        quote @ ('"' | '\'') => after[1..].split(quote).next(),
+        // `lang=tsx`, unquoted, up to the next space or the tag's end
+        _ => after
+            .split(|end: char| end.is_whitespace() || end == '>' || end == '/')
+            .next()
+            .filter(|value| !value.is_empty()),
+    }
 }
 
 /// What a comment says, without the marks that make it one.
