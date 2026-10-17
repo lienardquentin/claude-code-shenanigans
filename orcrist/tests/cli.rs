@@ -412,3 +412,48 @@ fn a_vague_verb_is_vague_only_as_a_function_name() {
     );
     assert_eq!(output.status.code(), Some(1));
 }
+
+#[test]
+fn a_python_guard_its_signature_rules_out_is_found() {
+    let output = check(
+        "impossible-python",
+        "save.py",
+        "def save(path: str, text: str, mode: Optional[str] = None, keeper: str | None = None):\n    if not isinstance(path, str):\n        raise TypeError(path)\n    if text is None:\n        return\n    if mode is None:\n        mode = \"w\"\n    if keeper is None:\n        keeper = \"Hirgon\"\n    write(path, text, mode, keeper)\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "save.py:2 impossible-guard: the signature already says path is str\n\
+         save.py:4 impossible-guard: the signature already says text is str\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_guard_its_signature_rules_out_is_found() {
+    let output = check(
+        "impossible-typescript",
+        "save.ts",
+        "export function save(path: string, text: string, mode?: string, keeper: string | null = null) {\n  if (path == null) throw new Error('no path')\n  if (typeof text !== 'string') return\n  const length = text?.length\n  if (mode === undefined) mode = 'w'\n  if (keeper === null) keeper = 'Hirgon'\n  write(path, text, mode, keeper, length)\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "save.ts:2 impossible-guard: the signature already says path is string\n\
+         save.ts:3 impossible-guard: the signature already says text is string\n\
+         save.ts:4 impossible-guard: the signature already says text is string\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_guard_on_a_parameter_the_function_assigns_to_is_left_alone() {
+    let output = check(
+        "impossible-reassigned",
+        "save.py",
+        "def save(path: str):\n    path = lookup(path)\n    if path is None:\n        return\n    write(path)\n",
+    );
+
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(0));
+}

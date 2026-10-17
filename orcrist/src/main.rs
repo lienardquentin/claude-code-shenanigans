@@ -1,4 +1,5 @@
 mod diff;
+mod impossible;
 mod lang;
 mod restating;
 mod rules;

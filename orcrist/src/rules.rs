@@ -3,7 +3,7 @@
 use tree_sitter::{Node, Parser};
 
 use crate::lang::{self, Language};
-use crate::{restating, swallowed, vague};
+use crate::{impossible, restating, swallowed, vague};
 
 /// Lines are counted from 1, as an editor shows them.
 pub struct Finding {
@@ -29,6 +29,7 @@ pub fn check(source: &str, language: Language) -> Vec<Finding> {
         findings.extend(restating::judge(node, source, language));
         findings.extend(swallowed::judge(node, source, language));
         findings.extend(vague::judge(node, source, language));
+        findings.extend(impossible::judge(node, source, language));
         spares.extend(spare(node, source, language));
     });
     // A spare covers the finding on its own line and on the line below it
