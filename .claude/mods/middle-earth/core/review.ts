@@ -1,18 +1,27 @@
-import type { ArgonathFinding, ArgonathJudgement, ArgonathSeat, ArgonathStatue, ArgonathVerdict } from '../../types'
-import type { Review } from '../../core/proof'
-import { MOD_FOLDERS } from '../../core/change'
-import { fencedJson } from '../flow'
-export { isChanging } from '../flow'
+import type { ArgonathFinding, ArgonathJudgement, ArgonathSeat, ArgonathStatue, ArgonathVerdict } from '../types'
+import { fencedJson } from './answers'
+import { MOD_FOLDERS } from './change'
+import type { Review } from './proof'
+
+// The review of a settled change: the reviewers each sent with their share of the project's reviews, what each is
+// told, and how their answers come to a judgement. Sending one is the caller's: it is handed a way to.
+
+// The state contract must hold the types the mod keeps in its state itself: the core names them there
+export type ReviewerName = ArgonathStatue
+export type Finding = ArgonathFinding
+export type Seat = ArgonathSeat
+export type Verdict = ArgonathVerdict
+export type Judgement = ArgonathJudgement
 
 /** The two kings carved beside the river: each judges a settled change by the reviews it is given. */
-export const STATUES: readonly { name: ArgonathStatue; title: string; focus: string }[] = [
+export const REVIEWERS: readonly { name: ReviewerName; title: string; focus: string }[] = [
   { name: 'isildur', title: 'Isildur', focus: 'you check what the change does: whether it is correct, whether what it claims holds, and whether it is the smallest change that does what it is for' },
   { name: 'anarion', title: 'Anárion', focus: 'you check what the change lets in: whether it can be abused, and what it exposes' },
 ]
 
 /** What the statues judge with: both Opus, at medium effort. A mod may convene them on a lighter model for a lighter change. */
-export const STATUE_MODEL = 'claude-opus-5-5'
-export const STATUE_EFFORT = 'medium'
+export const REVIEWER_MODEL = 'claude-opus-5-5'
+export const REVIEWER_EFFORT = 'medium'
 
 // How much of the change is handed to a statue in its prompt: it reads the rest from the tree
 const MAX_DIFF_CHARS = 60_000
@@ -20,12 +29,12 @@ const MAX_DIFF_CHARS = 60_000
 const reviewText = ({ command, args }: Review): string => `/${command}${args === '' ? '' : ` ${args}`}`
 
 /** The reviews the project names, dealt to the statues in turn: the first to Isildur, the second to Anárion, and on. */
-export const dealt = (reviews: readonly Review[]): { name: ArgonathStatue; title: string; reviews: string[] }[] =>
-  STATUES.map((statue, at) => ({ name: statue.name, title: statue.title, reviews: reviews.filter((_, index) => index % STATUES.length === at).map(reviewText) })).filter(seat => seat.reviews.length > 0)
+export const dealt = (reviews: readonly Review[]): { name: ReviewerName; title: string; reviews: string[] }[] =>
+  REVIEWERS.map((statue, at) => ({ name: statue.name, title: statue.title, reviews: reviews.filter((_, index) => index % REVIEWERS.length === at).map(reviewText) })).filter(seat => seat.reviews.length > 0)
 
 /** A statue's system prompt: it judges, and changes nothing. */
-export const statueSystem = (title: string): string => {
-  const statue = STATUES.find(one => one.title === title)
+export const reviewerSystem = (title: string): string => {
+  const statue = REVIEWERS.find(one => one.title === title)
 
   return [
     `You are ${title}, a code reviewer: ${statue?.focus ?? 'you review changes'}. You review one uncommitted change before it is committed. You only read; you change nothing.`,
@@ -50,7 +59,7 @@ export const statueSystem = (title: string): string => {
 }
 
 /** What a statue is sent with: the reviews it carries, what the change is for, how big it is, what the proof found, the project's standards, and the change as it stands. */
-export const statuePrompt = (reviews: readonly string[], change: string, about = '', proof = '', standards = '', size = ''): string => {
+export const reviewerPrompt = (reviews: readonly string[], change: string, about = '', proof = '', standards = '', size = ''): string => {
   const shown = change.length > MAX_DIFF_CHARS ? `${change.slice(0, MAX_DIFF_CHARS)}\n… (cut: read the rest from the tree)` : change
 
   return [
@@ -98,7 +107,7 @@ const text = (value: unknown): string => (typeof value === 'string' ? value.trim
 const MINOR = ['minor', 'nit', 'nitpick', 'low', 'info', 'suggestion']
 
 /** A statue's findings, from the last json block of its answer: undefined when it gave none that reads. */
-export const parseFindings = (answer: string): ArgonathFinding[] | undefined => {
+export const parseFindings = (answer: string): Finding[] | undefined => {
   const fenced = fencedJson(answer).reverse()
 
   for (const one of fenced) {
@@ -121,7 +130,7 @@ export const parseFindings = (answer: string): ArgonathFinding[] | undefined => 
 }
 
 /** What one statue's answer comes to. */
-export const seated = (seat: ArgonathSeat, answer: string, ended: 'answer' | 'aborted' | 'refusal' | 'error'): ArgonathSeat => {
+export const seated = (seat: Seat, answer: string, ended: Ended): Seat => {
   const findings = ended === 'answer' ? parseFindings(answer) : undefined
 
   if (findings === undefined) return { ...seat, state: 'silent', findings: [], why: ended === 'answer' ? 'it gave no findings that read' : ended === 'aborted' ? 'it was interrupted' : ended === 'refusal' ? 'it refused' : 'an API error ended it' }
@@ -130,7 +139,7 @@ export const seated = (seat: ArgonathSeat, answer: string, ended: 'answer' | 'ab
 }
 
 /** The verdict of the statues together: sitting while one is, fail when one found what blocks, silent when one could not judge. */
-export const verdictOf = (judgement: ArgonathJudgement): ArgonathVerdict =>
+export const verdictOf = (judgement: Judgement): Verdict =>
   judgement.seats.some(seat => seat.state === 'sitting')
     ? 'sitting'
     : judgement.seats.some(seat => seat.state === 'fail')
@@ -139,10 +148,10 @@ export const verdictOf = (judgement: ArgonathJudgement): ArgonathVerdict =>
         ? 'silent'
         : 'pass'
 
-const findingLine = (finding: ArgonathFinding): string => `- [${finding.severity}]${finding.where !== '' ? ` ${finding.where}:` : ''} ${finding.text}`
+const findingLine = (finding: Finding): string => `- [${finding.severity}]${finding.where !== '' ? ` ${finding.where}:` : ''} ${finding.text}`
 
 /** The judgement in full, for Claude. */
-export const judgementText = (judgement: ArgonathJudgement, isStale: boolean): string => {
+export const judgementText = (judgement: Judgement, isStale: boolean): string => {
   const verdict = verdictOf(judgement)
 
   if (judgement.isEmpty === true) return `There was no change to judge${isStale ? ' then: the tree has moved since' : ''}.`
@@ -159,8 +168,96 @@ export const judgementText = (judgement: ArgonathJudgement, isStale: boolean): s
 }
 
 /** The judgement as a part reads it: `stale` once the change has moved, `none` before any. */
-export const judgementShape = (judgement: ArgonathJudgement | null, isStale: boolean) =>
+export const judgementShape = (judgement: Judgement | null, isStale: boolean) =>
   judgement === null
     ? { verdict: 'none' }
     : { verdict: judgement.isEmpty === true && isStale ? 'stale' : judgement.seats.length === 0 ? 'pass' : isStale ? 'stale' : verdictOf(judgement), isEmpty: judgement.isEmpty === true, fingerprint: judgement.fingerprint, seats: judgement.seats.map(({ statue, title, reviews, state, findings, why }) => ({ statue, title, reviews, state, findings, why })) }
 
+
+/** Sends a reviewer on the change with its task: the agent's id (empty where the spawn answered none), or why it could not be sent. */
+export type SendReviewer = (reviewer: ReviewerName, task: { description: string; prompt: string; model?: string }) => Promise<{ agentId: string } | { why: string }>
+
+/** What a judgement is made of: the change, what the reviewers are told beside it, and who asked. */
+export type ToJudge = {
+  /** The change as one fingerprint, the judgement's key. */
+  fingerprint: string
+  /** The commit it is taken against: its merge base with HEAD is diffed. */
+  against: string
+  by: Judgement['by']
+  /** The change as git shows it, or why git could not. */
+  change: { text: string } | { error: string }
+  /** The reviewers asked, with their share of the reviews. */
+  seats: readonly { name: ReviewerName; title: string; reviews: string[] }[]
+  /** What the reviewers are told beside the change, read only once there is one to judge. */
+  told: () => Promise<{ about: string; proof: string; standards: string; size: string }>
+  /** A lighter model to judge on, for a lighter change. */
+  model?: string
+  at: number
+}
+
+/** Whether a change as `changeText` gives it holds nothing: no diff, and no new file. */
+export const isNoChange = (change: string): boolean => change.trim() === 'New files:' || change.trim() === ''
+
+/**
+ * Sends each reviewer on the change, and answers the judgement as it stands: each seat sitting, or silent where its
+ * reviewer could not be sent. A change git could not show is judged by none, each seat silent saying why; one that
+ * holds nothing is empty, and no reviewer sits.
+ */
+export const judge = async (send: SendReviewer, asked: ToJudge): Promise<Judgement> => {
+  const { fingerprint, at, by, against } = asked
+
+  if ('error' in asked.change) {
+    const why = asked.change.error
+
+    return { fingerprint, at, by, against, seats: asked.seats.map(seat => ({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: '', state: 'silent', findings: [], why })) }
+  }
+
+  const change = asked.change.text
+
+  if (isNoChange(change)) return { fingerprint, at, by, seats: [], against, isEmpty: true }
+
+  const told = await asked.told()
+  const seats: Seat[] = []
+
+  for (const seat of asked.seats) {
+    const sent = await send(seat.name, { description: `${seat.title} judges the change`, prompt: reviewerPrompt(seat.reviews, change, told.about, told.proof, told.standards, told.size), ...(asked.model !== undefined ? { model: asked.model } : {}) })
+
+    seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: 'agentId' in sent ? sent.agentId : '', state: 'agentId' in sent ? 'sitting' : 'silent', findings: [], why: 'why' in sent ? `it could not be sent: ${sent.why}` : '' })
+  }
+
+  return { fingerprint, at, by, seats, against }
+}
+
+/** How a reviewer's turn ended. */
+export type Ended = 'answer' | 'aborted' | 'refusal' | 'error'
+
+/**
+ * What a reviewer's answer comes to: its seat judged, or, where it judged but gave no verdict that reads, the
+ * reviewer sent once more for the verdict alone, its seat sitting under the new agent. Answers the judgement as it
+ * now stands.
+ */
+export const answered = async (send: SendReviewer, held: Judgement, seat: Seat, answer: string, ended: Ended): Promise<Judgement> => {
+  const replaced = (made: Seat): Judgement => ({ ...held, seats: held.seats.map(one => (one === seat ? made : one)) })
+
+  if (ended === 'answer' && parseFindings(answer) === undefined && seat.isAskedAgain !== true) {
+    const again = await send(seat.statue, { description: `${seat.title} gives its verdict`, prompt: verdictPrompt(answer) })
+
+    if ('agentId' in again) return replaced({ ...seat, agentId: again.agentId, isAskedAgain: true })
+  }
+
+  return replaced(seated(seat, answer, ended))
+}
+
+/** What the one who asked for a judgement is to do next, by its verdict; nothing where nothing is left to do. */
+export const nextStep = (made: Judgement): string => {
+  const verdict = verdictOf(made)
+
+  // Minor findings are tidied once, as a quest's member tidies them: those of the judgement after are only mentioned
+  return verdict === 'fail'
+    ? 'Fix what blocks before the change is committed, then prove it again: the statues judge the new change.'
+    : verdict === 'silent'
+      ? 'A statue could not judge: say so to the person.'
+      : made.seats.some(seat => seat.findings.length > 0)
+        ? 'Tidy each minor finding that is about what the change itself wrote, with the smallest edit that answers it, unless the person said to leave them, then prove it again. If you tidied after the judgement before this one, mention these to the person and leave them.'
+        : ''
+}

@@ -6,7 +6,8 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed } from '../look'
-import { dealt, judgementShape, judgementText, parseFindings, seated, statuePrompt, verdictOf, verdictPrompt } from './statues'
+import { answered, dealt, isNoChange, judge, judgementShape, judgementText, nextStep, verdictOf } from '../../core/review'
+import type { SendReviewer } from '../../core/review'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
@@ -396,9 +397,6 @@ export async function standardsText($: $): Promise<string> {
   return files.join('\n\n')
 }
 
-/** Whether a change as `changeText` gives it holds nothing: no diff, and no new file. */
-const isNoChange = (change: string): boolean => change.trim() === 'New files:' || change.trim() === ''
-
 /**
  * What the last proof found of the change at hand, for the statues: the runs it altered, and the targets it reached
  * that no kept run sees. Only a radius of the tree as it stands is told; a whole branch has none.
@@ -430,54 +428,42 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   if (place.isHome) await update($, reviewed, () => due)
 
-  const shown = await changeText(shellIn($, place.tree), against)
   const chosen = dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))
-
-  // A change git could not show is judged by no statue, and so passes none: each seat is silent, saying why
-  if ('error' in shown) {
-    const unjudged: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, against, seats: chosen.map(seat => ({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: '', state: 'silent', findings: [], why: shown.error })) }
-
-    await setJudgement($, place, unjudged)
-    await rise($, unjudged)
-
-    return unjudged
-  }
-
-  const change = shown.text
-
-  // Nothing to judge: no statue is sent on it
-  if (isNoChange(change)) {
-    const empty: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats: [], against, isEmpty: true }
-
-    await setJudgement($, place, empty)
-
-    return empty
-  }
-
-  const seats: ArgonathSeat[] = []
-  const brief = await briefOf($, against, place)
-  const rules = await standardsText($)
-  const size = await sizeOf(shellIn($, place.tree), against)
   // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
   const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
-
-  for (const seat of chosen) {
-    // A statue judging a quest's change reads it in the quest's worktree
-    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules, size), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
-      .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
-
-    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
-    seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
-  }
-
-  const made: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, seats, against }
+  const shown = await changeText(shellIn($, place.tree), against)
+  const made = await judge(reviewerSender($, place, ref), {
+    fingerprint: due,
+    against,
+    by,
+    change: shown,
+    seats: chosen,
+    told: async () => ({ about, proof: await briefOf($, against, place), standards: await standardsText($), size: await sizeOf(shellIn($, place.tree), against) }),
+    ...(alias !== undefined ? { model: alias } : {}),
+    at: Date.now(),
+  })
 
   await setJudgement($, place, made)
 
-  if (seats.length > 0) $.ui.toast(`Argonath: every changed run is pinned, so ${seats.map(seat => seat.title).join(' and ')} ${seats.length === 1 ? 'judges' : 'judge'} the change`)
+  if ('text' in shown && made.seats.length > 0) $.ui.toast(`Argonath: every changed run is pinned, so ${made.seats.map(seat => seat.title).join(' and ')} ${made.seats.length === 1 ? 'judges' : 'judge'} the change`)
   if (verdictOf(made) !== 'sitting') await rise($, made)
 
   return made
+}
+
+/**
+ * Sends a reviewer on the change in a place, from the hook it is asked in, where it is held: a reviewer judging a
+ * quest's change reads it in the quest's worktree. It is recorded as the issue's, which what it costs is counted to.
+ */
+function reviewerSender($: $, place: Place, ref?: string): SendReviewer {
+  return async (reviewer, task) => {
+    const started = await spawnIn($, { subagentType: typeOf(reviewer), ...task, ...(place.isHome ? {} : { cwd: place.tree }) }).catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
+
+    if (started.deny !== undefined) return { why: started.deny }
+    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
+
+    return { agentId: started.agentId ?? '' }
+  }
 }
 
 /** The statues have judged: the person is shown the verdict, and a Claude whose turn convened them is told it. */
@@ -490,15 +476,7 @@ async function rise($: $, made: ArgonathJudgement): Promise<void> {
 
   if (made.by !== 'turn') return
 
-  // Minor findings are tidied once, as a quest's member tidies them: those of the judgement after are only mentioned
-  const next =
-    verdict === 'fail'
-      ? 'Fix what blocks before the change is committed, then prove it again: the statues judge the new change.'
-      : verdict === 'silent'
-        ? 'A statue could not judge: say so to the person.'
-        : made.seats.some(seat => seat.findings.length > 0)
-          ? 'Tidy each minor finding that is about what the change itself wrote, with the smallest edit that answers it, unless the person said to leave them, then prove it again. If you tidied after the judgement before this one, mention these to the person and leave them.'
-          : ''
+  const next = nextStep(made)
 
   await $.prompt
     .submit({ text: [judgementText(made, false), next].filter(one => one !== '').join('\n\n') })
@@ -726,25 +704,8 @@ export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
 
   if (found !== undefined) {
     const { place, held, seat } = found
-    const answer = e.answer ?? ''
-
-    // A statue that judged but ended without a verdict that reads is asked once for it alone, before its seat is silent
-    if (!e.isAborted && e.reason === 'answer' && parseFindings(answer) === undefined && seat.isAskedAgain !== true) {
-      const again = await spawnIn($, { subagentType: typeOf(seat.statue), description: `${seat.title} gives its verdict`, prompt: verdictPrompt(answer), ...(place.isHome ? {} : { cwd: place.tree }) })
-        .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
-
-      if (again.deny === undefined) {
-        // Asked again for the issue its first sending was for
-        const ref = agentOf(e.agentId)?.ref
-
-        if (again.agentId !== undefined && again.agentId !== '') await remember($, again.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
-        await setJudgement($, place, { ...held, seats: held.seats.map(one => (one === seat ? { ...one, agentId: again.agentId ?? '', isAskedAgain: true } : one)) })
-
-        return
-      }
-    }
-
-    const made = { ...held, seats: held.seats.map(one => (one === seat ? seated(one, answer, e.isAborted ? 'aborted' : e.reason) : one)) }
+    // A reviewer asked again for its verdict is recorded for the issue its first sending was for
+    const made = await answered(reviewerSender($, place, agentOf(e.agentId)?.ref), held, seat, e.answer ?? '', e.isAborted ? 'aborted' : e.reason)
 
     await setJudgement($, place, made)
     if (verdictOf(made) !== 'sitting') await rise($, made)

@@ -3,7 +3,8 @@ import type { TestBody } from 'claude-code/testing'
 
 import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, sizeText, standingByTarget, targetsOf, withLive } from '../core/proof'
 import type { ArgonathRadius, ArgonathState } from '../types'
-import { dealt, isChanging, parseFindings } from '../hooks/argonath/statues'
+import { dealt, parseFindings } from '../core/review'
+import { isChanging } from '../hooks/flow'
 import { secretsIn } from '../hooks/flow'
 
 type Engine = Parameters<TestBody>[0]

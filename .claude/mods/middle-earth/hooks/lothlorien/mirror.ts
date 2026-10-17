@@ -1,5 +1,5 @@
 import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../../types'
-import { fencedJson } from '../flow'
+import { fencedJson } from '../../core/answers'
 export { isChanging, resolvedFrom } from '../flow'
 
 /** What Galadriel gazes with: Opus, at medium effort. */
