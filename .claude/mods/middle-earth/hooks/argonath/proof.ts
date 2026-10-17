@@ -412,18 +412,22 @@ export const marksOf = (source: string): { line: string; test: string }[] => {
 
 // How a runner names a test as it ends: cargo, pytest -v, pytest's summary (-rfE), go test -v, TAP, and a JavaScript
 // runner's tick or cross
-const ENDED: { pattern: RegExp; read: (found: RegExpExecArray) => [string, boolean] }[] = [
-  { pattern: /^test (\S+) \.\.\. (ok|FAILED)\s*$/, read: found => [found[1] ?? '', found[2] === 'ok'] },
-  { pattern: /^(\S+::\S+) (PASSED|FAILED|ERROR)\b/, read: found => [found[1] ?? '', found[2] === 'PASSED'] },
-  { pattern: /^(FAILED|ERROR) (\S+)/, read: found => [found[2] ?? '', false] },
-  { pattern: /^\s*--- (PASS|FAIL): (\S+)/, read: found => [found[2] ?? '', found[1] === 'PASS'] },
-  { pattern: /^(ok|not ok) \d+(?: -)? (.+?)\s*$/, read: found => [found[2] ?? '', found[1] === 'ok'] },
-  { pattern: /^\s*([✓✔]|[✗✘×✕])\s+(.+?)(?:\s+\(?\d+(?:\.\d+)?\s*m?s\)?)?\s*$/, read: found => [found[2] ?? '', /[✓✔]/.test(found[1] ?? '')] },
+type Ended = 'pass' | 'fail' | 'skip'
+
+// A skip as each runner says it: cargo's `ignored` (with its reason or without), pytest's SKIPPED, go's SKIP, TAP's # SKIP
+const ENDED: { pattern: RegExp; read: (found: RegExpExecArray) => [string, Ended] }[] = [
+  { pattern: /^test (\S+) \.\.\. (ok|FAILED|ignored)\b/, read: found => [found[1] ?? '', found[2] === 'ok' ? 'pass' : found[2] === 'ignored' ? 'skip' : 'fail'] },
+  { pattern: /^(\S+::\S+) (PASSED|FAILED|ERROR|SKIPPED)\b/, read: found => [found[1] ?? '', found[2] === 'PASSED' ? 'pass' : found[2] === 'SKIPPED' ? 'skip' : 'fail'] },
+  { pattern: /^(FAILED|ERROR) (\S+)/, read: found => [found[2] ?? '', 'fail'] },
+  { pattern: /^\s*--- (PASS|FAIL|SKIP): (\S+)/, read: found => [found[2] ?? '', found[1] === 'PASS' ? 'pass' : found[1] === 'SKIP' ? 'skip' : 'fail'] },
+  { pattern: /^ok \d+(?: -)? (.+?)\s*# SKIP\b/i, read: found => [found[1] ?? '', 'skip'] },
+  { pattern: /^(ok|not ok) \d+(?: -)? (.+?)\s*$/, read: found => [found[2] ?? '', found[1] === 'ok' ? 'pass' : 'fail'] },
+  { pattern: /^\s*([✓✔]|[✗✘×✕])\s+(.+?)(?:\s+\(?\d+(?:\.\d+)?\s*m?s\)?)?\s*$/, read: found => [found[2] ?? '', /[✓✔]/.test(found[1] ?? '') ? 'pass' : 'fail'] },
 ]
 
-/** How each test ended, by the name its runner gave it; a test said to fail once has failed. */
-export const outcomesOf = (output: string): Record<string, 'pass' | 'fail'> => {
-  const outcomes: Record<string, 'pass' | 'fail'> = {}
+/** How each test ended, by the name its runner gave it; a test said to fail once has failed, and one run once was not skipped. */
+export const outcomesOf = (output: string): Record<string, Ended> => {
+  const outcomes: Record<string, Ended> = {}
 
   for (const line of output.split('\n')) {
     for (const { pattern, read } of ENDED) {
@@ -431,9 +435,10 @@ export const outcomesOf = (output: string): Record<string, 'pass' | 'fail'> => {
 
       if (found === null) continue
 
-      const [name, isPassed] = read(found)
+      const [name, ended] = read(found)
+      const was = outcomes[name]
 
-      if (name !== '') outcomes[name] = isPassed && outcomes[name] !== 'fail' ? 'pass' : 'fail'
+      if (name !== '') outcomes[name] = was === 'fail' || ended === 'fail' ? 'fail' : was === 'pass' || ended === 'pass' ? 'pass' : 'skip'
       break
     }
   }
@@ -444,10 +449,10 @@ export const outcomesOf = (output: string): Record<string, 'pass' | 'fail'> => {
 /** Whether a runner's name for a test is the one a mark stands above: the same, or the same at the end of a path. */
 export const isSameTest = (marked: string, ended: string): boolean => ended === marked || (ended.endsWith(marked) && /[^\w]$/.test(ended.slice(0, ended.length - marked.length)))
 
-const outcomeOf = (outcomes: Record<string, 'pass' | 'fail'>, test: string): ArgonathOutcome => {
+const outcomeOf = (outcomes: Record<string, Ended>, test: string): ArgonathOutcome => {
   const names = Object.keys(outcomes).filter(name => isSameTest(test, name))
 
-  return names.length === 0 ? 'none' : names.some(name => outcomes[name] === 'fail') ? 'fail' : 'pass'
+  return names.length === 0 ? 'none' : names.some(name => outcomes[name] === 'fail') ? 'fail' : names.some(name => outcomes[name] === 'pass') ? 'pass' : 'skip'
 }
 
 /** Where a changed run stands, by how the tests marked on it ended on each side. */
@@ -552,7 +557,7 @@ export const gated = (command: string, against: string): string => command.repla
  */
 export const proved = (radius: ArgonathRadius, proof: { from: Side; to: Side }, required: readonly string[] = []): ArgonathRadius => {
   const inScope = [...markedTests(radius), ...required]
-  const scoped = (outcomes: Record<string, 'pass' | 'fail'>) => Object.fromEntries(Object.entries(outcomes).filter(([name]) => inScope.some(test => isSameTest(test, name))))
+  const scoped = (outcomes: Record<string, Ended>) => Object.fromEntries(Object.entries(outcomes).filter(([name]) => inScope.some(test => isSameTest(test, name))))
   const before = scoped(outcomesOf(proof.from.output))
   const after = scoped(outcomesOf(proof.to.output))
 
@@ -834,7 +839,7 @@ export const radiusText = (radius: ArgonathRadius): string => {
     ...(radius.turned.length > 0 ? ['', `Passing on the commit's source, failing on the working tree: ${radius.turned.join(', ')}. Bring each to what the code now does, or fix the regression it shows.`] : []),
     ...(regressions.length > 0 ? ['', `Broken by the change (they pass on the commit's source): ${regressions.join(', ')}. Fix the code, or the test where the change is meant.`] : []),
     ...(preexisting.length > 0 ? [`Failing before the change too, and not owed by it: ${preexisting.join(', ')}.`] : []),
-    ...(unmetTests.length > 0 ? ['', `Written before the change, and not passing yet: ${unmetTests.map(test => `${test.name} (${test.to === 'none' ? 'not run' : 'fails'})`).join(', ')}.`] : []),
+    ...(unmetTests.length > 0 ? ['', `Written before the change, and not passing yet: ${unmetTests.map(test => `${test.name} (${test.to === 'none' ? 'not run' : test.to === 'skip' ? 'skipped by its runner' : 'fails'})`).join(', ')}.`] : []),
     ...(lines !== '' ? ['', `Changed lines no kept ${kept} ran: ${lines}. Where one is behaviour a caller sees, keep a ${kept} that reaches it and pin it.`] : []),
     ...(radius.gates ?? []).flatMap(gate => ['', `${gate}`, 'Fix what it finds in the change.']),
     ...(radius.gatesBefore ?? []),

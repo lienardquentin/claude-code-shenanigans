@@ -434,6 +434,13 @@ export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: Fell
           ...(vision.red !== '' ? ['How they failed:', '<red>', vision.red, '</red>'] : []),
         ]
       : []),
+    ...(vision !== undefined && vision !== null && (vision.unrun ?? []).length > 0
+      ? [
+          '',
+          'She wrote these too, but they cannot run here: locked as hers are, and owed no passing. Keep them true to the change, and say in your report that they were not run.',
+          ...(vision.unrun ?? []).map(test => `- ${test.file}: ${test.name}, ${test.why}`),
+        ]
+      : []),
     ...(retry !== undefined
       ? [
           '',

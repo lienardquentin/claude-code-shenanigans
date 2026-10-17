@@ -24,9 +24,15 @@ describe('the Mirror', () => {
   })
 
   test('reads what she showed from her last json block', () => {
-    expect(parseGaze(SHOWN)).toEqual({ tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_quenching_one_beacon' }], red: 'FAILED test_quenching_one_beacon - assert 404 == 200', untestable: '' })
+    expect(parseGaze(SHOWN)).toEqual({ tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_quenching_one_beacon' }], red: 'FAILED test_quenching_one_beacon - assert 404 == 200', unrun: [], untestable: '' })
     expect(parseGaze('```json\n{ "tests": [], "red": "", "untestable": "Only the README changes." }\n```')).toMatchObject({ untestable: 'Only the README changes.' })
     expect(parseGaze('I wrote some tests.')).toBeUndefined()
+  })
+
+  test('reads a test that cannot run here apart from the red ones, with why', () => {
+    const answer = JSON.stringify({ tests: [], red: '', unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }, { name: 'no file' }], untestable: '' })
+
+    expect(parseGaze(`\`\`\`json\n${answer}\n\`\`\``)).toMatchObject({ tests: [], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }] })
   })
 
   test('locks the lines she added, and the new files whole', () => {

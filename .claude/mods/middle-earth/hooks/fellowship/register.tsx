@@ -615,7 +615,7 @@ async function behold($: $, ref: string): Promise<void> {
     return
   }
 
-  const vision = shown.state === 'shown' ? { taskId: task.id, tests: shown.tests ?? [], red: shown.red ?? '' } : null
+  const vision = shown.state === 'shown' ? { taskId: task.id, tests: shown.tests ?? [], unrun: shown.unrun ?? [], red: shown.red ?? '' } : null
   const after = await keep($, ref, was => ({ ...was, phase: 'ready', vision }))
 
   if (shown.state === 'empty') await say($, ref, `Nothing to test first in task ${task.id}: ${shown.why ?? ''}`)

@@ -189,7 +189,7 @@ export type FellowshipKind = 'plan' | 'errand' | 'review'
 export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'warding' | 'sailed'
 
 /** What the Mirror showed of a task: Galadriel's red tests, which its member makes pass. */
-export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; red: string }
+export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red: string }
 
 /** One member out on a task. */
 export type FellowshipMarch = {
@@ -288,6 +288,9 @@ export type LothlorienState = 'gazing' | 'shown' | 'empty' | 'clouded'
 /** One test Galadriel wrote. */
 export type LothlorienTest = { file: string; name: string }
 
+/** A test Galadriel wrote that cannot run where she gazed (root alone, another system, ignored unless asked), and why. */
+export type LothlorienUnrun = LothlorienTest & { why: string }
+
 /** Lines Galadriel added to a test file, kept as they are until HEAD moves past them. */
 export type LothlorienBlock = { file: string; lines: string[] }
 
@@ -306,7 +309,10 @@ export type LothlorienVision = {
   state: LothlorienState
   /** HEAD when she gazed: once it moves, her tests are committed, and the lock is lifted. */
   head: string
+  /** The tests she showed red: a change is owed their passing. */
   tests: LothlorienTest[]
+  /** The tests she wrote that cannot run here: locked as the others, but owed no passing. */
+  unrun?: LothlorienUnrun[]
   /** How the tests failed when she ran them: the red, in her words and the runner's. */
   red: string
   /** Why the purpose holds nothing to test, or why the vision is clouded; empty otherwise. */
@@ -393,8 +399,8 @@ export type ArgonathLive = {
   scratch: string
 }
 
-/** How a test ended on one side of a proof; `none` when that side did not run it. */
-export type ArgonathOutcome = 'pass' | 'fail' | 'none'
+/** How a test ended on one side of a proof; `skip` when its runner said it skipped it, `none` when that side did not name it. */
+export type ArgonathOutcome = 'pass' | 'fail' | 'skip' | 'none'
 
 /** One test a changed run is marked on, and how it ended on each side once proved. */
 export type ArgonathTest = {
