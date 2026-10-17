@@ -1,31 +1,8 @@
-import type { ElrondDecision, ElrondForge, ElrondPlan, ElrondQuestion, ElrondRef, ElrondRisk, ElrondSeverity, ElrondTask, ElrondTaskState, ElrondWeight } from '../../types'
-import { TRUSTED_ASSOCIATIONS, WEIGHT_MEANS, fencedJson, forgeOfHost, resolvedFrom } from '../flow'
+import type { ElrondDecision, ElrondPlan, ElrondQuestion, ElrondRisk, ElrondSeverity, ElrondTask, ElrondTaskState, ElrondWeight } from '../../types'
+import { parseIssueRef } from '../../core/forge'
+import type { Issue, IssueRef, Repo } from '../../core/forge'
+import { WEIGHT_MEANS, fencedJson, resolvedFrom } from '../flow'
 export { isChanging } from '../flow'
-
-/** The project's own repository, as its git remote names it: where a bare `#12` lives. */
-export type Origin = { forge: ElrondForge; server: string; repo: string }
-
-/**
- * An issue as the council reads it, whichever forge it came from: who opened it, and whether from outside the
- * repository (one who cannot push to it); its thread, the comments from outside left out and counted.
- */
-export type Issue = {
-  title: string
-  body: string
-  url: string
-  state: string
-  labels: string[]
-  author: string
-  isOutside: boolean
-  comments: { author: string; body: string }[]
-  leftOut: number
-}
-
-/**
- * What tells who is trusted on an issue: on GitHub, each author's association with the repository (the issue's own
- * given apart where the answer holds none); on GitLab, the people who can push to the project.
- */
-export type Trust = { association?: string; pushers?: readonly string[] }
 
 // What the planner is handed of an issue at most: a longer body or thread is cut, and says so
 const MAX_BODY = 30_000
@@ -35,63 +12,11 @@ const MAX_COMMENT = 4_000
 export const HOW_TO =
   'Name an issue: /elrond https://github.com/owner/repo/issues/12, /elrond https://gitlab.com/group/project/-/issues/12, /elrond owner/repo#12, /elrond gl:group/project#12, or /elrond #12 for this repository\'s own.'
 
-/** The repository a git remote URL names: `git@host:path.git`, `https://host/path.git`, `ssh://git@host:2222/path.git`. */
-export const parseRemote = (url: string): Origin | undefined => {
-  const text = url.trim()
-  const scp = /^[\w.-]+@([^:/]+):(?!\d+\/)(.+?)(?:\.git)?\/?$/.exec(text)
-  const full = /^(?:https?|ssh|git):\/\/(?:[^@/]+@)?([^:/]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/.exec(text)
-  const found = scp ?? full
+/** The issue a person or Claude named, as the forge reads it; why not, with how to name one, when it names none. */
+export const parseRef = (input: string, origin?: Repo): IssueRef | string => {
+  const named = parseIssueRef(input, origin)
 
-  if (found === null) return undefined
-
-  const server = found[1] ?? ''
-  const repo = found[2] ?? ''
-
-  return repo.includes('/') ? { forge: forgeOfHost(server) as ElrondForge, server, repo } : undefined
-}
-
-/**
- * The issue a person or Claude named: a URL on either forge, `gh:`/`gl:` and a path with `#n`, a path with `#n` (on the
- * origin's forge when it shares its host's kind, else GitHub), or a bare `#n` or `n` on the origin itself. Says why when
- * it names none.
- */
-export const parseRef = (input: string, origin?: Origin): ElrondRef | string => {
-  const text = input.trim()
-
-  if (text === '') return HOW_TO
-
-  const url = /^https?:\/\/([^/]+)\/(.+?)\/(-\/)?(?:issues|work_items)\/(\d+)(?:[/?#].*)?$/.exec(text)
-
-  if (url !== null) {
-    const server = url[1] ?? ''
-    // GitLab's issues sit under `/-/`; a host without it is a GitHub, self-hosted or not
-    const forge: ElrondForge = url[3] !== undefined || server.includes('gitlab') ? 'gitlab' : 'github'
-
-    return { forge, server, repo: url[2] ?? '', number: Number(url[4]) }
-  }
-
-  const short = /^(?:(gh|github|gl|gitlab):)?([\w.-]+(?:\/[\w.-]+)+)#(\d+)$/.exec(text)
-
-  if (short !== null) {
-    const said = short[1]
-    const forge: ElrondForge = said === undefined ? (origin?.forge ?? 'github') : said === 'gl' || said === 'gitlab' ? 'gitlab' : 'github'
-    const path = (short[2] ?? '').split('/')
-    // `gitlab:git.example.com/group/project#12`, as refText writes a self-hosted one: the host leads the path
-    const isHosted = said !== undefined && path.length > 2 && (path[0] ?? '').includes('.')
-    const server = isHosted ? (path[0] ?? '') : origin !== undefined && origin.forge === forge ? origin.server : forge === 'gitlab' ? 'gitlab.com' : 'github.com'
-
-    return { forge, server, repo: (isHosted ? path.slice(1) : path).join('/'), number: Number(short[3]) }
-  }
-
-  const bare = /^#?(\d+)$/.exec(text)
-
-  if (bare !== null) {
-    if (origin === undefined) return `#${bare[1]} names an issue of this repository, whose git remote could not be read. ${HOW_TO}`
-
-    return { ...origin, number: Number(bare[1]) }
-  }
-
-  return `"${text}" names no issue. ${HOW_TO}`
+  return typeof named !== 'string' ? named : input.trim() === '' ? HOW_TO : `${named} ${HOW_TO}`
 }
 
 /** The folder the council writes its plans to, from the project's folder: it ignores itself in git. */
@@ -103,110 +28,11 @@ export const planPathOf = (cwd: string, ref: string): string => `${cwd}/${PLANS_
 /** Whether a path the council writes to lies in the plans folder, `..` and all spelled out. */
 export const isPlanPath = (cwd: string, path: string): boolean => resolvedFrom(cwd, path).startsWith(`${cwd}/${PLANS_DIR}/`)
 
-/** An issue written short, the key its plan is kept under: `github:owner/repo#12`, the host added when it is not the forge's own. */
-export const refText = ({ forge, server, repo, number }: ElrondRef): string =>
-  `${forge}:${server === `${forge}.com` ? '' : `${server}/`}${repo}#${number}`
-
-/** The forge's CLI that reads the issue and its thread, by argv. */
-export const cliArgv = ({ forge, server, repo, number }: ElrondRef): string[] =>
-  forge === 'github'
-    ? ['gh', 'issue', 'view', String(number), '--repo', server === 'github.com' ? repo : `${server}/${repo}`, '--json', 'number,title,body,url,state,labels,comments,author']
-    : ['glab', 'issue', 'view', String(number), '--repo', server === 'gitlab.com' ? repo : `https://${server}/${repo}`, '--comments', '--output', 'json']
-
-/** The forge's CLI that says who is trusted on the issue: the association of its author on GitHub, the project's members on GitLab. */
-export const trustArgv = ({ forge, server, repo, number }: ElrondRef): string[] =>
-  forge === 'github'
-    ? ['gh', 'api', ...(server === 'github.com' ? [] : ['--hostname', server]), `repos/${repo}/issues/${number}`, '--jq', '.author_association']
-    : ['glab', 'api', ...(server === 'gitlab.com' ? [] : ['--hostname', server]), `projects/${encodeURIComponent(repo)}/members/all?per_page=100`]
-
-/**
- * The forge's REST API, where its CLI is missing or not logged in: the issue, its thread, and on GitLab the project's
- * members. A token in the environment is sent only to the forge's own host or the origin's: an issue named on another
- * host is read without it, so no ref can carry the token elsewhere.
- */
-export const apiArgv = ({ forge, server, repo, number }: ElrondRef, origin?: Origin): { issue: string[]; comments: string[]; members: string[] } => {
-  const project = `https://${server}/api/v4/projects/${encodeURIComponent(repo)}`
-  const base = forge === 'github' ? `${server === 'github.com' ? 'https://api.github.com' : `https://${server}/api/v3`}/repos/${repo}/issues/${number}` : `${project}/issues/${number}`
-  const isOwnHost = server === `${forge}.com` || (origin !== undefined && origin.forge === forge && origin.server === server)
-  const auth = !isOwnHost ? '' : forge === 'github' ? '${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} ' : '${GITLAB_TOKEN:+-H "PRIVATE-TOKEN: $GITLAB_TOKEN"} '
-  const curl = (url: string) => ['sh', '-c', `curl -fsSL ${auth}"$1"`, 'sh', url]
-
-  return { issue: curl(base), comments: curl(forge === 'github' ? `${base}/comments?per_page=100` : `${base}/notes?sort=asc&per_page=100`), members: curl(`${project}/members/all?per_page=100`) }
-}
-
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 const record = (value: unknown): Record<string, unknown> => (value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {})
 
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
-
-const authorOf = (value: unknown): string => {
-  const one = record(value)
-
-  return text(one.login) || text(one.username) || text(one.name)
-}
-
-/** Who wrote a comment or an issue's association with the repository, as GitHub's CLI or its API spells it. */
-const associationOf = (one: Record<string, unknown>): string => text(one.authorAssociation) || text(one.author_association)
-
-/** Whether an author is trusted: one who can push to the repository, as the forge says. */
-const isTrusted = (trust: Trust, author: string, association: string): boolean =>
-  trust.pushers !== undefined ? author !== '' && trust.pushers.includes(author) : TRUSTED_ASSOCIATIONS.includes(association.toUpperCase())
-
-/** A comment as any of the four answers spell it; a GitLab system note (`changed the label`) is none. */
-const commentOf = (value: unknown): (Issue['comments'][number] & { association: string }) | undefined => {
-  const one = record(value)
-
-  if (one.system === true) return undefined
-
-  const body = text(one.body)
-
-  return body.trim() === '' ? undefined : { author: authorOf(one.author ?? one.user), body, association: associationOf(one) }
-}
-
-/**
- * An issue from what the forge answered, its CLI's JSON or its API's: GitHub's `body` and `url` or `html_url`, GitLab's
- * `description` and `web_url`; labels as names or as `{ name }`; a thread given apart, or within as `comments` or `notes`.
- * Who is trusted is told by `trust`: an author it cannot tell is from outside, so no one is trusted on a guess.
- */
-export const parseIssue = (answer: string, thread = '', trust: Trust = {}): Issue | undefined => {
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(answer)
-  } catch {
-    return undefined
-  }
-
-  const one = record(parsed)
-  const title = text(one.title)
-
-  if (title === '') return undefined
-
-  let apart: unknown = []
-
-  try {
-    apart = thread === '' ? [] : JSON.parse(thread)
-  } catch {
-    apart = []
-  }
-
-  const notes = [...list(one.comments), ...list(one.notes), ...list(apart)].map(commentOf).filter((c): c is NonNullable<ReturnType<typeof commentOf>> => c !== undefined)
-  const comments = notes.filter(c => isTrusted(trust, c.author, c.association)).map(({ author, body }) => ({ author, body }))
-  const author = authorOf(one.author ?? one.user)
-
-  return {
-    title,
-    body: text(one.body) || text(one.description),
-    url: text(one.url) || text(one.html_url) || text(one.web_url),
-    state: text(one.state),
-    labels: list(one.labels).map(label => (typeof label === 'string' ? label : text(record(label).name))).filter(label => label !== ''),
-    author,
-    isOutside: !isTrusted(trust, author, associationOf(one) || (trust.association ?? '')),
-    comments,
-    leftOut: notes.length - comments.length,
-  }
-}
 
 const cut = (value: string, max: number): string => (value.length <= max ? value : `${value.slice(0, max)}\n[… cut: ${value.length - max} more characters]`)
 

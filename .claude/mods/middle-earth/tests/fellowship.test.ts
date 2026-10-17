@@ -1,8 +1,9 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
+import { refOf } from '../core/forge'
 import { refusalOf } from '../hooks/agents'
-import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reachesOut, readyTasks, reviewTasks, spentOn, treePathOf, triesOf, unsettledOf, wardModelFor } from '../hooks/fellowship/quest'
+import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, proofVerdict, purposeOf, reachesOut, readyTasks, requestOf, reviewTasks, spentOn, treePathOf, triesOf, unsettledOf, wardModelFor } from '../hooks/fellowship/quest'
 import type { QuestOf } from '../hooks/fellowship/quest'
 import { canMove, restingPhase } from '../hooks/fellowship/phases'
 import { shortRef } from '../hooks/look'
@@ -118,8 +119,8 @@ describe('the plan Elrond answers', () => {
 
 describe('the issue, its branch and its worktree', () => {
   test('are read from Elrond\'s short spelling, self-hosted or not', () => {
-    expect(issueOf('github:o/r#12')).toEqual({ forge: 'github', server: 'github.com', repo: 'o/r', number: 12 })
-    expect(issueOf('gitlab:git.corp.io/g/sub/p#3')).toEqual({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/sub/p', number: 3 })
+    expect(refOf('github:o/r#12')).toEqual({ forge: 'github', server: 'github.com', repo: 'o/r', number: 12 })
+    expect(refOf('gitlab:git.corp.io/g/sub/p#3')).toEqual({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/sub/p', number: 3 })
     expect(branchOf(plan())).toBe(BRANCH)
     expect(treePathOf(`${CWD}/`, BRANCH)).toBe(TREE)
     expect(closingLine('gitlab:g/p#3')).toBe('Closes g/p#3')
@@ -140,9 +141,9 @@ describe('the issue, its branch and its worktree', () => {
 
     const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'fellowship/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Frodo', minor: ['- Isildur, app.py:70: lit could be named burning.'] }] } as unknown as FellowshipQuest
 
-    expect(prArgv(quest, plan()).slice(0, 7)).toEqual(['gh', 'pr', 'create', '--base', 'main', '--head', 'fellowship/12-x'])
-    expect(prArgv(quest, plan()).at(-1)).toMatch(/- abcdef1 1\. Keep \(Frodo\)[\s\S]*## Minor findings[\s\S]*- task 1: Isildur, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
-    expect(prArgv({ ...quest, ref: 'gitlab:g/p#3' }, plan({ ref: 'gitlab:g/p#3' }))).toContain('--target-branch')
+    expect(requestOf(quest, plan())).toMatchObject({ forge: 'github', request: { branch: 'fellowship/12-x', base: 'main' } })
+    expect(requestOf(quest, plan()).request.body).toMatch(/- abcdef1 1\. Keep \(Frodo\)[\s\S]*## Minor findings[\s\S]*- task 1: Isildur, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
+    expect(requestOf({ ...quest, ref: 'gitlab:g/p#3' }, plan({ ref: 'gitlab:g/p#3' })).forge).toBe('gitlab')
   })
 })
 

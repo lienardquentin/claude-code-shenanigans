@@ -2,8 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BlackgateComment, BlackgateGate, BlackgatePhase } from '../../types'
-import { HOW_TO, WEIGHER_MODEL, commentShown, gateText, handedOf, parseGithub, parseGitlab, parsePrRef, parseRemote, parseWeights, readArgv, reviewRef, weighPrompt } from './gate'
-import { errorText, git, isMergedFrom, run, toolFailed } from '../flow'
+import { HOW_TO, WEIGHER_MODEL, commentShown, gateText, handedOf, parseWeights, reviewRef, weighPrompt } from './gate'
+import { parsePullRef, parseRemote } from '../../core/forge'
+import { errorText, forgeIn, git, isMergedFrom, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -16,8 +17,6 @@ type On = Parameters<Register>[0]
 const PANE = 'blackgate'
 const TITLE = 'Black Gate'
 const TICK_MS = 500
-// How long the forge is given to answer
-const FORGE_TIMEOUT_MS = 120_000
 // How many lines of a comment the pane says: the rest is on the forge
 const COMMENT_LINES = 3
 
@@ -62,49 +61,23 @@ async function open($: $, input: string): Promise<string> {
   if (held?.phase === 'weighing') return `The gate weighs the comments of ${held.pr.repo}#${held.pr.number}: wait for it to settle.`
 
   const origin = parseRemote((await git($, ['remote', 'get-url', 'origin'])).out)
-  let named = parsePrRef(input, origin)
+  let named = parsePullRef(input, origin)
 
   if (named === 'current') {
     if (origin === undefined) return 'The origin remote could not be read: name the pull request by its URL.'
 
-    const viewed = await run($, origin.forge === 'github' ? ['gh', 'pr', 'view', '--json', 'number'] : ['glab', 'mr', 'view', '--output', 'json'], FORGE_TIMEOUT_MS)
-    let number = NaN
+    const number = await forgeIn($, origin.forge).currentRequest()
 
-    try {
-      const shown = JSON.parse(viewed.out) as { number?: unknown; iid?: unknown }
+    if (typeof number === 'string') return number
 
-      number = viewed.ok ? Number(shown.number ?? shown.iid) : NaN
-    } catch {
-      // no pull request for this branch
-    }
-
-    if (!Number.isInteger(number)) return `This branch has no open pull request that ${origin.forge === 'github' ? 'gh' : 'glab'} knows of: name one.`
-
-    named = { ...origin, number }
+    named = { forge: origin.forge, repo: origin.repo, number }
   }
 
   if (typeof named === 'string') return named
 
   await update($, working, () => `Reading the review comments of ${named.repo}#${named.number}…`)
 
-  const answers: string[] = []
-
-  const unread: string[] = []
-
-  for (const [at, argv] of readArgv(named.forge, named.repo, named.number).entries()) {
-    const got = await run($, argv, FORGE_TIMEOUT_MS)
-
-    // GitLab's members say whose comments are trusted: unread, every author is taken as outside, and that is said
-    if (!got.ok && named.forge === 'gitlab' && at === 2) {
-      unread.push(`the project's members could not be read (${got.out.split('\n').slice(-1)[0] ?? ''}), so every comment is taken as from outside the repository`)
-      answers.push('')
-      continue
-    }
-    if (!got.ok) return `${argv[0] ?? ''} could not read ${named.repo}#${named.number}: ${got.out.split('\n').slice(-1)[0] ?? ''}`
-    answers.push(got.out)
-  }
-
-  const parsed = named.forge === 'github' ? parseGithub(answers[0] ?? '', named.repo, named.number) : parseGitlab(answers[0] ?? '', answers[1] ?? '', named.repo, named.number, answers[2] ?? '')
+  const parsed = await forgeIn($, named.forge).readReview(named.repo, named.number)
 
   if (typeof parsed === 'string') return parsed
 
@@ -123,7 +96,6 @@ async function open($: $, input: string): Promise<string> {
   const unweighed = parsed.comments.filter(one => !weighed.has(one.id)).length
   const outside = all.filter(one => one.isOutside === true && one.kind !== 'settled').length
   const said = [
-    ...unread,
     ...parsed.unread,
     ...(typeof weighing === 'string' ? [`the comments could not be weighed (${weighing}): each is a question for you`] : unweighed > 0 ? [`${unweighed} ${unweighed === 1 ? 'comment was' : 'comments were'} not weighed, and ${unweighed === 1 ? 'is a question' : 'are questions'} for you`] : []),
     ...(outside > 0 ? [`${outside} ${outside === 1 ? 'comment is' : 'comments are'} from outside the repository, and ${outside === 1 ? 'is a question' : 'are questions'} for you, never built`] : []),

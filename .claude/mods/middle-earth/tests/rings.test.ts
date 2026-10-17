@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { listArgv, parseIssues, standingOf } from '../hooks/rings/rings'
+import { parseIssues } from '../core/forge'
+import { ringsOf, standingOf } from '../hooks/rings/rings'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -92,21 +93,15 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 
 describe('the rings', () => {
-  test("list the origin's open issues through its forge's CLI, the most recently updated first", () => {
-    expect(listArgv(ORIGIN)).toEqual(['gh', 'issue', 'list', '--repo', REPO, '--state', 'open', '--limit', '50', '--json', 'number,title,url,labels,author,updatedAt,body'])
-    expect(listArgv({ forge: 'gitlab', server: 'git.example.com', repo: 'g/p' })).toEqual(['glab', 'issue', 'list', '--repo', 'https://git.example.com/g/p', '--per-page', '50', '--output', 'json'])
-  })
-
-  test('read each issue with the ref Elrond and the Fellowship know it by, from either forge, and say when nothing reads', () => {
-    expect(parseIssues(GH_LIST, ORIGIN)).toEqual([
+  test('read each issue with the ref Elrond and the Fellowship know it by, from either forge, its body cut for the pane', () => {
+    expect(ringsOf(parseIssues(GH_LIST) ?? [], ORIGIN)).toEqual([
       { ref: `github:${REPO}#12`, number: 12, title: 'Beacons answer how long they have burned', url: `https://github.com/${REPO}/issues/12`, labels: ['ready-for-agent'], author: 'quent', updatedAt: '2026-10-14T09:00:00Z', body: 'The body of #12.' },
       expect.objectContaining({ ref: `github:${REPO}#21`, labels: [] }),
     ])
 
-    const gitlab = parseIssues(JSON.stringify([{ iid: 3, title: 'T', web_url: 'https://git.example.com/g/p/-/issues/3', labels: ['bug'], author: { username: 'ann' }, updated_at: '2026-10-01', description: 'x'.repeat(700) }]), { forge: 'gitlab', server: 'git.example.com', repo: 'g/p' })
+    const gitlab = ringsOf(parseIssues(JSON.stringify([{ iid: 3, title: 'T', web_url: 'https://git.example.com/g/p/-/issues/3', labels: ['bug'], author: { username: 'ann' }, updated_at: '2026-10-01', description: 'x'.repeat(700) }])) ?? [], { forge: 'gitlab', server: 'git.example.com', repo: 'g/p' })
 
     expect(gitlab).toEqual([expect.objectContaining({ ref: 'gitlab:git.example.com/g/p#3', number: 3, labels: ['bug'], author: 'ann', body: `${'x'.repeat(600)}…` })])
-    expect(parseIssues('gh: not logged in', ORIGIN)).toBe('gh answered no list of issues that reads.')
   })
 
   test("say where an issue stands: its quest first, else its plan", () => {

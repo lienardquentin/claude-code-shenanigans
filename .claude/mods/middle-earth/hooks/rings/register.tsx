@@ -2,11 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { RingsIssue } from '../../types'
-import { HOW_TO, listArgv, parseIssues, standingOf } from './rings'
-import { parseRemote } from '../elrond/council'
+import { HOW_TO, ringsOf, standingOf } from './rings'
+import { parseRemote } from '../../core/forge'
 import { askCouncil, planStanding } from '../elrond/register'
 import { askErrand, questRelics } from '../fellowship/register'
-import { errorText, git, run } from '../flow'
+import { errorText, forgeIn, git } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed } from '../look'
@@ -16,8 +16,6 @@ type On = Parameters<Register>[0]
 
 const PANE = 'rings'
 const TITLE = 'Rings'
-// How long the forge is given to answer
-const FORGE_TIMEOUT_MS = 60_000
 
 const issues = atom({ plugin: 'middle-earth', key: 'ringsIssues' } as const, [] as RingsIssue[])
 const repo = atom({ plugin: 'middle-earth', key: 'ringsRepo' } as const, '')
@@ -37,13 +35,11 @@ async function refresh($: $): Promise<string> {
   await update($, working, () => `Reading the open issues of ${origin.repo}…`)
 
   try {
-    const got = await run($, listArgv(origin), FORGE_TIMEOUT_MS)
+    const got = await forgeIn($, origin.forge).listIssues(origin)
 
-    if (!got.ok) return `${origin.forge === 'github' ? 'gh' : 'glab'} could not list the issues of ${origin.repo}: ${got.out.trim().split('\n').slice(-1)[0] ?? ''}`
+    if (typeof got === 'string') return got
 
-    const listed = parseIssues(got.out, origin)
-
-    if (typeof listed === 'string') return listed
+    const listed = ringsOf(got, origin)
 
     await update($, issues, () => listed)
     await update($, repo, () => origin.repo)

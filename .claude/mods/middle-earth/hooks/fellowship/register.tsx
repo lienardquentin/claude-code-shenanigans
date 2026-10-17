@@ -12,7 +12,6 @@ import {
   companionPrompt,
   conflictPrompt,
   errandTask,
-  forgeOf,
   handBackOf,
   isAllDone,
   issueRefOf,
@@ -24,16 +23,15 @@ import {
   ownPlan,
   parsePlan,
   parseWorktrees,
-  prArgv,
   purposeOf,
   questLine,
   questText,
   readyTasks,
+  requestOf,
   reviewTasks,
   spentOn,
   statueModelFor,
   tally,
-  threadArgv,
   treePathOf,
   triesOf,
   unsettledOf,
@@ -42,7 +40,9 @@ import {
 } from './quest'
 import type { Retry } from './quest'
 import { canMove, restingPhase } from './phases'
-import { UNMODDED, errorText, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
+import { forgeOfUrl } from '../../core/forge'
+import type { Ran } from '../../core/forge'
+import { UNMODDED, errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
 import type { Judged, Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -1240,6 +1240,9 @@ async function landedSha($: $, tree: string, sha: string, task: FellowshipTask):
   return found !== '' ? found : sha
 }
 
+/** The last line a forge's command said of its failure. */
+const lastLineOf = (ran: Ran): string => (ran.stderr || ran.stdout).trim().split('\n').slice(-1)[0] ?? ''
+
 /**
  * Answers each review thread whose comment the quest took up, once its answers are pushed: one built is told its commit
  * and resolved; one handed back is told why, and left open for the person. A thread is answered once. Says what was done.
@@ -1250,7 +1253,7 @@ async function answerThreads($: $, ref: string): Promise<string> {
 
   if (held === null || !Number.isFinite(number)) return ''
 
-  const forge = forgeOf(held.pr !== '' ? held.pr : held.url)
+  const forge = forgeIn($, forgeOfUrl(held.pr !== '' ? held.pr : held.url), held.tree)
   let answered = 0
   let resolved = 0
   const failed: string[] = []
@@ -1261,21 +1264,20 @@ async function answerThreads($: $, ref: string): Promise<string> {
 
     if (reply === undefined) continue
 
-    const argv = threadArgv(forge, number, task.thread ?? '', reply)
-    const replied = await run($, argv.reply, undefined, held.tree)
+    const replied = await forge.replyToThread(number, task.thread ?? '', reply)
 
     // A thread left unanswered is said, and tried again at the next push
-    if (!replied.ok) {
-      failed.push(`task ${task.id} (${replied.out.split('\n').slice(-1)[0] || 'the forge said nothing'})`)
+    if (replied.exitCode !== 0) {
+      failed.push(`task ${task.id} (${lastLineOf(replied) || 'the forge said nothing'})`)
       continue
     }
 
     answered += 1
     if (commit !== undefined) {
-      const done = await run($, argv.resolve, undefined, held.tree)
+      const done = await forge.resolveThread(number, task.thread ?? '')
 
-      if (done.ok) resolved += 1
-      else failed.push(`task ${task.id}'s thread is answered but not resolved (${done.out.split('\n').slice(-1)[0] || 'the forge said nothing'})`)
+      if (done.exitCode === 0) resolved += 1
+      else failed.push(`task ${task.id}'s thread is answered but not resolved (${lastLineOf(done) || 'the forge said nothing'})`)
     }
     await keep($, ref, was => ({ ...was, tasks: (was.tasks ?? []).map(one => (one.id === task.id ? { ...one, isAnswered: true } : one)) }))
   }
@@ -1367,7 +1369,8 @@ async function sail($: $, ref: string): Promise<string> {
 
   await work($, ref, `Pushing ${held.branch} and opening the pull request…`)
 
-  const opened = await openRequest($, held.branch, prArgv(held, made), held.tree)
+  const { forge, request } = requestOf(held, made)
+  const opened = await openRequest($, forge, request, held.tree)
 
   if (typeof opened !== 'object') return opened
 

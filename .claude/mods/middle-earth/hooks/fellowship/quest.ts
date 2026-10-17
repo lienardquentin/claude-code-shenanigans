@@ -1,10 +1,12 @@
 import type { MiddleEarthSpend } from '../../types'
 import type { FellowshipCommit, FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
-import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, WEIGHT_MEANS, forgeOfUrl, issueOf, requestArgv, resolvedFrom } from '../flow'
+import { refOf } from '../../core/forge'
+import type { ForgeKind, NewRequest } from '../../core/forge'
+import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, WEIGHT_MEANS, resolvedFrom } from '../flow'
 import type { Target } from '../flow'
 import { QUEST_TREES } from '../kit/trees'
 
-export { isForbiddenGit, isModPath, issueOf, parseJudgement, proofVerdict, requestArgv } from '../flow'
+export { isForbiddenGit, isModPath, parseJudgement, proofVerdict } from '../flow'
 export { resolvedFrom } from '../flow'
 export type { Target } from '../flow'
 
@@ -303,7 +305,7 @@ export const branchOf = (plan: Pick<FellowshipPlan, 'ref' | 'title'>): string =>
     .slice(0, 40)
     .replace(/-+$/, '')
 
-  return `fellowship/${issueOf(plan.ref)?.number ?? 'quest'}${slug === '' ? '' : `-${slug}`}`
+  return `fellowship/${refOf(plan.ref)?.number ?? 'quest'}${slug === '' ? '' : `-${slug}`}`
 }
 
 /** The worktree a branch is built in, under the project's folder. */
@@ -443,7 +445,7 @@ export type Retry = { attempt: number; by: string; answer: string; proof?: strin
 export type QuestOf = Pick<FellowshipQuest, 'kind' | 'ref' | 'url' | 'title' | 'branch'>
 
 /** The number a ref names: an issue's, or a review's pull request's. */
-const numberOf = (ref: string): number | undefined => issueOf(ref.replace(/^review:/, 'github:'))?.number
+const numberOf = (ref: string): number | undefined => refOf(ref.replace(/^review:/, 'github:'))?.number
 
 /** What a member is told of the quest it works for, and when it may hand its task back. */
 const questHead = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, member: FellowshipMember): string[] => {
@@ -584,7 +586,7 @@ export const commitMessage = (quest: QuestOf, plan: FellowshipPlan, task: Fellow
 
 /** What closes the issue from the pull request, on either forge. */
 export const closingLine = (ref: string): string => {
-  const issue = issueOf(ref)
+  const issue = refOf(ref)
 
   return issue === undefined ? '' : `Closes ${issue.repo}#${issue.number}`
 }
@@ -625,27 +627,11 @@ export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>,
     PR_TRAILER,
   ].join('\n')
 
-/** The forge a review's pull request is on, by its URL. */
-export const forgeOf = forgeOfUrl
-
-/**
- * The forge's CLI that answers a review thread with a reply, and the one that resolves it: a GitHub review thread by
- * its node id, a GitLab discussion by its id on the merge request (`number`), in the repository the command runs in.
- */
-export const threadArgv = (forge: 'github' | 'gitlab', number: number, thread: string, reply: string): { reply: string[]; resolve: string[] } =>
-  forge === 'github'
-    ? {
-        reply: ['gh', 'api', 'graphql', '-f', 'query=mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } } }', '-f', `id=${thread}`, '-f', `body=${reply}`],
-        resolve: ['gh', 'api', 'graphql', '-f', 'query=mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { isResolved } } }', '-f', `id=${thread}`],
-      }
-    : {
-        reply: ['glab', 'api', '-X', 'POST', `projects/:id/merge_requests/${number}/discussions/${thread}/notes`, '-f', `body=${reply}`],
-        resolve: ['glab', 'api', '-X', 'PUT', `projects/:id/merge_requests/${number}/discussions/${thread}`, '-f', 'resolved=true'],
-      }
-
-/** The forge's CLI that opens the pull request (a merge request on GitLab) from the quest's branch. */
-export const prArgv = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: FellowshipPlan): string[] =>
-  requestArgv({ forge: issueOf(plan.ref)?.forge ?? 'github', branch: quest.branch, base: quest.base, title: plan.title, body: prBody(quest, plan) })
+/** The pull request that closes a quest's issue, from its branch onto its base, and the forge it is opened on. */
+export const requestOf = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: FellowshipPlan): { forge: ForgeKind; request: NewRequest } => ({
+  forge: refOf(plan.ref)?.forge ?? 'github',
+  request: { branch: quest.branch, base: quest.base, title: plan.title, body: prBody(quest, plan) },
+})
 
 const KIND_LINE: Record<FellowshipKind, string> = { plan: 'plan', errand: 'errand', review: 'review' }
 

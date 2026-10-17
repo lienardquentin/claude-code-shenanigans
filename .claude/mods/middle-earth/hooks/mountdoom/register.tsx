@@ -2,11 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { MountdoomRelic } from '../../types'
-import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
+import { HOW_TO, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
-import { UNMODDED, errorText, forgeOfHost, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
+import { forgeOfHost } from '../../core/forge'
+import { UNMODDED, errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questRelics } from '../fellowship/register'
@@ -75,9 +76,7 @@ async function watch($: $): Promise<MountdoomRelic[]> {
   for (const relic of found) {
     // A pull request a mod did not open, the forge finds by its branch
     if (relic.pr === '') {
-      const listed = await run($, findArgv(forge, relic.branch))
-
-      relic.pr = listed.ok ? foundUrl(listed.out) : ''
+      relic.pr = await forgeIn($, forge).mergedFrom(relic.branch)
     }
 
     if (relic.pr === '') continue

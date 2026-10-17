@@ -1,5 +1,8 @@
 import type { EngineInterface } from 'claude-code'
 
+import { forgeOf, pullStateAt } from '../core/forge'
+import type { Forge, ForgeKind, NewRequest, PullState, Ran, Shell } from '../core/forge'
+
 // What the parts of the mod share: the project's folder, git and the forge, what a command changes, and how the
 // Fellowship reads Argonath's proof and judgement of a builder's change.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
@@ -20,7 +23,7 @@ export const WEIGHT_MEANS = {
   heavy: 'a change that crosses targets, reworks a design, or touches code that is risky to change',
 } as const
 
-// How long the forge is given to take a push or open a pull request
+// How long the forge is given to take a push
 const FORGE_TIMEOUT_MS = 120_000
 
 /**
@@ -214,61 +217,24 @@ export async function removeTree($: $, root: string, tree: string): Promise<{ ok
   return git($, ['worktree', 'remove', '--force', tree], root)
 }
 
-/**
- * The forge a host or a remote is, as every part reads it: GitLab where its name says so, GitHub otherwise (github.com,
- * or an Enterprise host).
- */
-export const forgeOfHost = (host: string): 'github' | 'gitlab' => (host.toLowerCase().includes('gitlab') ? 'gitlab' : 'github')
-
-/** Who a GitHub issue or comment is trusted from: one who can push to the repository. Anyone else's is the person's to weigh. */
-export const TRUSTED_ASSOCIATIONS: readonly string[] = ['OWNER', 'MEMBER', 'COLLABORATOR']
-
-// The least GitLab access that can push: Developer
-const GITLAB_DEVELOPER = 30
-
-/** Who can push to a GitLab project, from its `members/all` list; no one where the list does not read, so no one is trusted on a guess. */
-export const gitlabPushers = (members: string): string[] => {
-  try {
-    return (JSON.parse(members) as { username?: unknown; access_level?: unknown }[]).filter(one => typeof one.access_level === 'number' && one.access_level >= GITLAB_DEVELOPER).map(one => text(one.username).trim())
-  } catch {
-    return []
-  }
+/** A shell for the core, its commands run in a folder: the project's when none is named. */
+export function shellIn($: $, cwd?: string): Shell {
+  return { run: (argv, options) => ranIn($, argv, cwd, options?.timeoutMs) }
 }
 
-/** The forge a pull request (a merge request on GitLab) is on, by its URL: its path says so where it can, else its host. */
-export const forgeOfUrl = (url: string): 'github' | 'gitlab' =>
-  /\/-\/merge_requests\/\d+/.test(url) ? 'gitlab' : /\/pull\/\d+/.test(url) ? 'github' : forgeOfHost(/^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1] ?? url)
+/** A command run for the core: how it ended, and why on stderr when it could not be started. */
+async function ranIn($: $, argv: readonly string[], cwd: string | undefined, timeoutMs: number | undefined): Promise<Ran> {
+  return $.process.run([...argv], { cwd: cwd ?? (await rootOf($)), ...(timeoutMs !== undefined ? { timeoutMs } : {}) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+}
 
-/** A pull request as the forge says it stands: merged or not, in conflict with its base, and the branch and commit it is of. */
-export type PullState = { isMerged: boolean; isConflicting: boolean; branch: string; head: string }
+/** The forge of a kind, its commands run in a folder: the project's when none is named. */
+export function forgeIn($: $, kind: ForgeKind, cwd?: string): Forge {
+  return forgeOf(kind, shellIn($, cwd))
+}
 
-/**
- * Where a pull request stands, by its URL, as its forge's CLI says; or why that is not known (no URL, the CLI failed,
- * its answer does not read), for the caller to say rather than take for "not merged".
- */
+/** Where a pull request stands, by its URL, as its forge says; or why that is not known, never taken for "not merged". */
 export async function pullStateOf($: $, url: string): Promise<PullState | string> {
-  if (!/^https?:\/\//.test(url)) return `${url === '' ? 'no pull request is known' : `${url} is no pull request's URL`}`
-
-  const isGithub = forgeOfUrl(url) === 'github'
-  const ran = await $.process
-    .run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,mergeable,headRefName,headRefOid'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 })
-    .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
-
-  if (ran.exitCode !== 0) return `${isGithub ? 'gh' : 'glab'} could not read ${url}: ${(ran.stderr || ran.stdout).trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}`
-
-  try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; mergeable?: unknown; has_conflicts?: unknown; headRefName?: unknown; source_branch?: unknown; headRefOid?: unknown; sha?: unknown }
-
-    return {
-      isMerged: held.state === 'MERGED' || held.state === 'merged',
-      // GitHub answers UNKNOWN while it works the answer out: that is no conflict yet
-      isConflicting: isGithub ? held.state === 'OPEN' && held.mergeable === 'CONFLICTING' : held.state === 'opened' && held.has_conflicts === true,
-      branch: text(isGithub ? held.headRefName : held.source_branch),
-      head: text(isGithub ? held.headRefOid : held.sha),
-    }
-  } catch {
-    return `${isGithub ? 'gh' : 'glab'} answered nothing that reads for ${url}: ${ran.stdout.trim().slice(0, 120)}`
-  }
+  return pullStateAt(shellIn($), url)
 }
 
 /** Whether the forge says an open pull request can no longer merge into its base as it stands: it is in conflict. */
@@ -430,38 +396,13 @@ export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder
 /** `UNMODDED` as a shell script spells it: what the statues are shown, and what a change is known by, is what a commit takes. */
 export const UNMODDED_WORDS = UNMODDED.map(one => `'${one}'`).join(' ')
 
-/** The issue a ref is of, from Elrond's short spelling: `github:owner/repo#12`, `gitlab:git.corp.io/g/p#3`. */
-export const issueOf = (ref: string): { forge: 'github' | 'gitlab'; server: string; repo: string; number: number } | undefined => {
-  const found = /^(github|gitlab):(.+)#(\d+)$/.exec(ref.trim())
+/** Pushes a branch and opens a pull request from it on its forge: its URL, or why it could not be. */
+export async function openRequest($: $, kind: ForgeKind, request: NewRequest, cwd?: string): Promise<{ url: string } | string> {
+  const pushed = await push($, request.branch, cwd)
 
-  if (found === null) return undefined
+  if (!pushed.ok) return `${request.branch} could not be pushed: ${pushed.out || 'git failed'}`
 
-  const forge = found[1] as 'github' | 'gitlab'
-  const path = found[2] ?? ''
-  const head = path.split('/')[0] ?? ''
-  // A self-hosted forge is named by its host first, which a repository's owner never spells with a dot
-  const isHosted = head.includes('.') && path.split('/').length > 2
-
-  return { forge, server: isHosted ? head : `${forge}.com`, repo: isHosted ? path.slice(head.length + 1) : path, number: Number(found[3]) }
-}
-
-/** The forge's CLI that opens a pull request (a merge request on GitLab) from a branch onto another. */
-export const requestArgv = ({ forge, branch, base, title, body }: { forge: 'github' | 'gitlab'; branch: string; base: string; title: string; body: string }): string[] =>
-  forge === 'github'
-    ? ['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body]
-    : ['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes']
-
-/** Pushes a branch and opens a pull request from it with the forge's CLI: its URL, or why it could not be. */
-export async function openRequest($: $, branch: string, argv: readonly string[], cwd?: string): Promise<{ url: string } | string> {
-  const pushed = await push($, branch, cwd)
-
-  if (!pushed.ok) return `${branch} could not be pushed: ${pushed.out || 'git failed'}`
-
-  const opened = await run($, argv, FORGE_TIMEOUT_MS, cwd)
-
-  if (!opened.ok) return `The pull request could not be opened: ${argv[0] ?? ''} said ${opened.out || 'nothing'}`
-
-  return { url: [...opened.out.matchAll(/https?:\/\/\S+/g)].map(found => found[0]).pop() ?? '' }
+  return forgeIn($, kind, cwd).openRequest(request)
 }
 
 /** Pushes a branch to origin, tracking it, from a folder it is checked out in. */

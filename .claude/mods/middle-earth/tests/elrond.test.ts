@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { answered, answersOf, apiArgv, cliArgv, councilPrompt, isPlanPath, marked, planPathOf, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tidyPlan, unprovenRisks, withUnproven } from '../hooks/elrond/council'
+import { issueApiArgv, parseIssue, parseRemote, refText } from '../core/forge'
+import { answered, answersOf, councilPrompt, isPlanPath, marked, planPathOf, parsePlan, parseRef, planText, ready, tidyPlan, unprovenRisks, withUnproven } from '../hooks/elrond/council'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -65,16 +66,15 @@ describe('an issue named', () => {
     expect(parseRemote('ssh://git@git.gitlab.corp:2222/g/p.git')).toEqual({ forge: 'gitlab', server: 'git.gitlab.corp', repo: 'g/p' })
   })
 
-  test('is read through the forge\'s CLI, else its API', () => {
-    expect(cliArgv({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/p', number: 3 })).toEqual(['glab', 'issue', 'view', '3', '--repo', 'https://git.corp.io/g/p', '--comments', '--output', 'json'])
-    expect(apiArgv({ forge: 'gitlab', server: 'gitlab.com', repo: 'g/p', number: 3 }).issue.at(-1)).toBe('https://gitlab.com/api/v4/projects/g%2Fp/issues/3')
+  test('is read through the forge\'s API where its CLI cannot', () => {
+    expect(issueApiArgv({ forge: 'gitlab', server: 'gitlab.com', repo: 'g/p', number: 3 }).issue.at(-1)).toBe('https://gitlab.com/api/v4/projects/g%2Fp/issues/3')
   })
 
   test("sends a token only to the forge's own host or the origin's, so no ref carries it elsewhere", () => {
-    expect(apiArgv({ forge: 'github', server: 'github.com', repo: 'o/r', number: 1 }).issue[2]).toContain('GITHUB_TOKEN')
-    expect(apiArgv({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/p', number: 3 }, { forge: 'gitlab', server: 'git.corp.io', repo: 'g/p' }).issue[2]).toContain('GITLAB_TOKEN')
-    expect(apiArgv({ forge: 'github', server: 'evil.example', repo: 'o/r', number: 1 }, ORIGIN).issue[2]).not.toContain('TOKEN')
-    expect(apiArgv({ forge: 'gitlab', server: 'evil.example', repo: 'g/p', number: 3 }).members[2]).not.toContain('TOKEN')
+    expect(issueApiArgv({ forge: 'github', server: 'github.com', repo: 'o/r', number: 1 }).issue[2]).toContain('GITHUB_TOKEN')
+    expect(issueApiArgv({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/p', number: 3 }, { forge: 'gitlab', server: 'git.corp.io', repo: 'g/p' }).issue[2]).toContain('GITLAB_TOKEN')
+    expect(issueApiArgv({ forge: 'github', server: 'evil.example', repo: 'o/r', number: 1 }, ORIGIN).issue[2]).not.toContain('TOKEN')
+    expect(issueApiArgv({ forge: 'gitlab', server: 'evil.example', repo: 'g/p', number: 3 }).members[2]).not.toContain('TOKEN')
   })
 })
 
