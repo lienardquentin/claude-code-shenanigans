@@ -559,3 +559,27 @@ fn small_functions_alike_by_chance_are_left_alone() {
     assert_eq!(stdout(&output), "");
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn interfaces_of_one_name_in_two_languages_are_two_interfaces() {
+    let folder = folder("one-name-two-languages");
+    fs::write(
+        folder.join("store.rs"),
+        "pub trait Store {\n    fn save(&self, text: &str);\n}\n\nimpl Store for Disk {\n    fn save(&self, text: &str) {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("store.ts"),
+        "export interface Store {\n  save(text: string): void\n}\n\nexport class Disk implements Store {\n  save(text: string) {}\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "store.rs", "store.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "store.rs:1 single-use-abstraction: Store has one implementation, in store.rs:5; the code could use it directly\n\
+         store.ts:1 single-use-abstraction: Store has one implementation, in store.ts:5; the code could use it directly\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}

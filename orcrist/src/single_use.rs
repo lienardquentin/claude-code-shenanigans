@@ -10,15 +10,15 @@ use crate::lang::Language;
 use crate::project::{File, Project};
 use crate::rules::{Finding, visit};
 
-/// What the project holds of interfaces and functions, by their names.
+/// What the project holds of interfaces and functions, by the language of their code and their names.
 pub struct Index {
     /// Where each interface is implemented
-    implementations: HashMap<String, Vec<(PathBuf, usize)>>,
+    implementations: HashMap<(Language, String), Vec<(PathBuf, usize)>>,
     /// How many functions are named so
-    definitions: HashMap<String, usize>,
+    definitions: HashMap<(Language, String), usize>,
     /// What each call of a function so named passes, argument by argument: the literal's text, None for other than a
     /// literal
-    calls: HashMap<String, Vec<Vec<Option<String>>>>,
+    calls: HashMap<(Language, String), Vec<Vec<Option<String>>>>,
 }
 
 impl Index {
@@ -29,20 +29,21 @@ impl Index {
             calls: HashMap::new(),
         };
         for file in &project.files {
+            let named = |name: &str| (file.language.code_language(), name.to_string());
             visit(file.tree.root_node(), &mut |node| {
                 for interface in implemented(node, file) {
                     let line = node.start_position().row + 1;
                     index
                         .implementations
-                        .entry(interface.to_string())
+                        .entry(named(interface))
                         .or_default()
                         .push((file.path.clone(), line));
                 }
                 if let Some((name, _)) = file.function(node) {
-                    *index.definitions.entry(name.to_string()).or_default() += 1;
+                    *index.definitions.entry(named(name)).or_default() += 1;
                 }
                 if let Some((name, arguments)) = call(node, file) {
-                    index.calls.entry(name.to_string()).or_default().push(arguments);
+                    index.calls.entry(named(name)).or_default().push(arguments);
                 }
             });
         }
@@ -51,9 +52,10 @@ impl Index {
 }
 
 pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
+    let named = |name: &str| (file.language.code_language(), name.to_string());
     let mut findings = Vec::new();
     if let Some(name) = interface(node, file)
-        && let Some([(path, line)]) = index.implementations.get(name).map(Vec::as_slice)
+        && let Some([(path, line)]) = index.implementations.get(&named(name)).map(Vec::as_slice)
     {
         findings.push(Finding {
             line: node.start_position().row + 1,
@@ -65,8 +67,8 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
         });
     }
     if let Some((name, parameters)) = file.function(node)
-        && index.definitions.get(name) == Some(&1)
-        && let Some(calls) = index.calls.get(name).filter(|calls| calls.len() >= 2)
+        && index.definitions.get(&named(name)) == Some(&1)
+        && let Some(calls) = index.calls.get(&named(name)).filter(|calls| calls.len() >= 2)
     {
         for (position, parameter) in parameters.iter().enumerate() {
             let passed = |call: &Vec<Option<String>>| call.get(position).cloned().flatten();

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Rust,
     Python,
@@ -25,6 +25,14 @@ impl Language {
             "ts" => Some(Language::TypeScript),
             "vue" => Some(Language::Vue),
             _ => None,
+        }
+    }
+
+    /// The language the code of a file is written in, where names are shared: a Vue component's is TypeScript.
+    pub fn code_language(self) -> Language {
+        match self {
+            Language::Vue => Language::TypeScript,
+            language => language,
         }
     }
 

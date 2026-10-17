@@ -5,27 +5,30 @@ use std::path::PathBuf;
 
 use tree_sitter::Node;
 
-use crate::lang::declared;
+use crate::lang::{Language, declared};
 use crate::project::{File, Project};
 use crate::rules::{Finding, visit};
 
 /// Pieces of code below which two functions alike are alike by chance: a getter, a call passed on.
 const SMALLEST: usize = 24;
 
-/// Each function of the project worth comparing, by what it does.
+/// What a function does, in the language of its code: see `shape`.
+type Shape = (Language, Vec<String>);
+
+/// Each function of the project worth comparing, by what it does: where it is and its name.
 pub struct Index {
-    functions: HashMap<Vec<String>, Vec<(PathBuf, usize, String)>>,
+    functions: HashMap<Shape, Vec<(PathBuf, usize, String)>>,
 }
 
 impl Index {
     pub fn build(project: &Project) -> Index {
-        let mut functions: HashMap<Vec<String>, Vec<(PathBuf, usize, String)>> = HashMap::new();
+        let mut functions: HashMap<Shape, Vec<(PathBuf, usize, String)>> = HashMap::new();
         for file in &project.files {
             visit(file.tree.root_node(), &mut |node| {
                 if let Some((name, shape)) = shape(node, file) {
                     let line = node.start_position().row + 1;
                     functions
-                        .entry(shape)
+                        .entry((file.language.code_language(), shape))
                         .or_default()
                         .push((file.path.clone(), line, name.to_string()));
                 }
@@ -40,7 +43,7 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
     let line = node.start_position().row + 1;
     let (path, other_line, other) = index
         .functions
-        .get(&shape)?
+        .get(&(file.language.code_language(), shape))?
         .iter()
         .find(|(path, other_line, _)| (path, *other_line) != (&file.path, line))?;
     Some(Finding {
