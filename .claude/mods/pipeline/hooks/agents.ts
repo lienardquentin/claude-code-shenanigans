@@ -58,6 +58,13 @@ export async function remember($: $, agentId: string, agent: SentAgent): Promise
   await update($, agents, was => Object.fromEntries([...Object.entries(was).filter(([id]) => id !== agentId), [agentId, kept] as const].slice(-KEPT)))
 }
 
+/** Stops an agent the mod sent: every tool it calls from now on is refused with why, so it ends its turn. */
+export async function stopAgent($: $, agentId: string, why: string): Promise<void> {
+  const was = known.get(agentId)
+
+  if (was !== undefined) await remember($, agentId, { ...was, stopped: why })
+}
+
 /** The agent of an id, as the record holds it; nothing for one the mod neither sent nor saw spawned in a folder. */
 export const agentOf = (agentId: string | undefined): SentAgent | undefined => (agentId === undefined ? undefined : known.get(agentId))
 
@@ -140,6 +147,9 @@ const testWriterRefusal = (agent: SentAgent, given: Call): string | undefined =>
 /** Why an agent the mod sent may not make a call; nothing when its role allows it. */
 export const refusalOf = (agent: SentAgent, e: unknown): string | undefined => {
   const given = e as Call
+
+  // An agent stopped is refused whatever it calls: the engine has no call that ends a subagent's turn
+  if (agent.stopped !== undefined) return `${agent.stopped} Call no more tools: end your turn now, saying what you built so far.`
 
   // An agent seen spawned in a folder, of no type of the mod's, is the session's to hold
   return agent.role === 'other' ? undefined : (machineRefusal(agent, given) ?? roleRefusal(agent, given))
