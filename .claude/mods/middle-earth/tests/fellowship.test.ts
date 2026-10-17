@@ -186,10 +186,10 @@ describe("a quest's course", () => {
 })
 
 describe('every agent the mod sends', () => {
-  const sent = (role: 'member' | 'statue' | 'council' | 'galadriel' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'galadriel' ? TREE : CWD })
+  const sent = (role: 'member' | 'statue' | 'council' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
 
   test('stays in the sandbox, out of the home folder and the private folders of the machine, and runs nothing it downloads', () => {
-    for (const role of ['member', 'statue', 'council', 'galadriel'] as const) {
+    for (const role of ['member', 'statue', 'council', 'test-writer'] as const) {
       for (const call of [
         { tool: 'Bash', command: 'cargo test', dangerouslyDisableSandbox: true },
         { tool: 'Bash', command: 'cat ~/.ssh/id_rsa' },
@@ -315,7 +315,7 @@ describe('a member', () => {
     expect(judged).not.toContain('<proof>')
   })
 
-  test("is sent with Galadriel's tests to make pass, and those that cannot run here apart, owed no passing", () => {
+  test("is sent with the tests written first to make pass, and those that cannot run here apart, owed no passing", () => {
     const made = plan()
     const vision = { taskId: 1, tests: [{ file: 'orcrist/tests/cli.rs', name: 'mtime_untouched' }], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'owner_check', why: 'needs root' }], red: 'mtime changed' }
     const prompt = companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, vision)
@@ -448,7 +448,7 @@ const PROVED = JSON.stringify({ label: 'gondor', from: { ref: 'HEAD', sha: 'c0ff
 /** The test that pins the kept request, once a member has marked it. */
 const MARKED = [`# sting: ${RUN}`, 'def test_burned(client):', '    assert client.get("/beacons/minas-tirith").json()["burned_for"] == 3'].join('\n')
 
-/** The lines Galadriel adds, which stay locked until committed. */
+/** The lines the test writer adds, which stay locked until committed. */
 const LOCKED = ['def test_burned_for(client):', '    body = client.get("/beacons/minas-tirith").json()', '    assert body["burned_for"] == 3']
 
 /** What she answers once she has shown them red. */
@@ -488,14 +488,14 @@ const STATUES = ['isildur', 'anarion']
 /**
  * Stands for the machine, the forge and the engine beneath the mod. What Argonath proves, what the statues find and
  * what the Mirror shows are queued here, each as the real part will read it: the service handler's answer and the test
- * file a member marked, the findings a statue ends its turn with, what Galadriel writes and answers.
+ * file a member marked, the findings a statue ends its turn with, what the test writer writes and answers.
  */
 const machine = (on: On) => {
   const world = {
     ran: [] as string[],
     // Where each git command ran: the person's checkout, or a quest's worktree
     at: [] as { line: string; cwd: string }[],
-    // The members sent, the statues sent, and Galadriel each time she gazed
+    // The members sent, the statues sent, and the test writer each time she gazed
     spawned: [] as Record<string, unknown>[],
     judged: [] as Record<string, unknown>[],
     gazed: [] as Record<string, unknown>[],
@@ -520,7 +520,7 @@ const machine = (on: On) => {
     mirror: ['empty'] as Vision[],
     // What the proof at hand plays: what the last service handler's run was queued as
     proving: 'pinned' as Proof,
-    // Whether Galadriel wrote her tests in the worktree, and whether a member took a line of them out
+    // Whether the test writer wrote her tests in the worktree, and whether a member took a line of them out
     wrote: false,
     tampered: false,
     // Each change a member made: what Argonath's fingerprint of the change counts
@@ -611,7 +611,7 @@ const machine = (on: On) => {
     }
     if (line.startsWith('git ls-files -co')) return answer('beacons/tests/test_gondor.py\n')
 
-    // Lothlórien: what Galadriel wrote in the worktree
+    // Lothlórien: what the test writer wrote in the worktree
     if (line === 'git status --porcelain --untracked-files=all') return answer(world.wrote ? ' M beacons/tests/test_gondor.py\n' : '')
     if (line.startsWith('git diff -U0')) return answer(world.wrote ? ['diff --git a/beacons/tests/test_gondor.py b/beacons/tests/test_gondor.py', '--- a/beacons/tests/test_gondor.py', '+++ b/beacons/tests/test_gondor.py', '@@ -3,0 +4,3 @@', ...LOCKED.map(one => `+${one}`)].join('\n') : '')
 
@@ -749,7 +749,7 @@ const machine = (on: On) => {
     if (STATUES.includes(name)) {
       world.judged.push(given)
       world.sitting.push(agentId)
-    } else if (name.startsWith('galadriel')) {
+    } else if (name.startsWith('test-writer')) {
       world.gazed.push(given)
       world.gazing.push(agentId)
     } else {
@@ -764,7 +764,7 @@ const machine = (on: On) => {
     return { model: 'opus', agentId } as never
   })
   // Core alone mints an agent's id: each is known by the type it runs as
-  on('agent.list', () => ({ value: [...Object.keys(MEMBERS), ...STATUES, 'galadriel', 'galadriel-swift'].map(name => ({ id: `${name}-1`, description: 'x', type: `middle-earth:${name}`, status: 'running' })).concat([{ id: 'someone-else', description: 'x', type: 'Explore', status: 'running' }]) }) as never)
+  on('agent.list', () => ({ value: [...Object.keys(MEMBERS), ...STATUES, 'test-writer', 'test-writer-light'].map(name => ({ id: `${name}-1`, description: 'x', type: `middle-earth:${name}`, status: 'running' })).concat([{ id: 'someone-else', description: 'x', type: 'Explore', status: 'running' }]) }) as never)
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
 
@@ -843,7 +843,7 @@ const start = async ($: Engine, world: World) => {
 }
 
 /**
- * Lets the clock do what was asked of it. Galadriel and the statues end their turns as the world has them: she shows
+ * Lets the clock do what was asked of it. the test writer and the statues end their turns as the world has them: she shows
  * what is queued; the statues find what is queued, Isildur the minor finding of a pass that has one, the last sent the
  * blocking one of a failure.
  */
@@ -1271,7 +1271,7 @@ describe('fellowship', () => {
     expect(await call($, 'mcp__middle-earth__set_out')).toMatch(/sets out on github:.*#12/)
   })
 
-  test('has Galadriel write the tests of a task that is not light first, in the worktree, and sends its member to make them pass', async ($, on) => {
+  test('has the test writer write the tests of a task that is not light first, in the worktree, and sends its member to make them pass', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
@@ -1279,14 +1279,14 @@ describe('fellowship', () => {
     await call($, 'mcp__middle-earth__set_out')
     await settle($, world)
 
-    expect(world.gazed[0]).toMatchObject({ subagent_type: 'middle-earth:galadriel-swift', cwd: TREE })
+    expect(world.gazed[0]).toMatchObject({ subagent_type: 'middle-earth:test-writer-light', cwd: TREE })
     expect(String(world.gazed[0]?.prompt)).toMatch(/<purpose>\nTask 1 of the plan for github:.*: Answer the seconds burned\.[\s\S]*Done when: A test reads burned_for/)
     expect(world.spawned).toHaveLength(1)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
-    expect(String(world.spawned[0]?.prompt)).toMatch(/Galadriel's tests show what is to come[\s\S]*- beacons\/tests\/test_gondor\.py: test_burned_for\nHow they failed:\n<red>\nFAILED test_burned_for - KeyError\n<\/red>/)
+    expect(String(world.spawned[0]?.prompt)).toMatch(/The tests written first show what is to come[\s\S]*- beacons\/tests\/test_gondor\.py: test_burned_for\nHow they failed:\n<red>\nFAILED test_burned_for - KeyError\n<\/red>/)
 
     // Gimli changes one of them, saying why
-    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', why: 'It asserted seconds as a string.', agentId: 'gimli-1' })).toMatch(/unlocked/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'It asserted seconds as a string.', agentId: 'gimli-1' })).toMatch(/unlocked/)
     await ends($, 'gimli-1', 'Made them pass.', world)
     await settle($, world)
 
@@ -1305,8 +1305,8 @@ describe('fellowship', () => {
     await call($, 'mcp__middle-earth__set_out')
     await settle($, world)
 
-    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', test: 'test_nothing_here', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/is none of Galadriel's red tests: test_burned_for/)
-    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', test: 'test_burned_for', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_nothing_here', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/is none of the red tests written first: test_burned_for/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_burned_for', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
     await ends($, 'gimli-1', 'Made what runs here pass.', world)
     await settle($, world)
 
@@ -1331,7 +1331,7 @@ describe('fellowship', () => {
     // Task 2 is standard: she gazes, shows nothing to test, and it is built as it is
     expect(world.gazed).toHaveLength(1)
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
-    expect(String(world.spawned[1]?.prompt)).not.toContain("Galadriel's tests")
+    expect(String(world.spawned[1]?.prompt)).not.toContain('The tests written first')
     // With none of hers, no test is owed a pass beyond the proof's own
     expect(String(world.jobs.prove[0]?.test)).not.toContain('test_burned_for')
   })
@@ -1859,7 +1859,7 @@ describe('the hand-offs of a task', () => {
     expect(world.ran.filter(line => line.startsWith('git commit -m')).at(-1)).toContain('Not proven by the Argonath, which has no handler for anor')
   })
 
-  test('send the task a rung up when a member took lines out of Galadriel\'s tests with no reason', async ($, on) => {
+  test('send the task a rung up when a member took lines out of the test writer\'s tests with no reason', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
@@ -1873,13 +1873,13 @@ describe('the hand-offs of a task', () => {
     await settle($, world)
 
     // Gimli is sent back once to put them back, then the task goes a rung up
-    expect(world.sent).toEqual([{ agentId: 'gimli-1', text: expect.stringContaining("- Lothlórien, beacons/tests/test_gondor.py: locked lines of Galadriel's tests") }])
+    expect(world.sent).toEqual([{ agentId: 'gimli-1', text: expect.stringContaining("- Tests first, beacons/tests/test_gondor.py: locked lines of the tests written first") }])
     await ends($, 'gimli-1', 'Left them as they were.', world)
     await settle($, world)
 
     expect(world.judged).toHaveLength(0)
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:aragorn' })
-    expect(String(world.spawned[1]?.prompt)).toMatch(/<findings>\n- Lothlórien, beacons\/tests\/test_gondor\.py: locked lines of Galadriel's tests were taken out with no reason given \(`assert body\["burned_for"\] == 3`\)/)
+    expect(String(world.spawned[1]?.prompt)).toMatch(/<findings>\n- Tests first, beacons\/tests\/test_gondor\.py: locked lines of the tests written first were taken out with no reason given \(`assert body\["burned_for"\] == 3`\)/)
   })
 
   test('have both statues judge a plan\'s whole branch in its worktree before it sails, and hold it back when they find what blocks it', async ($, on) => {

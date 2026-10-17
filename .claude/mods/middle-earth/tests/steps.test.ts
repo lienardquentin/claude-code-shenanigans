@@ -26,8 +26,8 @@ describe('a proof of a task', () => {
   test('takes what was cut from the tests written first with no reason as a blocking finding', () => {
     const step = afterProof(proof(), { taskId: 2 }, [{ file: 'tests/test_gondor.py', lines: ['    assert burned == 3', '    assert lit'] }])
 
-    expect(step).toMatchObject({ kind: 'again', line: "1 of Galadriel's test file changed with no reason" })
-    expect(step.kind === 'again' && step.why.findings?.[0]).toMatch(/^- Lothlórien, tests\/test_gondor\.py: locked lines .*`assert burned == 3`, `assert lit`/)
+    expect(step).toMatchObject({ kind: 'again', line: '1 file of the tests written first changed with no reason' })
+    expect(step.kind === 'again' && step.why.findings?.[0]).toMatch(/^- Tests first, tests\/test_gondor\.py: locked lines .*`assert burned == 3`, `assert lit`/)
   })
 
   test("commits a lane's change rebased since it passed, with the minor findings it passed with", () => {
@@ -125,7 +125,7 @@ describe("a builder's brief", () => {
 describe('a task whose tests were written first', () => {
   const plan = parsePlan(JSON.stringify({ ref: 'github:o/r#12', url: '', title: 'T', summary: '', approach: '', questions: [], decided: [], risks: [], accepted: [], at: 1, tasks: [{ id: 2, title: 'Answer the seconds burned', why: '', steps: [], files: [], dependsOn: [], acceptance: '', weight: 'standard', state: 'todo' }] })) as Plan
 
-  test('waits while she gazes, and is built with her tests once she has shown them', () => {
+  test('waits while the test writer writes, and is built with its tests once it has shown them', () => {
     expect(afterGaze({ state: 'gazing' }, plan, 2, plan.ref)).toEqual({ kind: 'wait' })
 
     const shown = afterGaze({ state: 'shown', tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }], unrun: [], red: '1 failed' }, plan, 2, plan.ref)
@@ -137,9 +137,9 @@ describe('a task whose tests were written first', () => {
     expect(afterGaze({ state: 'empty', why: 'it only renames a field' }, plan, 2, plan.ref)).toMatchObject({ kind: 'build', vision: null, said: 'Nothing to test first in task 2: it only renames a field' })
   })
 
-  test('is sent again where her tests could not be read, and is lost where it left the plan', () => {
-    expect(afterGaze({ state: 'unreadable', why: 'the Mirror did not answer' }, plan, 2, plan.ref)).toMatchObject({ kind: 'clouded', why: 'The Mirror is clouded on task 2: the Mirror did not answer. Send it again, and Galadriel gazes anew.' })
-    expect(afterGaze({ state: 'shown' }, plan, 9, plan.ref)).toEqual({ kind: 'lost', why: 'The task the Mirror showed is not in the plan of github:o/r#12 any more.' })
+  test('is sent again where its tests could not be read, and is lost where it left the plan', () => {
+    expect(afterGaze({ state: 'unreadable', why: 'the test writer did not answer' }, plan, 2, plan.ref)).toMatchObject({ kind: 'clouded', why: 'The tests written first of task 2 could not be read: the test writer did not answer. Send it again, and the test writer writes them anew.' })
+    expect(afterGaze({ state: 'shown' }, plan, 9, plan.ref)).toEqual({ kind: 'lost', why: 'The task its tests were written for is not in the plan of github:o/r#12 any more.' })
     expect(afterGaze({ state: 'shown' }, 'No plan is kept.', 2, plan.ref)).toMatchObject({ kind: 'lost' })
   })
 })

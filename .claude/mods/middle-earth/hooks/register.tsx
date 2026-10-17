@@ -7,14 +7,14 @@ import { argonathView, endedArgonath, pumpArgonath, registerArgonath, sectionOfA
 import { followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
 import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, spentFellowship, startFellowship } from './fellowship/register'
-import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerLothlorien, sectionOfLothlorien, startLothlorien } from './lothlorien/register'
+import { endedTestsFirst, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesView, registerIssues, startIssues } from './issues/register'
 import { carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 
 // The Middle-earth mod: one plugin, each of its parts a folder of its own (the issues pane lists the issues, Elrond plans, the
-// Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the review follow-up reads review, the cleanup
+// Fellowship builds, the test writer writes tests first, the Argonath prove and judge, the review follow-up reads review, the cleanup
 // clears what is merged). The parts call one another as functions; the agents they send are registered, kept and guarded in one place.
 // An event every part hears is hooked here once, and handed to each part in turn; a part hooks what is its own alone.
 
@@ -23,7 +23,7 @@ const PANES = {
   issues: issuesView,
   elrond: elrondView,
   fellowship: fellowshipView,
-  lothlorien: lothlorienView,
+  'tests-first': testsFirstView,
   argonath: argonathView,
   'follow-up': followUpView,
   cleanup: cleanupView,
@@ -32,7 +32,7 @@ const PANES = {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `lothlorien` the tests written first (/mirror), `argonath` the proof of the change (/argonath), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `tests-first` the tests written first (/tests), `argonath` the proof of the change (/argonath), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
 } as const
 
@@ -47,7 +47,7 @@ async function lost($: EngineInterface, agentId: string): Promise<MiddleEarthAge
   if (role === undefined) return undefined
 
   const root = await rootOf($)
-  const agent = (role === 'member' ? await memberFound($, agentId) : role === 'galadriel' ? await galadrielFound($, agentId) : role === 'council' ? await councilFound($, agentId) : undefined) ?? { role, root, tree: root }
+  const agent = (role === 'member' ? await memberFound($, agentId) : role === 'test-writer' ? await testWriterFound($, agentId) : role === 'council' ? await councilFound($, agentId) : undefined) ?? { role, root, tree: root }
 
   await remember($, agentId, agent)
 
@@ -95,7 +95,7 @@ export const register: Register = on => {
     await $.tool.register(PUMP_TOOL).catch(() => undefined)
 
     await startElrond($)
-    await startLothlorien($)
+    await startTestsFirst($)
     await startArgonath($)
     await startFellowship($)
     await startFollowUp($)
@@ -118,7 +118,7 @@ export const register: Register = on => {
     if (agent !== undefined && agent.role !== 'other') await spentFellowship($, agent, e).catch(stumbled($, 'the spend record'))
 
     await endedElrond($, e).catch(stumbled($, 'Elrond'))
-    await endedLothlorien($, e).catch(stumbled($, 'Lothlórien'))
+    await endedTestsFirst($, e).catch(stumbled($, 'Tests first'))
     await endedArgonath($, e).catch(stumbled($, 'the Argonath'))
     await endedFellowship($, e).catch(stumbled($, 'the Fellowship'))
 
@@ -142,7 +142,7 @@ export const register: Register = on => {
     const added = [
       await sectionOfElrond($).catch(stumbled($, 'Elrond')),
       await sectionOfFellowship($).catch(stumbled($, 'the Fellowship')),
-      await sectionOfLothlorien($).catch(stumbled($, 'Lothlórien')),
+      await sectionOfTestsFirst($).catch(stumbled($, 'Tests first')),
       await sectionOfArgonath($).catch(stumbled($, 'the Argonath')),
       sectionOfLag(),
     ].filter(one => one !== undefined)
@@ -161,7 +161,7 @@ export const register: Register = on => {
     return started
   }).catch((_$, e, next) => next(e))
 
-  // The one guard, then the lock on Galadriel's tests. Where it could not look, the record alone holds each agent
+  // The one guard, then the lock on the tests written first. Where it could not look, the record alone holds each agent
   on('tool.call', async ($, e, next) => {
     const agentId = (e as { agentId?: string }).agentId
     const agent = agentId === undefined ? undefined : (agentOf(agentId) ?? (await lost($, agentId)))
@@ -176,7 +176,7 @@ export const register: Register = on => {
 
   registerOffers(on)
   registerElrond(on)
-  registerLothlorien(on)
+  registerTestsFirst(on)
   registerArgonath(on)
   registerFellowship(on)
   registerFollowUp(on)

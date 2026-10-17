@@ -525,7 +525,7 @@ export const companionPrompt = (quest: QuestOf, plan: Plan, task: Task, member: 
     ...(vision !== undefined && vision !== null && vision.tests.length > 0
       ? [
           '',
-          "Galadriel's tests show what is to come: she wrote them from the task before anything was built, and they fail today. Make them pass. They are locked: change one only if it is wrong, after calling mcp__middle-earth__amend with its file and why; the reason goes to the statues. One that cannot run here (it needs root, another system) is named to it with its file, test and why: it stays as written, and is owed no passing.",
+          "The tests written first show what is to come: the test writer wrote them from the task before anything was built, and they fail today. Make them pass. They are locked: change one only if it is wrong, after calling mcp__middle-earth__amend_test with its file and why; the reason goes to the statues. One that cannot run here (it needs root, another system) is named to it with its file, test and why: it stays as written, and is owed no passing.",
           ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
           ...(vision.red !== '' ? ['How they failed:', '<red>', vision.red, '</red>'] : []),
         ]
@@ -572,7 +572,7 @@ export const purposeOf = (quest: QuestOf, plan: Plan, task: Task, amendments: re
     ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
     ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
     ...(decisionsOf(plan).length > 0 ? ['Decided by the person: a change that goes against one of these, where this task touches it, does not do what was asked.', ...decisionsOf(plan).map(one => `- ${one.text} → ${one.answer}`)] : []),
-    ...(amendments.length > 0 ? ["Galadriel wrote this task's tests before it was built; the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:", ...amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
+    ...(amendments.length > 0 ? ["The test writer wrote this task's tests before it was built; the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:", ...amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
     ...(plan.tasks.some(one => one.id !== task.id && !isSettled(one)) ? ['Left to later tasks, and so not owed by this change:', ...plan.tasks.filter(one => one.id !== task.id && !isSettled(one)).map(one => `- ${one.id}. ${one.title}`)] : []),
   ].join('\n')
 }
@@ -678,8 +678,8 @@ export const questText = (quest: Quest, plan: Plan | null, cost = ''): string =>
     `It is built in ${quest.tree}.`,
     // A stuck quest keeps its march, to be sent again, but its member is out no more
     ...(quest.march !== null ? [`${MEMBERS[quest.march.member].title} ${quest.phase === 'stuck' ? 'is back from' : 'is on'} task ${quest.march.taskId}, "${quest.march.title}" (try ${quest.march.attempt}).`] : []),
-    ...(quest.phase === 'gazing' ? [`Galadriel gazes on task ${quest.gazed ?? ''}: its tests are written first.`] : []),
-    ...(quest.vision !== undefined && quest.vision !== null && quest.vision.tests.length > 0 ? [`The Mirror showed ${quest.vision.tests.length} red ${quest.vision.tests.length === 1 ? 'test' : 'tests'} for task ${quest.vision.taskId}: ${quest.vision.tests.map(test => test.name).join(', ')}.`] : []),
+    ...(quest.phase === 'gazing' ? [`The test writer writes the tests of task ${quest.gazed ?? ''} first.`] : []),
+    ...(quest.vision !== undefined && quest.vision !== null && quest.vision.tests.length > 0 ? [`The tests written first showed ${quest.vision.tests.length} red ${quest.vision.tests.length === 1 ? 'test' : 'tests'} for task ${quest.vision.taskId}: ${quest.vision.tests.map(test => test.name).join(', ')}.`] : []),
     ...(quest.proofLine !== '' ? [`Last proof: ${quest.proofLine}.`] : []),
     ...(quest.verdictLine !== '' ? [`The statues: ${quest.verdictLine}.`] : []),
     ...(plan === null
@@ -820,9 +820,9 @@ export const afterProof = (verdict: ProofVerdict, out: { taskId: number; isRebas
 
   // What was taken out of the tests written first without a reason blocks the change, as a finding would
   if (tampered.length > 0) {
-    const findings = tampered.map(one => `- Lothlórien, ${one.file}: locked lines of Galadriel's tests were taken out with no reason given (${one.lines.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). Put them back, or call mcp__middle-earth__amend with the file and why before changing them.`)
+    const findings = tampered.map(one => `- Tests first, ${one.file}: locked lines of the tests written first were taken out with no reason given (${one.lines.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). Put them back, or call mcp__middle-earth__amend_test with the file and why before changing them.`)
 
-    return { kind: 'again', why: { findings }, line: `${findings.length} of Galadriel's test ${findings.length === 1 ? 'file' : 'files'} changed with no reason` }
+    return { kind: 'again', why: { findings }, line: `${findings.length} ${findings.length === 1 ? 'file' : 'files'} of the tests written first changed with no reason` }
   }
 
   // A lane's change the reviewers passed, rebased since onto its quest's branch, lands as it passed
@@ -904,21 +904,21 @@ export const briefFor = (asked: { quest: QuestOf; plan: Plan; task: Task; attemp
   return { builder, description: `${MEMBERS[builder].title}: task ${asked.task.id}, ${asked.task.title}`, prompt: companionPrompt(asked.quest, asked.plan, asked.task, builder, asked.retry, asked.vision, asked.standards) }
 }
 
-/** What the Mirror showed of a task's tests, or why it could not be read at all. */
+/** What the tests written first showed of a task, or why they could not be read at all. */
 export type Seen = Shown | { state: 'unreadable'; why: string }
 
 /**
  * What a task comes to once the test writer has shown its tests, or shown that there are none: still waited on while
- * she gazes; lost where the task is no longer in the work; clouded, to be sent again, where her tests could not be
- * read; else built, with the tests to pass where she wrote any. `gazed` is the task she was sent on.
+ * it writes; lost where the task is no longer in the work; clouded, to be sent again, where its tests could not be
+ * read; else built, with the tests to pass where it wrote any. `gazed` is the task it was sent on.
  */
 export const afterGaze = (shown: Seen, made: Plan | string, gazed: number | undefined, ref: string): { kind: 'wait' } | { kind: 'lost'; why: string } | { kind: 'clouded'; task: Task; why: string } | { kind: 'build'; plan: Plan; task: Task; vision: Vision | null; said: string } => {
   if (shown.state === 'gazing') return { kind: 'wait' }
 
   const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === gazed)
 
-  if (typeof made === 'string' || task === undefined) return { kind: 'lost', why: `The task the Mirror showed is not in the plan of ${ref} any more.` }
-  if (shown.state === 'clouded' || shown.state === 'unreadable') return { kind: 'clouded', task, why: `The Mirror is clouded on task ${task.id}: ${shown.why ?? ''}. Send it again, and Galadriel gazes anew.` }
+  if (typeof made === 'string' || task === undefined) return { kind: 'lost', why: `The task its tests were written for is not in the plan of ${ref} any more.` }
+  if (shown.state === 'clouded' || shown.state === 'unreadable') return { kind: 'clouded', task, why: `The tests written first of task ${task.id} could not be read: ${shown.why ?? ''}. Send it again, and the test writer writes them anew.` }
 
   return {
     kind: 'build',

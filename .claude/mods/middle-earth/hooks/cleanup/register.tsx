@@ -12,7 +12,7 @@ import { errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from 
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questLeftovers } from '../fellowship/register'
-import { forgetVisions } from '../lothlorien/register'
+import { forgetTestsFirst } from '../tests-first/register'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -48,7 +48,7 @@ const TOOLS = [
 /** Has a part forget what it keeps of a leftover, and says whether it did. */
 async function forgets($: $, keeper: 'build' | 'follow-up' | 'planner' | 'tests-first', leftover: Pick<Leftover, 'ref' | 'pr'>): Promise<boolean> {
   const forgot =
-    keeper === 'build' ? forgetQuest($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetVisions($, leftover.ref)
+    keeper === 'build' ? forgetQuest($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetTestsFirst($, leftover.ref)
 
   return (await forgot.catch(() => ({ forgotten: false }))).forgotten
 }

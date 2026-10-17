@@ -177,7 +177,7 @@ export type FellowshipKind = 'plan' | 'errand' | 'review'
 /**
  * Where the quest stands:
  * - `ready`: no member out; the next task waits for the person, or goes at once on an auto quest
- * - `gazing`: Galadriel writes the task's tests first, red, before a member builds it (a plan's tasks that are not light)
+ * - `gazing`: the test writer writes the task's tests first, red, before a member builds it (a plan's tasks that are not light)
  * - `marching`: a member builds a task
  * - `proving`: Argonath proves what the member built
  * - `judging`: every changed run is pinned; the statues of the Argonath judge the change, which is committed once they pass it
@@ -188,7 +188,7 @@ export type FellowshipKind = 'plan' | 'errand' | 'review'
  */
 export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'warding' | 'sailed'
 
-/** What the Mirror showed of a task: Galadriel's red tests, which its member makes pass. */
+/** What the tests written first showed of a task: the test writer's red tests, which its member makes pass. */
 export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red: string }
 
 /** One member out on a task. */
@@ -272,9 +272,9 @@ export type FellowshipQuest = {
   proofLine: string
   /** The statues' verdict on the change, in a line; empty before they judge it. */
   verdictLine: string
-  /** What the Mirror showed of the task at hand; null before it gazed, for a light task, or when it showed nothing. */
+  /** What the tests written first showed of the task at hand; null before it gazed, for a light task, or when it showed nothing. */
   vision?: FellowshipVision | null
-  /** The task the Mirror last gazed on: a task tried again keeps its tests. */
+  /** The task the tests written first last gazed on: a task tried again keeps its tests. */
   gazed?: number
   commits: FellowshipCommit[]
   /** The pull or merge request, once opened; a review's from the start. */
@@ -293,54 +293,54 @@ export type FellowshipQuest = {
 /** Something a press, a command or a turn asked the clock to do for a quest, outside the hook that asked. */
 export type FellowshipWanted = 'set out' | 'set out auto' | 'errand' | 'errand auto' | 'next' | 'prove' | 'sail' | 'abandon'
 
-// --- Lothlórien: Galadriel's tests written first -------------------------------------------------------------------------
+// --- tests first: the test writer's tests written first -------------------------------------------------------------------------
 
 /**
  * Where a vision stands:
- * - `gazing`: Galadriel writes the tests the purpose asks for
- * - `shown`: her tests are written and fail as they should, red; they are locked until HEAD moves past them
+ * - `gazing`: the test writer writes the tests the purpose asks for
+ * - `shown`: its tests are written and fail as they should, red; they are locked until HEAD moves past them
  * - `empty`: the purpose holds no behaviour a test can show; nothing was written
  * - `clouded`: she showed nothing that holds: no red tests, a file that is not a test, or no answer
  */
-export type LothlorienState = 'gazing' | 'shown' | 'empty' | 'clouded'
+export type TestsFirstState = 'gazing' | 'shown' | 'empty' | 'clouded'
 
-/** One test Galadriel wrote. */
-export type LothlorienTest = { file: string; name: string }
+/** One test the test writer wrote. */
+export type WrittenTest = { file: string; name: string }
 
-/** A test Galadriel wrote that cannot run where she gazed (root alone, another system, ignored unless asked), and why. */
-export type LothlorienUnrun = LothlorienTest & { why: string; by?: string }
+/** A test the test writer wrote that cannot run where they were written (root alone, another system, ignored unless asked), and why. */
+export type UnrunTest = WrittenTest & { why: string; by?: string }
 
-/** Lines Galadriel added to a test file, kept as they are until HEAD moves past them. */
-export type LothlorienBlock = { file: string; lines: string[] }
+/** Lines the test writer added to a test file, kept as they are until HEAD moves past them. */
+export type LockedBlock = { file: string; lines: string[] }
 
-/** A change to her tests, and why it was made. */
-export type LothlorienAmendment = { file: string; why: string; by: string; at: number }
+/** A change to its tests, and why it was made. */
+export type Amendment = { file: string; why: string; by: string; at: number }
 
-/** One gaze into the Mirror: the tests a purpose asks for, written before what they test. */
-export type LothlorienVision = {
+/** One gaze into the tests written first: the tests a purpose asks for, written before what they test. */
+export type TestsFirst = {
   purpose: string
-  /** The issue it was gazed for, as the mod that asked names it (`github:owner/repo#12`); none from /mirror. */
+  /** The issue it was gazed for, as the mod that asked names it (`github:owner/repo#12`); none from /tests. */
   ref?: string
-  /** Who asked: a mod through the tool, or the person through /mirror, whose Claude is told what she showed. */
+  /** Who asked: a mod through the tool, or the person through /tests, whose Claude is told what it showed. */
   by: 'tool' | 'command'
   /** The id her spawn answered; empty where it answered none, and she is known by her type. */
   agentId: string
-  state: LothlorienState
-  /** HEAD when she gazed: once it moves, her tests are committed, and the lock is lifted. */
+  state: TestsFirstState
+  /** HEAD when they were written: once it moves, its tests are committed, and the lock is lifted. */
   head: string
   /** The tests she showed red: a change is owed their passing. */
-  tests: LothlorienTest[]
+  tests: WrittenTest[]
   /** The tests she wrote that cannot run here: locked as the others, but owed no passing. */
-  unrun?: LothlorienUnrun[]
+  unrun?: UnrunTest[]
   /** How the tests failed when she ran them: the red, in her words and the runner's. */
   red: string
   /** Why the purpose holds nothing to test, or why the vision is clouded; empty otherwise. */
   why: string
   /** What she added to test files, locked. */
-  blocks: LothlorienBlock[]
-  amendments: LothlorienAmendment[]
+  blocks: LockedBlock[]
+  amendments: Amendment[]
   at: number
-  /** The quest's worktree she gazed in, absolute; none for the project's own folder. */
+  /** The quest's worktree they were written in, absolute; none for the project's own folder. */
   tree?: string
 }
 
@@ -474,7 +474,7 @@ export type ArgonathRadius = {
   regressions?: string[]
   /** The tests the affected command found failing on both sides: broken before the change, and not owed by it. */
   preexisting?: string[]
-  /** The tests the caller requires to pass on the working tree (written before the change, as Galadriel does), and how each ended. */
+  /** The tests the caller requires to pass on the working tree (written before the change, as the test writer does), and how each ended. */
   required?: ArgonathTest[]
   /** Why the change fails its target's check or audit, which passed on the commit's source: each owed by the change. */
   gates?: string[]
@@ -643,11 +643,11 @@ export type Leftover = {
  * What an agent is to the mod:
  * - `council`: Elrond's planner, which reads and writes its plan file alone
  * - `member`: a member of the Fellowship, building one task in its quest's worktree
- * - `galadriel`: writing a task's tests first, and only tests
+ * - `test-writer`: writing a task's tests first, and only tests
  * - `statue`: Isildur or Anárion, judging a change and changing nothing
  * - `other`: an agent the mod did not send, known only by the folder its spawn named
  */
-export type MiddleEarthRole = 'council' | 'member' | 'galadriel' | 'statue' | 'other'
+export type MiddleEarthRole = 'council' | 'member' | 'test-writer' | 'statue' | 'other'
 
 /** One agent, as the mod sent it or saw it spawned: what it is, and the folder it works in. */
 export type MiddleEarthAgent = {
@@ -726,11 +726,11 @@ declare module 'claude-code' {
       /** What each quest's agents have cost so far, in a line, by its ref: the pane shows it without reading the record. */
       fellowshipSpent: Record<string, string>
 
-      /** What the Mirror shows of the project's own folder. */
-      lothlorienVision: LothlorienVision | null
+      /** What the tests written first shows of the project's own folder. */
+      testsFirst: TestsFirst | null
       /** What it shows of each quest's worktree, by its folder. */
-      lothlorienVisions: Record<string, LothlorienVision>
-      lothlorienNote: string
+      testsFirstByTree: Record<string, TestsFirst>
+      testsFirstNote: string
 
       argonathTargets: ArgonathTarget[]
       /** The last radius of each target that has one, in the order the project names them. */

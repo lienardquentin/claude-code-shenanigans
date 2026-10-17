@@ -18,7 +18,7 @@ const SHOWN = ['I wrote one test.', '', '```json', JSON.stringify({ tests: [{ fi
 
 const FILE = `${CWD}/beacons/tests/test_gondor.py`
 
-describe('the Mirror', () => {
+describe('the tests written first', () => {
   test('knows a test file by its folder or its name', () => {
     for (const path of ['beacons/tests/test_gondor.py', 'narsil/tests/cli.rs', 'web/src/App.test.tsx', 'pkg/quench_test.go', 'spec/models/beacon_spec.rb']) expect(isTestPath(path)).toBe(true)
     for (const path of ['beacons/gondor/app.py', 'narsil/src/main.rs', 'web/src/App.tsx', 'contest/main.py']) expect(isTestPath(path)).toBe(false)
@@ -94,17 +94,17 @@ const machine = (on: On) => {
 
     world.spawned.push(given)
 
-    // A member another mod sends is answered its id; Galadriel is known by her type
-    return { model: 'opus', ...(/^middle-earth:(?!galadriel)/.test(String(given.subagent_type ?? given.subagentType ?? '')) ? { agentId: 'gimli-1' } : {}) } as never
+    // A member another mod sends is answered its id; the test writer is known by her type
+    return { model: 'opus', ...(/^middle-earth:(?!test-writer)/.test(String(given.subagent_type ?? given.subagentType ?? '')) ? { agentId: 'gimli-1' } : {}) } as never
   })
   // Core alone mints an agent's id: she is known by the type she runs as
-  on('agent.list', () => ({ value: [{ id: 'galadriel-1', description: 'x', type: 'middle-earth:galadriel', status: 'running' }, { id: 'gimli-1', description: 'x', type: 'middle-earth:gimli', status: 'running' }] }) as never)
+  on('agent.list', () => ({ value: [{ id: 'test-writer-1', description: 'x', type: 'middle-earth:test-writer', status: 'running' }, { id: 'gimli-1', description: 'x', type: 'middle-earth:gimli', status: 'running' }] }) as never)
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
 
     return { text: e.text } as never
   })
-  on('agent.register', () => ({ value: { agent: 'middle-earth:galadriel' } }) as never)
+  on('agent.register', () => ({ value: { agent: 'middle-earth:test-writer' } }) as never)
   on('command.register', () => ({ value: undefined }) as never)
   on('tool.register', () => ({ value: undefined }) as never)
   on('session.start', () => ({ cwd: CWD }) as never)
@@ -122,28 +122,28 @@ const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ a
 
 const edit = ($: Engine, agentId: string | undefined, file_path: string, old_string: string, new_string: string) => $.tool.call({ tool: 'Edit', file_path, old_string, new_string, agentId } as never)
 
-describe('lothlorien', () => {
-  test('sends Galadriel with the purpose, and shows her tests red and locked once she is done', async ($, on) => {
+describe('tests first', () => {
+  test('sends the test writer with the purpose, and shows its tests red and locked once it is done', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect(await call($, 'mcp__middle-earth__gaze', { purpose: 'Task 2: POST /beacons/{name}/quench answers 200, 409, 404.' })).toMatch(/Galadriel gazes/)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:galadriel' })
+    expect(await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: POST /beacons/{name}/quench answers 200, 409, 404.' })).toMatch(/The test writer writes the tests/)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:test-writer' })
     expect(String(world.spawned[0]?.prompt)).toContain('<purpose>\nTask 2: POST /beacons/{name}/quench answers 200, 409, 404.\n</purpose>')
-    expect(await call($, 'mcp__middle-earth__mirror')).toBe('Galadriel gazes into the Mirror: the tests are being written.')
+    expect(await call($, 'mcp__middle-earth__tests_first')).toBe('The test writer is writing the tests.')
 
-    await ends($, 'galadriel-1', SHOWN)
+    await ends($, 'test-writer-1', SHOWN)
     world.files[FILE] = TEST_LINES.join('\n')
 
-    expect(await call($, 'mcp__middle-earth__mirror')).toBe(
+    expect(await call($, 'mcp__middle-earth__tests_first')).toBe(
       [
-        'The Mirror shows what is to come: 1 test, red, locked until they are committed.',
+        'The tests written first show what is to come: 1 test, red, locked until they are committed.',
         '- beacons/tests/test_gondor.py: test_quenching_one_beacon',
         '',
         'How they failed:',
         'FAILED test_quenching_one_beacon - assert 404 == 200',
         '',
-        'Make them pass without changing them. A test that is wrong is changed only after mcp__middle-earth__amend says which file and why: the reason goes to whoever judges the change.',
+        'Make them pass without changing them. A test that is wrong is changed only after mcp__middle-earth__amend_test says which file and why: the reason goes to whoever judges the change.',
       ].join('\n'),
     )
     // Claude asked: it reads what she showed itself
@@ -155,95 +155,95 @@ describe('lothlorien', () => {
     await $.session.start({} as never)
 
     world.cwd = `${CWD}/narsil/tests`
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'Task 2: quench one beacon.' })
-    await ends($, 'galadriel-1', SHOWN)
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: quench one beacon.' })
+    await ends($, 'test-writer-1', SHOWN)
 
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 1 test, red, locked until they are committed\./)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first show what is to come: 1 test, red, locked until they are committed\./)
   })
 
   test('holds her to test files and to commands that test or read', async ($, on) => {
     machine(on)
     await $.session.start({} as never)
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'x' })
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'x' })
 
-    expect(await edit($, 'galadriel-1', `${CWD}/beacons/gondor/app.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/write only in test files/) })
-    expect(await edit($, 'galadriel-1', FILE, 'a', 'b')).toMatchObject({ result: 'done' })
-    expect(await $.tool.call({ tool: 'Bash', command: 'git add -A', agentId: 'galadriel-1' } as never)).toMatchObject({ deny: expect.stringMatching(/runs only what tests or reads/) })
+    expect(await edit($, 'test-writer-1', `${CWD}/beacons/gondor/app.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/write only in test files/) })
+    expect(await edit($, 'test-writer-1', FILE, 'a', 'b')).toMatchObject({ result: 'done' })
+    expect(await $.tool.call({ tool: 'Bash', command: 'git add -A', agentId: 'test-writer-1' } as never)).toMatchObject({ deny: expect.stringMatching(/runs only what tests or reads/) })
   })
 
   test('keeps her tests from being changed without a reason, lets a builder add around them, and lifts the lock once they are committed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'x' })
-    await ends($, 'galadriel-1', SHOWN)
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'x' })
+    await ends($, 'test-writer-1', SHOWN)
 
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 
-    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/Galadriel's tests are locked|Her tests are locked/) })
+    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
     expect(await edit($, 'gimli-1', FILE, before, `# sting: gondor POST /beacons/amon-din/quench\n${before}`)).toMatchObject({ result: 'done' })
     expect(await $.tool.call({ tool: 'Write', file_path: FILE, content: 'import x\n', agentId: 'gimli-1' } as never)).toMatchObject({ deny: expect.any(String) })
 
     // A reason unlocks the file, and is kept
-    expect(await call($, 'mcp__middle-earth__amend', { file: FILE, why: 'too short' })).toMatch(/Say why/)
-    expect(await call($, 'mcp__middle-earth__amend', { file: FILE, why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, why: 'too short' })).toMatch(/Say why/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
     expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
-    expect(await call($, 'mcp__middle-earth__mirror')).toContain('Changed since, and why:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
+    expect(await call($, 'mcp__middle-earth__tests_first')).toContain('Changed since, and why:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
 
     // A test of hers that cannot run here is owed no passing, and stays locked: the file is not unlocked for it
-    expect(await call($, 'mcp__middle-earth__amend', { file: FILE, test: 'test_quenching_one_beacon', why: 'It needs a second host to quench from.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 0 tests, red, and 1 that cannot run here, locked[\s\S]*cannot run here, and are owed no passing:\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon, It needs a second host to quench from\. \(said by middle-earth:gimli\)/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, test: 'test_quenching_one_beacon', why: 'It needs a second host to quench from.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first show what is to come: 0 tests, red, and 1 that cannot run here, locked[\s\S]*cannot run here, and are owed no passing:\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon, It needs a second host to quench from\. \(said by middle-earth:gimli\)/)
 
     // Committed: HEAD has moved past them, and they are anyone's to change
     world.head = 'bbb222'
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 0 tests, red, and 1 that cannot run here, committed since\./)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first show what is to come: 0 tests, red, and 1 that cannot run here, committed since\./)
   })
 
   test('shows nothing for a purpose with no behaviour, and is clouded when she shows no red', async ($, on) => {
     machine(on)
     await $.session.start({} as never)
 
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'Name the route in the README.' })
-    await ends($, 'galadriel-1', '```json\n{ "tests": [], "red": "", "untestable": "Only the README changes." }\n```')
-    expect(await call($, 'mcp__middle-earth__mirror')).toBe('The Mirror shows nothing to test: Only the README changes.')
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Name the route in the README.' })
+    await ends($, 'test-writer-1', '```json\n{ "tests": [], "red": "", "untestable": "Only the README changes." }\n```')
+    expect(await call($, 'mcp__middle-earth__tests_first')).toBe('Nothing is tested first: Only the README changes.')
 
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'x' })
-    await ends($, 'galadriel-1', SHOWN.replace('FAILED test_quenching_one_beacon - assert 404 == 200', ''))
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror is clouded: she did not show her tests red/)
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'x' })
+    await ends($, 'test-writer-1', SHOWN.replace('FAILED test_quenching_one_beacon - assert 404 == 200', ''))
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first could not be read: it did not show its tests red/)
   })
 
   test('tells the Claude of a person who asked through /mirror what she showed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'mirror', args: 'quenching one beacon answers 200' } as never)).text).toMatch(/Galadriel gazes/)
-    await ends($, 'galadriel-1', SHOWN)
+    expect((await $.command.run({ command: 'tests', args: 'quenching one beacon answers 200' } as never)).text).toMatch(/The test writer writes the tests/)
+    await ends($, 'test-writer-1', SHOWN)
 
-    expect(world.submitted[0]).toMatch(/^The Mirror shows what is to come: 1 test, red, locked until they are committed\.\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon[\s\S]*mcp__middle-earth__amend/)
+    expect(world.submitted[0]).toMatch(/^The tests written first show what is to come: 1 test, red, locked until they are committed\.\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon[\s\S]*mcp__middle-earth__amend_test/)
   })
 })
 
-describe('the Mirror, for a quest', () => {
+describe('tests first, for a quest', () => {
   test('gazes on the lighter model for a task that is not heavy', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'Task 1: keep when a beacon is lit.', weight: 'standard' })
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 1: keep when a beacon is lit.', weight: 'standard' })
 
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:galadriel-swift' })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:test-writer-light' })
   })
 
   test('says what was taken out of her locked tests with no reason, while they are locked', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'Task 2: quench.' })
-    await ends($, 'galadriel-1', SHOWN)
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: quench.' })
+    await ends($, 'test-writer-1', SHOWN)
 
     world.files[FILE] = TEST_LINES.join('\n')
-    expect(await call($, 'mcp__middle-earth__mirror')).not.toMatch(/Taken out of her tests/)
+    expect(await call($, 'mcp__middle-earth__tests_first')).not.toMatch(/Taken out of the tests written first/)
 
     world.files[FILE] = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
-    expect(await call($, 'mcp__middle-earth__mirror')).toContain(`Taken out of her tests with no reason given (an edit the lock did not see):\n- beacons/tests/test_gondor.py: \`${TEST_LINES[2]?.trim() ?? ''}\``)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toContain(`Taken out of the tests written first with no reason given (an edit the lock did not see):\n- beacons/tests/test_gondor.py: \`${TEST_LINES[2]?.trim() ?? ''}\``)
   })
 
   test("gazes in the quest's worktree a builder is sent to, holds her and the builder to her tests there, and leaves the project's own folder be", async ($, on) => {
@@ -254,29 +254,29 @@ describe('the Mirror, for a quest', () => {
 
     // A builder sent into the worktree: what it asks of the Mirror is of that worktree
     await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
-    await call($, 'mcp__middle-earth__gaze', { purpose: 'Task 2: quench.', weight: 'standard', agentId: 'gimli-1' })
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: quench.', weight: 'standard', agentId: 'gimli-1' })
     expect(world.spawned.at(-1)).toMatchObject({ cwd: tree })
 
-    // She writes her tests in the worktree alone: a test file of the person's checkout, or one climbed to, is not hers
-    expect(await edit($, 'galadriel-1', FILE, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The Mirror is in .*12-quench/) })
-    expect(await edit($, 'galadriel-1', `${tree}/../../../beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The Mirror is in/) })
-    expect(await edit($, 'galadriel-1', `${tree}/beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ result: 'done' })
-    await ends($, 'galadriel-1', SHOWN)
-    expect(await call($, 'mcp__middle-earth__mirror', { agentId: 'gimli-1' })).toMatch(/^The Mirror shows what is to come: 1 test, red, locked/)
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/shows nothing yet/)
+    // It writes her tests in the worktree alone: a test file of the person's checkout, or one climbed to, is not hers
+    expect(await edit($, 'test-writer-1', FILE, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The tests are written in .*12-quench/) })
+    expect(await edit($, 'test-writer-1', `${tree}/../../../beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The tests are written in/) })
+    expect(await edit($, 'test-writer-1', `${tree}/beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ result: 'done' })
+    await ends($, 'test-writer-1', SHOWN)
+    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'gimli-1' })).toMatch(/^The tests written first show what is to come: 1 test, red, locked/)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/No tests are written first yet/)
 
     // Her tests there are locked to the builder, the project's own file is not; and the builder, sent into the worktree,
     // is held to it from its first call
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 
-    expect(await edit($, 'gimli-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/Her tests are locked/) })
+    expect(await edit($, 'gimli-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
     expect(await edit($, undefined, FILE, before, weakened)).toMatchObject({ result: 'done' })
     expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
 
     // Its reason is kept with her tests in the worktree, however it names the file
-    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
-    expect(await call($, 'mcp__middle-earth__mirror', { agentId: 'gimli-1' })).toContain('- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
+    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'gimli-1' })).toContain('- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
   })
 
   test('forgets, for an issue, only the visions gazed for it, and the project\'s own for none', () => {
