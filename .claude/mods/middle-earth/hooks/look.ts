@@ -5,9 +5,10 @@
  * (`github:owner/repo#54` is `#54`, `review:github:owner/repo#7` is `review #7`). A ref with no number is said whole.
  */
 export const shortRef = (ref: string): string => {
-  const number = /#(\d+)$/.exec(ref)?.[1]
+  // A lane's ref is its quest's, and its task's id after a tilde
+  const [, number, task] = /#(\d+)(?:~(\d+))?$/.exec(ref) ?? []
 
-  return number === undefined ? ref : `${ref.startsWith('review:') ? 'review ' : ''}#${number}`
+  return number === undefined ? ref : `${ref.startsWith('review:') ? 'review ' : ''}#${number}${task === undefined ? '' : ` task ${task}`}`
 }
 
 /**

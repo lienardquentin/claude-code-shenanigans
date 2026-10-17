@@ -1126,6 +1126,23 @@ describe('the statues, on a change', () => {
     expect(String(spawned[0]?.prompt)).not.toContain('<proof>')
   })
 
+  test('know a change, its size, and what they are shown of it, without the folders the mods keep, as a commit takes it', async ($, on) => {
+    const world = machine(on)
+    statues(on)
+
+    await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['isildur'] })
+
+    const scripts = world.ran.filter(line => line.includes('git merge-base "$1" HEAD'))
+
+    // The fingerprint, the size and the change shown: each git listing in them leaves out the mods' folders
+    expect(scripts.some(line => line.includes('git rev-parse HEAD'))).toBe(true)
+    expect(scripts.some(line => line.includes('--numstat'))).toBe(true)
+    expect(scripts.some(line => line.includes('New files:'))).toBe(true)
+    for (const script of scripts) {
+      for (const listing of script.match(/git (diff "\$b"|ls-files -o)[^;|]*/g) ?? []) expect(listing).toContain("'--' '.' ':(exclude).elrond' ':(exclude).argonath' ':(exclude).anduril' ':(exclude).fellowship' ':(exclude).lothlorien' ':(exclude).blackgate'")
+    }
+  })
+
   test('are handed what the proof found: each altered run with its test and how it answers now, on the model named', async ($, on) => {
     machine(on)
     const { spawned } = statues(on)

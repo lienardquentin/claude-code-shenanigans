@@ -211,6 +211,23 @@ export type FellowshipMarch = {
   isTidied?: boolean
   /** Whether the person put this try's change before the Argonath, after its member was back: its account came first. */
   isPutBefore?: boolean
+  /**
+   * Whether a lane's change, passed by the statues, was rebased onto its quest's branch since: it is proved again, and
+   * lands with the minor findings it passed with, no statue sent anew.
+   */
+  isRebased?: boolean
+  /** The minor findings a rebased change passed with. */
+  minor?: string[]
+}
+
+/**
+ * A quest's task built beside the others, in a worktree and on a branch of its own off the quest's: its own quest, of
+ * the plan of the one it lands on once its change passed.
+ */
+export type FellowshipLane = {
+  /** The quest it lands on, by its ref. */
+  of: string
+  taskId: number
 }
 
 /** A task the Fellowship committed. */
@@ -268,6 +285,8 @@ export type FellowshipQuest = {
   unproven?: string[]
   /** What git's config says of the code a commit runs (hooks, filters, includes) as the quest set out; absent on a quest set out before it was kept. */
   gitRuns?: string
+  /** A lane's: the quest it is a task of, beside its others. */
+  lane?: FellowshipLane
   at: number
 }
 
@@ -639,6 +658,26 @@ export type MiddleEarthAgent = {
   tree: string
   /** A member's: the files its task names, which may be a mod's source. The council's: the plan file it writes. */
   files?: string[]
+  /** The issue it works for, as Elrond spells it, where the part that sent it knew: what its turns cost is counted to it. */
+  ref?: string
+}
+
+/** One turn of an agent the mod sent, as `.fellowship/spend.jsonl` keeps it a line each: what it cost, and for what. */
+export type MiddleEarthSpend = {
+  role: MiddleEarthRole
+  /** The issue it worked for, where its part knew it. */
+  ref?: string
+  /** The folder it worked in, absolute. */
+  tree: string
+  /** The model that answered, by the id the API reports. */
+  model: string
+  /** Input tokens neither read from nor written to the prompt cache. */
+  input: number
+  cacheRead: number
+  cacheWrite: number
+  output: number
+  durationMs: number
+  at: number
 }
 
 // --- The Rings: the open issues, each to an errand or to the council ------------------------------------------------------
@@ -684,6 +723,8 @@ declare module 'claude-code' {
       fellowshipWanted: { ref: string; what: FellowshipWanted; arg?: string }[]
       /** The quest the pane shows and a command acts on when it names none, by its ref. */
       fellowshipSelected: string
+      /** What each quest's agents have cost so far, in a line, by its ref: the pane shows it without reading the record. */
+      fellowshipSpent: Record<string, string>
 
       /** What the Mirror shows of the project's own folder. */
       lothlorienVision: LothlorienVision | null

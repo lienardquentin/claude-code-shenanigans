@@ -247,6 +247,8 @@ const machine = (on: On) => {
   })
 
   on('session.cwd', () => ({ value: CWD }) as never)
+  // No quest has cost anything yet: the Fellowship's record of it is not there
+  on('fs.exists', () => ({ value: false }) as never)
   on('process.run', (_, e) => {
     world.ran.push(e.argv.join(' '))
 

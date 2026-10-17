@@ -1,20 +1,26 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, TurnUsage } from 'claude-code'
 
-import type { MiddleEarthAgent, FellowshipKind, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipWanted } from '../../types'
+import type { MiddleEarthAgent, MiddleEarthSpend, FellowshipCommit, FellowshipKind, FellowshipPhase, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipWanted } from '../../types'
 import {
   HOW_TO,
   MARK,
   MEMBERS,
+  besideOf,
   branchOf,
   commitMessage,
   companionPrompt,
+  conflictPrompt,
   errandTask,
   forgeOf,
   handBackOf,
   isAllDone,
+  issueRefOf,
+  laneBranchOf,
+  laneRefOf,
   memberFor,
   nextTask,
+  ownMinor,
   ownPlan,
   parsePlan,
   parseWorktrees,
@@ -22,24 +28,28 @@ import {
   purposeOf,
   questLine,
   questText,
+  readyTasks,
   reviewTasks,
+  spentOn,
   statueModelFor,
   tally,
   threadArgv,
   treePathOf,
   triesOf,
   unsettledOf,
+  wardModelFor,
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
 import { canMove, restingPhase } from './phases'
-import { UNMODDED, errorText, git, gitRootOf, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
-import type { Section, TurnEnded } from '../flow'
+import { UNMODDED, errorText, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
+import type { Judged, Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
+import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
 import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
 import { gazeFor, mirrorIn } from '../lothlorien/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../argonath/register'
@@ -64,6 +74,7 @@ const notes = atom({ plugin: 'middle-earth', key: 'fellowshipNotes' } as const, 
 const working = atom({ plugin: 'middle-earth', key: 'fellowshipWorking' } as const, {} as Record<string, string>)
 const wanted = atom({ plugin: 'middle-earth', key: 'fellowshipWanted' } as const, [] as { ref: string; what: FellowshipWanted; arg?: string }[])
 const selected = atom({ plugin: 'middle-earth', key: 'fellowshipSelected' } as const, '')
+const spent = atom({ plugin: 'middle-earth', key: 'fellowshipSpent' } as const, {} as Record<string, string>)
 
 export const fellowshipView = paneView({ id: PANE, title: TITLE, command: '/fellowship' })
 const view = fellowshipView
@@ -210,7 +221,7 @@ async function tell($: $, text: string): Promise<void> {
 async function workOf($: $, held: FellowshipQuest): Promise<FellowshipPlan | string> {
   let made: FellowshipPlan | null | string
 
-  made = held.kind === 'plan' ? parsePlan(await planFor($, held.ref)) : ownPlan(held)
+  made = held.kind === 'plan' ? parsePlan(await planFor($, issueRefOf(held))) : ownPlan(held)
 
   if (made === null) return `Elrond keeps no plan of ${held.ref} any more.`
   if (typeof made === 'string') return made
@@ -226,7 +237,7 @@ async function workOf($: $, held: FellowshipQuest): Promise<FellowshipPlan | str
 async function mark($: $, held: FellowshipQuest, id: number, state: FellowshipTaskState, note?: string): Promise<void> {
   // Elrond keeps no `asked`: a plan's task is handed back as it stands
   if (held.kind === 'plan') {
-    if (state !== 'asked') await markTask($, id, state, held.ref)
+    if (state !== 'asked') await markTask($, id, state, issueRefOf(held))
 
     return
   }
@@ -234,14 +245,14 @@ async function mark($: $, held: FellowshipQuest, id: number, state: FellowshipTa
   await keep($, held.ref, was => ({ ...was, tasks: (was.tasks ?? []).map(task => (task.id === id ? { ...task, state, ...(note !== undefined ? { note } : {}) } : task)) }))
 }
 
-/** Every quest kept, here or across sessions: what Mount Doom watches. */
+/** Every quest kept, here or across sessions: what Mount Doom watches. A lane is its quest's, and is none of them. */
 export async function questRelics($: $): Promise<{ ref: string; kind: FellowshipKind; branch: string; base: string; tree: string; pr: string; phase: string }[]> {
-  const kept = Object.values(await read($, quests))
+  const kept = Object.values(await read($, quests)).filter(held => held.lane === undefined)
 
   for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('quest:'))) {
     const one = (await $.store.get(key).catch(() => undefined)) as FellowshipQuest | undefined
 
-    if (one !== undefined && one !== null && !kept.some(was => was.ref === one.ref)) kept.push(one)
+    if (one !== undefined && one !== null && one.lane === undefined && !kept.some(was => was.ref === one.ref)) kept.push(one)
   }
 
   return kept.map(({ ref, kind, branch, base, tree, pr, phase }) => ({ ref, kind: kind ?? 'plan', branch, base, tree: tree ?? '', pr, phase }))
@@ -525,7 +536,7 @@ async function march($: $, held: FellowshipQuest, made: FellowshipPlan, task: Fe
     return
   }
 
-  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'member', root: await rootOf($), tree: held.tree, files: [...task.files] })
+  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'member', root: await rootOf($), tree: held.tree, files: [...task.files], ref: issueRefOf(held) })
 
   await keep($, held.ref, was => ({ ...was, phase: 'marching', verdictLine: '', march: { taskId: task.id, title: task.title, member, agentId: started.agentId ?? '', attempt, at: Date.now(), answer: '', head, isResumed: false } }))
   await say($, held.ref, '')
@@ -539,7 +550,16 @@ async function arrive($: $, held: FellowshipQuest): Promise<void> {
   else await tell($, `every task of ${held.ref} is behind it: ${held.kind === 'review' ? 'push the answers' : 'open the pull request'} from the pane`)
 }
 
-/** Sends the next task, or finds the quest arrived. A stuck task is sent again from its first rung, on what the tree holds. */
+/** The lanes out on a quest's tasks, beside one another. */
+async function lanesOf($: $, ref: string): Promise<FellowshipQuest[]> {
+  return Object.values(await read($, quests)).filter(held => held.lane?.of === ref)
+}
+
+/**
+ * Sends the next task, or finds the quest arrived. A stuck task is sent again from its first rung, on what the tree
+ * holds. A plan's tasks that can be built beside one another are each sent in a lane of its own, and the quest's own
+ * worktree waits for them to land; one task alone is built there.
+ */
 async function sendNext($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
 
@@ -548,9 +568,25 @@ async function sendNext($: $, ref: string): Promise<void> {
   const made = await workOf($, held)
 
   if (typeof made === 'string') return say($, ref, made)
-  if (isAllDone(made)) return arrive($, held)
+  if (held.lane === undefined && isAllDone(made)) return arrive($, held)
 
-  const task = nextTask(made)
+  // A task the quest's own worktree has begun is finished there first
+  if (held.kind === 'plan' && held.lane === undefined && held.march === null) {
+    const lanes = await lanesOf($, ref)
+    const out = made.tasks.filter(task => lanes.some(lane => lane.lane?.taskId === task.id))
+    const beside = besideOf(readyTasks(made, out.map(task => task.id)), out)
+
+    if (lanes.length > 0 || beside.length > 1) {
+      if (beside.length === 0) return say($, ref, `Task${out.length === 1 ? '' : 's'} ${out.map(task => task.id).join(', ')} ${out.length === 1 ? 'is' : 'are'} out in a lane: what is left waits for ${out.length === 1 ? 'it' : 'them'} to land.`)
+
+      for (const task of beside) await openLane($, held, made, task)
+
+      return say($, ref, `Task${beside.length === 1 ? '' : 's'} ${beside.map(task => task.id).join(', ')} ${beside.length === 1 ? 'is' : 'are'} sent out, each in a lane of its own, built beside the others and landed on ${held.branch} once passed.`)
+    }
+  }
+
+  // A lane builds its one task
+  const task = held.lane !== undefined ? made.tasks.find(one => one.id === held.lane?.taskId) : nextTask(made)
 
   if (task === undefined) {
     await keep($, ref, was => ({ ...was, phase: 'stuck' }))
@@ -569,11 +605,47 @@ async function sendNext($: $, ref: string): Promise<void> {
   await march($, held, made, task, 1, retry)
 }
 
+/** Opens a lane on a task of a quest: its branch off the quest's, in a worktree of its own, its task sent by the clock. */
+async function openLane($: $, held: FellowshipQuest, made: FellowshipPlan, task: FellowshipTask): Promise<void> {
+  const ref = laneRefOf(held.ref, task.id)
+  const branch = laneBranchOf(held.branch, task.id)
+  const placed = await placeTree($, branch, held.branch, false)
+
+  if (typeof placed === 'string') return say($, held.ref, `Task ${task.id} could not be sent out in a lane: ${placed}`)
+
+  const lane: FellowshipQuest = {
+    kind: 'plan',
+    ref,
+    url: held.url,
+    title: task.title,
+    branch,
+    base: held.branch,
+    tree: placed.tree,
+    isAuto: held.isAuto,
+    phase: 'ready',
+    march: null,
+    proof: '',
+    proofLine: '',
+    verdictLine: '',
+    vision: null,
+    commits: [],
+    pr: '',
+    gitRuns: await gitRunsIn($, placed.tree),
+    lane: { of: held.ref, taskId: task.id },
+    at: Date.now(),
+  }
+
+  await update($, quests, was => ({ ...was, [ref]: lane }))
+  await update($, plans, was => ({ ...was, [ref]: made }))
+  await $.store.set(STORE_KEY(ref), lane).catch((error: unknown) => $.ui.toast(`Fellowship: ${ref} could not be kept for the next session: ${errorText(error)}`))
+  await want($, ref, 'next')
+}
+
 /** Has Galadriel write a task's tests first, in the quest's worktree. Where Lothlórien does not answer, the task is built without them. */
 async function gazeOn($: $, held: FellowshipQuest, made: FellowshipPlan, task: FellowshipTask): Promise<void> {
   await work($, held.ref, `Galadriel gazes on task ${task.id}…`)
 
-  const sent = await gazeFor($, purposeOf(held, made, task), held.ref, task.weight, held.tree).catch((error: unknown) => errorText(error))
+  const sent = await gazeFor($, purposeOf(held, made, task), issueRefOf(held), task.weight, held.tree).catch((error: unknown) => errorText(error))
 
   if (!/gazes/.test(sent)) {
     const after = await keep($, held.ref, was => ({ ...was, gazed: task.id, vision: null }))
@@ -636,7 +708,7 @@ async function again($: $, ref: string, why: { proof?: string; findings?: string
   // A proof that does not settle the change, or findings that block it, send its member back once, with all it read
   // and did still in its context, before a fresh member a rung up starts over cold
   if (out.isResumed !== true && (await sendBack($, out.agentId, typeOf(out.member), sendBackPrompt(why)))) {
-    await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isResumed: true, answer: '' } }))
+    await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isResumed: true, isRebased: false, answer: '' } }))
     await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} with ${why.findings !== undefined ? 'the findings' : 'the proof'}: ${line}`)
 
     return
@@ -673,6 +745,9 @@ async function stop($: $, held: FellowshipQuest, why: string): Promise<void> {
   await tell($, `${held.ref} is stuck: ${why.split('\n')[0] ?? why}`)
 }
 
+// One proof at a time: lanes build beside one another, but a service's proof plays against one database kept warm
+const oneProof = inTurn()
+
 /** Proves what a member built: settled, the statues of the Argonath are sent to judge it; else the task goes up a rung. */
 async function prove($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
@@ -692,7 +767,7 @@ async function prove($: $, ref: string): Promise<void> {
   const isSeen = held.vision?.taskId === out.taskId
   const mirror = isSeen ? await mirrorOf($, held) : { amendments: [], tampered: [], unrun: [] }
   const written = isSeen ? (held.vision?.tests ?? []).filter(test => !mirror.unrun.some(one => one.file === test.file && one.name === test.name)) : []
-  const verdict = proofVerdict(await proveFor($, held.tree, written).catch((error: unknown) => `Argonath could not prove the change: ${errorText(error)}`))
+  const verdict = proofVerdict(await oneProof(() => proveFor($, held.tree, written)).catch((error: unknown) => `Argonath could not prove the change: ${errorText(error)}`))
 
   await keep($, ref, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
 
@@ -707,6 +782,9 @@ async function prove($: $, ref: string): Promise<void> {
     return again($, ref, { findings }, `${findings.length} of Galadriel's test ${findings.length === 1 ? 'file' : 'files'} changed with no reason`)
   }
 
+  // A lane's change the statues passed, rebased since onto its quest's branch, is proved there and lands as it passed
+  if (out.isRebased === true) return void (await commitNow($, ref, out.minor ?? []))
+
   await work($, ref, `The statues of the Argonath are sent to judge task ${out.taskId}…`)
 
   const made = await workOf($, held)
@@ -717,7 +795,7 @@ async function prove($: $, ref: string): Promise<void> {
   // and risks ask, a task that is not heavy on a lighter model
   const isBlind = typeof made === 'string' || task === undefined || verdict.unhandled.length > 0
   const model = isBlind ? undefined : statueModelFor(made, task)
-  const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, about, statues: ['isildur', 'anarion'], ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
+  const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, about, statues: ['isildur', 'anarion'], ref: issueRefOf(held), ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
 
   await keep($, ref, was => ({ ...was, phase: 'judging', verdictLine: judged.line }))
   await settle($, ref, judged)
@@ -733,6 +811,19 @@ async function mirrorOf($: $, held: FellowshipQuest): Promise<{ amendments: { fi
   const said = unrun.flatMap(one => (one.by !== undefined ? [{ file: one.file, why: `${one.name} cannot run here, and is owed no passing: ${one.why}`, by: one.by }] : []))
 
   return { amendments: [...(shown?.amendments ?? []), ...said], tampered: shown?.tampered ?? [], unrun }
+}
+
+/**
+ * The minor findings of a judgement that are about what the change in a tree wrote. Where git cannot say what it wrote,
+ * every one is, as none can be told apart.
+ */
+async function ownMinorIn($: $, tree: string, judged: Judged): Promise<string[]> {
+  const tracked = await git($, ['diff', 'HEAD', '--name-only', ...UNMODDED], tree)
+  const fresh = await git($, ['ls-files', '-o', '--exclude-standard', ...UNMODDED], tree)
+
+  if (!tracked.ok || !fresh.ok) return judged.minor
+
+  return ownMinor(judged.minorAt, tree, `${tracked.out}\n${fresh.out}`.split('\n').map(one => one.trim()).filter(one => one !== ''))
 }
 
 /** Looks at the statues' judgement of a quest's change, while they sit. */
@@ -754,9 +845,12 @@ async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgemen
 
   if (judged.verdict === 'sitting') return
 
-  // Minor findings of a pass send its member back once to tidy them; those of the judgement after are committed as they
-  // are, and a member that cannot be reached spends no try on them
-  if (judged.verdict === 'pass' && judged.minor.length > 0 && out.isTidied !== true && (await sendBack($, out.agentId, typeOf(out.member), tidyPrompt(judged.minor)))) {
+  // Minor findings of a pass about what the change wrote send its member back once to tidy them; those of the judgement
+  // after, and those about files it left alone, are committed as they are, and a member that cannot be reached spends no
+  // try on them
+  const tidied = judged.verdict === 'pass' && judged.minor.length > 0 && out.isTidied !== true ? await ownMinorIn($, held.tree, judged) : []
+
+  if (tidied.length > 0 && (await sendBack($, out.agentId, typeOf(out.member), tidyPrompt(tidied)))) {
     await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isTidied: true, answer: '' } }))
     await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} to tidy the minor findings: ${judged.line}`)
 
@@ -844,7 +938,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
       return why
     }
 
-    const done = staged.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : staged
+    const done = staged.ok ? await git($, ['commit', '-m', commitMessage({ ...held, ref: issueRefOf(held) }, made, task, by, minor, unproven)], held.tree) : staged
 
     if (!done.ok) {
       await stop($, held, `Task ${task.id} could not be committed: ${done.out}`)
@@ -854,6 +948,9 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
     sha = (await git($, ['rev-parse', 'HEAD'], held.tree)).out
   }
+
+  // A lane's commit is its quest's once it lands on the quest's branch
+  if (held.lane !== undefined) return land($, ref, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: held.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) })
 
   await mark($, held, task.id, 'done')
 
@@ -866,6 +963,179 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
   else await tell($, `${said} The next task waits for you.`)
 
   return said
+}
+
+// One landing at a time: each lane lands on its quest's branch as the one before left it
+const oneLanding = inTurn()
+
+/**
+ * Lands a lane's commit on its quest's branch: as it is, where nothing landed there since the lane set out; else taken
+ * onto what landed, and proved there again before it lands, or, where it no longer applies, sent back to its member to
+ * resolve. Once the quest's branch holds it, its task is done, and the lane is cleared. Answers what was done.
+ */
+function land($: $, ref: string, commit: FellowshipCommit): Promise<string> {
+  return oneLanding(() => landNow($, ref, commit))
+}
+
+async function landNow($: $, ref: string, commit: FellowshipCommit): Promise<string> {
+  const held = await questOf($, ref)
+  const quest = held?.lane === undefined ? null : await questOf($, held.lane.of)
+
+  if (held === null || held.march === null) return 'There is nothing to land.'
+
+  if (quest === null) {
+    const why = `The quest ${issueRefOf(held)} this lane builds for is under way no more: abandon the lane.`
+
+    await stop($, held, why)
+
+    return why
+  }
+
+  const tip = await git($, ['rev-parse', `refs/heads/${quest.branch}`], held.tree)
+  const onto = tip.out
+  const base = commit.sha === '' ? tip : await git($, ['merge-base', 'HEAD', onto], held.tree)
+
+  if (!tip.ok || !base.ok) {
+    const why = `Task ${commit.taskId} cannot land: git could not say where ${quest.branch} stands against the lane (${(tip.ok ? base : tip).out || 'it said nothing'}).`
+
+    await stop($, held, why)
+
+    return why
+  }
+
+  const from = base.out
+
+  if (from !== onto) {
+    const rebased = await git($, ['rebase', onto], held.tree)
+
+    if (!rebased.ok) return conflicted($, held, quest, onto, commit)
+
+    // The change stands uncommitted on what landed, as it is proved, and is committed again once the proof settles
+    const reset = await git($, ['reset', '-q', '--soft', 'HEAD~1'], held.tree)
+
+    if (!reset.ok) {
+      const why = `Task ${commit.taskId} was taken onto ${quest.branch}, but could not be uncommitted there to be proved again: ${reset.out}. Its change is the last commit in ${held.tree}.`
+
+      await stop($, held, why)
+
+      return why
+    }
+
+    return reproved($, held, quest, onto, commit)
+  }
+
+  let landed = commit
+
+  if (commit.sha !== '') {
+    const merged = await git($, ['merge', '--ff-only', commit.sha], quest.tree)
+
+    if (!merged.ok) {
+      const why = `Task ${commit.taskId} could not land on ${quest.branch} in ${quest.tree}: ${merged.out}. Once that worktree is clean, put the task before the Argonath again.`
+
+      await stop($, held, why)
+
+      return why
+    }
+
+    landed = { ...commit, sha: (await git($, ['rev-parse', 'HEAD'], quest.tree)).out }
+  }
+
+  await mark($, quest, commit.taskId, 'done')
+
+  const after = await keep($, quest.ref, was => ({ ...was, isWarded: false, commits: [...was.commits, landed] }))
+  const left = after === null ? null : await workOf($, after)
+  const uncleared = await clearLane($, held)
+  const said = `Task ${commit.taskId} of ${quest.ref}, "${commit.title}", built by ${commit.by} in a lane, passed the Argonath and landed on ${quest.branch}${landed.sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${landed.sha.slice(0, 7)}`}.${uncleared}`
+
+  await say($, quest.ref, said)
+  if ((left !== null && typeof left !== 'string' && isAllDone(left)) || quest.isAuto) await want($, quest.ref, 'next')
+  else await tell($, `${said} The next task waits for you.`)
+
+  return said
+}
+
+/**
+ * Where a lane's change no longer applies on its quest's branch: the lane is put on that branch as it stands, the change
+ * applied on it with git's conflict markers where the two meet, and its member sent back to resolve them; where it
+ * cannot be reached, the lane stops for the person. Answers what was done.
+ */
+async function conflicted($: $, held: FellowshipQuest, quest: FellowshipQuest, onto: string, commit: FellowshipCommit): Promise<string> {
+  const sha = commit.sha
+
+  await git($, ['rebase', '--abort'], held.tree)
+
+  const reset = await git($, ['reset', '-q', '--hard', onto], held.tree)
+  // The change applied with no commit: git stops on what conflicts, marked in the files, which is what is resolved
+  const picked = reset.ok ? await git($, ['cherry-pick', '--no-commit', sha], held.tree) : reset
+  const files = (await git($, ['diff', '--name-only', '--diff-filter=U'], held.tree)).out.split('\n').filter(line => line !== '')
+
+  await git($, ['cherry-pick', '--quit'], held.tree)
+  await git($, ['reset', '-q'], held.tree)
+
+  const out = held.march
+
+  if (out === null) return 'There is nothing to land.'
+
+  const after = await keep($, held.ref, was => ({ ...was, proof: '', proofLine: '', verdictLine: '', march: { ...out, head: onto, isRebased: false, answer: '' } }))
+
+  if (after === null) return 'There is nothing to land.'
+
+  // The rebase stopped on something else, and the change applies on what landed after all
+  if (reset.ok && picked.ok) return reproved($, held, quest, onto, commit)
+
+  if (!reset.ok || files.length === 0) {
+    const why = `Task ${out.taskId} could not be taken onto ${quest.branch}, which moved while it was built: ${(reset.ok ? picked : reset).out}. Its change is ${sha.slice(0, 7)}: apply it in ${held.tree} by hand, then put it before the Argonath.`
+
+    await stop($, after, why)
+
+    return why
+  }
+
+  if (await sendBack($, out.agentId, typeOf(out.member), conflictPrompt(quest.branch, files))) {
+    await keep($, held.ref, was => ({ ...was, phase: 'marching', march: was.march === null ? null : { ...was.march, isResumed: true } }))
+
+    const said = `Task ${out.taskId} conflicts with what landed on ${quest.branch} (${files.join(', ')}): ${MEMBERS[out.member].title} is sent back to resolve it.`
+
+    await say($, held.ref, said)
+
+    return said
+  }
+
+  const why = `Task ${out.taskId} conflicts with what landed on ${quest.branch} (${files.join(', ')}), and ${MEMBERS[out.member].title} could not be sent back: its change is in ${held.tree} with git's conflict markers. Resolve them there, then put it before the Argonath.`
+
+  await stop($, after, why)
+
+  return why
+}
+
+/** A lane's change standing uncommitted on what landed on its quest's branch: proved there again, and landed as it passed. */
+async function reproved($: $, held: FellowshipQuest, quest: FellowshipQuest, onto: string, commit: FellowshipCommit): Promise<string> {
+  const out = held.march
+
+  if (out === null) return 'There is nothing to land.'
+
+  await keep($, held.ref, was => ({ ...was, phase: 'proving', proof: '', proofLine: '', march: { ...out, head: onto, isRebased: true, minor: commit.minor } }))
+  await want($, held.ref, 'prove')
+
+  const said = `${quest.branch} moved while task ${commit.taskId} was built: its change is taken onto it, and proved there again before it lands.`
+
+  await say($, held.ref, said)
+
+  return said
+}
+
+/** Clears a lane once it landed: its worktree removed, its branch deleted, and the lane forgotten. Says what could not be cleared. */
+async function clearLane($: $, held: FellowshipQuest): Promise<string> {
+  const root = await rootOf($)
+  // What is left in it is what the mods kept there (Andúril's runs, the Argonath's trees): its change is landed
+  const left = (await git($, ['status', '--porcelain', ...UNMODDED], held.tree)).out
+  const removed = left === '' ? await removeTree($, root, held.tree) : { ok: false, out: `it holds changes that did not land (${left.split('\n')[0] ?? ''})` }
+  const deleted = removed.ok ? await git($, ['branch', '-D', held.branch], root) : { ok: true, out: '' }
+
+  await drop($, held.ref)
+  await update($, notes, ({ [held.ref]: _gone, ...rest }) => rest)
+
+  return removed.ok && deleted.ok ? '' : ` Its lane is not cleared: ${removed.ok ? `${held.branch} could not be deleted: ${deleted.out}` : `${held.tree} is left: ${removed.out}`}.`
 }
 
 /** Puts a stuck task's change before the Argonath again: proved, judged, and committed once the statues pass it. */
@@ -890,6 +1160,13 @@ const waitBeforeAbandon = (held: FellowshipQuest): string | undefined =>
     ? `The quest on ${held.ref} is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
     : undefined
 
+/** What a quest, or a lane of it, that is out waits on before the quest may be abandoned; nothing when none waits. */
+async function abandonWait($: $, held: FellowshipQuest): Promise<string | undefined> {
+  const lanes = held.lane === undefined ? await lanesOf($, held.ref) : []
+
+  return [held, ...lanes].map(waitBeforeAbandon).find(one => one !== undefined)
+}
+
 /**
  * Gives a quest up: its worktree removed, its own branch deleted (a review's is the pull request's, and is left), a
  * plan's tasks reopened in Elrond, and the quest forgotten here and across sessions. Nothing on the forge is touched.
@@ -899,9 +1176,17 @@ async function abandon($: $, ref: string): Promise<string> {
 
   if (held === null) return `No quest on ${ref} is kept: there is nothing to abandon.`
 
-  const waiting = waitBeforeAbandon(held)
+  const lanes = held.lane === undefined ? await lanesOf($, ref) : []
+  const waiting = await abandonWait($, held)
 
   if (waiting !== undefined) return waiting
+
+  // Its lanes are given up first: each is a task of it, in a worktree of its own
+  for (const lane of lanes) {
+    const said = await abandon($, lane.ref)
+
+    if ((await questOf($, lane.ref)) !== null) return `The quest on ${ref} is not abandoned, as its lane on task ${lane.lane?.taskId ?? ''} is not: ${said}`
+  }
 
   const root = await rootOf($)
   const isOwnTree = held.tree !== undefined && held.tree !== '' && held.tree !== root
@@ -924,12 +1209,12 @@ async function abandon($: $, ref: string): Promise<string> {
     said.push(deleted.ok ? (exists.ok ? `${held.branch} is deleted, with its ${held.commits.length} ${held.commits.length === 1 ? 'commit' : 'commits'}.` : `${held.branch} was already gone.`) : `${held.branch} could not be deleted: ${deleted.out}.`)
   } else if (held.commits.length > 0) said.push(`${held.branch} is left as it is, with its ${held.commits.length} ${held.commits.length === 1 ? 'commit' : 'commits'}.`)
 
-  // The tasks a plan's quest took up are open again in the plan, which can be set out on as it is
+  // The tasks a plan's quest took up are open again in the plan, which can be set out on as it is; a lane's one task alone
   if (held.kind === 'plan') {
     const made = await workOf($, held)
-    const reopened = typeof made === 'string' ? [] : made.tasks.filter(task => task.state !== 'todo')
+    const reopened = typeof made === 'string' ? [] : made.tasks.filter(task => task.state !== 'todo' && (held.lane === undefined || task.id === held.lane.taskId))
 
-    for (const task of reopened) await markTask($, task.id, 'todo', held.ref)
+    for (const task of reopened) await markTask($, task.id, 'todo', issueRefOf(held))
     if (reopened.length > 0) said.push(`${reopened.length} ${reopened.length === 1 ? 'task is' : 'tasks are'} open again in the Elrond plan.`)
   }
 
@@ -1026,6 +1311,7 @@ async function sail($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
 
   if (held === null) return HOW_TO
+  if (held.lane !== undefined) return `A lane lands on its quest's branch by itself: it is ${held.lane.of} that sails.`
   if (held.phase === 'sailed') return held.kind === 'review' ? `The answers on ${ref} are pushed.` : `The pull request is open: ${held.pr}`
   if (held.phase === 'warding') return `The statues judge the whole branch of ${ref}: the pull request opens once they pass it.`
   if (held.phase !== 'arrived' && !(held.kind === 'review' && (held.phase === 'ready' || held.phase === 'stuck') && held.commits.length > 0)) return `The quest on ${ref} has not arrived: it is ${held.phase}. Every task is committed first.`
@@ -1071,7 +1357,8 @@ async function sail($: $, ref: string): Promise<string> {
     // The branch took in origin's base, just fetched: judged against a local base behind it, the statues would judge
     // the commits it took in as the branch's own
     const upstream = (await git($, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${held.base}`], held.tree)).ok ? `origin/${held.base}` : held.base
-    const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, statues: ['isildur', 'anarion'], against: upstream, about: wardPurpose(made) }).catch((error: unknown) => errorText(error)))
+    const model = wardModelFor(made, held.commits)
+    const judged = parseJudgement(await judgementFor($, held.tree, { convene: true, statues: ['isildur', 'anarion'], against: upstream, about: wardPurpose(made), ref, ...(model !== undefined ? { model } : {}) }).catch((error: unknown) => errorText(error)))
 
     await keep($, ref, was => ({ ...was, phase: 'warding', verdictLine: judged.line }))
 
@@ -1272,6 +1559,39 @@ const sectionText = (all: readonly FellowshipQuest[]): string =>
     "Leave those worktrees to the builders; mcp__middle-earth__quest says where each quest stands.",
   ].join('\n')
 
+/** The line the pane shows of what each quest's agents cost, from the record as it stands. */
+async function spentLines($: $, root: string, turns: readonly MiddleEarthSpend[]): Promise<void> {
+  const all = Object.values(await read($, quests))
+
+  await update($, spent, () =>
+    Object.fromEntries(
+      all.flatMap(held => {
+        const own = spentOn(held, root, turns)
+
+        return own.length === 0 ? [] : [[held.ref, costLine(own)] as const]
+      }),
+    ),
+  )
+}
+
+/** What the quests kept across sessions have cost, from the record, for the pane. */
+async function recallSpent($: $): Promise<void> {
+  const root = await rootOf($)
+
+  await spentLines($, root, await spends($, root))
+}
+
+/** Counts a turn of an agent the mod sent to the record, and to the pane's line of each quest it was for. */
+export async function spentFellowship($: $, agent: MiddleEarthAgent, e: { durationMs: number; usage?: TurnUsage }): Promise<void> {
+  const spend = spendOf(agent, e, Date.now())
+
+  if (spend === undefined) return
+
+  const root = await rootOf($)
+
+  await spentLines($, root, await record($, root, spend))
+}
+
 /** The Fellowship at the session's start: its command, its tools, and the clock that does what was asked of a quest. */
 export async function startFellowship($: $): Promise<void> {
   await $.command.register({ name: 'fellowship', description: 'Build an Elrond plan, an errand or a review task by task in a worktree: /fellowship sets out (--auto goes on by itself); errand <issue>; next, commit, sail, halt, abandon [quest]' })
@@ -1280,6 +1600,7 @@ export async function startFellowship($: $): Promise<void> {
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
 
   await recallQuests($).catch(() => undefined)
+  await recallSpent($).catch((error: unknown) => $.ui.toast(`Fellowship: what the quests cost could not be read from ${SPEND_FILE}: ${errorText(error)}`))
 
   $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
 }
@@ -1352,7 +1673,7 @@ export async function memberFound($: $, agentId: string): Promise<MiddleEarthAge
 
   const task = (await read($, plans))[held.ref]?.tasks.find(one => one.id === held.march?.taskId)
 
-  return { role: 'member', root: await rootOf($), tree: held.tree, files: [...(task?.files ?? [])] }
+  return { role: 'member', root: await rootOf($), tree: held.tree, files: [...(task?.files ?? [])], ref: issueRefOf(held) }
 }
 
 export function registerFellowship(on: On): void {
@@ -1386,11 +1707,13 @@ export function registerFellowship(on: On): void {
     if (all.length === 0) return { result: named === '' ? HOW_TO : `No quest on ${named} is under way.` }
 
     const texts: string[] = []
+    const root = await rootOf($)
+    const turns = await spends($, root)
 
     for (const held of all) {
       const made = await workOf($, held)
 
-      texts.push(questText(held, typeof made === 'string' ? ((await read($, plans))[held.ref] ?? null) : made))
+      texts.push(questText(held, typeof made === 'string' ? ((await read($, plans))[held.ref] ?? null) : made, costText(spentOn(held, root, turns))))
     }
 
     return { result: texts.join('\n\n―――\n\n') }
@@ -1461,7 +1784,7 @@ export function registerFellowship(on: On): void {
     if (held === null) return { text: named === '' ? 'Name the quest, by its ref or its branch: more than one is under way, or none.' : `No quest on ${named} is under way.` }
 
     if (verb === 'abandon') {
-      const waiting = waitBeforeAbandon(held)
+      const waiting = await abandonWait($, held)
 
       if (waiting !== undefined) return { text: waiting }
       await want($, held.ref, 'abandon')
@@ -1509,6 +1832,7 @@ export function registerFellowship(on: On): void {
     const said = await read($, notes)
     const doing = await read($, working)
     const queue = await read($, wanted)
+    const cost = await read($, spent)
     // A press asks, then does it where it stands in a hook: where it does not, Claude is asked to call for it
     const press = async (ref: string, what: FellowshipWanted) => {
       await want($, ref, what)
@@ -1534,6 +1858,7 @@ export function registerFellowship(on: On): void {
 
     const made = (await read($, plans))[held.ref] ?? null
     const out = held.march
+    const laneOf = (id: number) => all.find(one => one.lane?.of === held.ref && one.lane.taskId === id)
     const commitOf = (id: number) => held.commits.find(one => one.taskId === id)
     const outTask = out === null || made === null ? undefined : made.tasks.find(task => task.id === out.taskId)
     const problem = said[held.ref] ?? ''
@@ -1542,12 +1867,26 @@ export function registerFellowship(on: On): void {
     const root = await paneRoot($)
     // A task's mark and number keep a column of their own: its title wraps under itself, and its last words are never cut
     const markWidth = String(Math.max(0, ...(made?.tasks ?? []).map(task => task.id))).length + 4
-    const toneOf = (task: FellowshipTask): string | undefined => (out?.taskId === task.id ? (held.phase === 'stuck' ? 'error' : 'suggestion') : task.state === 'done' ? 'success' : task.state === 'asked' ? 'warning' : undefined)
+    const toneOf = (task: FellowshipTask): string | undefined => {
+      // A task out, here or in a lane, is drawn as where it stands
+      const phase = out?.taskId === task.id ? held.phase : laneOf(task.id)?.phase
+
+      return phase !== undefined ? (phase === 'stuck' ? 'error' : 'suggestion') : task.state === 'done' ? 'success' : task.state === 'asked' ? 'warning' : undefined
+    }
     // What is said of a task after its title: its weight, and who built it, or who is on it
     const metaOf = (task: FellowshipTask): string => {
       const commit = commitOf(task.id)
 
-      return [task.weight, commit !== undefined ? `${commit.by} ${commit.sha.slice(0, 7) || 'no change'}` : '', out?.taskId === task.id ? `${MEMBERS[out.member].title}, ${held.phase}` : ''].filter(part => part !== '').join(' · ')
+      const lane = laneOf(task.id)
+
+      return [
+        task.weight,
+        commit !== undefined ? `${commit.by} ${commit.sha.slice(0, 7) || 'no change'}` : '',
+        out?.taskId === task.id ? `${MEMBERS[out.member].title}, ${held.phase}` : '',
+        lane !== undefined ? `in a lane${lane.march !== null ? `: ${MEMBERS[lane.march.member].title}` : ''}, ${lane.phase}` : '',
+      ]
+        .filter(part => part !== '')
+        .join(' · ')
     }
     const isSailable = held.phase === 'arrived' || (held.kind === 'review' && held.phase !== 'sailed' && !OUT.includes(held.phase) && held.commits.length > 0)
 
@@ -1557,7 +1896,7 @@ export function registerFellowship(on: On): void {
           <Box flexDirection="column">
             {all.map(one => {
               // A quest kept by a session from before errands and reviews has no kind: it is a plan's, as questRelics takes it
-              const kind = `${one.kind ?? 'plan'}${one.isAuto ? ' · auto' : ''}`
+              const kind = `${one.lane !== undefined ? 'lane' : (one.kind ?? 'plan')}${one.isAuto ? ' · auto' : ''}`
 
               return (
                 <Button key={`quest-${one.ref}`} plain onPress={() => update($, selected, () => one.ref)}>
@@ -1621,6 +1960,7 @@ export function registerFellowship(on: On): void {
         )}
         {(out === null || held.vision?.taskId !== out.taskId) && held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {held.pr !== '' && <Text color="success">{`Pull request: ${held.pr}`}</Text>}
+        {cost[held.ref] !== undefined && <Text dimColor>{`Spent: ${cost[held.ref] ?? ''}`}</Text>}
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
           {(held.phase === 'ready' || held.phase === 'stuck') && (
             <Button key="next" hotkey="n" variant="primary" onPress={() => press(held.ref, 'next')}>

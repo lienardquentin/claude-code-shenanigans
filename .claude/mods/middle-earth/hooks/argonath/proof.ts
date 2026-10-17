@@ -1,4 +1,5 @@
 import type { ArgonathKind, ArgonathOutcome, ArgonathProofState, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../../types'
+import { UNMODDED_WORDS } from '../flow'
 
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
@@ -157,8 +158,7 @@ export const parseStandards = (text: string): string[] =>
  * the diff against the merge base of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by
  * content (so an edit of a new file moves it too), hashed whole by git. It writes nothing to the object store.
  */
-export const CHANGE_SCRIPT =
-  'held=$(b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff; git ls-files -o --exclude-standard; git ls-files -o --exclude-standard -z | xargs -0 -r git hash-object --) || exit 1; printf %s "$held" | git hash-object --stdin'
+export const CHANGE_SCRIPT = `held=$(b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff ${UNMODDED_WORDS}; git ls-files -o --exclude-standard ${UNMODDED_WORDS}; git ls-files -o --exclude-standard -z ${UNMODDED_WORDS} | xargs -0 -r git hash-object --) || exit 1; printf %s "$held" | git hash-object --stdin`
 
 /** What each target's folders hold against HEAD, split from one diff and one list of new files, by label. */
 export const changesByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {

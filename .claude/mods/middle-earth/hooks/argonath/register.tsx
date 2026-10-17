@@ -12,7 +12,7 @@ import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
 import { rootOf, toolFailed } from '../flow'
 import type { Section, Target, TurnEnded } from '../flow'
-import { askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
+import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Review } from './proof'
 import { UNREADABLE, affectedIn, changeText, changesOf, cliChanged, gateIn, marksIn, proveIn, serviceJob, serviceLive, servicePlayed, sizeIn, testsDiffIn, wholeFingerprint } from './handlers'
 import type { Found, Place } from './handlers'
@@ -453,9 +453,10 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
 
 /**
  * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
- * not judged again. Answers the judgement, sitting or done. A mod may name a lighter model for a lighter change.
+ * not judged again. Answers the judgement, sitting or done. A mod may name a lighter model for a lighter change, and
+ * the issue the change is for, which what the statues cost is counted to.
  */
-async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place): Promise<ArgonathJudgement> {
+async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place, ref?: string): Promise<ArgonathJudgement> {
   const place = at ?? (await homePlace($))
   const due = await wholeFingerprint($, place.tree, against)
   const held = await judgementIn($, place)
@@ -502,7 +503,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
     const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules, size), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
-    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })
+    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
     seats.push({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: started.agentId ?? '', state: started.deny === undefined ? 'sitting' : 'silent', findings: [], why: started.deny === undefined ? '' : `it could not be sent: ${started.deny}` })
   }
 
@@ -705,7 +706,7 @@ const bandLine = (all: readonly ArgonathRadius[]): string =>
     .join('  │  ')
 
 /** What is asked of the statues: to be sent on the change, with what it is for, which of them, since where, and on what model. */
-type Convening = { convene?: boolean; about?: string; statues?: readonly string[]; against?: string; model?: string }
+type Convening = { convene?: boolean; about?: string; statues?: readonly string[]; against?: string; model?: string; ref?: string }
 
 /**
  * The statues' judgement of the change in a place, sent on it first when asked; `open` names the targets a changed run
@@ -724,7 +725,7 @@ async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held
 
     const model = asked.model !== undefined && /^[\w.-]+$/.test(asked.model) ? asked.model : undefined
 
-    await convene($, 'tool', asked.about ?? '', asked.statues, against, model, place)
+    await convene($, 'tool', asked.about ?? '', asked.statues, against, model, place, asked.ref)
   }
 
   const held = await judgementIn($, place)
@@ -770,7 +771,10 @@ export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
         .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
       if (again.deny === undefined) {
-        if (again.agentId !== undefined && again.agentId !== '') await remember($, again.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })
+        // Asked again for the issue its first sending was for
+        const ref = agentOf(e.agentId)?.ref
+
+        if (again.agentId !== undefined && again.agentId !== '') await remember($, again.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
         await setJudgement($, place, { ...held, seats: held.seats.map(one => (one === seat ? { ...one, agentId: again.agentId ?? '', isAskedAgain: true } : one)) })
 
         return

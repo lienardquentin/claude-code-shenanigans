@@ -2,10 +2,11 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { refusalOf } from '../hooks/agents'
-import { branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reachesOut, reviewTasks, treePathOf, triesOf, unsettledOf } from '../hooks/fellowship/quest'
+import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reachesOut, readyTasks, reviewTasks, spentOn, treePathOf, triesOf, unsettledOf, wardModelFor } from '../hooks/fellowship/quest'
 import type { QuestOf } from '../hooks/fellowship/quest'
 import { canMove, restingPhase } from '../hooks/fellowship/phases'
-import type { FellowshipPlan, FellowshipQuest } from '../types'
+import { shortRef } from '../hooks/look'
+import type { FellowshipPlan, FellowshipQuest, MiddleEarthSpend } from '../types'
 import { MEMBERS } from '../hooks/fellowship/quest'
 import type { Target } from '../hooks/fellowship/quest'
 
@@ -34,6 +35,19 @@ const PLAN = {
 const REF = PLAN.ref
 const BRANCH = 'fellowship/12-beacons-answer-how-long-they-have-burned'
 const TREE = `${CWD}/.fellowship/trees/fellowship-12-beacons-answer-how-long-they-have-burned`
+
+/** The plan with its two tasks apart: neither waits on the other, and they change no file in common. */
+const apart = (): typeof PLAN => {
+  const made = structuredClone(PLAN)
+
+  made.tasks[1] = { ...made.tasks[1]!, files: ['beacons/gondor/archive.py'], dependsOn: [], weight: 'light' }
+
+  return made
+}
+
+// The lanes its two tasks are built in, beside each other
+const LANE_1 = `${TREE}--task-1`
+const LANE_2 = `${TREE}--task-2`
 
 /** The quest the plan's prompts and messages are made for. */
 const QUEST: QuestOf = { kind: 'plan', ref: REF, url: PLAN.url, title: PLAN.title, branch: BRANCH }
@@ -198,9 +212,69 @@ describe('every agent the mod sends', () => {
 
 describe('the statues\' judgement', () => {
   test('is read with its findings a line each, the blocking apart from the minor', () => {
-    expect(parseJudgement(JUDGED.pass)).toEqual({ verdict: 'pass', blocking: [], minor: ['- Isildur, app.py:70: lit could be named burning.'], line: 'passed, 1 minor finding' })
+    expect(parseJudgement(JUDGED.pass)).toEqual({ verdict: 'pass', blocking: [], minor: ['- Isildur, app.py:70: lit could be named burning.'], minorAt: [{ where: 'app.py:70', line: '- Isildur, app.py:70: lit could be named burning.' }], line: 'passed, 1 minor finding' })
     expect(parseJudgement(JUDGED.fail)).toMatchObject({ verdict: 'fail', blocking: ['- Anárion, app.py:72: The archive error is swallowed whole.'], line: '1 blocking finding' })
     expect(parseJudgement('Argonath did not answer').verdict).toBe('unreadable')
+  })
+
+  test('sends back to tidy only the minor findings about what the change wrote, or that name no place', () => {
+    const at = (where: string) => ({ where, line: `- Isildur, ${where}: x` })
+    const changed = ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py']
+
+    expect(ownMinor([at('beacons/gondor/app.py:70'), at('app.py:3-9'), at(`${TREE}/beacons/tests/test_gondor.py:12`), at('beacons/gondor/')], TREE, changed)).toHaveLength(4)
+    expect(ownMinor([at('.anduril/'), at('beacons/gondor/db.py:4'), at('pp.py:70')], TREE, changed)).toEqual([])
+    expect(ownMinor([{ where: '', line: '- Isildur: the commit message is long' }], TREE, [])).toEqual(['- Isildur: the commit message is long'])
+  })
+
+  test('judge a plan\'s whole branch on a lighter model, unless a task of it is heavy, threatened, or went unproven', () => {
+    const made = plan()
+
+    expect(wardModelFor(made, [])).toBe('claude-sonnet-5-5')
+    expect(wardModelFor(made, [{ unproven: [] }])).toBe('claude-sonnet-5-5')
+    expect(wardModelFor(made, [{ unproven: ['anor'] }])).toBeUndefined()
+    expect(wardModelFor(plan({ tasks: [...made.tasks, { ...made.tasks[1]!, id: 3, weight: 'heavy' }] }), [])).toBeUndefined()
+    expect(wardModelFor(plan({ risks: [{ text: 'r', severity: 'high', mitigation: '', tasks: [1], wantsTask: false }] }), [])).toBeUndefined()
+  })
+})
+
+describe('tasks beside one another', () => {
+  const task = (id: number, files: string[], change: Partial<FellowshipPlan['tasks'][number]> = {}) => ({ ...plan().tasks[0]!, id, title: `t${id}`, files, dependsOn: [], ...change })
+
+  test('are those ready: not behind the quest, their dependencies done, and none out in a lane already', () => {
+    const made = plan({ tasks: [task(1, ['a'], { state: 'done' }), task(2, ['b'], { dependsOn: [1] }), task(3, ['c'], { dependsOn: [4] }), task(4, ['d']), task(5, ['e'], { state: 'asked' })] })
+
+    expect(readyTasks(made, []).map(one => one.id)).toEqual([2, 4])
+    expect(readyTasks(made, [4]).map(one => one.id)).toEqual([2])
+  })
+
+  test('share no file with one another or with those out, and are never more than three out at once', () => {
+    const ready = [task(1, ['a', 'b']), task(2, ['b']), task(3, ['c']), task(4, ['d']), task(5, ['e'])]
+
+    expect(besideOf(ready, []).map(one => one.id)).toEqual([1, 3, 4])
+    expect(besideOf(ready, [task(9, ['c'])]).map(one => one.id)).toEqual([1, 4])
+    expect(besideOf(ready, [task(8, ['x']), task(9, ['y'])]).map(one => one.id)).toEqual([1])
+  })
+
+  test('leave a task that names no file to be built alone, as it could touch any', () => {
+    expect(besideOf([task(1, []), task(2, ['b']), task(3, ['c'])], []).map(one => one.id)).toEqual([2, 3])
+    expect(besideOf([task(2, ['b'])], [task(1, [])])).toEqual([])
+  })
+
+  test('are named by their quest and their task', () => {
+    expect(shortRef(`${REF}~3`)).toBe('#12 task 3')
+    expect(shortRef(REF)).toBe('#12')
+  })
+})
+
+describe('what a quest cost', () => {
+  const turn = (change: Partial<MiddleEarthSpend>): MiddleEarthSpend => ({ role: 'member', tree: TREE, model: 'claude-opus-5-5', input: 1, cacheRead: 0, cacheWrite: 0, output: 1, durationMs: 1, at: 1, ...change })
+
+  test('counts the turns of its issue, and those sent into its worktree with no issue named, and no other', () => {
+    const turns = [turn({ ref: REF }), turn({ role: 'council', ref: REF, tree: CWD }), turn({ role: 'statue' }), turn({ role: 'statue', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
+
+    expect(spentOn({ ref: REF, tree: TREE }, CWD, turns)).toEqual(turns.slice(0, 3))
+    // A quest built in the project's own folder takes none of the turns there that name no issue
+    expect(spentOn({ ref: REF, tree: CWD }, CWD, turns)).toEqual(turns.slice(0, 2))
   })
 })
 
@@ -400,8 +474,8 @@ const GITHUB = JSON.stringify({
 const WEIGHTS = '```json\n[{ "id": "r1", "weight": "light", "kind": "change" }, { "id": "r2", "weight": "standard", "kind": "change" }]\n```'
 
 type Proof = 'pinned' | 'bare' | 'unlooked' | 'unhandled'
-// A pass, a pass with a minor finding of Isildur's, a failure
-type Verdict = 'pass' | 'minor' | 'fail'
+// A pass, a pass with a minor finding of Isildur's, one about a file the change did not write, a failure
+type Verdict = 'pass' | 'minor' | 'stray' | 'fail'
 type Vision = 'shown' | 'empty' | 'clouded'
 
 /** The first of what is queued, and the last one again once it is the only one left. */
@@ -463,8 +537,16 @@ const machine = (on: On) => {
     staged: '',
     pushed: '',
     worktrees: [{ path: CWD, branch: 'main' }] as { path: string; branch: string }[],
-    // What a quest's worktree holds uncommitted
+    // What a quest's worktree holds uncommitted, and the files its change wrote, as git names them
     dirty: '',
+    changed: 'beacons/gondor/app.py',
+    // What the agents sent have cost, as .fellowship/spend.jsonl keeps it
+    spend: '',
+    // Each lane's worktree, by its folder: what it holds uncommitted, its HEAD, and where it left its quest's branch. The
+    // tip of the quest's branch, which lanes land on, and how a lane's rebase onto it goes
+    lanes: {} as Record<string, { dirty: string; head: string; forkedAt: string }>,
+    tip: 'b45e000aaaa',
+    rebase: 'clean' as 'clean' | 'conflict',
     // What git's config says it runs (hooks, filters), where it keeps its hooks, and whether the change touches them
     gitRuns: '',
     hooks: `${CWD}/.git/hooks`,
@@ -484,10 +566,15 @@ const machine = (on: On) => {
   const testFile = () => [...(world.proving === 'bare' ? [] : [MARKED]), ...(world.wrote ? LOCKED.filter(line => !(world.tampered && line.includes('assert'))) : [])].join('\n')
 
   on('session.cwd', () => ({ value: CWD }) as never)
-  on('fs.write', () => ({ value: undefined }) as never)
-  on('fs.exists', () => ({ value: true }) as never)
+  on('fs.write', (_, e) => {
+    if (e.path === `${CWD}/.fellowship/spend.jsonl`) world.spend = e.text
+
+    return { value: undefined } as never
+  })
+  on('fs.exists', (_, e) => ({ value: e.path !== `${CWD}/.fellowship/spend.jsonl` || world.spend !== '' }) as never)
   on('fs.read', (_, e) => {
     if (e.path === `${CWD}/.claude/argonath`) return { value: PROJECT } as never
+    if (e.path === `${CWD}/.fellowship/spend.jsonl`) return { value: world.spend } as never
     if (e.path.endsWith('/beacons/tests/test_gondor.py')) return { value: testFile() } as never
 
     throw new Error(`ENOENT: ${e.path}`)
@@ -505,7 +592,7 @@ const machine = (on: On) => {
 
     // Argonath: the change as one fingerprint, the change the statues read, where the folders stand, and what each holds
     // (the folders the change reaches are read before the handler plays it: those of the proof that comes next)
-    if (script.includes('git rev-parse HEAD')) return answer(`${world.head}\n${world.edits}\n`)
+    if (script.includes('git rev-parse HEAD')) return answer(`${world.lanes[cwd]?.head ?? world.head}\n${world.edits}\n`)
     if (script.includes('New files:')) return answer('diff --git a/beacons/gondor/app.py\n+    burned_for = 3\n\nNew files:\n')
     if (script.includes('git status --porcelain=v1')) return answer('')
     if (script.includes('git diff HEAD')) return answer(`diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    burned_for = 3\n${world.proofs[0] === 'unhandled' ? 'diff --git a/beacons/anor/App.vue b/beacons/anor/App.vue\n+<p/>\n' : ''}\n--argonath-untracked--\n`)
@@ -532,13 +619,63 @@ const machine = (on: On) => {
     if (line.startsWith('git config --show-origin --get-regexp ')) return answer(world.gitRuns, world.gitRuns === '' ? 1 : 0)
     if (line === 'git rev-parse --path-format=absolute --git-path hooks') return answer(`${world.hooks}\n`)
     if (line === `git status --porcelain -- ${world.hooks}`) return answer(world.isHookTouched ? ' M .husky/pre-commit\n' : '')
+    const lane = world.lanes[cwd]
+
+    if (lane !== undefined) {
+      if (line === 'git status --porcelain' || line.startsWith('git status --porcelain -- ')) return answer(lane.dirty)
+      if (line === 'git rev-parse HEAD') return answer(`${lane.head}\n`)
+      if (line.startsWith('git merge-base HEAD ')) return answer(`${lane.forkedAt}\n`)
+      if (line.startsWith('git commit')) {
+        world.commits += 1
+        lane.dirty = ''
+        lane.head = `c0ffee${world.commits + 1}lane`
+
+        return answer('')
+      }
+      if (line.startsWith('git rebase ') && line !== 'git rebase --abort') {
+        if (world.rebase === 'conflict') return answer('', 1)
+        lane.forkedAt = e.argv[2] ?? ''
+        lane.head = `${lane.head}r`
+
+        return answer('')
+      }
+      if (line === 'git reset -q --soft HEAD~1') {
+        lane.dirty = ' M beacons/gondor/archive.py\n'
+        lane.head = lane.forkedAt
+
+        return answer('')
+      }
+      if (line.startsWith('git reset -q --hard ')) {
+        lane.head = e.argv.at(-1) ?? ''
+        lane.forkedAt = lane.head
+        lane.dirty = ''
+
+        return answer('')
+      }
+      // The change applied on what landed stops on its conflict, marked in the file
+      if (line.startsWith('git cherry-pick --no-commit ')) {
+        lane.dirty = 'UU beacons/gondor/app.py\n'
+
+        return answer('', 1)
+      }
+    }
+    if (line.startsWith('git rev-parse refs/heads/')) return answer(`${world.tip}\n`)
+    // A lane lands on the quest's branch, in its worktree
+    if (line.startsWith('git merge --ff-only ')) {
+      world.tip = e.argv.at(-1) ?? ''
+      world.head = world.tip
+
+      return answer('')
+    }
     if (line === 'git status --porcelain' || line.startsWith('git status --porcelain -- ')) return answer(cwd === CWD ? world.mine : world.dirty)
     if (line === 'git worktree list --porcelain') return answer(world.worktrees.map(one => `worktree ${one.path}\nHEAD ${world.head}\nbranch refs/heads/${one.branch}\n`).join('\n'))
     if (line.startsWith('git worktree add')) {
       const isNew = e.argv[3] === '-b'
       const branch = isNew ? (e.argv[4] ?? '') : (e.argv.at(-1) ?? '')
-      world.worktrees.push({ path: (isNew ? e.argv[5] : e.argv[3]) ?? '', branch })
+      const path = (isNew ? e.argv[5] : e.argv[3]) ?? ''
+      world.worktrees.push({ path, branch })
       if (!world.branches.includes(branch)) world.branches.push(branch)
+      if (branch.includes('--task-')) world.lanes[path] = { dirty: '', head: world.tip, forkedAt: world.tip }
 
       return answer('')
     }
@@ -555,6 +692,7 @@ const machine = (on: On) => {
     if (line.startsWith('git rev-parse --verify --quiet refs/remotes/origin/')) return answer('', world.remotes.includes((e.argv.at(-1) ?? '').replace('refs/remotes/origin/', '')) ? 0 : 1)
     if (line.startsWith('git rev-parse --verify')) return answer('', world.branches.includes((e.argv.at(-1) ?? '').replace('refs/heads/', '')) ? 0 : 1)
     if (line === 'git diff --cached --no-color --no-ext-diff') return answer(world.staged)
+    if (line.startsWith('git diff HEAD --name-only -- . ')) return answer(`${world.changed}\n`)
     if (line.startsWith('git diff --no-color --no-ext-diff ') && line.endsWith('...HEAD')) return answer(world.pushed)
     if (line.startsWith('git branch -D ')) {
       world.branches = world.branches.filter(one => one !== e.argv.at(-1))
@@ -614,8 +752,11 @@ const machine = (on: On) => {
       world.gazing.push(agentId)
     } else {
       world.spawned.push(given)
-      // The member builds something, in its worktree
-      world.dirty = ' M beacons/gondor/app.py\n'
+      // The member builds something, in its worktree: a lane's, or the quest's
+      const lane = world.lanes[String(given.cwd ?? '')]
+
+      if (lane !== undefined) lane.dirty = ' M beacons/gondor/app.py\n'
+      else world.dirty = ' M beacons/gondor/app.py\n'
     }
 
     return { model: 'opus', agentId } as never
@@ -725,9 +866,11 @@ const settle = async ($: Engine, world: World) => {
         const found =
           verdict === 'minor' && index === 0
             ? [{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]
-            : verdict === 'fail' && index === sat.length - 1
-              ? [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]
-              : []
+            : verdict === 'stray' && index === 0
+              ? [{ severity: 'minor', where: '.anduril/', text: 'Untracked build artefacts should not be committed.' }]
+              : verdict === 'fail' && index === sat.length - 1
+                ? [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]
+                : []
 
         await ends($, agentId, FOUND(found))
       }
@@ -843,6 +986,123 @@ describe('fellowship', () => {
     // Attended: the next task waits for the person
     expect(world.spawned).toHaveLength(1)
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: ready[\s\S]*● 1\. Keep when a beacon is lit · c0ffee/)
+  })
+
+  test('commits a pass whose minor findings are about files the change did not write, without sending its member back to tidy them', async ($, on) => {
+    const world = machine(on)
+    world.judgements = ['stray']
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await settle($, world)
+
+    expect(world.sent).toEqual([])
+    expect(world.judged).toHaveLength(2)
+    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/- Isildur, \.anduril\/: Untracked build artefacts should not be committed\./)
+    expect(world.marked).toEqual(['1 doing', '1 done'])
+  })
+
+  test('counts what each turn of an agent it sends costs, and says it of the quest', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+    world.edits += 1
+    await $.turn.complete({ answer: 'Added lit_at.', durationMs: 120_000, isAborted: false, turnId: 't', reason: 'answer', agentId: 'frodo-1', usage: { model: 'claude-haiku-5-5', input_tokens: 2_000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 8_000, output_tokens: 3_000 } } as never)
+    await settle($, world)
+
+    // The statues' turns here count no tokens, and are not kept. The member is known by its worktree: a spawn answered
+    // by a hook gives its sender no id, so the quest never named its issue to it
+    const kept = world.spend.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(kept).toHaveLength(1)
+    expect(kept[0]).toMatchObject({ role: 'member', tree: TREE, model: 'claude-haiku-5-5', input: 2_000, cacheRead: 40_000, cacheWrite: 8_000, output: 3_000, durationMs: 120_000 })
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/Spent: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out\.\n- member: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out \(claude-haiku-5-5 ×1\)/)
+  })
+
+  test('builds tasks apart beside each other, each in a lane of its own, and lands each on the quest\'s branch, the later one proved again on what landed first', async ($, on) => {
+    const world = machine(on)
+    world.plan = apart()
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+
+    // Each lane is a worktree on a branch off the quest's, its member sent there, and none in the quest's own
+    expect(world.ran).toContain(`git worktree add -b ${BRANCH}--task-1 ${LANE_1} ${BRANCH}`)
+    expect(world.ran).toContain(`git worktree add -b ${BRANCH}--task-2 ${LANE_2} ${BRANCH}`)
+    expect(world.spawned.map(one => [one.subagent_type, one.cwd])).toEqual([
+      ['middle-earth:frodo', LANE_1],
+      ['middle-earth:samwise', LANE_2],
+    ])
+    expect(world.marked).toEqual(['1 doing', '2 doing'])
+
+    // The first back lands on the quest's branch as it is
+    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await settle($, world)
+
+    expect(world.judged.map(one => one.cwd)).toEqual([LANE_1, LANE_1])
+    expect(gitIn(world, LANE_1).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit\n/)
+    expect(gitIn(world, TREE)).toContain('git merge --ff-only c0ffee2lane')
+    expect(world.ran).toContain(`git worktree remove --force ${LANE_1}`)
+    expect(world.ran).toContain(`git branch -D ${BRANCH}--task-1`)
+    expect(world.marked).toEqual(['1 doing', '2 doing', '1 done'])
+    expect(await call($, 'mcp__middle-earth__quest')).not.toMatch(/~1/)
+
+    // The second left the quest's branch before the first landed: taken onto it, proved again, and landed as it passed
+    const proved = world.jobs.service.length
+
+    await ends($, 'samwise-1', 'Added the archive.', world)
+    await settle($, world)
+
+    expect(gitIn(world, LANE_2)).toContain('git rebase c0ffee2lane')
+    expect(gitIn(world, LANE_2)).toContain('git reset -q --soft HEAD~1')
+    expect(world.jobs.service.length).toBeGreaterThan(proved + 1)
+    expect(world.judged).toHaveLength(4)
+    expect(gitIn(world, LANE_2).filter(line => line.startsWith('git commit -m'))).toHaveLength(2)
+    expect(gitIn(world, TREE)).toContain('git merge --ff-only c0ffee4lane')
+    expect(world.marked).toEqual(['1 doing', '2 doing', '1 done', '2 done'])
+    expect(world.sent).toEqual([])
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*● 1\. Keep when a beacon is lit · c0ffee2[\s\S]*● 2\. Answer the seconds burned · c0ffee4/)
+  })
+
+  test('sends a lane\'s member back to resolve what conflicts with a task landed before it, and judges what it resolved', async ($, on) => {
+    const world = machine(on)
+    world.plan = apart()
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await settle($, world)
+
+    world.rebase = 'conflict'
+    await ends($, 'samwise-1', 'Added the archive.', world)
+    await settle($, world)
+
+    // Put on what landed, its change applied with the conflict marked, and its member sent back with it
+    expect(gitIn(world, LANE_2)).toEqual(expect.arrayContaining(['git rebase --abort', 'git reset -q --hard c0ffee2lane', 'git cherry-pick --no-commit c0ffee3lane', 'git cherry-pick --quit']))
+    expect(world.sent.map(one => one.agentId)).toEqual(['samwise-1'])
+    expect(world.sent[0]?.text).toMatch(/moved while you built it[\s\S]*\(beacons\/gondor\/app\.py\)/)
+    expect(world.marked).not.toContain('2 done')
+
+    // Resolved, it is judged again, and lands
+    world.rebase = 'clean'
+    await ends($, 'samwise-1', 'Resolved.', world)
+    await settle($, world)
+
+    expect(world.judged).toHaveLength(6)
+    expect(gitIn(world, TREE).filter(line => line.startsWith('git merge --ff-only'))).toHaveLength(2)
+    expect(world.marked).toContain('2 done')
+  })
+
+  test('abandons no quest while a lane of it is out', async ($, on) => {
+    const world = machine(on)
+    world.plan = apart()
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+
+    expect((await $.command.run({ command: 'fellowship', args: `abandon ${REF}` } as never)).text).toMatch(/~1 is marching: wait until Frodo is back/)
+    expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
   })
 
   test('commits nothing once what git runs on a commit changed since the quest set out, until the person puts it before the Argonath again', async ($, on) => {
@@ -1634,8 +1894,8 @@ describe('the hand-offs of a task', () => {
     // Judged against origin's base, just fetched, not a local one behind it
     expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' origin/main'))).toBe(true)
     expect(world.judged.at(-1)).toMatchObject({ cwd: TREE })
-    // On their own model: the whole branch is no lighter for any of its tasks being light
-    expect(world.judged.at(-1)?.model).toBeUndefined()
+    // On a lighter model: no task of the plan is heavy, threatened, or went unproven
+    expect(world.judged.at(-1)?.model).toBe('sonnet')
     expect(aboutOf(world.judged.at(-1))).toMatch(/^The whole branch of the plan for github:.*#12[\s\S]*one task undoing or contradicting another[\s\S]*- 1\. Keep when a beacon is lit/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*The statues: the whole branch: 1 blocking finding/)
