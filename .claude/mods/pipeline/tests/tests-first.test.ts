@@ -30,7 +30,7 @@ describe('the tests written first', () => {
     expect(parseGaze('I wrote some tests.')).toBeUndefined()
   })
 
-  test('reads the test writer's json past the code it quotes before it, a fixture or a snippet', () => {
+  test('reads the test writer\'s json past the code it quotes before it, a fixture or a snippet', () => {
     expect(parseGaze(['The fixture I could not write:', '', ...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], SHOWN].join('\n'))).toMatchObject({ tests: [{ name: 'test_quenching_one_beacon' }] })
   })
 
@@ -56,7 +56,7 @@ describe('the tests written first', () => {
     expect(missingFrom(TEST_LINES, 'import x\n')).toHaveLength(3)
   })
 
-  test('finds what a shell command took out of the test writer's tests, in a file no reason was given for', () => {
+  test('finds what a shell command took out of the test writer\'s tests, in a file no reason was given for', () => {
     const blocks = [{ file: 'beacons/tests/test_gondor.py', lines: TEST_LINES }]
     const loosened = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
 
@@ -171,7 +171,7 @@ describe('tests first', () => {
     expect(await $.tool.call({ tool: 'Bash', command: 'git add -A', agentId: 'test-writer-1' } as never)).toMatchObject({ deny: expect.stringMatching(/runs only what tests or reads/) })
   })
 
-  test('keeps the test writer's tests from being changed without a reason, lets a builder add around them, and lifts the lock once they are committed', async ($, on) => {
+  test('keeps the test writer\'s tests from being changed without a reason, lets a builder add around them, and lifts the lock once they are committed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
     await call($, 'mcp__pipeline__write_tests', { purpose: 'x' })
