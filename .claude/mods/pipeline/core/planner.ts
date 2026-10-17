@@ -116,7 +116,7 @@ export async function makePlan(p: PlannerPorts, input: string, by: Planning['by'
   if (before !== undefined) {
     await keep(p, before)
 
-    return { text: `A plan of ${key} is kept from ${new Date(before.at).toISOString().slice(0, 10)} (${tally(before)}): shown in the pane. Convene again to plan afresh.`, plan: before }
+    return { text: `A plan of ${key} is kept from ${new Date(before.at).toISOString().slice(0, 10)} (${tally(before)}): shown in the pane. Plan it again to plan afresh.`, plan: before }
   }
 
   await p.board.note(`Reading ${key}…`)
@@ -190,7 +190,7 @@ export async function adjourn(p: PlannerPorts, sitting: Planning, answer: string
       ? fromFile
       : ended === 'answer'
       ? parsePlan(answer, about)
-      : `The planner on ${sitting.ref} ended without an answer: ${ended === 'aborted' ? 'it was interrupted (an Esc, or the mod reloading while it sat)' : ended === 'refusal' ? 'the model refused' : 'an API error ended it'}. Convene it again.`
+      : `The planner on ${sitting.ref} ended without an answer: ${ended === 'aborted' ? 'it was interrupted (an Esc, or the mod reloading while it sat)' : ended === 'refusal' ? 'the model refused' : 'an API error ended it'}. Plan it again.`
 
   if (typeof made === 'object') await land(p, sitting, made)
 

@@ -93,7 +93,7 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 
 describe('the issues listed', () => {
-  test('read each issue with the ref Elrond and the build know it by, from either forge, its body cut for the pane', () => {
+  test('read each issue with the ref the planner and the build know it by, from either forge, its body cut for the pane', () => {
     expect(listedOf(parseIssues(GH_LIST) ?? [], ORIGIN)).toEqual([
       { ref: `github:${REPO}#12`, number: 12, title: 'Beacons answer how long they have burned', url: `https://github.com/${REPO}/issues/12`, labels: ['ready-for-agent'], author: 'quent', updatedAt: '2026-10-14T09:00:00Z', body: 'The body of #12.' },
       expect.objectContaining({ ref: `github:${REPO}#21`, labels: [] }),
@@ -137,7 +137,7 @@ describe('issues', () => {
     })
   }
 
-  test('sends the issue opened to the council, which sits where it is held, and opens a kept plan rather than planning afresh', async ($, on) => {
+  test('sends the issue opened to the planner, which is sent where it is held, and opens a kept plan rather than planning afresh', async ($, on) => {
     const world = machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
     await $.command.run({ command: 'issues', args: '' } as never)

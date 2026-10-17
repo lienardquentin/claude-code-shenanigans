@@ -24,13 +24,13 @@ describe('the tests written first', () => {
     for (const path of ['beacons/gondor/app.py', 'narsil/src/main.rs', 'web/src/App.tsx', 'contest/main.py']) expect(isTestPath(path)).toBe(false)
   })
 
-  test('reads what she showed from her last json block', () => {
+  test('reads what the test writer showed from its last json block', () => {
     expect(parseGaze(SHOWN)).toEqual({ tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_quenching_one_beacon' }], red: 'FAILED test_quenching_one_beacon - assert 404 == 200', unrun: [], untestable: '' })
     expect(parseGaze('```json\n{ "tests": [], "red": "", "untestable": "Only the README changes." }\n```')).toMatchObject({ untestable: 'Only the README changes.' })
     expect(parseGaze('I wrote some tests.')).toBeUndefined()
   })
 
-  test('reads her json past the code she quotes before it, a fixture or a snippet', () => {
+  test('reads the test writer's json past the code it quotes before it, a fixture or a snippet', () => {
     expect(parseGaze(['The fixture I could not write:', '', ...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], SHOWN].join('\n'))).toMatchObject({ tests: [{ name: 'test_quenching_one_beacon' }] })
   })
 
@@ -40,14 +40,14 @@ describe('the tests written first', () => {
     expect(parseGaze(`\`\`\`json\n${answer}\n\`\`\``)).toMatchObject({ tests: [], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }] })
   })
 
-  test('locks the lines she added, and the new files whole', () => {
+  test('locks the lines it added, and the new files whole', () => {
     expect(blocksOf(DIFF, [{ file: 'beacons/tests/test_new.py', text: 'def test_x():\n\n    assert False\n' }])).toEqual([
       { file: 'beacons/tests/test_gondor.py', lines: TEST_LINES },
       { file: 'beacons/tests/test_new.py', lines: ['def test_x():', '    assert False'] },
     ])
   })
 
-  test('lets an edit add around her lines, and finds one that takes one out', () => {
+  test('lets an edit add around its lines, and finds one that takes one out', () => {
     const before = TEST_LINES.join('\n')
 
     expect(takenBy(TEST_LINES, before, `# pins: gondor POST /beacons/amon-din/quench\n${before}`)).toEqual([])
@@ -56,7 +56,7 @@ describe('the tests written first', () => {
     expect(missingFrom(TEST_LINES, 'import x\n')).toHaveLength(3)
   })
 
-  test('finds what a shell command took out of her tests, in a file no reason was given for', () => {
+  test('finds what a shell command took out of the test writer's tests, in a file no reason was given for', () => {
     const blocks = [{ file: 'beacons/tests/test_gondor.py', lines: TEST_LINES }]
     const loosened = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
 
@@ -65,7 +65,7 @@ describe('the tests written first', () => {
     expect(tamperedWith(blocks, [{ file: 'beacons/tests/test_gondor.py' }], [{ file: 'beacons/tests/test_gondor.py', text: loosened }])).toEqual([])
   })
 
-  test('lets her run tests and read, and nothing that changes the tree', () => {
+  test('lets the test writer run tests and read, and nothing that changes the tree', () => {
     expect(isChanging('uv run --project beacons pytest -q beacons/tests 2>&1')).toBe(false)
     expect(isChanging('git stash')).toBe(true)
   })
@@ -150,7 +150,7 @@ describe('tests first', () => {
     expect(world.submitted).toEqual([])
   })
 
-  test('reads what she wrote from the project\'s top while the session\'s directory is in a subfolder', async ($, on) => {
+  test('reads what the test writer wrote from the project\'s top while the session\'s directory is in a subfolder', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
@@ -161,7 +161,7 @@ describe('tests first', () => {
     expect(await call($, 'mcp__pipeline__tests_first')).toMatch(/^The tests written first show what is to come: 1 test, red, locked until they are committed\./)
   })
 
-  test('holds her to test files and to commands that test or read', async ($, on) => {
+  test('holds the test writer to test files and to commands that test or read', async ($, on) => {
     machine(on)
     await $.session.start({} as never)
     await call($, 'mcp__pipeline__write_tests', { purpose: 'x' })
@@ -171,7 +171,7 @@ describe('tests first', () => {
     expect(await $.tool.call({ tool: 'Bash', command: 'git add -A', agentId: 'test-writer-1' } as never)).toMatchObject({ deny: expect.stringMatching(/runs only what tests or reads/) })
   })
 
-  test('keeps her tests from being changed without a reason, lets a builder add around them, and lifts the lock once they are committed', async ($, on) => {
+  test('keeps the test writer's tests from being changed without a reason, lets a builder add around them, and lifts the lock once they are committed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
     await call($, 'mcp__pipeline__write_tests', { purpose: 'x' })
@@ -199,7 +199,7 @@ describe('tests first', () => {
     expect(await call($, 'mcp__pipeline__tests_first')).toMatch(/^The tests written first show what is to come: 0 tests, red, and 1 that cannot run here, committed since\./)
   })
 
-  test('shows nothing for a purpose with no behaviour, and is clouded when she shows no red', async ($, on) => {
+  test('shows nothing for a purpose with no behaviour, and cannot be read when it shows no red', async ($, on) => {
     machine(on)
     await $.session.start({} as never)
 
@@ -212,7 +212,7 @@ describe('tests first', () => {
     expect(await call($, 'mcp__pipeline__tests_first')).toMatch(/^The tests written first could not be read: it did not show its tests red/)
   })
 
-  test('tells the Claude of a person who asked through /mirror what she showed', async ($, on) => {
+  test('tells the Claude of a person who asked through /tests what the test writer showed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
@@ -224,7 +224,7 @@ describe('tests first', () => {
 })
 
 describe('tests first, for a run', () => {
-  test('gazes on the lighter model for a task that is not heavy', async ($, on) => {
+  test('writes the tests on the lighter model for a task that is not heavy', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
@@ -233,7 +233,7 @@ describe('tests first, for a run', () => {
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'pipeline:test-writer-light' })
   })
 
-  test('says what was taken out of her locked tests with no reason, while they are locked', async ($, on) => {
+  test('says what was taken out of its locked tests with no reason, while they are locked', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
     await call($, 'mcp__pipeline__write_tests', { purpose: 'Task 2: quench.' })
@@ -246,7 +246,7 @@ describe('tests first, for a run', () => {
     expect(await call($, 'mcp__pipeline__tests_first')).toContain(`Taken out of the tests written first with no reason given (an edit the lock did not see):\n- beacons/tests/test_gondor.py: \`${TEST_LINES[2]?.trim() ?? ''}\``)
   })
 
-  test("gazes in the run's worktree a builder is sent to, holds her and the builder to her tests there, and leaves the project's own folder be", async ($, on) => {
+  test("writes the tests in the run's worktree a builder is sent to, holds the test writer and the builder to them there, and leaves the project's own folder be", async ($, on) => {
     const tree = `${CWD}/.pipeline/trees/12-quench`
     const world = machine(on)
     world.tops.push(tree)
@@ -279,7 +279,7 @@ describe('tests first, for a run', () => {
     expect(await call($, 'mcp__pipeline__tests_first', { agentId: 'builder-service-1' })).toContain('- beacons/tests/test_gondor.py, by pipeline:builder-service: The issue asks for 409 here, not 404.')
   })
 
-  test('forgets, for an issue, only the visions gazed for it, and the project\'s own for none', () => {
+  test('forgets, for an issue, only the tests written first for it, and the project\'s own for none', () => {
     const home = { place: { isHome: true }, held: {} }
     const twelve = { place: { isHome: false }, held: { ref: 'github:beacons/gondor#12' } }
     const thirteen = { place: { isHome: false }, held: { ref: 'github:beacons/gondor#13' } }
