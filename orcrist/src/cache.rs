@@ -95,18 +95,19 @@ fn folder() -> Option<PathBuf> {
     let folder = Path::new(common.trim()).join("orcrist-cache");
     match fs::symlink_metadata(&folder) {
         Ok(metadata) if metadata.is_dir() && private(&metadata) && owned(&folder, &metadata) => Some(folder),
-        // A link or a file where the folder should be is no cache orcrist made: it keeps nothing rather than follow it
+        // A link or a file where the folder should be, or a folder others may read, write in or own, is no cache this
+        // run may trust: it keeps nothing rather than follow or share it
         Ok(_) => None,
         Err(_) => make_private_folder(&folder).ok().map(|()| folder),
     }
 }
 
-/// Whether no one but its owner may read or write in the folder; on a system without such modes, whether it is one.
+/// Whether no one but its owner may read or write in the folder; on a system without unix's modes, left to it.
 fn private(metadata: &fs::Metadata) -> bool {
     #[cfg(unix)]
     return std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o077 == 0;
     #[cfg(not(unix))]
-    return metadata.is_dir();
+    return true;
 }
 
 /// Whether this run owns the folder: a file it makes there is its own, and has the folder's owner. A run as one user

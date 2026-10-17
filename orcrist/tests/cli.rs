@@ -1307,7 +1307,8 @@ fn python_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
     assert_eq!(
         stdout(&output),
         "fixtures/precise.py:12 swallowed-error: the error is caught and nothing is done with it\n\
-         fixtures/precise.py:14 impossible-guard: the signature already says path is str\n"
+         fixtures/precise.py:14 impossible-guard: the signature already says path is str\n\
+         fixtures/precise.py:24 swallowed-error: the error is caught and nothing is done with it\n"
     );
     assert_eq!(output.status.code(), Some(1));
 }
@@ -1349,4 +1350,79 @@ fn a_cache_folder_others_may_read_keeps_nothing() {
     let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&private.join(".git/orcrist-cache")), 0o700);
     assert_eq!(mode(&entries[0]), 0o600);
+}
+
+// sting: orcrist check fixtures/Signals.vue
+#[test]
+fn every_script_of_a_vue_component_is_judged_where_it_stands_in_the_file() {
+    let output = run(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &["check", "--format", "json", "fixtures/Signals.vue"],
+    );
+
+    // The code on the `<script>` line is judged, at its column in the file; the `<script>` in an HTML comment is none;
+    // `tmp`, after the JSX, is found only where the block is read as TSX, which its `lang`, after a `>` in the quotes
+    // of `generic`, says only where that `>` ends no tag
+    assert_eq!(
+        stdout(&output),
+        r#"[
+  {
+    "column": 32,
+    "file": "fixtures/Signals.vue",
+    "line": 1,
+    "message": "data says nothing of what it is",
+    "rule": "vague-name"
+  },
+  {
+    "column": 1,
+    "file": "fixtures/Signals.vue",
+    "line": 9,
+    "message": "the comment says what line 10 already says",
+    "rule": "restating-comment"
+  },
+  {
+    "column": 7,
+    "file": "fixtures/Signals.vue",
+    "line": 12,
+    "message": "tmp says nothing of what it is",
+    "rule": "vague-name"
+  }
+]
+"#
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/closures.rs
+#[test]
+fn a_rust_closure_held_by_a_name_is_a_function_its_parameters_its_own_names() {
+    let output = run(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &["check", "fixtures/closures.rs"],
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/closures.rs:2 duplicate-helper: slug_of does what beacon_id in fixtures/closures.rs:7 already does\n\
+         fixtures/closures.rs:7 duplicate-helper: beacon_id does what slug_of in fixtures/closures.rs:2 already does\n\
+         fixtures/closures.rs:12 vague-name: handle says nothing of what it is\n\
+         fixtures/closures.rs:17 duplicate-helper: measure does what weigh in fixtures/closures.rs:22 already does\n\
+         fixtures/closures.rs:22 duplicate-helper: weigh does what measure in fixtures/closures.rs:17 already does\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/lambdas.py
+#[test]
+fn a_python_lambda_held_by_a_name_is_a_function_its_parameters_its_own_names() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/lambdas.py"]);
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/lambdas.py:1 single-use-abstraction: every call passes \"Hirgon\" for keeper\n\
+         fixtures/lambdas.py:2 vague-name: process says nothing of what it is\n\
+         fixtures/lambdas.py:7 duplicate-helper: shout does what yell in fixtures/lambdas.py:8 already does\n\
+         fixtures/lambdas.py:8 duplicate-helper: yell does what shout in fixtures/lambdas.py:7 already does\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
 }

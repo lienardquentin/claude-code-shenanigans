@@ -30,6 +30,13 @@ pub enum Holds {
     Itself,
 }
 
+/// A node that binds a name to a value: its kind, the field of the name, the field of the value.
+pub struct Binding {
+    pub kind: &'static str,
+    pub name: &'static str,
+    pub value: &'static str,
+}
+
 /// A way the code drops an error: the kind of node it is, how to tell, and what to say of it.
 pub struct Swallowed {
     pub kind: &'static str,
@@ -46,9 +53,9 @@ pub struct Syntax {
     pub comments: &'static [&'static str],
     /// Kinds of the nodes that define a function, its name in their `name` field
     pub functions: &'static [&'static str],
-    /// Kinds of the nodes that bind a name, their `name`, to a value, their `value`, and the kinds of value that make
-    /// that name a function's: `const light = (beacon) => …`
-    pub bindings: &'static [&'static str],
+    /// The nodes that bind a name to a value, and the kinds of value that make that name a function's:
+    /// `const light = (beacon) => …`, `let light = |beacon| …;`, `light = lambda beacon: …`
+    pub bindings: &'static [Binding],
     pub function_values: &'static [&'static str],
     /// Where a node of each kind declares a name that is a value's, a variable's or a parameter's
     pub declarations: &'static [(&'static str, Place)],
@@ -76,13 +83,18 @@ const CAUGHT: &str = "the error is caught and nothing is done with it";
 pub static RUST: Syntax = Syntax {
     comments: &["line_comment", "block_comment"],
     functions: &["function_item"],
-    bindings: &[],
-    function_values: &[],
+    bindings: &[Binding {
+        kind: "let_declaration",
+        name: "pattern",
+        value: "value",
+    }],
+    function_values: &["closure_expression"],
     declarations: &[
         ("let_declaration", Place::Field("pattern")),
         ("parameter", Place::Field("pattern")),
     ],
-    parameters: &[("parameter", Holds::Field("pattern"))],
+    // `|beacon|` and `|beacon: &str|`
+    parameters: &[("parameter", Holds::Field("pattern")), ("identifier", Holds::Itself)],
     receivers: RECEIVERS,
     calls: &["call_expression"],
     literals: &[
@@ -117,8 +129,12 @@ pub static RUST: Syntax = Syntax {
 pub static PYTHON: Syntax = Syntax {
     comments: &["comment"],
     functions: &["function_definition"],
-    bindings: &[],
-    function_values: &[],
+    bindings: &[Binding {
+        kind: "assignment",
+        name: "left",
+        value: "right",
+    }],
+    function_values: &["lambda"],
     declarations: &[
         ("default_parameter", Place::Field("name")),
         ("typed_default_parameter", Place::Field("name")),
@@ -152,7 +168,11 @@ pub static PYTHON: Syntax = Syntax {
 pub static TYPESCRIPT: Syntax = Syntax {
     comments: &["comment"],
     functions: &["function_declaration", "method_definition"],
-    bindings: &["variable_declarator"],
+    bindings: &[Binding {
+        kind: "variable_declarator",
+        name: "name",
+        value: "value",
+    }],
     function_values: &["arrow_function", "function_expression"],
     declarations: &[
         ("variable_declarator", Place::Field("name")),

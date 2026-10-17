@@ -14,7 +14,9 @@ use crate::rules::{Finding, visit};
 /// Calls below which a parameter every call passes one literal for is not judged: one call passes one of everything.
 pub const CALLS: usize = 2;
 
-/// What the project holds of interfaces and functions, by the language of their code and their names.
+/// What the project holds of interfaces and functions, by the language of their code and their names: by name alone,
+/// across the project, so that a method, a closure or a lambda shares its count and its calls with every function of
+/// its name.
 pub struct Index {
     /// Where each interface is implemented
     implementations: HashMap<(Language, String), Vec<(PathBuf, usize)>>,

@@ -47,6 +47,9 @@ $ orcrist check fixtures/configured/load.ts
 $ orcrist check fixtures/precise.ts
 $ orcrist check fixtures/precise.py
 $ orcrist check fixtures/precise.rs
+$ orcrist check fixtures/Signals.vue
+$ orcrist check fixtures/closures.rs
+$ orcrist check fixtures/lambdas.py
 $ orcrist check --format json fixtures/restating.rs
 $ orcrist check --format sarif fixtures/configured/load.ts
 $ orcrist check fixtures/store.rs fixtures/disk.rs

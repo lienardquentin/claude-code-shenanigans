@@ -52,9 +52,26 @@ pub fn only_passes(except: Node, source: &str) -> bool {
     };
     // Ctrl+C stopping quietly, and a module that is optional when it cannot be imported
     let meant = ["KeyboardInterrupt", "ImportError", "ModuleNotFoundError"];
-    if children
+    // What it catches: `ImportError`, `ImportError as missing`, `(ImportError, ModuleNotFoundError)`
+    let caught: Vec<Node> = children
         .iter()
-        .any(|child| meant.contains(&&source[child.byte_range()]))
+        .find(|child| child.kind() != "block")
+        .and_then(|caught| match caught.kind() {
+            "as_pattern" => caught.named_child(0),
+            _ => Some(*caught),
+        })
+        .map(|caught| match caught.kind() {
+            "tuple" | "parenthesized_expression" => {
+                let mut cursor = caught.walk();
+                caught.named_children(&mut cursor).collect()
+            }
+            _ => vec![caught],
+        })
+        .unwrap_or_default();
+    if !caught.is_empty()
+        && caught
+            .iter()
+            .all(|caught| meant.contains(&&source[caught.byte_range()]))
     {
         return false;
     }
