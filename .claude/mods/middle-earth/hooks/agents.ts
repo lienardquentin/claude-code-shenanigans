@@ -70,7 +70,7 @@ export const roleOfType = (type: string): MiddleEarthRole | undefined => {
 
   const name = type.slice(PLUGIN.length + 1)
 
-  return name === PLANNER ? 'planner' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
+  return name === PLANNER ? 'planner' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'reviewer' : undefined
 }
 
 // The agents found to be none of the mod's: each is looked up once
@@ -93,7 +93,7 @@ export async function listedRole($: $, agentId: string): Promise<MiddleEarthRole
 }
 
 export const PLANNER_READS = 'The planner reads the codebase and changes nothing: run only commands that read. The plan goes to its file with Write.'
-export const STATUE_READS = 'A statue of the Argonath judges the change and changes nothing: run only commands that read.'
+export const REVIEWER_READS = 'A reviewer judges the change and changes nothing: run only commands that read.'
 
 type Call = { tool?: unknown; command?: unknown; file_path?: unknown; notebook_path?: unknown; path?: unknown; dangerouslyDisableSandbox?: unknown }
 
@@ -163,8 +163,8 @@ const roleRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined =
       if (given.tool === 'Write' && typeof given.file_path === 'string' && !isPlanPath(agent.root, given.file_path)) return `The planner writes its plan to ${agent.files?.[0] ?? 'its file in .elrond/plans'} and nothing else.`
 
       return undefined
-    case 'statue':
-      return given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command) ? STATUE_READS : undefined
+    case 'reviewer':
+      return given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command) ? REVIEWER_READS : undefined
     case 'member':
       return memberRefusal(agent, given)
     case 'test-writer':
@@ -193,11 +193,11 @@ export async function registerAgents($: $): Promise<void> {
     await $.agent
       .register({
         name,
-        description: `${member.title} of the Fellowship: builds one task of a quest in its worktree, proven and judged by the Argonath. Sent by the Fellowship alone.`,
+        description: `${member.title} of the Fellowship: builds one task of a quest in its worktree, proven and reviewed. Sent by the Fellowship alone.`,
         prompt: memberSystem(name),
         // The guard holds it to its fence: its worktree, no git that moves the branch, no mod's folder
         tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', toolOf('radius'), toolOf('prove'), toolOf('amend')],
-        disallowedTools: ['Agent', toolOf('task'), toolOf('judgement'), toolOf('commit')],
+        disallowedTools: ['Agent', toolOf('task'), toolOf('review'), toolOf('commit')],
         model: member.model,
         effort: member.effort,
       })
@@ -219,12 +219,12 @@ export async function registerAgents($: $): Promise<void> {
       .catch(() => undefined)
   }
 
-  for (const statue of REVIEWERS) {
+  for (const reviewer of REVIEWERS) {
     await $.agent
       .register({
-        name: statue.name,
-        description: `${statue.title}, a statue of the Argonath: judges a change every integration test pins, read-only. Sent by the Argonath alone.`,
-        prompt: reviewerSystem(statue.title),
+        name: reviewer.name,
+        description: `${reviewer.title}: judges a change every integration test pins, read-only. Sent by verify alone.`,
+        prompt: reviewerSystem(reviewer.title),
         tools: ['Read', 'Grep', 'Glob', 'Bash', 'Skill'],
         disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Agent'],
         model: REVIEWER_MODEL,

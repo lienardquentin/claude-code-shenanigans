@@ -40,17 +40,17 @@ describe('a judgement', () => {
     const { send, sent } = sender()
     const made = await judge(send, asked({ model: 'sonnet' }))
 
-    expect(made.seats.map(seat => [seat.statue, seat.reviews, seat.agentId, seat.state])).toEqual([
-      ['isildur', ['/code-review medium'], 'isildur-1', 'sitting'],
-      ['anarion', ['/security-review'], 'anarion-2', 'sitting'],
+    expect(made.seats.map(seat => [seat.reviewer, seat.reviews, seat.agentId, seat.state])).toEqual([
+      ['reviewer-correctness', ['/code-review medium'], 'reviewer-correctness-1', 'reviewing'],
+      ['reviewer-security', ['/security-review'], 'reviewer-security-2', 'reviewing'],
     ])
     expect(sent[0]?.prompt).toMatch(/^Your review: \/code-review medium\.[\s\S]*<purpose>\nSay what is missing\.[\s\S]*<size>[\s\S]*<proof>[\s\S]*<standards>[\s\S]*<change>\ndiff --git/)
     expect(sent.map(one => one.model)).toEqual(['sonnet', 'sonnet'])
-    expect(verdictOf(made)).toBe('sitting')
+    expect(verdictOf(made)).toBe('reviewing')
   })
 
   test('keeps a reviewer that could not be sent as silent, saying why', async () => {
-    const made = await judge(sender(['anarion']).send, asked())
+    const made = await judge(sender(['reviewer-security']).send, asked())
 
     expect(made.seats[1]).toMatchObject({ state: 'silent', agentId: '', why: 'it could not be sent: the session refused it' })
   })
@@ -78,10 +78,10 @@ describe('a judgement', () => {
 })
 
 describe("a reviewer's answer", () => {
-  const sitting = async (): Promise<Judgement> => judge(sender().send, asked())
+  const reviewing = async (): Promise<Judgement> => judge(sender().send, asked())
 
   test('judges its seat: a blocking finding fails it, minor ones pass it', async () => {
-    const held = await sitting()
+    const held = await reviewing()
     const failed = await answered(sender().send, held, held.seats[0]!, verdict([{ severity: 'blocking', where: 'main.rs:1', text: 'It panics.' }]), 'answer')
     const passed = await answered(sender().send, failed, failed.seats[1]!, verdict([{ severity: 'nit', where: '', text: 'A name.' }]), 'answer')
 
@@ -91,12 +91,12 @@ describe("a reviewer's answer", () => {
   })
 
   test('with no verdict that reads sends the reviewer once more for the verdict alone, then counts it silent', async () => {
-    const held = await sitting()
+    const held = await reviewing()
     const again = sender()
     const asking = await answered(again.send, held, held.seats[0]!, 'Looks fine to me.', 'answer')
 
-    expect(again.sent).toEqual([{ reviewer: 'isildur', description: 'Isildur gives its verdict', prompt: expect.stringContaining('Looks fine to me.') }])
-    expect(asking.seats[0]).toMatchObject({ state: 'sitting', agentId: 'isildur-1', isAskedAgain: true })
+    expect(again.sent).toEqual([{ reviewer: 'reviewer-correctness', description: 'Correctness reviewer gives its verdict', prompt: expect.stringContaining('Looks fine to me.') }])
+    expect(asking.seats[0]).toMatchObject({ state: 'reviewing', agentId: 'reviewer-correctness-1', isAskedAgain: true })
 
     const silent = await answered(again.send, asking, asking.seats[0]!, 'Still fine.', 'answer')
 
@@ -105,10 +105,10 @@ describe("a reviewer's answer", () => {
   })
 
   test('is silent when the reviewer was interrupted, refused, or could not be asked again', async () => {
-    const held = await sitting()
+    const held = await reviewing()
 
     expect((await answered(sender().send, held, held.seats[0]!, '', 'aborted')).seats[0]).toMatchObject({ state: 'silent', why: 'it was interrupted' })
-    expect((await answered(sender(['isildur']).send, held, held.seats[0]!, 'No block.', 'answer')).seats[0]).toMatchObject({ state: 'silent', why: 'it gave no findings that read' })
+    expect((await answered(sender(['reviewer-correctness']).send, held, held.seats[0]!, 'No block.', 'answer')).seats[0]).toMatchObject({ state: 'silent', why: 'it gave no findings that read' })
   })
 })
 

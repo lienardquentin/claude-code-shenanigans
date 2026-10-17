@@ -142,7 +142,7 @@ describe('a plan', () => {
 
     expect(unprovenRisks(plan, built)).toEqual([
       {
-        text: 'Task 1 changes gondor but names no test and no kept run: the Argonath cannot prove it on its own, and what it builds goes untested until a later task.',
+        text: 'Task 1 changes gondor but names no test and no kept run: verify cannot prove it on its own, and what it builds goes untested until a later task.',
         severity: 'medium',
         mitigation: 'Fold it into the task that exposes what it builds, or give it its own test and kept run.',
         tasks: [1],
@@ -413,7 +413,7 @@ describe('planner', () => {
     expect(world.submitted[0]).toMatch(/made no plan of .*#12: The planner answered no plan with tasks: I could not find the code/)
   })
 
-  test('ticks off tasks, saying what is ready next, and answers a kept plan without convening again', async ($, on) => {
+  test('ticks off tasks, saying what is ready next, and answers a kept plan without sending again', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__middle-earth__make_plan', { issue: '#12' })
     await ends($, 'planner-1', PLAN)

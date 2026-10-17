@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ArgonathJudgement, ArgonathRadius, ArgonathSeam, ArgonathSeat, ArgonathState, ArgonathTarget } from '../../types'
+import type { Judgement, Radius, ChangedRun, ReviewSeat, RunState, Target } from '../../types'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -42,27 +42,27 @@ import {
 type $ = EngineInterface
 type On = Parameters<Register>[0]
 
-const PANE = 'argonath'
-const TITLE = 'Argonath'
+const PANE = 'verify'
+const TITLE = 'Verify'
 // How often the session is asked whether a look is owed: once a turn has ended with an edit, it runs on the next
 const OWED_MS = 2_000
 
-const targets = atom({ plugin: 'middle-earth', key: 'argonathTargets' } as const, [] as ArgonathTarget[])
-const radii = atom({ plugin: 'middle-earth', key: 'argonathRadii' } as const, [] as ArgonathRadius[])
-const touched = atom({ plugin: 'middle-earth', key: 'argonathTouched' } as const, [] as string[])
-const working = atom({ plugin: 'middle-earth', key: 'argonathWorking' } as const, '')
-const note = atom({ plugin: 'middle-earth', key: 'argonathNote' } as const, '')
-const selected = atom({ plugin: 'middle-earth', key: 'argonathSelected' } as const, '')
-const isHidden = atom({ plugin: 'middle-earth', key: 'argonathIsHidden' } as const, false)
-const glow = atom({ plugin: 'middle-earth', key: 'argonathGlow' } as const, 0)
-const home = atom({ plugin: 'middle-earth', key: 'argonathHome' } as const, '')
-const reviewed = atom({ plugin: 'middle-earth', key: 'argonathReviewed' } as const, '')
-const judgement = atom({ plugin: 'middle-earth', key: 'argonathJudgement' } as const, null as ArgonathJudgement | null)
-const treeJudgements = atom({ plugin: 'middle-earth', key: 'argonathTreeJudgements' } as const, {} as Record<string, ArgonathJudgement>)
+const targets = atom({ plugin: 'middle-earth', key: 'verifyTargets' } as const, [] as Target[])
+const radii = atom({ plugin: 'middle-earth', key: 'verifyRadii' } as const, [] as Radius[])
+const touched = atom({ plugin: 'middle-earth', key: 'verifyTouched' } as const, [] as string[])
+const working = atom({ plugin: 'middle-earth', key: 'verifyWorking' } as const, '')
+const note = atom({ plugin: 'middle-earth', key: 'verifyNote' } as const, '')
+const selected = atom({ plugin: 'middle-earth', key: 'verifySelected' } as const, '')
+const isHidden = atom({ plugin: 'middle-earth', key: 'verifyIsHidden' } as const, false)
+const glow = atom({ plugin: 'middle-earth', key: 'verifyGlow' } as const, 0)
+const home = atom({ plugin: 'middle-earth', key: 'verifyHome' } as const, '')
+const reviewed = atom({ plugin: 'middle-earth', key: 'verifyReviewed' } as const, '')
+const judgement = atom({ plugin: 'middle-earth', key: 'verifyJudgement' } as const, null as Judgement | null)
+const treeJudgements = atom({ plugin: 'middle-earth', key: 'verifyTreeJudgements' } as const, {} as Record<string, Judgement>)
 
 /** How to have targets known, said where none are. */
 export const HOW_TO = [
-  `Argonath knows no target here. Name each thing the project builds in ${PROJECT_FILE}, a line each:`,
+  `Verify knows no target here. Name each thing the project builds in ${PROJECT_FILE}, a line each:`,
   '',
   '    narsil=cli@narsil',
   '    narsil.tests=narsil/tests',
@@ -72,7 +72,7 @@ export const HOW_TO = [
   '    gondor.python=beacons',
   '    $ gondor GET /health',
   '',
-  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by anduril, a service\'s requests here. Then /argonath.',
+  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by anduril, a service\'s requests here. Then /verify.',
 ].join('\n')
 
 /**
@@ -112,7 +112,7 @@ async function homePlace($: $): Promise<Place> {
 }
 
 // The last radius of each target in a quest's worktree, by its folder: the pane shows only the project's own
-const treeRadii = new Map<string, ArgonathRadius[]>()
+const treeRadii = new Map<string, Radius[]>()
 
 // The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
 const ANDURIL = 'anduril'
@@ -123,7 +123,7 @@ const RUN_TIMEOUT_MS = 600_000
  * What a look runs and reads in a place, through the engine. Each radius it makes is kept at once: the project's in
  * the pane's state, a quest's worktree's apart, in the order the place's targets are named.
  */
-function machineIn($: $, place: Place, list: readonly ArgonathTarget[]): Machine {
+function machineIn($: $, place: Place, list: readonly Target[]): Machine {
   return {
     shell: shellIn($, place.tree),
     read: path => $.fs.read(path).catch(() => undefined),
@@ -132,7 +132,7 @@ function machineIn($: $, place: Place, list: readonly ArgonathTarget[]): Machine
     now: () => $.clock.now(),
     say: async doing => void (await update($, working, () => doing)),
     keep: async kept => {
-      const placed = (held: readonly ArgonathRadius[]) => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label)))
+      const placed = (held: readonly Radius[]) => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label)))
 
       if (place.isHome) await update($, radii, placed)
       else treeRadii.set(place.tree, placed(treeRadii.get(place.tree) ?? []))
@@ -150,7 +150,7 @@ async function handled($: $, handler: Handler, job: unknown): Promise<{ exitCode
  * that crosses to it: through MCP, as a tool call would be put to the session's permission check, which a proof no one
  * is at the prompt for cannot answer.
  */
-async function keptRunsOf($: $, target: ArgonathTarget, against: string, place: Place): Promise<{ said: string } | { why: string }> {
+async function keptRunsOf($: $, target: Target, against: string, place: Place): Promise<{ said: string } | { why: string }> {
   try {
     const answered = await $.mcp.call(ANDURIL, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
 
@@ -166,22 +166,22 @@ async function keptRunsOf($: $, target: ArgonathTarget, against: string, place: 
 }
 
 
-async function radiiIn($: $, place: Place): Promise<ArgonathRadius[]> {
+async function radiiIn($: $, place: Place): Promise<Radius[]> {
   return (place.isHome ? read($, radii) : (treeRadii.get(place.tree) ?? []))
 }
 
-/** The statues' judgement of the change in a place; null before any. */
-async function judgementIn($: $, place: Place): Promise<ArgonathJudgement | null> {
+/** The reviewers' judgement of the change in a place; null before any. */
+async function judgementIn($: $, place: Place): Promise<Judgement | null> {
   return (place.isHome ? read($, judgement) : ((await read($, treeJudgements))[place.tree] ?? null))
 }
 
-async function setJudgement($: $, place: Place, made: ArgonathJudgement): Promise<void> {
+async function setJudgement($: $, place: Place, made: Judgement): Promise<void> {
   if (place.isHome) await update($, judgement, () => made)
   else await update($, treeJudgements, was => ({ ...was, [place.tree]: made }))
 }
 
-/** Every judgement held, with its place: a statue's turn is found in whichever it sits in. */
-async function allJudgements($: $): Promise<{ place: Place; held: ArgonathJudgement }[]> {
+/** Every judgement held, with its place: a reviewer's turn is found in whichever it reviews in. */
+async function allJudgements($: $): Promise<{ place: Place; held: Judgement }[]> {
   const own = await read($, judgement)
 
   return [
@@ -191,8 +191,8 @@ async function allJudgements($: $): Promise<{ place: Place; held: ArgonathJudgem
 }
 
 // What the pane last drew, for the model to read
-export const argonathView = paneView({ id: PANE, title: TITLE, command: '/argonath' })
-const view = argonathView
+export const verifyView = paneView({ id: PANE, title: TITLE, command: '/verify' })
+const view = verifyView
 
 // An agent sent to work in a quest's worktree is looked at there
 const ASKED = {
@@ -210,45 +210,45 @@ const TOOLS = [
   {
     name: 'prove',
     description:
-      "The radius afresh, then the tests marked on changed runs on HEAD's source (your tests laid over it) and on the working tree: `pinned` fails then passes, `loose` passes on both, `broken` fails on yours. Also runs, for a target the change reached, the tests it can break, and names what the change broke. Settled when every changed run is pinned and nothing is broken. Argonath does this itself when a turn that edited a target ends.",
+      "The radius afresh, then the tests marked on changed runs on HEAD's source (your tests laid over it) and on the working tree: `pinned` fails then passes, `loose` passes on both, `broken` fails on yours. Also runs, for a target the change reached, the tests it can break, and names what the change broke. Settled when every changed run is pinned and nothing is broken. Verify does this itself when a turn that edited a target ends.",
     inputSchema: { type: 'object', properties: ASKED },
   },
   {
-    name: 'judgement',
+    name: 'review',
     description:
-      "The reviewers' verdict on the settled change: `pass`, `fail` (a blocking finding), `sitting`, `silent` (one could not judge) or `stale` (the change moved since). `convene` sends them on the change as it stands, if not judged yet, and answers at once.",
+      "The reviewers' verdict on the settled change: `pass`, `fail` (a blocking finding), `reviewing`, `silent` (one could not judge) or `stale` (the change moved since). `send` sends them on the change as it stands, if not judged yet, and answers at once.",
     inputSchema: {
       type: 'object',
       properties: {
-        convene: { type: 'boolean', description: 'Send the reviewers (the statues, Isildur and Anárion) on the change as it stands, when every changed run is pinned and they have not reviewed it yet.' },
-        about: { type: 'string', description: 'With convene: what the change is meant to do (the task, its acceptance), which the statues judge it against.' },
-        statues: { type: 'array', items: { type: 'string', enum: ['isildur', 'anarion'] }, description: 'With convene: only these reviewers are sent, each with its share of the reviews (Isildur correctness, Anárion security); both when left out.' },
-        against: { type: 'string', description: 'With convene: judge the change since where HEAD left this branch or commit (its merge base), committed or not, such as a whole branch before its pull request. HEAD when left out.' },
-        model: { type: 'string', description: "With convene: the model the statues judge with, an alias (`sonnet`) or a full id, for a lighter change; their own (Opus) when left out." },
+        start: { type: 'boolean', description: 'Send the reviewers (correctness and security) on the change as it stands, when every changed run is pinned and they have not reviewed it yet.' },
+        about: { type: 'string', description: 'With start: what the change is meant to do (the task, its acceptance), which the reviewers judge it against.' },
+        reviewers: { type: 'array', items: { type: 'string', enum: ['reviewer-correctness', 'reviewer-security'] }, description: 'With start: only these reviewers are sent, each with its share of the reviews (reviewer-correctness, reviewer-security); both when left out.' },
+        against: { type: 'string', description: 'With start: judge the change since where HEAD left this branch or commit (its merge base), committed or not, such as a whole branch before its pull request. HEAD when left out.' },
+        model: { type: 'string', description: "With start: the model the reviewers judge with, an alias (`sonnet`) or a full id, for a lighter change; their own (Opus) when left out." },
       },
     },
   },
 ] as const
 
 // The targets the project names, as the system prompt's section reads them: a module's own copy, set again at each load
-let known: readonly ArgonathTarget[] = []
+let known: readonly Target[] = []
 // The reviews the project names, run once a change is settled
 let reviews: readonly Review[] = []
-// The files of standards the statues judge by, from the project's folder
+// The files of standards the reviewers judge by, from the project's folder
 let standards: readonly string[] = []
 
-const sectionText = (list: readonly ArgonathTarget[], cwd: string): string => {
+const sectionText = (list: readonly Target[], cwd: string): string => {
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
 
   return [
-    `Argonath checks changes to ${list.map(({ label, kind, roots }) => `\`${label}\` (${kind}, ${roots.map(within).join(', ')})`).join(', ')}.`,
+    `Verify checks changes to ${list.map(({ label, kind, roots }) => `\`${label}\` (${kind}, ${roots.map(within).join(', ')})`).join(', ')}.`,
     `After changing one, call mcp__middle-earth__radius: for each bare run it lists, write one integration test that makes that run and asserts its new answer, \`${MARK} <the run as listed>\` on the line above it; none for a run that did not change.`,
     'Then mcp__middle-earth__prove: the change is settled when every changed run is pinned and nothing is broken.',
     ...(reviews.length > 0 ? [`Then reviewers judge it when the turn ends (${dealt(reviews).map(seat => seat.reviews.join(', ')).join(', ')}); fix what they find blocking.`] : []),
   ].join(' ')
 }
 
-async function setUp($: $): Promise<ArgonathTarget[]> {
+async function setUp($: $): Promise<Target[]> {
   const cwd = await homeOf($)
   const text = await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => '')
   const list = parseProject(text, cwd)
@@ -268,7 +268,7 @@ async function setUp($: $): Promise<ArgonathTarget[]> {
  * then those its own file keeps besides: a request the branch takes out is played still, as the change it proves
  * cannot shrink what proves it.
  */
-async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathTarget[]> {
+async function targetsIn($: $, place: Place, isKnown = false): Promise<Target[]> {
   if (place.isHome) return isKnown ? read($, targets) : setUp($)
 
   const own = parseProject(await $.fs.read(`${place.tree}/${PROJECT_FILE}`).catch(() => ''), place.tree)
@@ -279,13 +279,13 @@ async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathT
   }))
 }
 
-// `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
+// `isOwing`: the proof is the session's own, so a settled change is owed the reviewers when its turn ends; a subagent's is not, as its work may not be done
 // `required`: tests written before the change (written first), each `{ file, name }`, that are to pass on the working tree
 // `place`: the project's folder when left out
 type Asked = { target?: string; against: string; isProving: boolean; isOwing?: boolean; required?: readonly { file: string; name: string }[]; place?: Place }
 
 /** What a look found of one target: its radius, or why it has none; no target where the look found none to look at. */
-type Looked = { target?: ArgonathTarget; found: ArgonathRadius | string }
+type Looked = { target?: Target; found: Radius | string }
 
 // The last proof made in each place, by the change it was made on and what was asked: the same proof asked again is
 // answered from it
@@ -300,7 +300,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
   const list = await targetsIn($, place)
 
   if (list.length === 0) return [{ found: HOW_TO }]
-  if (asked.target !== undefined && !list.some(({ label }) => label === asked.target)) return [{ found: `Argonath knows no target named ${asked.target}. It knows ${list.map(({ label }) => label).join(', ')}.` }]
+  if (asked.target !== undefined && !list.some(({ label }) => label === asked.target)) return [{ found: `Verify knows no target named ${asked.target}. It knows ${list.map(({ label }) => label).join(', ')}.` }]
 
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
   const wanted = (asked.required ?? []).map(({ file, name }) => `${file}:${name}`).sort().join(',')
@@ -357,7 +357,7 @@ async function proofShape($: $, looked: readonly Looked[], place: Place) {
 }
 
 /**
- * Proves the change in a quest's worktree for the Fellowship, which sends the statues on it itself: so the proof owes
+ * Proves the change in a quest's worktree for the Fellowship, which sends the reviewers on it itself: so the proof owes
  * no review at the turn's end. The tests written first must pass for it to settle.
  */
 export async function proveFor($: $, tree: string, mustPass: readonly { file: string; name: string }[]): Promise<unknown> {
@@ -388,7 +388,7 @@ async function owe($: $): Promise<void> {
 }
 
 /**
- * The standards the statues judge by, and a builder builds to, each file as the project's folder holds it: a quest's
+ * The standards the reviewers judge by, and a builder builds to, each file as the project's folder holds it: a quest's
  * branch, whose change is the one judged, never loosens them. A file that cannot be read is said so, not left out unseen.
  */
 export async function standardsText($: $): Promise<string> {
@@ -399,7 +399,7 @@ export async function standardsText($: $): Promise<string> {
 }
 
 /**
- * What the last proof found of the change at hand, for the statues: the runs it altered, and the targets it reached
+ * What the last proof found of the change at hand, for the reviewers: the runs it altered, and the targets it reached
  * that no kept run sees. Only a radius of the tree as it stands is told; a whole branch has none.
  */
 async function briefOf($: $, against: string, place: Place): Promise<string> {
@@ -407,24 +407,24 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
 
   const fresh = (await radiiIn($, place)).filter(one => !one.isStale)
   const changes = await changesIn(shellIn($, place.tree), place.tree, await targetsIn($, place, true))
-  // A frontend's runs are compared by none: the statues are told so where the change reached it, not that none changed
+  // A frontend's runs are compared by none: the reviewers are told so where the change reached it, not that none changed
   const unreached = fresh.filter(one => one.isUnhandled !== true && one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
 
   return proofBrief(fresh, unreached)
 }
 
 /**
- * Sends the statues on the change as it stands, each with its share of the reviews; a change they judged already is
- * not judged again. Answers the judgement, sitting or done. A mod may name a lighter model for a lighter change, and
- * the issue the change is for, which what the statues cost is counted to.
+ * Sends the reviewers on the change as it stands, each with its share of the reviews; a change they judged already is
+ * not judged again. Answers the judgement, reviewing or done. A mod may name a lighter model for a lighter change, and
+ * the issue the change is for, which what the reviewers cost is counted to.
  */
-async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place, ref?: string): Promise<ArgonathJudgement> {
+async function sendReviewers($: $, by: Judgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place, ref?: string): Promise<Judgement> {
   const place = at ?? (await homePlace($))
   const due = await fingerprintOf(shellIn($, place.tree), against)
   const held = await judgementIn($, place)
 
   if (place.isHome) reviewDue = ''
-  // A judgement a statue could not give is no judgement: the same change is judged again, or it would stay stuck
+  // A judgement a reviewer could not give is no judgement: the same change is judged again, or it would stay stuck
   if (held !== null && held.fingerprint === due && (held.against ?? 'HEAD') === against && verdictOf(held) !== 'silent') return held
 
   if (place.isHome) await update($, reviewed, () => due)
@@ -446,8 +446,8 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   await setJudgement($, place, made)
 
-  if ('text' in shown && made.seats.length > 0) $.ui.toast(`Argonath: every changed run is pinned, so ${made.seats.map(seat => seat.title).join(' and ')} ${made.seats.length === 1 ? 'judges' : 'judge'} the change`)
-  if (verdictOf(made) !== 'sitting') await rise($, made)
+  if ('text' in shown && made.seats.length > 0) $.ui.toast(`Verify: every changed run is pinned, so ${made.seats.map(seat => seat.title).join(' and ')} ${made.seats.length === 1 ? 'judges' : 'judge'} the change`)
+  if (verdictOf(made) !== 'reviewing') await rise($, made)
 
   return made
 }
@@ -461,19 +461,19 @@ function reviewerSender($: $, place: Place, ref?: string): SendReviewer {
     const started = await spawnIn($, { subagentType: typeOf(reviewer), ...task, ...(place.isHome ? {} : { cwd: place.tree }) }).catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
     if (started.deny !== undefined) return { why: started.deny }
-    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
+    if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'reviewer', root: await homeOf($), tree: place.tree, ...(ref !== undefined ? { ref } : {}) })
 
     return { agentId: started.agentId ?? '' }
   }
 }
 
-/** The statues have judged: the person is shown the verdict, and a Claude whose turn convened them is told it. */
-async function rise($: $, made: ArgonathJudgement): Promise<void> {
+/** The reviewers have judged: the person is shown the verdict, and a Claude whose turn sent them is told it. */
+async function rise($: $, made: Judgement): Promise<void> {
   const verdict = verdictOf(made)
 
   if (made.seats.length === 0) return
 
-  $.ui.toast(`Argonath: the change ${verdict === 'pass' ? 'passes' : verdict === 'fail' ? 'is stopped: a finding blocks it' : 'was not judged by every statue'}`)
+  $.ui.toast(`Verify: the change ${verdict === 'pass' ? 'passes' : verdict === 'fail' ? 'is stopped: a finding blocks it' : 'was not judged by every reviewer'}`)
 
   if (made.by !== 'turn') return
 
@@ -484,20 +484,20 @@ async function rise($: $, made: ArgonathJudgement): Promise<void> {
     .catch(() => undefined)
 }
 
-/** The seat of a statue whose turn this is: by the id its spawn answered, else, where it answered none, by its type. */
-async function seatOf($: $, held: ArgonathJudgement, agentId: string): Promise<ArgonathSeat | undefined> {
-  const sitting = held.seats.filter(seat => seat.state === 'sitting')
-  const byId = sitting.find(seat => seat.agentId !== '' && seat.agentId === agentId)
+/** The seat of a reviewer whose turn this is: by the id its spawn answered, else, where it answered none, by its type. */
+async function seatOf($: $, held: Judgement, agentId: string): Promise<ReviewSeat | undefined> {
+  const reviewing = held.seats.filter(seat => seat.state === 'reviewing')
+  const byId = reviewing.find(seat => seat.agentId !== '' && seat.agentId === agentId)
 
   if (byId !== undefined) return byId
 
   const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
 
-  return agent === undefined ? undefined : sitting.find(seat => seat.agentId === '' && agent.type === typeOf(seat.statue))
+  return agent === undefined ? undefined : reviewing.find(seat => seat.agentId === '' && agent.type === typeOf(seat.reviewer))
 }
 
-/** The judgement a statue sits in, wherever it judges, and its seat there; nothing when the agent is no sitting statue. */
-async function sittingFor($: $, agentId: string): Promise<{ place: Place; held: ArgonathJudgement; seat: ArgonathSeat } | undefined> {
+/** The judgement a reviewer reviews in, wherever it judges, and its seat there; nothing when the agent is no reviewing reviewer. */
+async function sittingFor($: $, agentId: string): Promise<{ place: Place; held: Judgement; seat: ReviewSeat } | undefined> {
   for (const { place, held } of await allJudgements($)) {
     const seat = await seatOf($, held, agentId)
 
@@ -507,7 +507,7 @@ async function sittingFor($: $, agentId: string): Promise<{ place: Place; held: 
   return undefined
 }
 
-/** Sends the statues on the change the reviews are owed, once the turn that settled it has ended. */
+/** Sends the reviewers on the change the reviews are owed, once the turn that settled it has ended. */
 async function review($: $): Promise<void> {
   const due = reviewDue
 
@@ -519,15 +519,15 @@ async function review($: $): Promise<void> {
 
   if ('text' in shown && isNoChange(shown.text)) return void (reviewDue = '')
 
-  // The statues are sent from a hook alone, where they are held: from the clock, Claude is asked to call for them
-  if (!(await inFrame($))) return askToPump($, 'every changed run of the change is pinned, and the statues wait to review it.')
+  // The reviewers are sent from a hook alone, where they are held: from the clock, Claude is asked to call for them
+  if (!(await inFrame($))) return askToPump($, 'every changed run of the change is pinned, and the reviewers wait to review it.')
 
   reviewDue = ''
-  await convene($, 'turn')
+  await sendReviewers($, 'turn')
 }
 
-/** The statues the session's own change is owed, sent from the hook that calls it. */
-export async function pumpArgonath($: $): Promise<void> {
+/** The reviewers the session's own change is owed, sent from the hook that calls it. */
+export async function pumpVerify($: $): Promise<void> {
   await review($)
 }
 
@@ -558,7 +558,7 @@ async function edited($: $, path: unknown, agentId?: string): Promise<void> {
   if (hit.length === 0) return
 
   lastProofs.delete(cwd)
-  // The radius is old either way; a look at the turn's end, and the statues it may send, are owed only to an edit no
+  // The radius is old either way; a look at the turn's end, and the reviewers it may send, are owed only to an edit no
   // builder the mod sent made: its part proves the change and has it judged itself
   if (!['member', 'test-writer'].includes((await roleOf($, agentId)) ?? '')) await update($, touched, held => [...new Set([...held, ...hit])])
   await update($, radii, held => held.map(one => (hit.includes(one.label) && !one.isStale ? { ...one, isStale: true } : one)))
@@ -605,31 +605,28 @@ async function settle($: $): Promise<void> {
   await review($)
 }
 
-const TONE: Record<ArgonathState, Tone> = { bare: 'danger', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'danger' }
+const TONE: Record<RunState, Tone> = { bare: 'danger', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'danger' }
 // The same, as a Text paints it
-const STATE_COLOR: Record<ArgonathState, string> = { bare: 'error', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'error' }
+const STATE_COLOR: Record<RunState, string> = { bare: 'error', marked: 'warning', pinned: 'success', loose: 'warning', broken: 'error' }
 // From how wide a pane the runs are drawn as a table; narrower, each is a row of its own
 const WIDE_COLUMNS = 100
 // The column a run's state is said in, as a row of its own
 const STATE_WIDTH = 8
 
-const VERDICT_TONE: Record<ArgonathSeat['state'], Tone> = { sitting: 'info', pass: 'success', fail: 'danger', silent: 'warning' }
-const VERDICT_TONE_COLOR: Record<ArgonathSeat['state'], string> = { sitting: 'suggestion', pass: 'success', fail: 'error', silent: 'warning' }
+const VERDICT_TONE: Record<ReviewSeat['state'], Tone> = { reviewing: 'info', pass: 'success', fail: 'danger', silent: 'warning' }
+const VERDICT_TONE_COLOR: Record<ReviewSeat['state'], string> = { reviewing: 'suggestion', pass: 'success', fail: 'error', silent: 'warning' }
 
-const toneOf = (held: ArgonathRadius): Tone => (held.seams.some(seam => seam.state === 'bare' || seam.state === 'broken') || held.turned.length > 0 ? 'danger' : isQuiet(held) ? 'success' : 'warning')
+const toneOf = (held: Radius): Tone => (held.seams.some(seam => seam.state === 'bare' || seam.state === 'broken') || held.turned.length > 0 ? 'danger' : isQuiet(held) ? 'success' : 'warning')
 
-// Sting glows blue, whatever is near: the counts say what
+// The mark glows blue, whatever is near: the counts say what
 const GLOW = 'suggestion'
-// The sword: a hilt that stays dim, and a blade whose glow swells and fades, a beat at a time
-const HILT = 'o=['
-// A fixed gray, a shade under the theme's dim text: no theme key is darker
-const HILT_COLOR = '#5c5c5c'
-const BLADE = '=====>'
+// A mark whose glow swells and fades, a beat at a time
+const MARK_GLYPH = '●'
 const BEATS = ['faint', 'lit', 'bright', 'lit'] as const
 const BEAT_MS = 450
 
 /** The radii a test does not yet pin all of. */
-const unsettled = (all: readonly ArgonathRadius[]): ArgonathRadius[] => all.filter(one => one.seams.length > 0 && !isQuiet(one))
+const unsettled = (all: readonly Radius[]): Radius[] => all.filter(one => one.seams.length > 0 && !isQuiet(one))
 
 /** Whether the band is lit: a changed run of some target is not pinned, and the person has not hidden it. */
 async function isLit($: $): Promise<boolean> {
@@ -642,22 +639,22 @@ async function beat($: $): Promise<void> {
 }
 
 /** Each unsettled target in a few words, for the band: `gondor 1 bare · narsil 3 marked`. */
-const bandLine = (all: readonly ArgonathRadius[]): string =>
+const bandLine = (all: readonly Radius[]): string =>
   unsettled(all)
     .map(one => `${one.label} ${radiusLine(one).split(' · ').slice(1).filter(part => !part.includes('changed')).join(' · ')}${one.isStale ? ' (before the last edit)' : ''}`)
     .join('  │  ')
 
-/** What is asked of the statues: to be sent on the change, with what it is for, which of them, since where, and on what model. */
-type Convening = { convene?: boolean; about?: string; statues?: readonly string[]; against?: string; model?: string; ref?: string }
+/** What is asked of the reviewers: to be sent on the change, with what it is for, which of them, since where, and on what model. */
+type ReviewAsk = { start?: boolean; about?: string; reviewers?: readonly string[]; against?: string; model?: string; ref?: string }
 
 /**
- * The statues' judgement of the change in a place, sent on it first when asked; `open` names the targets a changed run
- * of which is not pinned, on which no statue is sent.
+ * The reviewers' judgement of the change in a place, sent on it first when asked; `open` names the targets a changed run
+ * of which is not pinned, on which no reviewer is sent.
  */
-async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held: ArgonathJudgement | null; isStale: boolean } | { open: string[] }> {
+async function judgementOf($: $, asked: ReviewAsk, place: Place): Promise<{ held: Judgement | null; isStale: boolean } | { open: string[] }> {
   const against = asked.against !== undefined && asked.against.trim() !== '' ? asked.against.trim() : 'HEAD'
 
-  if (asked.convene === true) {
+  if (asked.start === true) {
     await setUp($)
 
     // A whole branch is judged once its every change was proved: only the change at hand waits on a proof
@@ -667,7 +664,7 @@ async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held
 
     const model = asked.model !== undefined && /^[\w.-]+$/.test(asked.model) ? asked.model : undefined
 
-    await convene($, 'tool', asked.about ?? '', asked.statues, against, model, place, asked.ref)
+    await sendReviewers($, 'tool', asked.about ?? '', asked.reviewers, against, model, place, asked.ref)
   }
 
   const held = await judgementIn($, place)
@@ -675,16 +672,16 @@ async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held
   return { held, isStale: held !== null && held.fingerprint !== (await fingerprintOf(shellIn($, place.tree), held.against ?? 'HEAD')) }
 }
 
-/** The statues' judgement of the change in a quest's worktree, for the Fellowship: sent on it first when asked. */
-export async function judgementFor($: $, tree: string, asked: Convening = {}): Promise<unknown> {
+/** The reviewers' judgement of the change in a quest's worktree, for the Fellowship: sent on it first when asked. */
+export async function judgementFor($: $, tree: string, asked: ReviewAsk = {}): Promise<unknown> {
   const got = await judgementOf($, asked, await placeOf($, undefined, tree))
 
   return 'open' in got ? { verdict: 'unsettled', targets: got.open } : judgementShape(got.held, got.isStale)
 }
 
-/** The Argonath at the session's start: its command, its tools, the project's targets, the band's glow, and the clock that looks at what a turn edited. */
-export async function startArgonath($: $): Promise<void> {
-  await $.command.register({ name: 'argonath', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
+/** Verify at the session's start: its command, its tools, the project's targets, the band's glow, and the clock that looks at what a turn edited. */
+export async function startVerify($: $): Promise<void> {
+  await $.command.register({ name: 'verify', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
 
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
@@ -695,12 +692,12 @@ export async function startArgonath($: $): Promise<void> {
 }
 
 /** What Claude is told of the tests owed: one for each run that changed, and none beyond. */
-export async function sectionOfArgonath($: $): Promise<Section | undefined> {
-  return known.length === 0 ? undefined : { id: 'argonath:radius', text: sectionText(known, await homeOf($)) }
+export async function sectionOfVerify($: $): Promise<Section | undefined> {
+  return known.length === 0 ? undefined : { id: 'verify:radius', text: sectionText(known, await homeOf($)) }
 }
 
-/** A turn has ended: a statue's answer is its findings; the session's own owes what it edited a look. */
-export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
+/** A turn has ended: a reviewer's answer is its findings; the session's own owes what it edited a look. */
+export async function endedVerify($: $, e: TurnEnded): Promise<void> {
   const found = e.agentId === undefined ? undefined : await sittingFor($, e.agentId)
 
   if (found !== undefined) {
@@ -709,7 +706,7 @@ export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
     const made = await answered(reviewerSender($, place, agentOf(e.agentId)?.ref), held, seat, e.answer ?? '', e.isAborted ? 'aborted' : e.reason)
 
     await setJudgement($, place, made)
-    if (verdictOf(made) !== 'sitting') await rise($, made)
+    if (verdictOf(made) !== 'reviewing') await rise($, made)
   }
 
   // A subagent's turn is not the session's: its edits wait for the turn that spawned it
@@ -717,7 +714,7 @@ export async function endedArgonath($: $, e: TurnEnded): Promise<void> {
   if (e.agentId === undefined && !e.isAborted && ((await read($, touched)).length > 0 || reviewDue !== '')) isOwed = true
 }
 
-export function registerArgonath(on: On): void {
+export function registerVerify(on: On): void {
   // An edit of a target's file makes its radius old, and owes it a look once the turn has ended
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const done = await next(e)
@@ -736,7 +733,7 @@ export function registerArgonath(on: On): void {
   // A shell command edits too (a `git checkout`, a `sed`, a formatter): a target whose folders it changed is edited
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     // A command of an agent that only reads is not looked at for edits
-    if ((await read($, targets)).length === 0 || ['planner', 'statue'].includes((await roleOf($, e.agentId)) ?? '')) return next(e)
+    if ((await read($, targets)).length === 0 || ['planner', 'reviewer'].includes((await roleOf($, e.agentId)) ?? '')) return next(e)
 
     const before = await fingerprints($)
     const done = await next(e)
@@ -771,26 +768,26 @@ export function registerArgonath(on: On): void {
     return { result: foundText(looked) }
   }).catch((_$, _e, next) => toolFailed('prove', next.error))
 
-  on('tool.call', { tool: 'mcp__middle-earth__judgement' }, async ($, e) => {
-    const given = e as unknown as { convene?: unknown; about?: unknown; statues?: unknown; against?: unknown; model?: unknown }
+  on('tool.call', { tool: 'mcp__middle-earth__review' }, async ($, e) => {
+    const given = e as unknown as { start?: unknown; about?: unknown; reviewers?: unknown; against?: unknown; model?: unknown }
     const got = await judgementOf(
       $,
       {
-        convene: given.convene === true,
+        start: given.start === true,
         about: typeof given.about === 'string' ? given.about : '',
-        ...(Array.isArray(given.statues) ? { statues: given.statues.filter((one): one is string => typeof one === 'string') } : {}),
+        ...(Array.isArray(given.reviewers) ? { reviewers: given.reviewers.filter((one): one is string => typeof one === 'string') } : {}),
         ...(typeof given.against === 'string' ? { against: given.against } : {}),
         ...(typeof given.model === 'string' ? { model: given.model } : {}),
       },
       await placeOf($, e.agentId),
     )
 
-    if ('open' in got) return { result: `A changed run of ${got.open.join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
+    if ('open' in got) return { result: `A changed run of ${got.open.join(', ')} is not pinned: the reviewers judge only a settled change. Prove it first.` }
 
-    return { result: got.held === null ? 'The statues have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
-  }).catch((_$, _e, next) => toolFailed('judgement', next.error))
+    return { result: got.held === null ? 'The reviewers have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
+  }).catch((_$, _e, next) => toolFailed('review', next.error))
 
-  on('command.run', { command: 'argonath' }, async $ => {
+  on('command.run', { command: 'verify' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     const list = await setUp($)
@@ -801,12 +798,12 @@ export function registerArgonath(on: On): void {
         list.length === 0
           ? HOW_TO
           : held.length === 0
-            ? `Argonath knows ${list.map(({ label, kind }) => `${label} (${kind})`).join(', ')}. Nothing is looked at yet: Radius in the pane looks.`
+            ? `Verify knows ${list.map(({ label, kind }) => `${label} (${kind})`).join(', ')}. Nothing is looked at yet: Radius in the pane looks.`
             : held.map(one => `${radiusLine(one)}.`).join(' '),
     }
   })
 
-  // The blade glows while a run that changed is not pinned, and is dark otherwise
+  // The mark glows while a run that changed is not pinned, and is dark otherwise
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await isLit($))) return next(e)
 
@@ -815,16 +812,15 @@ export function registerArgonath(on: On): void {
 
     return (
       <Box>
-        {/* The sword keeps its width: on a narrow band the counts are cut, never the blade */}
+        {/* The mark keeps its width: on a narrow band the counts are cut, never the mark */}
         <Box flexShrink={0}>
-          <Text color={HILT_COLOR}>{HILT}</Text>
-          <Text color={GLOW} dimColor={glowing === 'faint'} bold={glowing === 'bright'}>{BLADE}</Text>
-          <Text color={GLOW} bold>{' sting'}</Text>
+          <Text color={GLOW} dimColor={glowing === 'faint'} bold={glowing === 'bright'}>{MARK_GLYPH}</Text>
+          <Text color={GLOW} bold>{' to pin'}</Text>
         </Box>
         <Text color={GLOW} wrap="truncate-end">{` · ${bandLine(await read($, radii))}  `}</Text>
-        <Button key="argonath-open" label="Open" onPress={() => $.ui.open({ id: PANE, title: TITLE }).then(() => undefined)} />
+        <Button key="verify-open" label="Open" onPress={() => $.ui.open({ id: PANE, title: TITLE }).then(() => undefined)} />
         <Text> </Text>
-        <Button key="argonath-hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+        <Button key="verify-hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
       </Box>
     )
   })
@@ -862,11 +858,11 @@ export function registerArgonath(on: On): void {
     // Wide, the runs are a table; in a side pane each is a row of its own, its tests under it, so no run is cut short
     const isTabled = width >= WIDE_COLUMNS
 
-    const section = (target: ArgonathTarget) => {
+    const section = (target: Target) => {
       const one = held.find(({ label }) => label === target.label)
       const open = one?.seams.find(seam => `${one.label} ${seam.line}` === openKey)
-      const testsOf = (seam: ArgonathSeam) => seam.tests.map(test => (one?.isProved === true ? `${test.name} (${test.from} → ${test.to})` : test.name)).join(', ')
-      const pick = (seam: ArgonathSeam) => update($, selected, was => (was === `${target.label} ${seam.line}` ? '' : `${target.label} ${seam.line}`))
+      const testsOf = (seam: ChangedRun) => seam.tests.map(test => (one?.isProved === true ? `${test.name} (${test.from} → ${test.to})` : test.name)).join(', ')
+      const pick = (seam: ChangedRun) => update($, selected, was => (was === `${target.label} ${seam.line}` ? '' : `${target.label} ${seam.line}`))
       const rows = (one?.seams ?? []).map((seam): TableCell[] => [
         { text: seam.state, tone: TONE[seam.state] },
         <Button key={`seam-${target.label}-${seam.line}`} plain onPress={() => pick(seam)}>
@@ -933,12 +929,12 @@ export function registerArgonath(on: On): void {
         {judged !== null && judged.seats.length > 0 && (
           <Box flexDirection="column" borderStyle="round" paddingX={1}>
             <Box flexDirection="row" gap={2}>
-              <Text bold>The statues</Text>
+              <Text bold>The reviewers</Text>
               {badge({ label: verdictOf(judged), tone: VERDICT_TONE[verdictOf(judged)] })}
               <Text dimColor>{new Date(judged.at).toLocaleTimeString()}</Text>
             </Box>
             {judged.seats.map(seat => (
-              <Box key={`seat-${seat.statue}`} flexDirection="column">
+              <Box key={`seat-${seat.reviewer}`} flexDirection="column">
                 <Text>
                   <Text bold>{`${seat.title} `}</Text>
                   <Text dimColor>{`${seat.reviews.join(', ')} · `}</Text>

@@ -111,7 +111,7 @@ const serviceChanged = async (machine: Machine, target: Target, look: Look): Pro
   if (typeof fast === 'string' || target.live === null) return fast
 
   // A context that names prod is never touched: the handler, which refuses it too, is not even started
-  if (isProd(target.live.workload)) return { ...fast, live: `Live: not played, the context of ${target.live.workload} names prod, and Argonath reads nothing from it and runs nothing in it` }
+  if (isProd(target.live.workload)) return { ...fast, live: `Live: not played, the context of ${target.live.workload} names prod, and verify reads nothing from it and runs nothing in it` }
 
   await machine.say(`Playing what ${target.label} keeps on both builds against its real dependencies, on ${target.live.workload}…`)
 
@@ -128,7 +128,7 @@ const changedIn = (machine: Machine, target: Target, look: Look): Promise<Found 
     ? cliChanged(machine, target, look.against)
     : target.kind === 'service'
       ? serviceChanged(machine, target, look)
-      : Promise.resolve({ summary: `${target.label} is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run`, changed: [], unchanged: [] })
+      : Promise.resolve({ summary: `${target.label} is a frontend: verify compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run`, changed: [], unchanged: [] })
 
 /** Runs a target's tests on both sides, and says where each changed run, and each test required, stands. */
 const proveIn = async (machine: Machine, target: Target, made: Radius, look: Look, required: readonly string[]): Promise<Radius | string> => {

@@ -7,7 +7,7 @@ import { parseRemote, refText } from '../../core/forge'
 import type { Issue, IssueRef, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
 import { forgeIn, inTurn, isMergedFrom, rootOf, toolFailed } from '../flow'
-import { targetsKnown } from '../argonath/register'
+import { targetsKnown } from '../verify/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed, shortRef } from '../look'
@@ -233,7 +233,7 @@ async function makePlan($: $, input: string, by: Planning['by'], isAgain: boolea
  * turn ends, which wakes a Claude that sent it: a prompt cannot be queued from within the planner's own tool call.
  */
 async function land($: $, sitting: Planning, laid: IssuePlan): Promise<void> {
-  // A task the Argonath cannot prove is a risk the person decides, and one they accepted before stays accepted
+  // A task verify cannot prove is a risk the person decides, and one they accepted before stays accepted
   const made = withDecided(withUnproven(laid, await targetsKnown($).catch(() => [])), sitting.decided ?? [], sitting.accepted ?? [])
 
   await update($, planner, () => ({ ...sitting, isLaid: true }))

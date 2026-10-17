@@ -59,12 +59,12 @@ const plan = (change: Partial<FellowshipPlan> = {}): FellowshipPlan => ({ ...(pa
 const PINNED_TEXT = ['gondor: 1 kept request changed · 1 pinned.', '', 'pinned: GET /beacons/minas-tirith', '  pinned by test_burned: it fails on the commit\'s source and passes on the working tree.'].join('\n')
 const BARE_TEXT = ['gondor: 1 kept request changed · 1 bare.', '', 'bare: GET /beacons/minas-tirith', '  no test is marked on it.'].join('\n')
 
-/** A proof as Argonath answers it to a mod. */
+/** A proof as verify answers it to a mod. */
 const proofOf = (verdict: string, line: string, text: string, unhandled: string[] = []) => JSON.stringify({ verdict, line, targets: [], unhandled, text })
 
 const PINNED = proofOf('settled', 'every changed run is pinned', PINNED_TEXT)
 const BARE = proofOf('unsettled', 'not pinned yet: 1 bare', BARE_TEXT)
-const UNLOOKED = proofOf('unlooked', 'Argonath could not look at gondor (No request of gondor is kept to play.)', 'No request of gondor is kept to play.')
+const UNLOOKED = proofOf('unlooked', 'Verify could not look at gondor (No request of gondor is kept to play.)', 'No request of gondor is kept to play.')
 
 const TARGETS = [
   { label: 'narsil', kind: 'cli', roots: ['narsil'] },
@@ -72,11 +72,11 @@ const TARGETS = [
   { label: 'anor', kind: 'frontend', roots: ['beacons/anor'] },
 ] as TargetFolders[]
 
-const seat = (title: string, state: string, findings: { severity: string; where: string; text: string }[] = []) => ({ statue: title.toLowerCase(), title, reviews: [], state, findings, why: '' })
+const seat = (title: string, state: string, findings: { severity: string; where: string; text: string }[] = []) => ({ reviewer: title.toLowerCase(), title, reviews: [], state, findings, why: '' })
 const JUDGED = {
-  sitting: JSON.stringify({ verdict: 'sitting', seats: [seat('Isildur', 'sitting'), seat('Anárion', 'sitting')] }),
-  pass: JSON.stringify({ verdict: 'pass', seats: [seat('Isildur', 'pass', [{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]), seat('Anárion', 'pass')] }),
-  fail: JSON.stringify({ verdict: 'fail', seats: [seat('Isildur', 'pass'), seat('Anárion', 'fail', [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }])] }),
+  reviewing: JSON.stringify({ verdict: 'reviewing', seats: [seat('Correctness reviewer', 'reviewing'), seat('Security reviewer', 'reviewing')] }),
+  pass: JSON.stringify({ verdict: 'pass', seats: [seat('Correctness reviewer', 'pass', [{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]), seat('Security reviewer', 'pass')] }),
+  fail: JSON.stringify({ verdict: 'fail', seats: [seat('Correctness reviewer', 'pass'), seat('Security reviewer', 'fail', [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }])] }),
 }
 
 // An issue as Elrond reads it, for an errand
@@ -136,20 +136,20 @@ describe('the issue, its branch and its worktree', () => {
   })
 
   test('name the commit and the pull request that closes it, on either forge', () => {
-    expect(commitMessage(QUEST, plan(), plan().tasks[0]!, 'Merry', ['- Isildur, app.py:70: lit could be named burning.'])).toMatch(
-      /^#12: Keep when a beacon is lit\n\nTask 1 of the plan for https:\/\/github\.com\/.*\/issues\/12, built by Merry of the Fellowship[\s\S]*Minor findings of the statues, left as they are:\n- Isildur, app\.py:70[\s\S]*Co-Authored-By: Claude/,
+    expect(commitMessage(QUEST, plan(), plan().tasks[0]!, 'Merry', ['- Correctness reviewer, app.py:70: lit could be named burning.'])).toMatch(
+      /^#12: Keep when a beacon is lit\n\nTask 1 of the plan for https:\/\/github\.com\/.*\/issues\/12, built by Merry of the Fellowship[\s\S]*Minor findings of the reviewers, left as they are:\n- Correctness reviewer, app\.py:70[\s\S]*Co-Authored-By: Claude/,
     )
 
-    const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'fellowship/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Frodo', minor: ['- Isildur, app.py:70: lit could be named burning.'] }] } as unknown as FellowshipQuest
+    const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'fellowship/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Frodo', minor: ['- Correctness reviewer, app.py:70: lit could be named burning.'] }] } as unknown as FellowshipQuest
 
     expect(requestOf(quest, plan())).toMatchObject({ forge: 'github', request: { branch: 'fellowship/12-x', base: 'main' } })
-    expect(requestOf(quest, plan()).request.body).toMatch(/- abcdef1 1\. Keep \(Frodo\)[\s\S]*## Minor findings[\s\S]*- task 1: Isildur, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
+    expect(requestOf(quest, plan()).request.body).toMatch(/- abcdef1 1\. Keep \(Frodo\)[\s\S]*## Minor findings[\s\S]*- task 1: Correctness reviewer, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
     expect(requestOf({ ...quest, ref: 'gitlab:g/p#3' }, plan({ ref: 'gitlab:g/p#3' })).forge).toBe('gitlab')
   })
 })
 
-describe('Argonath\'s proof', () => {
-  test('is read from the JSON Argonath answers a mod: settled, unsettled, or not looked at', () => {
+describe('Verify\'s proof', () => {
+  test('is read from the JSON verify answers a mod: settled, unsettled, or not looked at', () => {
     expect(proofVerdict(PINNED)).toEqual({ isSettled: true, isUnlooked: false, line: 'every changed run is pinned', unhandled: [], unreached: [], text: PINNED_TEXT })
     expect(proofVerdict(BARE)).toMatchObject({ isSettled: false, isUnlooked: false, line: 'not pinned yet: 1 bare' })
     expect(proofVerdict(UNLOOKED)).toMatchObject({ isSettled: false, isUnlooked: true })
@@ -163,7 +163,7 @@ describe('Argonath\'s proof', () => {
 
 describe("a quest's course", () => {
   test('goes only where the Fellowship leads it: no commit unjudged, no pull request from the middle of a task', () => {
-    // A change is committed (judging → ready) only after the statues sat, and they sit only on a proved change
+    // A change is committed (judging → ready) only after the reviewers sat, and they review only on a proved change
     expect(canMove('judging', 'ready')).toBe(true)
     expect(canMove('proving', 'ready')).toBe(false)
     expect(canMove('ready', 'judging')).toBe(false)
@@ -186,10 +186,10 @@ describe("a quest's course", () => {
 })
 
 describe('every agent the mod sends', () => {
-  const sent = (role: 'member' | 'statue' | 'planner' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
+  const sent = (role: 'member' | 'reviewer' | 'planner' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
 
   test('stays in the sandbox, out of the home folder and the private folders of the machine, and runs nothing it downloads', () => {
-    for (const role of ['member', 'statue', 'planner', 'test-writer'] as const) {
+    for (const role of ['member', 'reviewer', 'planner', 'test-writer'] as const) {
       for (const call of [
         { tool: 'Bash', command: 'cargo test', dangerouslyDisableSandbox: true },
         { tool: 'Bash', command: 'cat ~/.ssh/id_rsa' },
@@ -206,26 +206,26 @@ describe('every agent the mod sends', () => {
     }
     // The project, the system's own tools and the scratch folders are the agents' to use
     for (const call of [{ tool: 'Bash', command: 'ls /usr/bin && cargo test 2>/dev/null' }, { tool: 'Bash', command: 'mktemp -d /tmp/x.XXXX' }, { tool: 'Bash', command: 'git log HEAD~3..HEAD' }, { tool: 'Read', file_path: `${CWD}/narsil/src/main.rs` }])
-      expect(refusalOf(sent('statue'), call)).toBeUndefined()
+      expect(refusalOf(sent('reviewer'), call)).toBeUndefined()
     // An agent the mod did not send is the session's to hold
     expect(refusalOf(sent('other'), { tool: 'Bash', command: 'cat ~/.ssh/id_rsa' })).toBeUndefined()
   })
 })
 
-describe('the statues\' judgement', () => {
+describe('the reviewers\' judgement', () => {
   test('is read with its findings a line each, the blocking apart from the minor', () => {
-    expect(parseJudgement(JUDGED.pass)).toEqual({ verdict: 'pass', blocking: [], minor: ['- Isildur, app.py:70: lit could be named burning.'], minorAt: [{ where: 'app.py:70', line: '- Isildur, app.py:70: lit could be named burning.' }], line: 'passed, 1 minor finding' })
-    expect(parseJudgement(JUDGED.fail)).toMatchObject({ verdict: 'fail', blocking: ['- Anárion, app.py:72: The archive error is swallowed whole.'], line: '1 blocking finding' })
-    expect(parseJudgement('Argonath did not answer').verdict).toBe('unreadable')
+    expect(parseJudgement(JUDGED.pass)).toEqual({ verdict: 'pass', blocking: [], minor: ['- Correctness reviewer, app.py:70: lit could be named burning.'], minorAt: [{ where: 'app.py:70', line: '- Correctness reviewer, app.py:70: lit could be named burning.' }], line: 'passed, 1 minor finding' })
+    expect(parseJudgement(JUDGED.fail)).toMatchObject({ verdict: 'fail', blocking: ['- Security reviewer, app.py:72: The archive error is swallowed whole.'], line: '1 blocking finding' })
+    expect(parseJudgement('Verify did not answer').verdict).toBe('unreadable')
   })
 
   test('sends back to tidy only the minor findings about what the change wrote, or that name no place', () => {
-    const at = (where: string) => ({ where, line: `- Isildur, ${where}: x` })
+    const at = (where: string) => ({ where, line: `- Correctness reviewer, ${where}: x` })
     const changed = ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py']
 
     expect(ownMinor([at('beacons/gondor/app.py:70'), at('app.py:3-9'), at(`${TREE}/beacons/tests/test_gondor.py:12`), at('beacons/gondor/')], TREE, changed)).toHaveLength(4)
     expect(ownMinor([at('.anduril/'), at('beacons/gondor/db.py:4'), at('pp.py:70')], TREE, changed)).toEqual([])
-    expect(ownMinor([{ where: '', line: '- Isildur: the commit message is long' }], TREE, [])).toEqual(['- Isildur: the commit message is long'])
+    expect(ownMinor([{ where: '', line: '- Correctness reviewer: the commit message is long' }], TREE, [])).toEqual(['- Correctness reviewer: the commit message is long'])
   })
 
   test('judge a plan\'s whole branch on a lighter model, unless a task of it is heavy, threatened, or went unproven', () => {
@@ -272,7 +272,7 @@ describe('what a quest cost', () => {
   const turn = (change: Partial<MiddleEarthSpend>): MiddleEarthSpend => ({ role: 'member', tree: TREE, model: 'claude-opus-5-5', input: 1, cacheRead: 0, cacheWrite: 0, output: 1, durationMs: 1, at: 1, ...change })
 
   test('counts the turns of its issue, and those sent into its worktree with no issue named, and no other', () => {
-    const turns = [turn({ ref: REF }), turn({ role: 'planner', ref: REF, tree: CWD }), turn({ role: 'statue' }), turn({ role: 'statue', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
+    const turns = [turn({ ref: REF }), turn({ role: 'planner', ref: REF, tree: CWD }), turn({ role: 'reviewer' }), turn({ role: 'reviewer', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
 
     expect(spentOn({ ref: REF, tree: TREE }, CWD, turns)).toEqual(turns.slice(0, 3))
     // A quest built in the project's own folder takes none of the turns there that name no issue
@@ -309,9 +309,9 @@ describe('a member', () => {
     expect(prompt).toMatch(/This is try 2\. The change Gimli made[\s\S]*What Gimli said:[\s\S]*<proof>\ngondor: 1 kept request changed · 1 bare/)
     expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toMatch(/Risks that threaten/)
 
-    const judged = companionPrompt(QUEST, made, made.tasks[1]!, 'gimli', { attempt: 2, by: 'Gimli', answer: '', findings: ['- Anárion, app.py:72: The archive error is swallowed whole.'] })
+    const judged = companionPrompt(QUEST, made, made.tasks[1]!, 'gimli', { attempt: 2, by: 'Gimli', answer: '', findings: ['- Security reviewer, app.py:72: The archive error is swallowed whole.'] })
 
-    expect(judged).toMatch(/the review found what blocks the change\. Fix each:\n<findings>\n- Anárion, app\.py:72/)
+    expect(judged).toMatch(/the review found what blocks the change\. Fix each:\n<findings>\n- Security reviewer, app\.py:72/)
     expect(judged).not.toContain('<proof>')
   })
 
@@ -328,7 +328,7 @@ describe('a member', () => {
     const made = plan()
 
     expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, null, '# docs/agents/standards.md\n## Blocking\n- An error swallowed.')).toMatch(
-      /build to them, as the statues judge your change by them\.\n<standards>\n# docs\/agents\/standards\.md\n## Blocking\n- An error swallowed\.\n<\/standards>/,
+      /build to them, as the reviewers judge your change by them\.\n<standards>\n# docs\/agents\/standards\.md\n## Blocking\n- An error swallowed\.\n<\/standards>/,
     )
     expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toContain('<standards>')
   })
@@ -378,13 +378,13 @@ describe('a member', () => {
     // A fix to a mod is not the quest's, unless the task is about the mod: it would ride into its pull request
     const task = { files: ['beacons/gondor/app.py'] }
 
-    expect(isModSource(CWD, '/proj/.claude/mods/argonath/handlers/live.py', task)).toBe(true)
+    expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', task)).toBe(true)
     expect(isModSource(CWD, '.claude/mods/fellowship/hooks/quest.ts', task)).toBe(true)
     expect(isModSource(CWD, '/proj/.claude/argonath', task)).toBe(false)
-    expect(isModSource(CWD, '/proj/.claude/mods/argonath/handlers/live.py', { files: ['.claude/mods/argonath/handlers/live.py'] })).toBe(false)
+    expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', { files: ['.claude/mods/verify/handlers/live.py'] })).toBe(false)
   })
 
-  test('is told every decision the person made, the answers to the plan\'s own questions among them, and so are the statues', () => {
+  test('is told every decision the person made, the answers to the plan\'s own questions among them, and so are the reviewers', () => {
     const made = plan({ decided: [{ text: 'Is an unlit beacon 0 or null?', answer: 'null' }], questions: [{ text: 'How long may a keeper be?', options: [], answer: '64 characters, refused with a 422' }, { text: 'Open?', options: [], answer: '' }] })
     const prompt = companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')
     const purpose = purposeOf(QUEST, made, made.tasks[0]!)
@@ -396,7 +396,7 @@ describe('a member', () => {
     }
   })
 
-  test('tells the statues the weight a task was given, and none for a task no one weighed', () => {
+  test('tells the reviewers the weight a task was given, and none for a task no one weighed', () => {
     const made = parsePlan(JSON.stringify({ ...PLAN, tasks: [PLAN.tasks[0], { ...PLAN.tasks[1], isUnweighed: true }, { ...PLAN.tasks[1], id: 3, weight: undefined }] })) as FellowshipPlan
 
     expect(purposeOf(QUEST, made, made.tasks[0]!)).toContain('\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust.\n')
@@ -421,9 +421,9 @@ describe('a review handed over', () => {
 })
 
 
-// --- The quest, with Elrond, Argonath, Lothlórien and the statues as they are: what each reads is the machine's ------
+// --- The quest, with Elrond, verify, Lothlórien and the reviewers as they are: what each reads is the machine's ------
 
-/** What the project builds, as Argonath reads it: gondor, a service whose one kept request the change reaches, and anor, a frontend nothing proves. */
+/** What the project builds, as verify reads it: gondor, a service whose one kept request the change reaches, and anor, a frontend nothing proves. */
 const PROJECT = [
   'review=/code-review medium',
   'review=/security-review',
@@ -454,7 +454,7 @@ const LOCKED = ['def test_burned_for(client):', '    body = client.get("/beacons
 /** What she answers once she has shown them red. */
 const SHOWN = ['I wrote one test.', '', '```json', JSON.stringify({ tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }], red: 'FAILED test_burned_for - KeyError', untestable: '' }), '```'].join('\n')
 
-/** A statue's answer: its account, then its findings as the json block it ends with. */
+/** A reviewer's answer: its account, then its findings as the json block it ends with. */
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
 /** The pull request the review follow-up reads for a review: one comment asks for a change, the other a question its member hands back. */
@@ -476,33 +476,33 @@ const GITHUB = JSON.stringify({
 const WEIGHTS = '```json\n[{ "id": "r1", "weight": "light", "kind": "change" }, { "id": "r2", "weight": "standard", "kind": "change" }]\n```'
 
 type Proof = 'pinned' | 'bare' | 'unlooked' | 'unhandled'
-// A pass, a pass with a minor finding of Isildur's, one about a file the change did not write, a failure
+// A pass, a pass with a minor finding of the correctness reviewer's, one about a file the change did not write, a failure
 type Verdict = 'pass' | 'minor' | 'stray' | 'fail'
 type Vision = 'shown' | 'empty' | 'clouded'
 
 /** The first of what is queued, and the last one again once it is the only one left. */
 const next = <T,>(queue: T[]): T | undefined => (queue.length > 1 ? queue.shift() : queue[0])
 
-const STATUES = ['isildur', 'anarion']
+const STATUES = ['reviewer-correctness', 'reviewer-security']
 
 /**
- * Stands for the machine, the forge and the engine beneath the mod. What Argonath proves, what the statues find and
+ * Stands for the machine, the forge and the engine beneath the mod. What verify proves, what the reviewers find and
  * what the Mirror shows are queued here, each as the real part will read it: the service handler's answer and the test
- * file a member marked, the findings a statue ends its turn with, what the test writer writes and answers.
+ * file a member marked, the findings a reviewer ends its turn with, what the test writer writes and answers.
  */
 const machine = (on: On) => {
   const world = {
     ran: [] as string[],
     // Where each git command ran: the person's checkout, or a quest's worktree
     at: [] as { line: string; cwd: string }[],
-    // The members sent, the statues sent, and the test writer each time she gazed
+    // The members sent, the reviewers sent, and the test writer each time she gazed
     spawned: [] as Record<string, unknown>[],
     judged: [] as Record<string, unknown>[],
     gazed: [] as Record<string, unknown>[],
-    // The statues sent each time they sat, by name
-    statues: [] as string[][],
+    // The reviewers sent each time they sat, by name
+    reviewers: [] as string[][],
     // Those whose turn the machine ends when the clock next moves
-    sitting: [] as string[],
+    reviewing: [] as string[],
     gazing: [] as string[],
     submitted: [] as string[],
     toasts: [] as string[],
@@ -523,7 +523,7 @@ const machine = (on: On) => {
     // Whether the test writer wrote her tests in the worktree, and whether a member took a line of them out
     wrote: false,
     tampered: false,
-    // Each change a member made: what Argonath's fingerprint of the change counts
+    // Each change a member made: what verify's fingerprint of the change counts
     edits: 0,
     jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[] },
     registered: [] as Record<string, unknown>[],
@@ -592,7 +592,7 @@ const machine = (on: On) => {
 
     const answer = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: exitCode === 0 ? '' : 'no', isStdoutTruncated: false, isStderrTruncated: false } }) as never
 
-    // Argonath: the change as one fingerprint, the change the statues read, where the folders stand, and what each holds
+    // Verify: the change as one fingerprint, the change the reviewers read, where the folders stand, and what each holds
     // (the folders the change reaches are read before the handler plays it: those of the proof that comes next)
     if (script.includes('git rev-parse HEAD')) return answer(`${world.lanes[cwd]?.head ?? world.head}\n${world.edits}\n`)
     if (script.includes('New files:')) return answer('diff --git a/beacons/gondor/app.py\n+    burned_for = 3\n\nNew files:\n')
@@ -748,7 +748,7 @@ const machine = (on: On) => {
 
     if (STATUES.includes(name)) {
       world.judged.push(given)
-      world.sitting.push(agentId)
+      world.reviewing.push(agentId)
     } else if (name.startsWith('test-writer')) {
       world.gazed.push(given)
       world.gazing.push(agentId)
@@ -821,7 +821,7 @@ type World = ReturnType<typeof machine>
 
 const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}) => String((await $.tool.call({ tool, ...input } as never)).result)
 
-/** An agent's turn ends; a member's has changed the tree, and Argonath's fingerprint of the change with it. */
+/** An agent's turn ends; a member's has changed the tree, and verify's fingerprint of the change with it. */
 const ends = ($: Engine, agentId: string, answer: string, world?: World) => {
   if (world !== undefined) world.edits += 1
 
@@ -843,8 +843,8 @@ const start = async ($: Engine, world: World) => {
 }
 
 /**
- * Lets the clock do what was asked of it. the test writer and the statues end their turns as the world has them: she shows
- * what is queued; the statues find what is queued, Isildur the minor finding of a pass that has one, the last sent the
+ * Lets the clock do what was asked of it. the test writer and the reviewers end their turns as the world has them: she shows
+ * what is queued; the reviewers find what is queued, the correctness reviewer the minor finding of a pass that has one, the last sent the
  * blocking one of a failure.
  */
 const settle = async ($: Engine, world: World) => {
@@ -858,12 +858,12 @@ const settle = async ($: Engine, world: World) => {
       await ends($, agentId, vision === 'shown' ? SHOWN : vision === 'empty' ? '```json\n{ "tests": [], "red": "", "untestable": "Nothing to see." }\n```' : 'I could not see.')
     }
 
-    const sat = world.sitting.splice(0)
+    const sat = world.reviewing.splice(0)
 
     if (sat.length > 0) {
       const verdict = next(world.judgements) ?? 'pass'
 
-      world.statues.push(sat.map(one => one.replace(/-1$/, '')))
+      world.reviewers.push(sat.map(one => one.replace(/-1$/, '')))
       for (const [index, agentId] of sat.entries()) {
         const found =
           verdict === 'minor' && index === 0
@@ -883,7 +883,7 @@ const settle = async ($: Engine, world: World) => {
 /** The git commands that ran in a folder. */
 const gitIn = (world: World, cwd: string) => world.at.filter(one => one.cwd === cwd && one.line.startsWith('git ')).map(one => one.line)
 
-/** What the statues were told the change is for. */
+/** What the reviewers were told the change is for. */
 const aboutOf = (sent: Record<string, unknown> | undefined) => /<purpose>\n([\s\S]*?)\n<\/purpose>/.exec(String(sent?.prompt ?? ''))?.[1] ?? ''
 
 describe('fellowship', () => {
@@ -928,7 +928,7 @@ describe('fellowship', () => {
     ])
     expect(String(registered[0]?.prompt)).toContain('Handed back:')
     expect(String(registered[0]?.prompt)).toContain("in the quest's git worktree, which is your working directory")
-    expect(registered[0]?.disallowedTools).toContain('mcp__middle-earth__judgement')
+    expect(registered[0]?.disallowedTools).toContain('mcp__middle-earth__review')
   })
 
   test('does not set out on a plan the council left open, and sets out whatever the person\'s checkout holds', async ($, on) => {
@@ -947,7 +947,7 @@ describe('fellowship', () => {
     expect(gitIn(world, CWD).some(line => /^git (add|commit|stash|switch|checkout)/.test(line))).toBe(false)
   })
 
-  test('proves what the member built in its worktree, sends the statues to judge it there, and commits it there once they pass it', async ($, on) => {
+  test('proves what the member built in its worktree, sends the reviewers to judge it there, and commits it there once they pass it', async ($, on) => {
     const world = machine(on)
     world.judgements = ['minor']
     await start($, world)
@@ -964,8 +964,8 @@ describe('fellowship', () => {
 
     expect(world.jobs.service[0]).toMatchObject({ home: TREE, project: CWD })
     expect(world.jobs.prove[0]).toMatchObject({ home: TREE })
-    // Both statues judge it, in its worktree
-    expect(world.judged.map(one => one.subagent_type)).toEqual(['middle-earth:isildur', 'middle-earth:anarion'])
+    // Both reviewers judge it, in its worktree
+    expect(world.judged.map(one => one.subagent_type)).toEqual(['middle-earth:reviewer-correctness', 'middle-earth:reviewer-security'])
     expect(world.judged[0]).toMatchObject({ cwd: TREE })
     expect(world.judged[1]).toMatchObject({ cwd: TREE })
     expect(aboutOf(world.judged[0])).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust\.\nWhy:[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
@@ -973,7 +973,7 @@ describe('fellowship', () => {
     // A pass with a minor finding sends the member back once to tidy it, and commits nothing yet
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
     expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1'])
-    expect(world.sent[0]?.text).toMatch(/passed its review, with minor findings[\s\S]*change no behaviour[\s\S]*<findings>\n- Isildur, app\.py:70: lit could be named burning\.\n<\/findings>/)
+    expect(world.sent[0]?.text).toMatch(/passed its review, with minor findings[\s\S]*change no behaviour[\s\S]*<findings>\n- Correctness reviewer, app\.py:70: lit could be named burning\.\n<\/findings>/)
 
     // The minor finding of the judgement after is committed as it is
     await ends($, 'frodo-1', 'Tidied.', world)
@@ -981,9 +981,9 @@ describe('fellowship', () => {
 
     expect(world.sent).toHaveLength(1)
     expect(world.judged).toHaveLength(4)
-    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Isildur, app\.py:70: lit could be named burning\./)
+    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Correctness reviewer, app\.py:70: lit could be named burning\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
-    // No Claude is woken: the statues are the judges
+    // No Claude is woken: the reviewers are the judges
     expect(world.submitted).toEqual([])
     // Attended: the next task waits for the person
     expect(world.spawned).toHaveLength(1)
@@ -1001,7 +1001,7 @@ describe('fellowship', () => {
 
     expect(world.sent).toEqual([])
     expect(world.judged).toHaveLength(2)
-    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/- Isildur, \.anduril\/: Untracked build artefacts should not be committed\./)
+    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/- Correctness reviewer, \.anduril\/: Untracked build artefacts should not be committed\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
   })
 
@@ -1014,7 +1014,7 @@ describe('fellowship', () => {
     await $.turn.complete({ answer: 'Added lit_at.', durationMs: 120_000, isAborted: false, turnId: 't', reason: 'answer', agentId: 'frodo-1', usage: { model: 'claude-haiku-5-5', input_tokens: 2_000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 8_000, output_tokens: 3_000 } } as never)
     await settle($, world)
 
-    // The statues' turns here count no tokens, and are not kept. The member is known by its worktree: a spawn answered
+    // The reviewers' turns here count no tokens, and are not kept. The member is known by its worktree: a spawn answered
     // by a hook gives its sender no id, so the quest never named its issue to it
     const kept = world.spend.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(kept).toHaveLength(1)
@@ -1107,7 +1107,7 @@ describe('fellowship', () => {
     expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
   })
 
-  test('commits nothing once what git runs on a commit changed since the quest set out, until the person puts it before the Argonath again', async ($, on) => {
+  test('commits nothing once what git runs on a commit changed since the quest set out, until the person puts it up for verification again', async ($, on) => {
     const world = machine(on)
     await start($, world)
     await call($, 'mcp__middle-earth__set_out')
@@ -1123,7 +1123,7 @@ describe('fellowship', () => {
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
     expect(world.toasts.some(text => /git's config of what a commit runs/.test(text))).toBe(true)
 
-    // The person looked, and puts it before the Argonath: git's config is theirs as it stands
+    // The person looked, and puts it up for verification: git's config is theirs as it stands
     await call($, 'mcp__middle-earth__commit', { ref: PLAN.ref })
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(true)
@@ -1143,7 +1143,7 @@ describe('fellowship', () => {
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
   })
 
-  test('sends the member back once with what the statues find blocking, then the task a rung up with the findings alone', async ($, on) => {
+  test('sends the member back once with what the reviewers find blocking, then the task a rung up with the findings alone', async ($, on) => {
     const world = machine(on)
     world.judgements = ['fail', 'fail', 'pass']
     await start($, world)
@@ -1155,13 +1155,13 @@ describe('fellowship', () => {
 
     // Frodo has the change in his context: he mends it before a fresh member starts over cold
     expect(world.spawned).toHaveLength(1)
-    expect(world.sent).toEqual([{ agentId: 'frodo-1', text: expect.stringMatching(/its review found what blocks it[\s\S]*<findings>\n- Anárion, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/) }])
+    expect(world.sent).toEqual([{ agentId: 'frodo-1', text: expect.stringMatching(/its review found what blocks it[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/) }])
 
     await ends($, 'frodo-1', 'Raised it, I think.', world)
     await settle($, world)
 
     expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: TREE })
-    expect(String(world.spawned[1]?.prompt)).toMatch(/This is try 2\. The change Frodo made[\s\S]*<findings>\n- Anárion, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/)
+    expect(String(world.spawned[1]?.prompt)).toMatch(/This is try 2\. The change Frodo made[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/)
     expect(String(world.spawned[1]?.prompt)).not.toContain('<proof>')
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
 
@@ -1292,12 +1292,12 @@ describe('fellowship', () => {
 
     // Her tests are owed a pass on the working tree before the proof settles
     expect(String(world.jobs.prove[0]?.test)).toContain('test_burned_for')
-    // The statues are told what was changed of her tests, and why
+    // The reviewers are told what was changed of her tests, and why
     expect(aboutOf(world.judged[0])).toContain("the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: It asserted seconds as a string.")
     expect(world.ran.some(line => line.startsWith('git commit -m #12: Answer the seconds burned'))).toBe(true)
   })
 
-  test('owes no passing to a test of hers a member says cannot run here, and tells the statues why', async ($, on) => {
+  test('owes no passing to a test of hers a member says cannot run here, and tells the reviewers why', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
@@ -1552,20 +1552,20 @@ describe('an errand', () => {
     await ends($, 'gimli-1', 'Quench answers 404 now; test_quench_unknown proves it.', world)
     await settle($, world)
 
-    // An errand is judged by both statues: the issue it is built from may be anyone's
-    expect(world.statues[0]).toEqual(['isildur', 'anarion'])
+    // An errand is judged by both reviewers: the issue it is built from may be anyone's
+    expect(world.reviewers[0]).toEqual(['reviewer-correctness', 'reviewer-security'])
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
     expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Gimli/)
-    // What the mods keep in the worktree (Andúril's builds, the Argonath's trees) is none of the change
+    // What the mods keep in the worktree (Andúril's builds, verify's trees) is none of the change
     expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).elrond :(exclude).argonath :(exclude).anduril :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: arrived/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
-    // The person says go: no ward for one change both statues judged whole
+    // The person says go: no ward for one change both reviewers judged whole
     await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.judged).toHaveLength(2)
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The Argonath's proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The the proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
     expect(world.ran.find(line => line.startsWith('gh pr create'))).not.toMatch(/was written before/)
   })
 
@@ -1646,7 +1646,7 @@ describe('an errand', () => {
     expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
   })
 
-  test('put before the Argonath through the commit tool, is proved and judged in that call, where the statues are held', async ($, on) => {
+  test('put up for verification through the commit tool, is proved and judged in that call, where the reviewers are held', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
@@ -1660,13 +1660,13 @@ describe('an errand', () => {
     const sent = world.judged.length
     world.dirty = ' M beacons/gondor/app.py\n'
     world.edits += 1
-    expect(await call($, 'mcp__middle-earth__commit', { ref: ISSUE.ref })).toMatch(/goes before the Argonath/)
+    expect(await call($, 'mcp__middle-earth__commit', { ref: ISSUE.ref })).toMatch(/goes up for verification/)
 
-    // No clock moved: the proof ran and the statues were sent within the call
+    // No clock moved: the proof ran and the reviewers were sent within the call
     expect(world.judged).toHaveLength(sent + 2)
   })
 
-  test('put before the Argonath by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
+  test('put up for verification by the person, opens its pull request saying its builder\'s account came before the proof', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
@@ -1678,14 +1678,14 @@ describe('an errand', () => {
     await ends($, 'gimli-1', 'The proof could not be made: the tools were unreachable.', world)
     await settle($, world)
 
-    // The person brings the change into the worktree and puts it before the Argonath
+    // The person brings the change into the worktree and puts it up for verification
     world.dirty = ' M beacons/gondor/app.py\n'
     await $.command.run({ command: 'fellowship', args: `commit ${ISSUE.ref}` } as never)
     await settle($, world)
     await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
     await settle($, world)
 
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nGimli's account above was written before its change was proven: the person put it before the Argonath, whose proof says: every changed run is pinned\./)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nGimli's account above was written before its change was proven: the person put it up for verification, whose proof says: every changed run is pinned\./)
   })
 })
 
@@ -1823,7 +1823,7 @@ describe('the hand-offs of a task', () => {
     expect(world.toasts.some(text => /HEAD moved from c0ffee1 to deadbee[\s\S]*git reset --soft c0ffee1/.test(text))).toBe(true)
   })
 
-  test('stop at once where Argonath could not look at what the change reached: no member mends that', async ($, on) => {
+  test('stop at once where verify could not look at what the change reached: no member mends that', async ($, on) => {
     const world = machine(on)
     world.proofs = ['unlooked']
     await start($, world)
@@ -1839,7 +1839,7 @@ describe('the hand-offs of a task', () => {
     expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck[\s\S]*Last proof: .*gondor/)
   })
 
-  test('send both statues on every task, a light one on a lighter model', async ($, on) => {
+  test('send both reviewers on every task, a light one on a lighter model', async ($, on) => {
     const world = machine(on)
     world.proofs = ['pinned', 'unhandled']
     await start($, world)
@@ -1853,10 +1853,10 @@ describe('the hand-offs of a task', () => {
     await ends($, 'gimli-1', 'Added burned_for.', world)
     await settle($, world)
 
-    expect(world.statues).toEqual([['isildur', 'anarion'], ['isildur', 'anarion']])
-    // A light task's change is judged on a lighter model; one nothing proves, on the statues' own
+    expect(world.reviewers).toEqual([['reviewer-correctness', 'reviewer-security'], ['reviewer-correctness', 'reviewer-security']])
+    // A light task's change is judged on a lighter model; one nothing proves, on the reviewers' own
     expect(world.judged.map(one => one.model)).toEqual(['sonnet', 'sonnet', undefined, undefined])
-    expect(world.ran.filter(line => line.startsWith('git commit -m')).at(-1)).toContain('Not proven by the Argonath, which has no handler for anor')
+    expect(world.ran.filter(line => line.startsWith('git commit -m')).at(-1)).toContain('Not proven by verify, which has no handler for anor')
   })
 
   test('send the task a rung up when a member took lines out of the test writer\'s tests with no reason', async ($, on) => {
@@ -1882,7 +1882,7 @@ describe('the hand-offs of a task', () => {
     expect(String(world.spawned[1]?.prompt)).toMatch(/<findings>\n- Tests first, beacons\/tests\/test_gondor\.py: locked lines of the tests written first were taken out with no reason given \(`assert body\["burned_for"\] == 3`\)/)
   })
 
-  test('have both statues judge a plan\'s whole branch in its worktree before it sails, and hold it back when they find what blocks it', async ($, on) => {
+  test('have both reviewers judge a plan\'s whole branch in its worktree before it sails, and hold it back when they find what blocks it', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [structuredClone(PLAN.tasks[0]!)] }
     world.judgements = ['pass', 'fail']
@@ -1892,7 +1892,7 @@ describe('the hand-offs of a task', () => {
     await ends($, 'frodo-1', 'Added lit_at.', world)
     await settle($, world)
 
-    expect(world.statues.at(-1)).toEqual(['isildur', 'anarion'])
+    expect(world.reviewers.at(-1)).toEqual(['reviewer-correctness', 'reviewer-security'])
     // Judged against origin's base, just fetched, not a local one behind it
     expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' origin/main'))).toBe(true)
     expect(world.judged.at(-1)).toMatchObject({ cwd: TREE })
@@ -1900,7 +1900,7 @@ describe('the hand-offs of a task', () => {
     expect(world.judged.at(-1)?.model).toBe('sonnet')
     expect(aboutOf(world.judged.at(-1))).toMatch(/^The whole branch of the plan for github:.*#12[\s\S]*one task undoing or contradicting another[\s\S]*- 1\. Keep when a beacon is lit/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*The statues: the whole branch: 1 blocking finding/)
+    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*The reviewers: the whole branch: 1 blocking finding/)
 
     // Fixed, committed, and passed: it sails
     world.head = 'f1xed00aaaa'

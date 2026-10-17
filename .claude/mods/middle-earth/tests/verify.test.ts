@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, sizeText, standingByTarget, targetsOf, withLive } from '../core/proof'
-import type { ArgonathRadius, ArgonathState } from '../types'
+import type { Radius, RunState } from '../types'
 import { dealt, parseFindings } from '../core/review'
 import { isChanging } from '../hooks/flow'
 import { secretsIn } from '../core/change'
@@ -153,14 +153,14 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 
 const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 's', reason: 'answer', agentId } as never)
 
-/** A statue's answer: its account, then its findings as the json block it ends with. */
+/** A reviewer's answer: its account, then its findings as the json block it ends with. */
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
 /**
- * Stands for the engine that sends the statues, and for the Claude they report to. `isMinting` has the spawn answer
+ * Stands for the engine that sends the reviewers, and for the Claude they report to. `isMinting` has the spawn answer
  * an id, `<type>-1`, as core does for an agent another mod sends.
  */
-const statues = (on: On, isMinting = false) => {
+const reviewers = (on: On, isMinting = false) => {
   const spawned: Record<string, unknown>[] = []
   const submitted: string[] = []
 
@@ -171,18 +171,18 @@ const statues = (on: On, isMinting = false) => {
 
     return { model: 'opus', ...(isMinting ? { agentId: `${String(given.subagentType ?? given.subagent_type ?? '').split(':')[1] ?? ''}-1` } : {}) } as never
   })
-  // Core alone mints an agent's id: a statue is known by the type it runs as
+  // Core alone mints an agent's id: a reviewer is known by the type it runs as
   on('agent.list', () => ({
     value: [
-      { id: 'isildur-1', description: 'x', type: 'middle-earth:isildur', status: 'running' },
-      { id: 'anarion-1', description: 'x', type: 'middle-earth:anarion', status: 'running' },
+      { id: 'reviewer-correctness-1', description: 'x', type: 'middle-earth:reviewer-correctness', status: 'running' },
+      { id: 'reviewer-security-1', description: 'x', type: 'middle-earth:reviewer-security', status: 'running' },
       { id: 'someone', description: 'x', type: 'Explore', status: 'running' },
       // A member another mod sent, and a helper the person spawned
       { id: 'gimli-1', description: 'x', type: 'middle-earth:gimli', status: 'running' },
       { id: 'helper-1', description: 'x', type: 'general-purpose', status: 'running' },
     ],
   }) as never)
-  on('agent.register', () => ({ value: { agent: 'middle-earth:isildur' } }) as never)
+  on('agent.register', () => ({ value: { agent: 'middle-earth:reviewer-correctness' } }) as never)
   on('prompt.submit', (_, e) => {
     submitted.push(e.text)
 
@@ -223,7 +223,7 @@ describe('what the project builds', () => {
     expect(parseReviews('narsil=cli@narsil')).toEqual([])
   })
 
-  test('reads the files of standards the statues judge by, and no target from them', () => {
+  test('reads the files of standards the reviewers judge by, and no target from them', () => {
     expect(parseStandards('standards=docs/agents/standards.md\n  standards = docs/more.md \nstandards=\nnarsil=cli@narsil')).toEqual(['docs/agents/standards.md', 'docs/more.md'])
     expect(parseProject('standards=docs/agents/standards.md', CWD)).toEqual([])
   })
@@ -360,13 +360,13 @@ describe('what the service handler answered', () => {
   })
 })
 
-describe('the statues', () => {
+describe('the reviewers', () => {
   test('are dealt the reviews the project names in turn, and none sits without one', () => {
     expect(dealt([{ command: 'code-review', args: 'medium' }, { command: 'security-review', args: '' }, { command: 'perf', args: '' }])).toEqual([
-      { name: 'isildur', title: 'Isildur', reviews: ['/code-review medium', '/perf'] },
-      { name: 'anarion', title: 'Anárion', reviews: ['/security-review'] },
+      { name: 'reviewer-correctness', title: 'Correctness reviewer', reviews: ['/code-review medium', '/perf'] },
+      { name: 'reviewer-security', title: 'Security reviewer', reviews: ['/security-review'] },
     ])
-    expect(dealt([{ command: 'code-review', args: '' }]).map(seat => seat.name)).toEqual(['isildur'])
+    expect(dealt([{ command: 'code-review', args: '' }]).map(seat => seat.name)).toEqual(['reviewer-correctness'])
   })
 
   test('answer their findings in their last json block, blocking or minor, and nothing when none reads', () => {
@@ -375,11 +375,11 @@ describe('the statues', () => {
       { severity: 'minor', where: '', text: 'Style.' },
     ])
     expect(parseFindings('Looks fine to me.')).toBeUndefined()
-    // The code a statue quotes before its verdict is passed over
+    // The code a reviewer quotes before its verdict is passed over
     expect(parseFindings([...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], FOUND([{ severity: 'blocking', where: 'a.py:1', text: 'Wrong.' }])].join('\n'))?.[0]?.text).toBe('Wrong.')
-    // A statue that shouts its severity still blocks
+    // A reviewer that shouts its severity still blocks
     expect(parseFindings('```json\n{ "findings": [{ "severity": "BLOCKING", "where": "a.py:1", "text": "It drops the error." }] }\n```')?.[0]?.severity).toBe('blocking')
-    // A severity the statue spelled its own way, or none, blocks: only one it calls minor lets the change pass
+    // A severity the reviewer spelled its own way, or none, blocks: only one it calls minor lets the change pass
     expect(parseFindings(FOUND([{ severity: 'critical', where: 'a.py:1', text: 'SQL built from input.' }, { where: 'a.py:2', text: 'No severity.' }, { severity: 'Low', where: '', text: 'A name.' }])).map(one => one?.severity)).toEqual(['blocking', 'blocking', 'minor'])
   })
 
@@ -392,7 +392,7 @@ describe('the statues', () => {
   })
 })
 
-describe('argonath', () => {
+describe('verify', () => {
   test('says Andúril is not loaded in the session, and that a restart brings it, when its diff is not there to call', async ($, on) => {
     const world = machine(on)
     world.isAndurilGone = true
@@ -403,7 +403,7 @@ describe('argonath', () => {
   test('says how to name targets to a Claude that asks where none are', async ($, on) => {
     machine(on, { [`${CWD}/.claude/argonath`]: '' })
 
-    expect(await call($, 'mcp__middle-earth__radius')).toMatch(/Argonath knows no target here.*gondor=service:gondor\.app:app/s)
+    expect(await call($, 'mcp__middle-earth__radius')).toMatch(/Verify knows no target here.*gondor=service:gondor\.app:app/s)
   })
 
   test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {
@@ -415,7 +415,7 @@ describe('argonath', () => {
     expect(world.jobs.service[0]).toMatchObject({ label: 'gondor', app: 'gondor.app:app', python: 'beacons', env: { ROHAN_URL: 'http://127.0.0.1:9', DATABASE_URL: '' }, requests: ['gondor GET /health', 'gondor POST /beacons/amon-din/light'], from: 'HEAD' })
     expect(said).toContain('bare: narsil show 999')
     expect(said).toContain('marked: gondor GET /health\n  marked by test_health_counts_what_burns, not proved')
-    expect(said).toContain('anor is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run.')
+    expect(said).toContain('anor is a frontend: verify compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run.')
     expect(said).not.toContain('No kept run answered otherwise: no integration test is owed.\n')
     expect(world.jobs.prove).toHaveLength(0)
   })
@@ -455,7 +455,7 @@ describe('argonath', () => {
 
   test('leaves an edit another mod\'s agent made to that mod, and looks at one a helper the person spawned made', async ($, on) => {
     const world = machine(on)
-    statues(on)
+    reviewers(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'edited' }) as never)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
     const turn = async () => {
@@ -485,8 +485,8 @@ describe('argonath', () => {
     await call($, 'mcp__middle-earth__radius', { target: 'gondor' })
 
     await $.tool.call({ tool: 'Bash', command: 'git checkout -- beacons/gondor/archive.py' } as never)
-    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'argonath' })
-    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })
+    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'verify' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'verify' })
 
     expect(world.fingerprints).toBe(2)
     expect(drawn).toMatch(/gondor\s+service.*edited since/)
@@ -500,54 +500,54 @@ describe('argonath', () => {
     const mountBand = () => $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 10 } as never })
 
     const dark = await mountBand()
-    expect(await dark.find({ text: /sting/ })).toBeUndefined()
+    expect(await dark.find({ text: /to pin/ })).toBeUndefined()
     await dark.unmount()
 
     await call($, 'mcp__middle-earth__radius')
     const band = await mountBand()
     expect(await band.find({ text: /narsil 1 bare {2}│ {2}gondor 1 marked/ })).toBeDefined()
 
-    await band.press({ key: 'argonath-hide' })
-    expect(await band.find({ text: /sting/ })).toBeUndefined()
+    await band.press({ key: 'verify-hide' })
+    expect(await band.find({ text: /to pin/ })).toBeUndefined()
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`shows each target in a section of its own, and the evidence of a run that is opened, on ${surface}`, async ($, on) => {
       machine(on)
-      const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'argonath' })
+      const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'verify' })
       await pane.press({ key: 'refresh' })
       await pane.press({ key: 'radius' })
 
-      const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })
+      const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'verify' })
       expect(drawn).toContain('3 targets · 2 with a change no test pins')
       expect(drawn).toMatch(/gondor\s+service/)
       expect(drawn).toMatch(/marked\s+\[gondor GET \/health\]\s+test_health_counts_what_burns/)
       expect(drawn).toContain('anor is a frontend')
 
       await pane.press({ key: 'seam-gondor-gondor GET /health' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })).toContain('+  "lit": 0,')
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'verify' })).toContain('+  "lit": 0,')
     })
   }
 
   test('lists each changed run on a row of its own in a narrow pane, its tests under it, and says it whole once opened', async ($, on) => {
     machine(on)
-    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'argonath' })
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 50 } as never, requestId: 'verify' })
     await pane.press({ key: 'refresh' })
     await pane.press({ key: 'radius' })
 
-    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'verify' })
     // No table cuts the run: its state, the run, and the tests that mark it, each on a line
     expect(drawn).not.toContain('STATE')
     expect(drawn).toMatch(/marked\s+\[gondor GET \/health\]\n\s+test_health_counts_what_burns/)
     expect(drawn).toMatch(/gondor\s+service\s+● 1 kept request changed/)
 
     await pane.press({ key: 'seam-gondor-gondor GET /health' })
-    expect(await call($, 'mcp__middle-earth__pane', { pane: 'argonath' })).toMatch(/gondor GET \/health\n\s+marked by test_health_counts_what_burns/)
+    expect(await call($, 'mcp__middle-earth__pane', { pane: 'verify' })).toMatch(/gondor GET \/health\n\s+marked by test_health_counts_what_burns/)
   })
 
-  test('sends the statues once the turn that proved every changed run pinned has ended, tells Claude their verdict, and judges the same change once', async ($, on) => {
+  test('sends the reviewers once the turn that proved every changed run pinned has ended, tells Claude their verdict, and judges the same change once', async ($, on) => {
     const world = machine(on)
-    const { spawned, submitted } = statues(on)
+    const { spawned, submitted } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
     const turn = async () => {
       await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
@@ -559,33 +559,33 @@ describe('argonath', () => {
     expect(spawned).toEqual([])
 
     await turn()
-    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:isildur', 'middle-earth:anarion'])
+    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:reviewer-correctness', 'middle-earth:reviewer-security'])
     expect(String(spawned[0]?.prompt)).toMatch(/Your review: \/code-review medium\.[\s\S]*<size>\nThe change adds 1 line and takes out 0, across 1 file\. Where it adds most: beacons\/gondor\/app\.py \+1\.\n<\/size>[\s\S]*<change>\ndiff --git a\/beacons\/gondor\/app\.py/)
     expect(String(spawned[1]?.prompt)).toContain('Your review: /security-review.')
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/is judging the change: sitting/)
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/is judging the change: reviewing/)
 
-    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
+    await ends($, 'reviewer-correctness-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
     expect(submitted).toEqual([])
-    await ends($, 'anarion-1', FOUND([{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]))
+    await ends($, 'reviewer-security-1', FOUND([{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]))
 
-    expect(submitted[0]).toMatch(/has judged the change: fail[\s\S]*Isildur \(\/code-review medium\): pass\n- \[minor\] app\.py:70: lit could[\s\S]*Anárion \(\/security-review\): fail\n- \[blocking\] app\.py:72/)
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: fail\.[\s\S]*Isildur \(\/code-review medium\): pass[\s\S]*Anárion \(\/security-review\): fail/)
+    expect(submitted[0]).toMatch(/has judged the change: fail[\s\S]*Correctness reviewer \(\/code-review medium\): pass\n- \[minor\] app\.py:70: lit could[\s\S]*Security reviewer \(\/security-review\): fail\n- \[blocking\] app\.py:72/)
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/has judged the change: fail\.[\s\S]*Correctness reviewer \(\/code-review medium\): pass[\s\S]*Security reviewer \(\/security-review\): fail/)
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
     await turn()
     expect(spawned).toHaveLength(2)
 
-    // The change moved on: the judgement is stale, and the statues judge it again
+    // The change moved on: the judgement is stale, and the reviewers judge it again
     world.whole = 'abc123\nmore\n'
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/: fail \(of an earlier tree: the change has moved since\)/)
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/: fail \(of an earlier tree: the change has moved since\)/)
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
     await turn()
     expect(spawned).toHaveLength(4)
   })
 
-  test('sends no statue on a change that moved on, or was committed, before the turn that proved it ended', async ($, on) => {
+  test('sends no reviewer on a change that moved on, or was committed, before the turn that proved it ended', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     expect(await call($, 'mcp__middle-earth__prove', { target: 'gondor' })).toContain('pinned: gondor GET /health')
@@ -600,7 +600,7 @@ describe('argonath', () => {
 
   test('owes no judgement to a proof a subagent made: its work may not be done when the session\'s turn ends', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     expect(await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'merry-1' })).toContain('pinned: gondor GET /health')
@@ -613,20 +613,20 @@ describe('argonath', () => {
   test("proves and judges a quest's worktree for the agents sent to work in it, and leaves the project's own as it was", async ($, on) => {
     const tree = `${CWD}/.fellowship/trees/12-burned`
     const world = machine(on, { [`${tree}/.claude/argonath`]: PROJECT, [`${tree}/beacons/tests/test_gondor.py`]: TESTS })
-    const { spawned } = statues(on, true)
+    const { spawned } = reviewers(on, true)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-    // The Fellowship sends its member into the quest's worktree: what it asks of the Argonath is looked at there
+    // The Fellowship sends its member into the quest's worktree: what it asks of verify is looked at there
     await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
     expect(await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'gimli-1' })).toContain('pinned: gondor GET /health')
     expect(world.jobs.service[0]).toMatchObject({ home: tree, project: CWD })
     expect(world.jobs.prove[0]).toMatchObject({ home: tree, tests: [`${tree}/beacons/tests`] })
 
-    // The statues are convened there, for the agent sent to work in it: they read the change in it
-    expect(await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['isildur'], agentId: 'gimli-1' })).toMatch(/is judging the change: sitting/)
+    // The reviewers are sent there, for the agent sent to work in it: they read the change in it
+    expect(await call($, 'mcp__middle-earth__review', { start: true, reviewers: ['reviewer-correctness'], agentId: 'gimli-1' })).toMatch(/is judging the change: reviewing/)
     expect(spawned.at(-1)).toMatchObject({ cwd: tree })
-    await ends($, 'isildur-1', FOUND([]))
-    expect(await call($, 'mcp__middle-earth__judgement', { agentId: 'gimli-1' })).toMatch(/has judged the change: pass/)
+    await ends($, 'reviewer-correctness-1', FOUND([]))
+    expect(await call($, 'mcp__middle-earth__review', { agentId: 'gimli-1' })).toMatch(/has judged the change: pass/)
 
     // A branch that says otherwise how its tests are run is proved as the project's folder says: what runs on the
     // machine unasked is never read from a branch
@@ -647,14 +647,14 @@ describe('argonath', () => {
 
     // The project's own folder was neither looked at nor judged, and an agent spawned in a folder that is no quest's
     // is looked at in the project's
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/have judged no change yet/)
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/have judged no change yet/)
     await $.agent.spawn({ prompt: 'Look around', subagentType: 'general:explorer', cwd: '/etc' } as never)
     await call($, 'mcp__middle-earth__radius', { target: 'gondor', agentId: 'explorer-1' })
     expect(world.jobs.service.at(-1)).toMatchObject({ home: CWD })
     expect(world.jobs.service.at(-1)).not.toHaveProperty('project')
   })
 
-  test("hands every statue the project's standards, from its own folder and never a quest's branch, and says which it could not read", async ($, on) => {
+  test("hands every reviewer the project's standards, from its own folder and never a quest's branch, and says which it could not read", async ($, on) => {
     const tree = `${CWD}/.fellowship/trees/12-burned`
     const project = `${PROJECT}\nstandards=docs/agents/standards.md\nstandards=docs/gone.md`
     machine(on, {
@@ -664,70 +664,70 @@ describe('argonath', () => {
       [`${tree}/beacons/tests/test_gondor.py`]: TESTS,
       [`${tree}/docs/agents/standards.md`]: '## Blocking\n',
     })
-    const { spawned } = statues(on, true)
+    const { spawned } = reviewers(on, true)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
     await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'gimli-1' })
-    await call($, 'mcp__middle-earth__judgement', { convene: true, agentId: 'gimli-1' })
+    await call($, 'mcp__middle-earth__review', { start: true, agentId: 'gimli-1' })
 
-    const sent = spawned.filter(one => /isildur|anarion/.test(String(one.subagent_type)))
+    const sent = spawned.filter(one => /reviewer-/.test(String(one.subagent_type)))
 
-    expect(sent.map(one => one.subagent_type)).toEqual(['middle-earth:isildur', 'middle-earth:anarion'])
+    expect(sent.map(one => one.subagent_type)).toEqual(['middle-earth:reviewer-correctness', 'middle-earth:reviewer-security'])
     for (const one of sent) {
       expect(String(one.prompt)).toContain('<standards>\n# docs/agents/standards.md\n## Blocking\n- An error swallowed.\n\n# docs/gone.md\n(this file could not be read)\n</standards>')
     }
   })
 
-  test('sends no statue on a change a changed run of which is not pinned', async ($, on) => {
+  test('sends no reviewer on a change a changed run of which is not pinned', async ($, on) => {
     machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     // narsil's run is bare
     await call($, 'mcp__middle-earth__prove')
-    expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toBe('A changed run of narsil is not pinned: the statues judge only a settled change. Prove it first.')
+    expect(await call($, 'mcp__middle-earth__review', { start: true })).toBe('A changed run of narsil is not pinned: the reviewers judge only a settled change. Prove it first.')
     expect(spawned).toEqual([])
   })
 
-  test('sends the statues on a change Claude asks them to judge, and keeps their hands off the tree', async ($, on) => {
+  test('sends the reviewers on a change Claude asks them to judge, and keeps their hands off the tree', async ($, on) => {
     machine(on)
-    const { spawned, submitted } = statues(on)
+    const { spawned, submitted } = reviewers(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
-    expect(await call($, 'mcp__middle-earth__judgement', { convene: true, about: 'Task 2: answer 409 when the beacon does not burn.' })).toMatch(/is judging the change: sitting/)
+    expect(await call($, 'mcp__middle-earth__review', { start: true, about: 'Task 2: answer 409 when the beacon does not burn.' })).toMatch(/is judging the change: reviewing/)
     expect(spawned).toHaveLength(2)
     expect(String(spawned[0]?.prompt)).toMatch(/<purpose>\nTask 2: answer 409 when the beacon does not burn\.\n<\/purpose>/)
     // The verdict is asked last, after the change, where the reviews' own report shape cannot crowd it out
     expect(String(spawned[0]?.prompt)).toMatch(/<\/change>\n\nHowever your reviews shape their report, end your answer with the fenced json block of your findings[^\n]*$/)
 
     const by = (agentId: string, command: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
-    expect(await by('isildur-1', 'git commit -am fixed')).toMatchObject({ deny: expect.stringMatching(/changes nothing/) })
-    expect(await by('anarion-1', 'git diff HEAD -- beacons')).toMatchObject({ result: 'ran' })
+    expect(await by('reviewer-correctness-1', 'git commit -am fixed')).toMatchObject({ deny: expect.stringMatching(/changes nothing/) })
+    expect(await by('reviewer-security-1', 'git diff HEAD -- beacons')).toMatchObject({ result: 'ran' })
     expect(await by('someone', 'git commit -am fixed')).toMatchObject({ result: 'ran' })
 
-    await ends($, 'isildur-1', FOUND([]))
-    await ends($, 'anarion-1', 'I could not decide.')
+    await ends($, 'reviewer-correctness-1', FOUND([]))
+    await ends($, 'reviewer-security-1', 'I could not decide.')
     // Asked once more for its verdict alone, it gives none again: only then is it silent
     expect(spawned).toHaveLength(3)
     expect(String(spawned[2]?.prompt)).toMatch(/answer that block alone[\s\S]*<account>\nI could not decide\.\n<\/account>/)
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/is judging the change: sitting/)
-    await ends($, 'anarion-1', 'Still nothing to say.')
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/is judging the change: reviewing/)
+    await ends($, 'reviewer-security-1', 'Still nothing to say.')
     expect(spawned).toHaveLength(3)
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: silent\.[\s\S]*Isildur .*: pass[\s\S]*Anárion .*: silent, it gave no findings that read/)
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/has judged the change: silent\.[\s\S]*Correctness reviewer .*: pass[\s\S]*Security reviewer .*: silent, it gave no findings that read/)
     // Claude asked through the tool: it reads the verdict itself, and is not woken with it
     expect(submitted).toEqual([])
 
-    // A silent judgement is no judgement: convened again on the same change, the statues are sent again
-    expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toMatch(/is judging the change: sitting/)
+    // A silent judgement is no judgement: sent again on the same change, the reviewers are sent again
+    expect(await call($, 'mcp__middle-earth__review', { start: true })).toMatch(/is judging the change: reviewing/)
     expect(spawned).toHaveLength(5)
   })
 
   test('tells Claude to tidy the minor findings of a pass once, and nothing more of a clean one', async ($, on) => {
     const world = machine(on)
-    const { submitted } = statues(on)
+    const { submitted } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
     const turn = async () => {
       await $.turn.complete({ answer: 'done', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as never)
@@ -736,45 +736,45 @@ describe('argonath', () => {
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
     await turn()
-    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
-    await ends($, 'anarion-1', FOUND([]))
+    await ends($, 'reviewer-correctness-1', FOUND([{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]))
+    await ends($, 'reviewer-security-1', FOUND([]))
 
     expect(submitted[0]).toMatch(/has judged the change: pass[\s\S]*- \[minor\] app\.py:70: lit could[\s\S]*\n\nTidy each minor finding that is about what the change itself wrote[\s\S]*If you tidied after the judgement before this one, mention these to the person and leave them\.$/)
 
     world.whole = 'abc123\nmore\n'
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
     await turn()
-    await ends($, 'isildur-1', FOUND([]))
-    await ends($, 'anarion-1', FOUND([]))
+    await ends($, 'reviewer-correctness-1', FOUND([]))
+    await ends($, 'reviewer-security-1', FOUND([]))
 
     expect(submitted[1]).toMatch(/has judged the change: pass[\s\S]*nothing found$/)
   })
 
-  test('asks a statue that passed the change in prose alone for its verdict, and takes it', async ($, on) => {
+  test('asks a reviewer that passed the change in prose alone for its verdict, and takes it', async ($, on) => {
     machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
-    await call($, 'mcp__middle-earth__judgement', { convene: true })
-    await ends($, 'anarion-1', FOUND([]))
-    // Isildur on #34's task 2: a clean review, with no json block after it
-    await ends($, 'isildur-1', 'I found no problems with this change.')
+    await call($, 'mcp__middle-earth__review', { start: true })
+    await ends($, 'reviewer-security-1', FOUND([]))
+    // Correctness reviewer on #34's task 2: a clean review, with no json block after it
+    await ends($, 'reviewer-correctness-1', 'I found no problems with this change.')
     expect(String(spawned[2]?.prompt)).toMatch(/<account>\nI found no problems with this change\.\n<\/account>/)
 
-    await ends($, 'isildur-1', FOUND([{ severity: 'minor', where: 'beacons/gondor/app.py:40', text: 'A docstring would help.' }]))
-    expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/has judged the change: pass\.[\s\S]*Isildur .*: pass[\s\S]*\[minor\] beacons\/gondor\/app\.py:40: A docstring would help\./)
+    await ends($, 'reviewer-correctness-1', FOUND([{ severity: 'minor', where: 'beacons/gondor/app.py:40', text: 'A docstring would help.' }]))
+    expect(await call($, 'mcp__middle-earth__review')).toMatch(/has judged the change: pass\.[\s\S]*Correctness reviewer .*: pass[\s\S]*\[minor\] beacons\/gondor\/app\.py:40: A docstring would help\./)
   })
 
-  test('sends only the statues named, each with its share of the reviews', async ($, on) => {
+  test('sends only the reviewers named, each with its share of the reviews', async ($, on) => {
     machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
-    await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['isildur'] })
+    await call($, 'mcp__middle-earth__review', { start: true, reviewers: ['reviewer-correctness'] })
 
-    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:isildur'])
+    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:reviewer-correctness'])
     expect(String(spawned[0]?.prompt)).toContain('Your review: /code-review medium.')
   })
 
@@ -800,7 +800,7 @@ describe('argonath', () => {
   })
 })
 
-const radiusWith = (label: string, states: ArgonathState[], change: Partial<ArgonathRadius> = {}): ArgonathRadius => ({
+const radiusWith = (label: string, states: RunState[], change: Partial<Radius> = {}): Radius => ({
   label,
   kind: 'service',
   at: 0,
@@ -827,7 +827,7 @@ describe('a proof read as JSON', () => {
     const unproved = proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { unproved: 'The proof of gondor could not be made: boom' }), isTouched: true }])
 
     expect(unproved.verdict).toBe('unsettled')
-    expect(unproved.line).toBe('Argonath could not prove gondor: The proof of gondor could not be made: boom')
+    expect(unproved.line).toBe('Verify could not prove gondor: The proof of gondor could not be made: boom')
     // A check the change newly fails holds it, every run pinned or not; one that failed before does not
     expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { gates: ['gondor.check fails on the working tree (exit 1)'] }), isTouched: true }])).toMatchObject({ verdict: 'unsettled', line: 'the change fails gondor.check' })
     expect(proofAnswer([{ label: 'gondor', kind: 'service', found: radiusWith('gondor', ['pinned'], { gatesBefore: ['gondor.check fails on the commit\'s source too'] }), isTouched: true }]).verdict).toBe('settled')
@@ -839,7 +839,7 @@ describe('a proof read as JSON', () => {
       { label: 'narsil', kind: 'cli', found: radiusWith('narsil', ['pinned']), isTouched: true },
     ])
 
-    expect(answer).toMatchObject({ verdict: 'unlooked', line: 'Argonath could not look at gondor (No request of gondor is kept to play.)' })
+    expect(answer).toMatchObject({ verdict: 'unlooked', line: 'Verify could not look at gondor (No request of gondor is kept to play.)' })
     expect(answer.targets.map(one => one.state)).toEqual(['unlooked', 'pinned'])
   })
 
@@ -895,9 +895,9 @@ describe('a database, a readiness and the tests a change can break', () => {
     expect(said).toContain('gondor: the change does not reach its folders.')
   })
 
-  test('says the changed lines no kept request ran, to the builder and to the statues', async ($, on) => {
+  test('says the changed lines no kept request ran, to the builder and to the reviewers', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     world.service = JSON.stringify({ ...SERVICE, cases: SERVICE.cases.map(one => ({ ...one, isChanged: false, evidence: '' })), unreached: { 'beacons/gondor/archive.py': '93, 120-121' }, measured: true })
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
@@ -907,7 +907,7 @@ describe('a database, a readiness and the tests a change can break', () => {
     // What did not change is a count, not a list
     expect(proof).toContain('2 other kept requests answered as before.')
 
-    await call($, 'mcp__middle-earth__judgement', { convene: true })
+    await call($, 'mcp__middle-earth__review', { start: true })
     expect(String(spawned[0]?.prompt)).toContain('- gondor: changed lines no kept run ran, so no integration test checks them: beacons/gondor/archive.py 93, 120-121.')
   })
 
@@ -1088,40 +1088,40 @@ describe('a proof asked again', () => {
 
 })
 
-describe('the statues, on a change', () => {
+describe('the reviewers, on a change', () => {
   test('are not sent on one that holds nothing', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     world.change = '\nNew files:\n'
 
-    expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toBe('There was no change to judge.')
+    expect(await call($, 'mcp__middle-earth__review', { start: true })).toBe('There was no change to judge.')
     expect(spawned).toEqual([])
   })
 
   test('pass nothing git could not show them: a branch whose base git does not know is judged by none, each saying why', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     world.missing = ['main']
 
-    const said = await call($, 'mcp__middle-earth__judgement', { convene: true, against: 'main' })
+    const said = await call($, 'mcp__middle-earth__review', { start: true, against: 'main' })
 
     expect(spawned).toEqual([])
-    expect(said).toMatch(/has judged the change: silent[\s\S]*Isildur .*: silent, git could not show the change since main: fatal: Not a valid object name main/)
-    // Asked again, it is judged afresh, never taken from the judgement no statue gave
+    expect(said).toMatch(/has judged the change: silent[\s\S]*Correctness reviewer .*: silent, git could not show the change since main: fatal: Not a valid object name main/)
+    // Asked again, it is judged afresh, never taken from the judgement no reviewer gave
     world.missing = []
-    await call($, 'mcp__middle-earth__judgement', { convene: true, against: 'main' })
+    await call($, 'mcp__middle-earth__review', { start: true, against: 'main' })
     expect(spawned.length).toBeGreaterThan(0)
   })
 
   test('judge a whole branch since where it left its base, whatever the proof of the change at hand', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
 
     // narsil's run is bare: the change at hand is not settled, but the branch is judged as it was committed
     await call($, 'mcp__middle-earth__prove')
-    await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['anarion'], against: 'main' })
+    await call($, 'mcp__middle-earth__review', { start: true, reviewers: ['reviewer-security'], against: 'main' })
 
-    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:anarion'])
+    expect(spawned.map(one => one.subagent_type)).toEqual(['middle-earth:reviewer-security'])
     expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' main'))).toBe(true)
     // A whole branch has no radius of its own: the proof of the change at hand is not handed over with it
     expect(String(spawned[0]?.prompt)).not.toContain('<proof>')
@@ -1129,9 +1129,9 @@ describe('the statues, on a change', () => {
 
   test('know a change, its size, and what they are shown of it, without the folders the mods keep, as a commit takes it', async ($, on) => {
     const world = machine(on)
-    statues(on)
+    reviewers(on)
 
-    await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['isildur'] })
+    await call($, 'mcp__middle-earth__review', { start: true, reviewers: ['reviewer-correctness'] })
 
     const scripts = world.ran.filter(line => line.includes('git merge-base "$1" HEAD'))
 
@@ -1146,11 +1146,11 @@ describe('the statues, on a change', () => {
 
   test('are handed what the proof found: each altered run with its test and how it answers now, on the model named', async ($, on) => {
     machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     await call($, 'mcp__middle-earth__prove', { target: 'gondor' })
-    await call($, 'mcp__middle-earth__judgement', { convene: true, statues: ['isildur'], model: 'sonnet' })
+    await call($, 'mcp__middle-earth__review', { start: true, reviewers: ['reviewer-correctness'], model: 'sonnet' })
 
     const prompt = String(spawned[0]?.prompt)
     expect(prompt).toContain('<proof>\n- gondor: gondor GET /health (pinned, by test_health_counts_what_burns)')
@@ -1160,16 +1160,16 @@ describe('the statues, on a change', () => {
 
   test('are told of a target the change reached that no kept run sees, so they can tell new behaviour from a refactor', async ($, on) => {
     const world = machine(on)
-    const { spawned } = statues(on)
+    const { spawned } = reviewers(on)
     world.service = JSON.stringify({ ...SERVICE, cases: SERVICE.cases.map(one => ({ ...one, isChanged: false, evidence: '' })) })
     world.fingerprint = 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    def helper(): pass\n'
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
     expect(await call($, 'mcp__middle-earth__prove', { target: 'gondor' })).toMatch(/gondor/)
-    await call($, 'mcp__middle-earth__judgement', { convene: true })
+    await call($, 'mcp__middle-earth__review', { start: true })
 
     expect(String(spawned[0]?.prompt)).toContain('- gondor: the change reached its source, but no kept run of it answers otherwise.')
-    // No model named: each statue judges with its own
+    // No model named: each reviewer judges with its own
     expect(spawned[0]?.model).toBeUndefined()
   })
 
@@ -1183,11 +1183,11 @@ describe('the statues, on a change', () => {
 describe('a shell command', () => {
   test('of an agent that only reads is not looked at for edits', async ($, on) => {
     const world = machine(on)
-    statues(on)
+    reviewers(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
     await call($, 'mcp__middle-earth__radius', { target: 'gondor' })
 
-    await $.tool.call({ tool: 'Bash', command: 'git log -1', agentId: 'isildur-1' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'git log -1', agentId: 'reviewer-correctness-1' } as never)
     expect(world.fingerprints).toBe(0)
 
     await $.tool.call({ tool: 'Bash', command: 'make', agentId: 'helper-1' } as never)

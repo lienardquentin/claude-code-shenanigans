@@ -15,7 +15,7 @@ export const SPEND_FILE = '.fellowship/spend.jsonl'
 // How many turns the record keeps, the oldest left out first: the engine reads a file whole, under 4 MiB
 const KEPT = 5_000
 
-// The record is written one turn at a time: two statues that end together would each write over the other's line
+// The record is written one turn at a time: two reviewers that end together would each write over the other's line
 let writing: Promise<void> = Promise.resolve()
 
 /** One turn of an agent, as the record keeps it; nothing for a turn that counted no tokens (interrupted, an API error). */
