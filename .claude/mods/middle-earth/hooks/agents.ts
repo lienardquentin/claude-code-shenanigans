@@ -7,7 +7,7 @@ import { COUNCIL_SYSTEM, isPlanPath } from './elrond/council'
 import { resolvedFrom } from '../core/paths'
 import { MEMBERS, isModSource, isOutside, memberSystem, reachesOut } from '../core/quest'
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
-import { GALADRIEL_EFFORT, GALADRIEL_MODEL, GALADRIEL_SWIFT_MODEL, GALADRIEL_SYSTEM, isTestPath } from './lothlorien/mirror'
+import { TEST_WRITER_EFFORT, TEST_WRITER_LIGHT_MODEL, TEST_WRITER_MODEL, TEST_WRITER_SYSTEM, isTestPath } from '../core/tests-first'
 import type { Trees } from './kit/trees'
 
 // Every agent the mod sends, in one place: the types it registers, the record of each one sent, and the one guard that
@@ -204,17 +204,17 @@ export async function registerAgents($: $): Promise<void> {
       .catch(() => undefined)
   }
 
-  for (const [name, model] of [[GALADRIEL, GALADRIEL_MODEL], [GALADRIEL_SWIFT, GALADRIEL_SWIFT_MODEL]] as const) {
+  for (const [name, model] of [[GALADRIEL, TEST_WRITER_MODEL], [GALADRIEL_SWIFT, TEST_WRITER_LIGHT_MODEL]] as const) {
     await $.agent
       .register({
         name,
         description: 'Galadriel: writes the failing tests of a behaviour before it is built, and only tests. Sent by Lothlórien alone.',
-        prompt: GALADRIEL_SYSTEM,
+        prompt: TEST_WRITER_SYSTEM,
         // What she may write (tests, in the place she gazes in) and run (what tests or reads) is the guard's
         tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'],
         disallowedTools: ['Agent', 'NotebookEdit'],
         model,
-        effort: GALADRIEL_EFFORT,
+        effort: TEST_WRITER_EFFORT,
       })
       .catch(() => undefined)
   }

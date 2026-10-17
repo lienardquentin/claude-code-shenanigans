@@ -1,23 +1,29 @@
-import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../../types'
-import { fencedJson } from '../../core/answers'
-export { resolvedFrom } from '../../core/paths'
-export { isChanging } from '../flow'
+import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../types'
+import { fencedJson } from './answers'
+
+// The tests written first for a task: what the test writer is told, how her answer and her tests are read, which of
+// their lines are locked, and what a builder took out of them. Text in, text out.
+
+// The state contract must hold the types the mod keeps in its state itself: the core names them there
+export type Amendment = LothlorienAmendment
+export type LockedBlock = LothlorienBlock
+export type WrittenTest = LothlorienTest
+export type UnrunTest = LothlorienUnrun
+export type TestsFirst = LothlorienVision
 
 /** What Galadriel gazes with: Opus, at medium effort. */
-export const GALADRIEL_MODEL = 'claude-opus-5-5'
-export const GALADRIEL_EFFORT = 'medium'
+export const TEST_WRITER_MODEL = 'claude-opus-5-5'
+export const TEST_WRITER_EFFORT = 'medium'
 
 /** What she gazes with on a task that is not heavy: Sonnet, its tests no harder to see. */
-export const GALADRIEL_SWIFT_MODEL = 'claude-sonnet-5-5'
-
-export const HOW_TO = 'The Mirror shows nothing yet. /mirror <the behaviour to come> has Galadriel write the failing tests that show it, before it is built.'
+export const TEST_WRITER_LIGHT_MODEL = 'claude-sonnet-5-5'
 
 /** A path that holds tests, by how projects name them: a tests folder, or a test file by its name. */
 export const isTestPath = (path: string): boolean =>
   /(^|\/)(tests?|__tests__|specs?|testing)\//.test(path) || /(^|\/)(test_[^/]+\.py|[^/]+_test\.(py|go|rs)|[^/]+\.(test|spec)\.[cm]?[jt]sx?|[^/]+Tests?\.(java|kt|cs|swift))$/.test(path)
 
 /** Galadriel's system prompt: she writes the tests of what is to come, and nothing else. */
-export const GALADRIEL_SYSTEM = [
+export const TEST_WRITER_SYSTEM = [
   'You are Galadriel, a test writer: before a behaviour is built, you write the tests that will prove it. They fail today and will pass once it is built. You write tests, and nothing else.',
   '',
   'How to work:',
@@ -44,7 +50,7 @@ export const gazePrompt = (purpose: string): string =>
   ['Show what is to come, as the tests that will prove it:', '<purpose>', purpose.trim(), '</purpose>'].join('\n')
 
 /** What she answered, from the last json block of her answer; undefined when none reads. */
-export const parseGaze = (answer: string): { tests: LothlorienTest[]; red: string; unrun: LothlorienUnrun[]; untestable: string } | undefined => {
+export const parseGaze = (answer: string): { tests: WrittenTest[]; red: string; unrun: UnrunTest[]; untestable: string } | undefined => {
   const fenced = fencedJson(answer).reverse()
 
   for (const one of fenced) {
@@ -80,8 +86,8 @@ const isHeld = (line: string): boolean => line.trim() !== ''
  * What was added to each file, as blocks of lines, from a unified diff against HEAD (`git diff -U0`) and the new files'
  * own text: the lines a lock holds.
  */
-export const blocksOf = (diff: string, created: readonly { file: string; text: string }[] = []): LothlorienBlock[] => {
-  const blocks: LothlorienBlock[] = []
+export const blocksOf = (diff: string, created: readonly { file: string; text: string }[] = []): LockedBlock[] => {
+  const blocks: LockedBlock[] = []
   let file = ''
   let lines: string[] = []
 
@@ -111,7 +117,7 @@ export const blocksOf = (diff: string, created: readonly { file: string; text: s
 }
 
 /** The lines of a file the lock holds, path from the project's folder. */
-export const lockedIn = (blocks: readonly LothlorienBlock[], file: string): string[] => blocks.filter(block => block.file === file).flatMap(block => block.lines)
+export const lockedIn = (blocks: readonly LockedBlock[], file: string): string[] => blocks.filter(block => block.file === file).flatMap(block => block.lines)
 
 /** How many times each line stands in a text. */
 const counted = (text: string): Map<string, number> => {
@@ -144,7 +150,7 @@ export const missingFrom = (locked: readonly string[], text: string): string[] =
  * The locked lines each file no longer holds, though no reason was given for changing it: what an edit the lock did
  * not see (a shell command) took out of her tests.
  */
-export const tamperedWith = (blocks: readonly LothlorienBlock[], amendments: readonly Pick<LothlorienAmendment, 'file'>[], files: readonly { file: string; text: string }[]): { file: string; lines: string[] }[] =>
+export const tamperedWith = (blocks: readonly LockedBlock[], amendments: readonly Pick<Amendment, 'file'>[], files: readonly { file: string; text: string }[]): { file: string; lines: string[] }[] =>
   files
     .filter(({ file }) => !amendments.some(one => one.file === file))
     .map(({ file, text }) => ({ file, lines: missingFrom(lockedIn(blocks, file), text) }))
@@ -154,7 +160,7 @@ export const tamperedWith = (blocks: readonly LothlorienBlock[], amendments: rea
  * The vision once a test she showed red is found to be one that cannot run here: moved to `unrun`, with why and who
  * said so, and owed no passing. Why it cannot be, in a sentence, when the test is none of her red ones.
  */
-export const released = (vision: LothlorienVision, name: string, why: string, by: string): LothlorienVision | string => {
+export const released = (vision: TestsFirst, name: string, why: string, by: string): TestsFirst | string => {
   const test = vision.tests.find(one => one.name === name || one.name.endsWith(`::${name}`))
 
   if (test === undefined) return `${name} is none of Galadriel's red tests: ${vision.tests.map(one => one.name).join(', ') || 'she showed none'}.`
@@ -163,7 +169,7 @@ export const released = (vision: LothlorienVision, name: string, why: string, by
 }
 
 /** The vision in full, for Claude. */
-export const visionText = (vision: LothlorienVision, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
+export const visionText = (vision: TestsFirst, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
   [
     vision.state === 'gazing'
       ? 'Galadriel gazes into the Mirror: the tests are being written.'
@@ -189,11 +195,11 @@ export const forgottenOf = <T extends { place: { isHome: boolean }; held: { ref?
 
 /** What the Mirror shows a part that waits on her: where the vision stands, and what was changed of her tests, with a reason or without one. */
 export type Shown = {
-  state: LothlorienVision['state'] | 'none'
+  state: TestsFirst['state'] | 'none'
   ref?: string
   isLocked?: boolean
   tests?: { file: string; name: string }[]
-  unrun?: LothlorienUnrun[]
+  unrun?: UnrunTest[]
   red?: string
   why?: string
   amendments?: { file: string; why: string; by: string }[]
@@ -201,5 +207,5 @@ export type Shown = {
 }
 
 /** The vision as a part reads it. */
-export const shownOf = (vision: LothlorienVision | null, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): Shown =>
+export const shownOf = (vision: TestsFirst | null, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): Shown =>
   vision === null ? { state: 'none' } : { state: vision.state, ref: vision.ref ?? '', isLocked, tests: vision.tests, unrun: vision.unrun ?? [], red: vision.red, why: vision.why, amendments: vision.amendments.map(({ file, why, by }) => ({ file, why, by })), tampered: [...tampered] }
