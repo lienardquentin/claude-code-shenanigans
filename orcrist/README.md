@@ -35,6 +35,14 @@ The rules that look across files read the project: in a git repository, every fi
 the current folder, tracked or not yet; elsewhere, the files given. A file of the project that cannot be read, such as a
 bundle that is not UTF-8, is left out of it and named on stderr; only a file given to be judged makes orcrist exit 2.
 
+What those rules find in each file is kept between runs in `orcrist-cache`, in the repository's git folder, under a
+key made of the file's content, the settings that shape it and the orcrist binary that found it; a run reads again
+only the files that changed, and what no run used for a week is let go. On Django, 560,000 lines, judging one file
+takes half a second with it kept, where it took four without. Deleting the folder costs one slower run. What is kept
+includes the literals each call passes, which may be secrets written into the code: the folder is its owner's
+alone, inside `.git`, which git neither tracks nor pushes. Orcrist keeps nothing where `orcrist-cache` is a link or a
+file, and lets go only of what it wrote there.
+
 | Language | Files |
 | --- | --- |
 | Rust | `.rs` |

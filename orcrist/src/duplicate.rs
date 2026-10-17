@@ -1,58 +1,76 @@
 //! A function that does what another of the project already does: the same code, its own names aside.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::lang::{Language, declared};
-use crate::parallel;
-use crate::project::{self, File, Project};
+use crate::project::{self, File};
 use crate::rules::{Finding, visit};
 
 /// Pieces of code below which two functions alike are alike by chance: a getter, a call passed on.
 pub const SMALLEST: usize = 24;
 
-/// What a function does, in the language of its code: see `shape`.
-type Shape = (Language, Vec<String>);
+/// What a function does, in the language of its code: a hash of its `shape`. Two shapes share one by chance one in
+/// 2^64; a function written to collide with another would be reported as doing what it does, and nothing worse.
+type Shape = (Language, u64);
 
-/// Each function of the project worth comparing, by what it does: where it is and its name.
+/// Each function of the project worth comparing, gathered by what it does: where it is and its name.
+#[derive(Default)]
 pub struct Index {
-    functions: HashMap<Shape, Vec<(PathBuf, usize, String)>>,
-    /// Pieces of code below which a function is not compared
-    smallest: usize,
+    /// The functions that do one same thing
+    groups: Vec<Vec<(PathBuf, usize, String)>>,
+    /// The group of the function starting at each byte of each file, so that judging it does not shape it again
+    group_at: HashMap<PathBuf, HashMap<usize, usize>>,
+    /// The group of each shape
+    group_of: HashMap<Shape, usize>,
+}
+
+/// What one file holds for the index: each function worth comparing, where it starts, its line, its name and what it
+/// does, hashed.
+#[derive(Serialize, Deserialize)]
+pub struct Found(Vec<(usize, usize, String, u64)>);
+
+pub fn find(file: &File, smallest: usize) -> Found {
+    let mut shapes = Vec::new();
+    visit(file.tree.root_node(), &mut |node| {
+        if let Some((name, shape)) = shape(node, file, smallest) {
+            let mut hashed = DefaultHasher::new();
+            shape.hash(&mut hashed);
+            let line = node.start_position().row + 1;
+            shapes.push((node.start_byte(), line, name.to_string(), hashed.finish()));
+        }
+    });
+    Found(shapes)
 }
 
 impl Index {
-    pub fn build(project: &Project, smallest: usize) -> Index {
-        let found = parallel::map(&project.files, |file| {
-            let mut shapes = Vec::new();
-            visit(file.tree.root_node(), &mut |node| {
-                if let Some((name, shape)) = shape(node, file, smallest) {
-                    shapes.push((node.start_position().row + 1, name, shape));
-                }
-            });
-            shapes
-        });
-        let mut functions: HashMap<Shape, Vec<(PathBuf, usize, String)>> = HashMap::new();
-        for (file, shapes) in project.files.iter().zip(found) {
-            for (line, name, shape) in shapes {
-                functions
-                    .entry((file.language.code_language(), shape))
-                    .or_default()
-                    .push((file.path.clone(), line, name.to_string()));
+    /// What one file of `language` at `path` holds, added in the order the files are.
+    pub fn add(&mut self, path: &Path, language: Language, found: Found) {
+        for (start, line, name, shape) in found.0 {
+            let next = self.groups.len();
+            let group = *self.group_of.entry((language.code_language(), shape)).or_insert(next);
+            if group == next {
+                self.groups.push(Vec::new());
             }
+            self.groups[group].push((path.to_path_buf(), line, name));
+            self.group_at
+                .entry(path.to_path_buf())
+                .or_default()
+                .insert(start, group);
         }
-        Index { functions, smallest }
     }
 }
 
 pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
-    let (name, shape) = shape(node, file, index.smallest)?;
+    let group = *index.group_at.get(&file.path)?.get(&node.start_byte())?;
+    let (name, _) = file.defined(node)?;
     let line = node.start_position().row + 1;
-    let (path, other_line, other) = index
-        .functions
-        .get(&(file.language.code_language(), shape))?
+    let (path, other_line, other) = index.groups[group]
         .iter()
         .find(|(path, other_line, _)| (path, *other_line) != (&file.path, line))?;
     let message = format!(

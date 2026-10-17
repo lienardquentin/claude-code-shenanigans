@@ -2,13 +2,13 @@
 //! parameter every caller passes the same value for.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::lang::Language;
-use crate::parallel;
-use crate::project::{File, Project};
+use crate::project::File;
 use crate::rules::{Finding, visit};
 
 /// Calls below which a parameter every call passes one literal for is not judged: one call passes one of everything.
@@ -27,44 +27,61 @@ pub struct Index {
     least_calls: usize,
 }
 
+/// What one file holds for the index: the interfaces it implements, the functions it defines, the calls it makes.
+#[derive(Serialize, Deserialize)]
+pub struct Found {
+    implementations: Vec<(String, usize)>,
+    definitions: Vec<String>,
+    calls: Vec<(String, Vec<Option<String>>)>,
+}
+
+pub fn find(file: &File) -> Found {
+    let mut found = Found {
+        implementations: Vec::new(),
+        definitions: Vec::new(),
+        calls: Vec::new(),
+    };
+    visit(file.tree.root_node(), &mut |node| {
+        for interface in (file.language.syntax().implemented)(node, file) {
+            found
+                .implementations
+                .push((interface.to_string(), node.start_position().row + 1));
+        }
+        if let Some((name, _)) = file.function(node) {
+            found.definitions.push(name.to_string());
+        }
+        if let Some((name, arguments)) = call(node, file) {
+            found.calls.push((name.to_string(), arguments));
+        }
+    });
+    found
+}
+
 impl Index {
-    pub fn build(project: &Project, least_calls: usize) -> Index {
-        let mut index = Index {
+    pub fn new(least_calls: usize) -> Index {
+        Index {
             implementations: HashMap::new(),
             definitions: HashMap::new(),
             calls: HashMap::new(),
             least_calls,
-        };
-        let found = parallel::map(&project.files, |file| {
-            let (mut implementations, mut definitions, mut calls) = (Vec::new(), Vec::new(), Vec::new());
-            visit(file.tree.root_node(), &mut |node| {
-                for interface in (file.language.syntax().implemented)(node, file) {
-                    implementations.push((interface, node.start_position().row + 1));
-                }
-                if let Some((name, _)) = file.function(node) {
-                    definitions.push(name);
-                }
-                calls.extend(call(node, file));
-            });
-            (implementations, definitions, calls)
-        });
-        for (file, (implementations, definitions, calls)) in project.files.iter().zip(found) {
-            let named = |name: &str| (file.language.code_language(), name.to_string());
-            for (interface, line) in implementations {
-                index
-                    .implementations
-                    .entry(named(interface))
-                    .or_default()
-                    .push((file.path.clone(), line));
-            }
-            for name in definitions {
-                *index.definitions.entry(named(name)).or_default() += 1;
-            }
-            for (name, arguments) in calls {
-                index.calls.entry(named(name)).or_default().push(arguments);
-            }
         }
-        index
+    }
+
+    /// What one file of `language` at `path` holds, added in the order the files are.
+    pub fn add(&mut self, path: &Path, language: Language, found: Found) {
+        let named = |name: String| (language.code_language(), name);
+        for (interface, line) in found.implementations {
+            self.implementations
+                .entry(named(interface))
+                .or_default()
+                .push((path.to_path_buf(), line));
+        }
+        for name in found.definitions {
+            *self.definitions.entry(named(name)).or_default() += 1;
+        }
+        for (name, arguments) in found.calls {
+            self.calls.entry(named(name)).or_default().push(arguments);
+        }
     }
 }
 
