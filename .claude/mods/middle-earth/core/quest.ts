@@ -3,6 +3,7 @@ import { refOf } from './forge'
 import type { ForgeKind, NewRequest } from './forge'
 import { resolvedFrom } from './paths'
 import type { Target } from './proof'
+import type { Shown } from './tests-first'
 
 // A quest's work: who builds each task and on what model, what a builder is told, which tasks are ready and which can
 // be built beside one another, and how a commit and a pull request are written. Text in, text out.
@@ -901,4 +902,29 @@ export const briefFor = (asked: { quest: QuestOf; plan: Plan; task: Task; attemp
   const builder = memberFor(asked.plan, asked.task, asked.attempt, asked.targets)
 
   return { builder, description: `${MEMBERS[builder].title}: task ${asked.task.id}, ${asked.task.title}`, prompt: companionPrompt(asked.quest, asked.plan, asked.task, builder, asked.retry, asked.vision, asked.standards) }
+}
+
+/** What the Mirror showed of a task's tests, or why it could not be read at all. */
+export type Seen = Shown | { state: 'unreadable'; why: string }
+
+/**
+ * What a task comes to once the test writer has shown its tests, or shown that there are none: still waited on while
+ * she gazes; lost where the task is no longer in the work; clouded, to be sent again, where her tests could not be
+ * read; else built, with the tests to pass where she wrote any. `gazed` is the task she was sent on.
+ */
+export const afterGaze = (shown: Seen, made: Plan | string, gazed: number | undefined, ref: string): { kind: 'wait' } | { kind: 'lost'; why: string } | { kind: 'clouded'; task: Task; why: string } | { kind: 'build'; plan: Plan; task: Task; vision: Vision | null; said: string } => {
+  if (shown.state === 'gazing') return { kind: 'wait' }
+
+  const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === gazed)
+
+  if (typeof made === 'string' || task === undefined) return { kind: 'lost', why: `The task the Mirror showed is not in the plan of ${ref} any more.` }
+  if (shown.state === 'clouded' || shown.state === 'unreadable') return { kind: 'clouded', task, why: `The Mirror is clouded on task ${task.id}: ${shown.why ?? ''}. Send it again, and Galadriel gazes anew.` }
+
+  return {
+    kind: 'build',
+    plan: made,
+    task,
+    vision: shown.state === 'shown' ? { taskId: task.id, tests: shown.tests ?? [], unrun: shown.unrun ?? [], red: shown.red ?? '' } : null,
+    said: shown.state === 'empty' ? `Nothing to test first in task ${task.id}: ${shown.why ?? ''}` : '',
+  }
 }

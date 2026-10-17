@@ -41,8 +41,8 @@ import { forgeOfUrl } from '../../core/forge'
 import type { Ran } from '../../core/forge'
 import { UNMODDED, secretsIn } from '../../core/change'
 import { applyAfresh, commitTask, gitRunsOf, landLane, leakOf } from '../../core/git'
-import { WARDING, afterFailedTry, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt, whyNotSail } from '../../core/quest'
-import type { Judged, Why } from '../../core/quest'
+import { WARDING, afterFailedTry, afterGaze, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt, whyNotSail } from '../../core/quest'
+import type { Judged, Seen, Why } from '../../core/quest'
 import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, push, rootOf, run, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
@@ -639,34 +639,31 @@ async function behold($: $, ref: string): Promise<void> {
 
   if (held === null || held.phase !== 'gazing') return
 
-  const shown: { state?: string; tests?: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red?: string; why?: string } = await mirrorIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable', why: errorText(error).slice(0, 200) }))
+  const shown: Seen = await mirrorIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable' as const, why: errorText(error).slice(0, 200) }))
+  const step = afterGaze(shown, await workOf($, held), held.gazed, ref)
 
-  if (shown.state === 'gazing') return
+  if (step.kind === 'wait') return
 
-  const made = await workOf($, held)
-  const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === held.gazed)
-
-  if (typeof made === 'string' || task === undefined) {
+  if (step.kind === 'lost') {
     await keep($, ref, was => ({ ...was, phase: 'stuck' }))
-    await say($, ref, `The task the Mirror showed is not in the plan of ${ref} any more.`)
+    await say($, ref, step.why)
 
     return
   }
 
-  if (shown.state === 'clouded' || shown.state === 'unreadable') {
+  if (step.kind === 'clouded') {
     await keep($, ref, was => ({ ...was, phase: 'stuck', gazed: undefined }))
-    await say($, ref, `The Mirror is clouded on task ${task.id}: ${shown.why ?? ''}. Send it again, and Galadriel gazes anew.`)
-    await tell($, `the Mirror is clouded on task ${task.id} of ${ref}`)
+    await say($, ref, step.why)
+    await tell($, `the Mirror is clouded on task ${step.task.id} of ${ref}`)
 
     return
   }
 
-  const vision = shown.state === 'shown' ? { taskId: task.id, tests: shown.tests ?? [], unrun: shown.unrun ?? [], red: shown.red ?? '' } : null
-  const after = await keep($, ref, was => ({ ...was, phase: 'ready', vision }))
+  const after = await keep($, ref, was => ({ ...was, phase: 'ready', vision: step.vision }))
 
-  if (shown.state === 'empty') await say($, ref, `Nothing to test first in task ${task.id}: ${shown.why ?? ''}`)
-  await work($, ref, `Sending a member on task ${task.id}…`)
-  if (after !== null) await march($, after, made, task, 1)
+  if (step.said !== '') await say($, ref, step.said)
+  await work($, ref, `Sending a member on task ${step.task.id}…`)
+  if (after !== null) await march($, after, step.plan, step.task, 1)
 }
 
 /**

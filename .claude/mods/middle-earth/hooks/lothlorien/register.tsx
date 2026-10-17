@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { LothlorienState, LothlorienVision, MiddleEarthAgent } from '../../types'
-import { HOW_TO, blocksOf, forgottenOf, gazePrompt, isTestPath, lockedIn, missingFrom, parseGaze, released, shownOf, takenBy, tamperedWith, visionText } from './mirror'
-import type { Shown } from './mirror'
+import { blocksOf, forgottenOf, gazePrompt, isTestPath, lockedIn, missingFrom, parseGaze, released, shownOf, takenBy, tamperedWith, visionText } from '../../core/tests-first'
+import type { Shown } from '../../core/tests-first'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -18,6 +18,8 @@ type On = Parameters<Register>[0]
 
 const PANE = 'lothlorien'
 const TITLE = 'Lothlórien'
+
+export const HOW_TO = 'The Mirror shows nothing yet. /mirror <the behaviour to come> has Galadriel write the failing tests that show it, before it is built.'
 const AGENT_TYPE = typeOf(GALADRIEL)
 const SWIFT_TYPE = typeOf(GALADRIEL_SWIFT)
 

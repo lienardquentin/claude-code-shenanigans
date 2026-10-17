@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { blocksOf, forgottenOf, isChanging, isTestPath, missingFrom, parseGaze, takenBy, tamperedWith } from '../hooks/lothlorien/mirror'
+import { blocksOf, forgottenOf, isTestPath, missingFrom, parseGaze, takenBy, tamperedWith } from '../core/tests-first'
+import { isChanging } from '../hooks/flow'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
