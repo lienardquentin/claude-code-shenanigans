@@ -1,6 +1,7 @@
 import type { ArgonathFinding, ArgonathJudgement, ArgonathSeat, ArgonathStatue, ArgonathVerdict } from '../../types'
-import type { Review } from './proof'
-import { MOD_FOLDERS, fencedJson } from '../flow'
+import type { Review } from '../../core/proof'
+import { MOD_FOLDERS } from '../../core/change'
+import { fencedJson } from '../flow'
 export { isChanging } from '../flow'
 
 /** The two kings carved beside the river: each judges a settled change by the reviews it is given. */

@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, sizeText, standingByTarget, targetsOf, withLive } from '../hooks/argonath/proof'
+import { UNTRACKED, changesByTarget, gateOf, isProd, manifestsOf, weakenedOf, markedTests, narrowed, owed, parseProject, parseProof, parseReviews, parseServiceAnswer, parseStandards, proofAnswer, proved, requiredOf, sizeText, standingByTarget, targetsOf, withLive } from '../core/proof'
 import type { ArgonathRadius, ArgonathState } from '../types'
 import { dealt, isChanging, parseFindings } from '../hooks/argonath/statues'
 import { secretsIn } from '../hooks/flow'

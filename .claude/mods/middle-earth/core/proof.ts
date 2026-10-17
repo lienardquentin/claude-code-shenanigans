@@ -1,8 +1,19 @@
-import type { ArgonathKind, ArgonathOutcome, ArgonathProofState, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../../types'
-import { UNMODDED_WORDS } from '../flow'
+import type { ArgonathDb, ArgonathKind, ArgonathLive, ArgonathOutcome, ArgonathProofState, ArgonathRadius, ArgonathSeam, ArgonathState, ArgonathTarget, ArgonathTest } from '../types'
 
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
+
+// The state contract must hold the types the mod keeps in its state itself: the core names them there
+export type TargetKind = ArgonathKind
+export type Target = ArgonathTarget
+export type Database = ArgonathDb
+export type LiveStage = ArgonathLive
+export type Outcome = ArgonathOutcome
+export type TestResult = ArgonathTest
+export type RunState = ArgonathState
+export type ChangedRun = ArgonathSeam
+export type Radius = ArgonathRadius
+export type ProofState = ArgonathProofState
 
 /** The project's own list of what it builds, beside its other Claude files. */
 export const PROJECT_FILE = '.claude/argonath'
@@ -18,7 +29,7 @@ export const tidy = (path: string): string => path.replace(/\\/g, '/').replace(/
 
 const under = (cwd: string, path: string): string => (/^([A-Za-z]:)?\//.test(tidy(path)) ? tidy(path) : `${tidy(cwd)}/${tidy(path).replace(/^\.\//, '')}`)
 
-const KINDS: readonly ArgonathKind[] = ['cli', 'service', 'frontend']
+const KINDS: readonly TargetKind[] = ['cli', 'service', 'frontend']
 
 /**
  * What a project's file says, a line each and a `#` line a comment:
@@ -44,8 +55,8 @@ const KINDS: readonly ArgonathKind[] = ['cli', 'service', 'frontend']
  *
  * What does not read is left out, and a setting of a target the file does not name is dropped.
  */
-export const parseProject = (text: string, cwd: string): ArgonathTarget[] => {
-  const targets = new Map<string, ArgonathTarget>()
+export const parseProject = (text: string, cwd: string): Target[] => {
+  const targets = new Map<string, Target>()
   const settings: [string, string, string][] = []
   const requests: string[] = []
 
@@ -153,22 +164,15 @@ export const parseStandards = (text: string): string[] =>
     .map(line => /^standards\s*=\s*(.+)$/.exec(line.trim())?.[1]?.trim() ?? '')
     .filter(path => path !== '')
 
-/**
- * The shell script that fingerprints what the change holds, so the one last proved or reviewed is known again: HEAD,
- * the diff against the merge base of `$1` and HEAD, and the files git neither tracks nor ignores, by name and by
- * content (so an edit of a new file moves it too), hashed whole by git. It writes nothing to the object store.
- */
-export const CHANGE_SCRIPT = `held=$(b=$(git merge-base "$1" HEAD) || exit 1; git rev-parse HEAD; git diff "$b" --no-color --no-ext-diff ${UNMODDED_WORDS}; git ls-files -o --exclude-standard ${UNMODDED_WORDS}; git ls-files -o --exclude-standard -z ${UNMODDED_WORDS} | xargs -0 -r git hash-object --) || exit 1; printf %s "$held" | git hash-object --stdin`
-
 /** What each target's folders hold against HEAD, split from one diff and one list of new files, by label. */
-export const changesByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
+export const changesByTarget = (output: string, targets: readonly Pick<Target, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
   const [diff = '', fresh = ''] = output.split(`\n${UNTRACKED}\n`)
   const chunks = diff.split(/^(?=diff --git )/m).filter(chunk => chunk.startsWith('diff --git '))
   const pathOf = (chunk: string) => `${cwd}/${/^diff --git a\/(\S+)/.exec(chunk)?.[1] ?? ''}`
   const held = new Map<string, string>()
 
   for (const target of targets) {
-    const isIn = (path: string) => targetsOf(path, [target as ArgonathTarget]).length > 0
+    const isIn = (path: string) => targetsOf(path, [target as Target]).length > 0
     const files = fresh.split('\n').filter(line => line.trim() !== '' && isIn(`${cwd}/${line.trim()}`))
 
     held.set(target.label, [...chunks.filter(chunk => isIn(pathOf(chunk))), ...files].join('\n'))
@@ -188,7 +192,7 @@ export const STANDING_SCRIPT =
   'out=$(git status --porcelain=v1 -uall -- "$@") || exit 1; printf "%s\\n" "$out"; printf "%s\\n" "$out" | cut -c4- | sed "s/.* -> //" | tr "\\n" "\\0" | xargs -0 -r stat --printf "%n\\t%s %.9Y\\n" -- 2>/dev/null; true'
 
 /** What `STANDING_SCRIPT` said, split by target: each line by the file it names. */
-export const standingByTarget = (output: string, targets: readonly Pick<ArgonathTarget, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
+export const standingByTarget = (output: string, targets: readonly Pick<Target, 'label' | 'roots'>[], cwd: string): Map<string, string> => {
   const pathOf = (line: string) => {
     const [named = ''] = line.split('\t')
 
@@ -199,7 +203,7 @@ export const standingByTarget = (output: string, targets: readonly Pick<Argonath
   const held = new Map<string, string>()
 
   for (const target of targets) {
-    const isIn = (path: string) => targetsOf(`${tidy(cwd)}/${path}`, [target as ArgonathTarget]).length > 0
+    const isIn = (path: string) => targetsOf(`${tidy(cwd)}/${path}`, [target as Target]).length > 0
 
     held.set(target.label, lines.filter(line => isIn(pathOf(line))).join('\n'))
   }
@@ -207,8 +211,8 @@ export const standingByTarget = (output: string, targets: readonly Pick<Argonath
   return held
 }
 
-/** Where one target stands in a proof: see `ArgonathProofState`. */
-export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarget['kind'] | undefined, isTouched: boolean): ArgonathProofState => {
+/** Where one target stands in a proof: see `ProofState`. */
+export const proofStateOf = (found: Radius | string, kind: Target['kind'] | undefined, isTouched: boolean): ProofState => {
   if (typeof found === 'string') return !isTouched ? 'untouched' : kind === 'frontend' ? 'unhandled' : 'unlooked'
 
   const isClean = isQuiet(found) && found.unproved === ''
@@ -225,7 +229,7 @@ export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarge
 export type ProofAnswer = {
   verdict: 'settled' | 'unsettled' | 'unlooked'
   line: string
-  targets: { label: string; kind: ArgonathTarget['kind'] | ''; state: ArgonathProofState; why: string }[]
+  targets: { label: string; kind: Target['kind'] | ''; state: ProofState; why: string }[]
   /** The targets the change reached that nothing proves: a statue judges them alone. */
   unhandled: string[]
   /** The targets the change reached where no kept run answers otherwise: a refactor, or behaviour no kept run reaches. */
@@ -233,9 +237,9 @@ export type ProofAnswer = {
 }
 
 /** What a proof comes to, from each target's radius or why it has none. */
-export const proofAnswer = (entries: readonly { label: string; kind: ArgonathTarget['kind'] | ''; found: ArgonathRadius | string; isTouched: boolean }[]): ProofAnswer => {
+export const proofAnswer = (entries: readonly { label: string; kind: Target['kind'] | ''; found: Radius | string; isTouched: boolean }[]): ProofAnswer => {
   const targets = entries.map(({ label, kind, found, isTouched }) => ({ label, kind, state: proofStateOf(found, kind === '' ? undefined : kind, isTouched), why: typeof found === 'string' ? found : found.unproved }))
-  const radii = entries.map(({ found }) => found).filter((found): found is ArgonathRadius => typeof found !== 'string')
+  const radii = entries.map(({ found }) => found).filter((found): found is Radius => typeof found !== 'string')
   const unlooked = targets.filter(one => one.state === 'unlooked')
   const unhandled = targets.filter(one => one.state === 'unhandled').map(one => one.label)
   // A target no kept run sees, or one with changed lines no kept run ran
@@ -286,7 +290,7 @@ const BRIEF_CHARS = 12_000
  * What a proof found, as the statues are handed it: each run whose answer changed, the tests that pin it and how it
  * answers now against before, and the targets the change reached that no kept run sees. Empty when there is nothing.
  */
-export const proofBrief = (radii: readonly ArgonathRadius[], unreached: readonly string[]): string => {
+export const proofBrief = (radii: readonly Radius[], unreached: readonly string[]): string => {
   const lines = [
     ...radii.flatMap(radius =>
       radius.seams.map(seam => {
@@ -306,11 +310,11 @@ export const proofBrief = (radii: readonly ArgonathRadius[], unreached: readonly
 }
 
 /** The targets an edited file is of: those with a root that holds it. */
-export const targetsOf = (path: string, targets: readonly ArgonathTarget[]): ArgonathTarget[] =>
+export const targetsOf = (path: string, targets: readonly Target[]): Target[] =>
   targets.filter(({ roots }) => roots.some(root => tidy(path) === root || tidy(path).startsWith(`${root}/`)))
 
 /** Whether a target can be proved: its tests and the command that runs them are named. */
-export const isTested = (target: ArgonathTarget): boolean => target.tests.length > 0 && target.test !== ''
+export const isTested = (target: Target): boolean => target.tests.length > 0 && target.test !== ''
 
 /**
  * What the service handler answered, read back as a comparison; `undefined` when it answered nothing that reads.
@@ -449,14 +453,14 @@ export const outcomesOf = (output: string): Record<string, Ended> => {
 /** Whether a runner's name for a test is the one a mark stands above: the same, or the same at the end of a path. */
 export const isSameTest = (marked: string, ended: string): boolean => ended === marked || (ended.endsWith(marked) && /[^\w]$/.test(ended.slice(0, ended.length - marked.length)))
 
-const outcomeOf = (outcomes: Record<string, Ended>, test: string): ArgonathOutcome => {
+const outcomeOf = (outcomes: Record<string, Ended>, test: string): Outcome => {
   const names = Object.keys(outcomes).filter(name => isSameTest(test, name))
 
   return names.length === 0 ? 'none' : names.some(name => outcomes[name] === 'fail') ? 'fail' : names.some(name => outcomes[name] === 'pass') ? 'pass' : 'skip'
 }
 
 /** Where a changed run stands, by how the tests marked on it ended on each side. */
-export const stateOf = (tests: readonly ArgonathTest[], isProved: boolean): ArgonathState =>
+export const stateOf = (tests: readonly TestResult[], isProved: boolean): RunState =>
   tests.length === 0
     ? 'bare'
     : !isProved
@@ -472,11 +476,11 @@ export const stateOf = (tests: readonly ArgonathTest[], isProved: boolean): Argo
 /** The radius of a change: the kept runs anduril said changed, each with the tests marked on it. */
 export const radiusOf = (input: {
   label: string
-  kind: ArgonathKind
+  kind: TargetKind
   at: number
   diff: Changed
   marks: readonly { line: string; test: string }[]
-}): ArgonathRadius => ({
+}): Radius => ({
   ...(input.diff.unreached !== undefined ? { unreached: input.diff.unreached } : {}),
   label: input.label,
   kind: input.kind,
@@ -485,8 +489,8 @@ export const radiusOf = (input: {
   // A run kept twice (a request before and after another) is one part of the radius, as a mark names it once
   seams: input.diff.changed
     .filter((one, index, all) => all.findIndex(other => other.line === one.line) === index)
-    .map(({ line, evidence }): ArgonathSeam => {
-      const tests = [...new Set(input.marks.filter(mark => mark.line === line).map(mark => mark.test))].map((name): ArgonathTest => ({ name, from: 'none', to: 'none' }))
+    .map(({ line, evidence }): ChangedRun => {
+      const tests = [...new Set(input.marks.filter(mark => mark.line === line).map(mark => mark.test))].map((name): TestResult => ({ name, from: 'none', to: 'none' }))
 
       return { line, evidence, tests, state: stateOf(tests, false) }
     }),
@@ -534,7 +538,7 @@ const silent = (side: Side, outcomes: Record<string, unknown>): string =>
       : ''
 
 /** The tests marked on the runs that changed, each once: the only tests in scope of a proof. */
-export const markedTests = (radius: ArgonathRadius): string[] => [...new Set(radius.seams.flatMap(seam => seam.tests.map(({ name }) => name)))]
+export const markedTests = (radius: Radius): string[] => [...new Set(radius.seams.flatMap(seam => seam.tests.map(({ name }) => name)))]
 
 /** Whether a test command says where the tests in scope are named: one that does not is never run. */
 export const isNarrowable = (command: string): boolean => /\{tests(?::[^}]*)?\}/.test(command)
@@ -555,7 +559,7 @@ export const gated = (command: string, against: string): string => command.repla
  * The radius once its tests were run on both sides: each changed run by how its own tests ended, and each test the
  * caller requires by how it ended. A test neither marked on a changed run nor required is out of scope, and not read.
  */
-export const proved = (radius: ArgonathRadius, proof: { from: Side; to: Side }, required: readonly string[] = []): ArgonathRadius => {
+export const proved = (radius: Radius, proof: { from: Side; to: Side }, required: readonly string[] = []): Radius => {
   const inScope = [...markedTests(radius), ...required]
   const scoped = (outcomes: Record<string, Ended>) => Object.fromEntries(Object.entries(outcomes).filter(([name]) => inScope.some(test => isSameTest(test, name))))
   const before = scoped(outcomesOf(proof.from.output))
@@ -564,14 +568,14 @@ export const proved = (radius: ArgonathRadius, proof: { from: Side; to: Side }, 
   return {
     ...radius,
     seams: radius.seams.map(seam => {
-      const tests = seam.tests.map(({ name }): ArgonathTest => ({ name, from: outcomeOf(before, name), to: outcomeOf(after, name) }))
+      const tests = seam.tests.map(({ name }): TestResult => ({ name, from: outcomeOf(before, name), to: outcomeOf(after, name) }))
 
       return { ...seam, tests, state: stateOf(tests, true) }
     }),
     isProved: true,
     unproved: [silent(proof.from, before), silent(proof.to, after)].filter(said => said !== '').join('\n'),
     turned: Object.keys(after).filter(name => after[name] === 'fail' && before[name] === 'pass').sort(),
-    ...(required.length > 0 ? { required: [...new Set(required)].map((name): ArgonathTest => ({ name, from: outcomeOf(before, name), to: outcomeOf(after, name) })) } : {}),
+    ...(required.length > 0 ? { required: [...new Set(required)].map((name): TestResult => ({ name, from: outcomeOf(before, name), to: outcomeOf(after, name) })) } : {}),
   }
 }
 
@@ -579,7 +583,7 @@ export const proved = (radius: ArgonathRadius, proof: { from: Side; to: Side }, 
 export const testName = (name: string): string => name.split('::').at(-1)?.trim() ?? name
 
 /** The tests a caller requires, each `{ file, name }`, that are a target's own: those in a file its tests name. */
-export const requiredOf = (target: Pick<ArgonathTarget, 'tests'>, cwd: string, tests: readonly { file: string; name: string }[]): string[] =>
+export const requiredOf = (target: Pick<Target, 'tests'>, cwd: string, tests: readonly { file: string; name: string }[]): string[] =>
   tests.filter(test => target.tests.some(root => { const path = under(cwd, test.file); return path === root || path.startsWith(`${root}/`) })).map(test => testName(test.name))
 
 /**
@@ -747,8 +751,8 @@ export const weakenedOf = (diff: string): string[] =>
     })
 
 /** How many changed runs stand in each state. */
-export const tally = (radius: ArgonathRadius): Record<ArgonathState, number> => {
-  const counts: Record<ArgonathState, number> = { bare: 0, marked: 0, pinned: 0, loose: 0, broken: 0 }
+export const tally = (radius: Radius): Record<RunState, number> => {
+  const counts: Record<RunState, number> = { bare: 0, marked: 0, pinned: 0, loose: 0, broken: 0 }
   for (const seam of radius.seams) counts[seam.state] += 1
 
   return counts
@@ -757,23 +761,23 @@ export const tally = (radius: ArgonathRadius): Record<ArgonathState, number> => 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
 
 /** The required tests that do not pass on the working tree. */
-export const unmet = (radius: ArgonathRadius): ArgonathTest[] => (radius.required ?? []).filter(test => test.to !== 'pass')
+export const unmet = (radius: Radius): TestResult[] => (radius.required ?? []).filter(test => test.to !== 'pass')
 
 /**
  * Whether nothing is owed: every changed run pinned, no test turned, none broken by the change, every required test
  * passing on the working tree, and no check or audit the change newly fails.
  */
-export const isQuiet = (radius: ArgonathRadius): boolean =>
+export const isQuiet = (radius: Radius): boolean =>
   radius.seams.every(seam => seam.state === 'pinned') && radius.turned.length === 0 && (radius.regressions ?? []).length === 0 && unmet(radius).length === 0 && (radius.gates ?? []).length === 0
 
 /** The changed lines no kept run ran, as `beacons/gondor/archive.py 93; beacons/gondor/app.py 10-12`. */
-export const unreachedText = (radius: Pick<ArgonathRadius, 'unreached'>): string =>
+export const unreachedText = (radius: Pick<Radius, 'unreached'>): string =>
   Object.entries(radius.unreached ?? {})
     .map(([file, spans]) => `${file} ${spans}`)
     .join('; ')
 
 /** The radius in a line: how many kept runs changed and where they stand, and the tests that turned. */
-export const radiusLine = (radius: ArgonathRadius): string => {
+export const radiusLine = (radius: Radius): string => {
   const counts = tally(radius)
   const states = (['pinned', 'marked', 'loose', 'broken', 'bare'] as const).filter(state => counts[state] > 0).map(state => `${counts[state]} ${state}`)
 
@@ -789,10 +793,10 @@ export const radiusLine = (radius: ArgonathRadius): string => {
 export const LIVE_EVIDENCE = 'live, with the real dependencies:'
 
 /** Whether a run changed only with the real dependencies: the fast stage, which runs without them, saw it answer as before. */
-export const isLiveOnly = (seam: ArgonathSeam): boolean => seam.evidence.startsWith(LIVE_EVIDENCE)
+export const isLiveOnly = (seam: ChangedRun): boolean => seam.evidence.startsWith(LIVE_EVIDENCE)
 
 /** What a changed run's state asks for, as a sentence. */
-export const owed = (seam: ArgonathSeam): string => {
+export const owed = (seam: ChangedRun): string => {
   const names = seam.tests.map(test => test.name).join(', ')
 
   return {
@@ -820,7 +824,7 @@ const capped = (evidence: string): string[] => {
  * The radius for the model, as short as it can be said: each run still owed something with what it owes and how it
  * changed, each pinned one in a line, then what else the proof found. What did not change is a count.
  */
-export const radiusText = (radius: ArgonathRadius): string => {
+export const radiusText = (radius: Radius): string => {
   const kept = radius.kind === 'service' ? 'request' : 'run'
   const open = radius.seams.filter(seam => seam.state !== 'pinned')
   const pinned = radius.seams.filter(seam => seam.state === 'pinned')
@@ -899,18 +903,3 @@ export const withLive = (changed: Changed, live: NonNullable<ReturnType<typeof p
     line: `Live, on ${live.where}, with the real dependencies and cleaned up after: ${otherwise.length} of ${live.cases.length} kept requests answered otherwise`,
   }
 }
-
-/** How to have targets known, said where none are. */
-export const HOW_TO = [
-  `Argonath knows no target here. Name each thing the project builds in ${PROJECT_FILE}, a line each:`,
-  '',
-  '    narsil=cli@narsil',
-  '    narsil.tests=narsil/tests',
-  '    narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli',
-  '',
-  '    gondor=service:gondor.app:app@beacons/gondor',
-  '    gondor.python=beacons',
-  '    $ gondor GET /health',
-  '',
-  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by anduril, a service\'s requests here. Then /argonath.',
-].join('\n')

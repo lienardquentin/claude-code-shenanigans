@@ -23,3 +23,6 @@ and a GitLab implementation. The rest of the loop follows behind `Git`, `Agents`
 - A closure over `$` inside a function declaration is traced by `claude plugin validate` (it reports the call `via` that
   function), so the adapters may hand the core an object whose methods call `$`.
 - The engine's rules live in the mod's adapters alone once the loop has moved.
+- The state contract (`types/index.d.ts`) must be self-contained: `claude plugin validate` refuses an import there. So
+  the types the mod keeps in its state stay defined in the contract, and the core names them by a type-only import
+  (`Target` for `ArgonathTarget`). The rename (#104) gives the contract the plain names.

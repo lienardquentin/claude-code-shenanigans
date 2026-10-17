@@ -1,5 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
+import { MOD_FOLDERS } from '../core/change'
 import { forgeOf, pullStateAt } from '../core/forge'
 import type { Forge, ForgeKind, NewRequest, PullState, Ran, Shell } from '../core/forge'
 
@@ -384,17 +385,8 @@ export const isForbiddenGit = (command: string): boolean =>
 
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 
-// The folders the mods keep for themselves in a tree: a builder leaves them alone, and a commit takes nothing of them
-export const MOD_FOLDERS = ['elrond', 'argonath', 'anduril', 'fellowship', 'lothlorien', 'blackgate'] as const
-
 /** A path in the folders the mods keep for themselves, which a builder leaves alone. */
 export const isModPath = (root: string, path: string): boolean => new RegExp(`^\\.(${MOD_FOLDERS.join('|')})(/|$)`).test(withinOf(root, path))
-
-/** The pathspec of a tree's own files, the mods' folders left out: what a commit stages, and what a change is looked for in. */
-export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder => `:(exclude).${folder}`)]
-
-/** `UNMODDED` as a shell script spells it: what the statues are shown, and what a change is known by, is what a commit takes. */
-export const UNMODDED_WORDS = UNMODDED.map(one => `'${one}'`).join(' ')
 
 /** Pushes a branch and opens a pull request from it on its forge: its URL, or why it could not be. */
 export async function openRequest($: $, kind: ForgeKind, request: NewRequest, cwd?: string): Promise<{ url: string } | string> {
