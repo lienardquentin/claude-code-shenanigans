@@ -691,3 +691,218 @@ fn interfaces_of_one_name_in_two_languages_are_two_interfaces() {
     );
     assert_eq!(output.status.code(), Some(1));
 }
+
+/// Writes each file, its folders made first.
+fn write(folder: &Path, files: &[(&str, &str)]) {
+    for (name, text) in files {
+        let path = folder.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+}
+
+const SLUG_OF: &str = "export function slugOf(name: string): string {\n  const lowered = name.trim().toLowerCase()\n  const joined = lowered.split(' ').join('-')\n  return joined.replace(/[^a-z-]/g, '')\n}\n";
+
+// sting: orcrist check fixtures/configured/load.ts
+#[test]
+fn orcrists_own_config_skips_vague_names_in_the_configured_fixtures() {
+    let output = run(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &["check", "fixtures/configured/load.ts"],
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/configured/load.ts:1 restating-comment: the comment says what line 2 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn the_config_leaves_paths_out_skips_a_rule_where_it_says_and_turns_one_off() {
+    let folder = folder("config-ignore-skip-off");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            (
+                "orcrist.toml",
+                "ignore = [\"dist/**\"]\n\n[rules.duplicate-helper]\nskip = [\"src/kit/*\"]\n\n[rules.vague-name]\noff = true\n",
+            ),
+            ("dist/bundle.ts", SLUG_OF),
+            ("src/kit/slug.ts", SLUG_OF),
+            (
+                "src/names.ts",
+                &format!("{SLUG_OF}\nexport const data = slugOf('Amon Din')\n"),
+            ),
+        ],
+    );
+
+    let names = run(&folder, &["check", "src/names.ts"]);
+    let kit = run(&folder, &["check", "src/kit/slug.ts"]);
+    let kit_absolute = run(&folder, &["check", folder.join("src/kit/slug.ts").to_str().unwrap()]);
+
+    assert_eq!(
+        stdout(&names),
+        "src/names.ts:1 duplicate-helper: slugOf does what slugOf in src/kit/slug.ts:1 already does\n"
+    );
+    assert_eq!(names.status.code(), Some(1));
+    assert_eq!(stdout(&kit), "");
+    assert_eq!(kit.status.code(), Some(0));
+    assert_eq!(stdout(&kit_absolute), "");
+    assert_eq!(kit_absolute.status.code(), Some(0));
+}
+
+#[test]
+fn since_a_commit_what_the_config_ignores_is_neither_judged_nor_named() {
+    let folder = folder("config-since-ignore");
+    git(&folder, &["init", "--quiet"]);
+    write(&folder, &[("orcrist.toml", "ignore = [\"dist/**\"]\n")]);
+    git(&folder, &["add", "orcrist.toml"]);
+    git(&folder, &["commit", "--quiet", "-m", "start"]);
+    let load = "// read the config file\nconst config = readConfigFile()\n";
+    write(
+        &folder,
+        &[
+            ("dist/bundle.ts", load),
+            ("dist/app.css", "p {}\n"),
+            ("src/load.ts", load),
+            ("notes.md", "# Beacons\n"),
+        ],
+    );
+
+    let output = run(&folder, &["check", "--since", "HEAD"]);
+
+    assert_eq!(
+        stdout(&output),
+        "src/load.ts:1 restating-comment: the comment says what line 2 already says\n"
+    );
+    assert_eq!(
+        String::from_utf8(output.stderr.clone()).unwrap(),
+        "orcrist: left unjudged, of no language orcrist reads: 1 .md\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn the_config_is_found_above_the_current_folder_but_not_above_the_repository() {
+    let folder = folder("config-above");
+    let load = "// read the config file\nconst data = readConfigFile()\n";
+    write(
+        &folder,
+        &[
+            ("orcrist.toml", "[rules.vague-name]\noff = true\n"),
+            (
+                "configured/orcrist.toml",
+                "[rules.restating-comment]\nskip = [\"app/**\"]\n",
+            ),
+            ("configured/app/load.ts", load),
+            ("bare/app/load.ts", load),
+        ],
+    );
+    git(&folder.join("configured"), &["init", "--quiet"]);
+    git(&folder.join("bare"), &["init", "--quiet"]);
+
+    let configured = run(&folder.join("configured/app"), &["check", "load.ts"]);
+    let bare = run(&folder.join("bare/app"), &["check", "load.ts"]);
+
+    assert_eq!(
+        stdout(&configured),
+        "load.ts:2 vague-name: data says nothing of what it is\n"
+    );
+    assert_eq!(configured.status.code(), Some(1));
+    assert_eq!(
+        stdout(&bare),
+        "load.ts:1 restating-comment: the comment says what line 2 already says\n\
+         load.ts:2 vague-name: data says nothing of what it is\n"
+    );
+    assert_eq!(bare.status.code(), Some(1));
+}
+
+#[test]
+fn outside_a_repository_only_the_current_folder_holds_the_config() {
+    let folder = folder("config-outside");
+    write(
+        &folder,
+        &[
+            ("orcrist.toml", "ignore = [\"**\"]\n\n[rules.vague-name]\noff = true\n"),
+            ("app/load.ts", "const data = readConfigFile()\n"),
+        ],
+    );
+
+    let output = run(&folder.join("app"), &["check", "load.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "load.ts:1 vague-name: data says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn the_config_sets_the_thresholds_and_adds_words() {
+    let folder = folder("config-settings");
+    write(
+        &folder,
+        &[
+            (
+                "orcrist.toml",
+                "[rules.restating-comment]\nshare = 0.5\nfiller = [\"we\"]\n\n[rules.vague-name]\nwords = [\"Blob\"]\nverbs = [\"execute\"]\n\n[rules.duplicate-helper]\nsmallest = 1000\n\n[rules.single-use-abstraction]\ncalls = 3\n",
+            ),
+            (
+                "beacons.py",
+                "def execute(blob, path):\n    # we read the beacons, we do it twice\n    beacons = read_beacons(path)\n    return beacons\n\n\ndef slug_of(name):\n    lowered = name.strip().lower()\n    joined = \"-\".join(lowered.split(\" \"))\n    return joined.replace(\"_\", \"-\")\n\n\ndef beacon_id(title):\n    small = title.strip().lower()\n    dashed = \"-\".join(small.split(\" \"))\n    return dashed.replace(\"_\", \"-\")\n\n\ndef light(beacon, keeper):\n    send(beacon, keeper)\n\n\nlight(\"amon-din\", \"Hirgon\")\nlight(\"eilenach\", \"Hirgon\")\n",
+            ),
+        ],
+    );
+
+    let output = run(&folder, &["check", "beacons.py"]);
+
+    assert_eq!(
+        stdout(&output),
+        "beacons.py:1 vague-name: execute says nothing of what it is\n\
+         beacons.py:1 vague-name: blob says nothing of what it is\n\
+         beacons.py:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_config_that_says_what_orcrist_does_not_understand_is_refused() {
+    for (test, config, says) in [
+        (
+            "config-unknown-rule",
+            "[rules.vauge-name]\noff = true\n",
+            "no rule is named vauge-name",
+        ),
+        (
+            "config-unknown-key",
+            "[rules.vague-name]\nskp = [\"a\"]\n",
+            "unknown field `skp`",
+        ),
+        (
+            "config-other-rule",
+            "[rules.vague-name]\nshare = 0.5\n",
+            "share is restating-comment's to set, not vague-name's",
+        ),
+        (
+            "config-bad-share",
+            "[rules.restating-comment]\nshare = 2.0\n",
+            "restating-comment's share is 2",
+        ),
+        ("config-syntax", "[rules.vague-name]\noff = yes\n", "line 2"),
+    ] {
+        let folder = folder(test);
+        write(&folder, &[("orcrist.toml", config), ("load.rs", "fn load() {}\n")]);
+
+        let output = run(&folder, &["check", "load.rs"]);
+
+        let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+        assert!(
+            stderr.starts_with("orcrist: ") && stderr.contains("orcrist.toml: ") && stderr.contains(says),
+            "{test}: {stderr}"
+        );
+        assert_eq!(stdout(&output), "", "{test}");
+        assert_eq!(output.status.code(), Some(2), "{test}");
+    }
+}

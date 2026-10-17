@@ -11,7 +11,7 @@ use crate::project::{self, File, Project};
 use crate::rules::{Finding, visit};
 
 /// Pieces of code below which two functions alike are alike by chance: a getter, a call passed on.
-const SMALLEST: usize = 24;
+pub const SMALLEST: usize = 24;
 
 /// What a function does, in the language of its code: see `shape`.
 type Shape = (Language, Vec<String>);
@@ -19,14 +19,16 @@ type Shape = (Language, Vec<String>);
 /// Each function of the project worth comparing, by what it does: where it is and its name.
 pub struct Index {
     functions: HashMap<Shape, Vec<(PathBuf, usize, String)>>,
+    /// Pieces of code below which a function is not compared
+    smallest: usize,
 }
 
 impl Index {
-    pub fn build(project: &Project) -> Index {
+    pub fn build(project: &Project, smallest: usize) -> Index {
         let found = parallel::map(&project.files, |file| {
             let mut shapes = Vec::new();
             visit(file.tree.root_node(), &mut |node| {
-                if let Some((name, shape)) = shape(node, file) {
+                if let Some((name, shape)) = shape(node, file, smallest) {
                     shapes.push((node.start_position().row + 1, name, shape));
                 }
             });
@@ -41,12 +43,12 @@ impl Index {
                     .push((file.path.clone(), line, name.to_string()));
             }
         }
-        Index { functions }
+        Index { functions, smallest }
     }
 }
 
 pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
-    let (name, shape) = shape(node, file)?;
+    let (name, shape) = shape(node, file, index.smallest)?;
     let line = node.start_position().row + 1;
     let (path, other_line, other) = index
         .functions
@@ -65,7 +67,7 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Option<Finding> {
 
 /// The name of the function `node` defines, and what it does: the pieces of its parameters and body in order, each
 /// name it declares itself given by when it first comes, every other piece as it is written.
-fn shape<'a>(node: Node<'a>, file: &'a File) -> Option<(&'a str, Vec<String>)> {
+fn shape<'a>(node: Node<'a>, file: &'a File, smallest: usize) -> Option<(&'a str, Vec<String>)> {
     let (name, function) = file.defined(node)?;
     let parameters = project::parameters(function)?;
     let body = function.child_by_field_name("body")?;
@@ -98,5 +100,5 @@ fn shape<'a>(node: Node<'a>, file: &'a File) -> Option<(&'a str, Vec<String>)> {
             }
         });
     }
-    (pieces.len() >= SMALLEST).then_some((name, pieces))
+    (pieces.len() >= smallest).then_some((name, pieces))
 }

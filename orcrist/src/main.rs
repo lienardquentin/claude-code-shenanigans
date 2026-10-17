@@ -1,3 +1,4 @@
+mod config;
 mod diff;
 mod duplicate;
 mod git;
@@ -18,6 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+use config::Config;
 use lang::Language;
 use project::Project;
 
@@ -43,16 +45,25 @@ enum Command {
 
 fn main() -> ExitCode {
     let Command::Check { files, since } = Cli::parse().command;
+    let config = match Config::find() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("orcrist: {error}");
+            return ExitCode::from(2);
+        }
+    };
     let targets: Vec<(PathBuf, diff::Added)> = match since {
         Some(since) => match diff::added_lines(&since).and_then(|added| Ok((added, diff::unread(&since)?))) {
             Ok((added, unread)) => {
+                let unread: Vec<PathBuf> = unread.into_iter().filter(|path| !config.ignores(path)).collect();
                 if !unread.is_empty() {
                     eprintln!(
                         "orcrist: left unjudged, of no language orcrist reads: {}",
                         kinds(&unread)
                     );
                 }
-                added.into_iter().collect()
+                // A file the config leaves out is not judged; one named on the command line is
+                added.into_iter().filter(|(path, _)| !config.ignores(path)).collect()
             }
             Err(error) => {
                 eprintln!("orcrist: {error}");
@@ -69,24 +80,25 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(2);
     }
-    let project = match Project::load(&judged) {
+    let project = match Project::load(&judged, &config) {
         Ok(project) => project,
         Err(error) => {
             eprintln!("orcrist: {error}");
             return ExitCode::from(2);
         }
     };
-    let indexes = rules::index(&project);
+    let indexes = rules::index(&project, &config.settings);
     let findings = parallel::map(&targets, |(path, _)| {
         let file = project
             .file(path)
             .expect("every file judged is loaded into the project");
-        rules::check(file, &indexes)
+        rules::check(file, &indexes, &config.settings)
     });
     let mut found = false;
     for ((path, lines), findings) in targets.iter().zip(findings) {
         for finding in findings {
-            if lines.as_ref().is_some_and(|lines| !lines.contains(&finding.line)) {
+            let added = lines.as_ref().is_none_or(|lines| lines.contains(&finding.line));
+            if !added || !config.reports(finding.rule, path) {
                 continue;
             }
             println!(

@@ -11,6 +11,9 @@ use crate::parallel;
 use crate::project::{File, Project};
 use crate::rules::{Finding, visit};
 
+/// Calls below which a parameter every call passes one literal for is not judged: one call passes one of everything.
+pub const CALLS: usize = 2;
+
 /// What the project holds of interfaces and functions, by the language of their code and their names.
 pub struct Index {
     /// Where each interface is implemented
@@ -20,14 +23,17 @@ pub struct Index {
     /// What each call of a function so named passes, argument by argument: the literal's text, None for other than a
     /// literal
     calls: HashMap<(Language, String), Vec<Vec<Option<String>>>>,
+    /// Calls below which a parameter is not judged
+    least_calls: usize,
 }
 
 impl Index {
-    pub fn build(project: &Project) -> Index {
+    pub fn build(project: &Project, least_calls: usize) -> Index {
         let mut index = Index {
             implementations: HashMap::new(),
             definitions: HashMap::new(),
             calls: HashMap::new(),
+            least_calls,
         };
         let found = parallel::map(&project.files, |file| {
             let (mut implementations, mut definitions, mut calls) = (Vec::new(), Vec::new(), Vec::new());
@@ -79,7 +85,10 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
     }
     if let Some((name, parameters)) = file.function(node)
         && index.definitions.get(&named(name)) == Some(&1)
-        && let Some(calls) = index.calls.get(&named(name)).filter(|calls| calls.len() >= 2)
+        && let Some(calls) = index
+            .calls
+            .get(&named(name))
+            .filter(|calls| calls.len() >= index.least_calls)
     {
         for (position, parameter) in parameters.iter().enumerate() {
             let passed = |call: &Vec<Option<String>>| call.get(position).cloned().flatten();
