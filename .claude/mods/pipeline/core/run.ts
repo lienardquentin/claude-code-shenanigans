@@ -182,6 +182,8 @@ export const parsePlan = (answer: unknown): Plan | null | string => {
       wantsTask: one.wantsTask === true,
     })),
     accepted: strings(plan.accepted),
+    ...(strings(plan.verification).length > 0 ? { verification: strings(plan.verification) } : {}),
+    ...(strings(plan.setup).length > 0 ? { setup: strings(plan.setup) } : {}),
   }
 }
 

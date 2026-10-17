@@ -33,6 +33,7 @@ const LAID = {
     ],
     questions: [{ question: 'Is an unlit beacon 0 or null?', options: ['null', '0'] }, 'Which log level?'],
     risks: [],
+    verification: ['uv run --project beacons pytest -q'],
 }
 
 // A planner that could not call the tool answers the plan in a fenced block
