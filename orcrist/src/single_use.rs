@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use tree_sitter::Node;
 
 use crate::lang::Language;
+use crate::parallel;
 use crate::project::{File, Project};
 use crate::rules::{Finding, visit};
 
@@ -28,24 +29,34 @@ impl Index {
             definitions: HashMap::new(),
             calls: HashMap::new(),
         };
-        for file in &project.files {
-            let named = |name: &str| (file.language.code_language(), name.to_string());
+        let found = parallel::map(&project.files, |file| {
+            let (mut implementations, mut definitions, mut calls) = (Vec::new(), Vec::new(), Vec::new());
             visit(file.tree.root_node(), &mut |node| {
                 for interface in implemented(node, file) {
-                    let line = node.start_position().row + 1;
-                    index
-                        .implementations
-                        .entry(named(interface))
-                        .or_default()
-                        .push((file.path.clone(), line));
+                    implementations.push((interface, node.start_position().row + 1));
                 }
                 if let Some((name, _)) = file.function(node) {
-                    *index.definitions.entry(named(name)).or_default() += 1;
+                    definitions.push(name);
                 }
-                if let Some((name, arguments)) = call(node, file) {
-                    index.calls.entry(named(name)).or_default().push(arguments);
-                }
+                calls.extend(call(node, file));
             });
+            (implementations, definitions, calls)
+        });
+        for (file, (implementations, definitions, calls)) in project.files.iter().zip(found) {
+            let named = |name: &str| (file.language.code_language(), name.to_string());
+            for (interface, line) in implementations {
+                index
+                    .implementations
+                    .entry(named(interface))
+                    .or_default()
+                    .push((file.path.clone(), line));
+            }
+            for name in definitions {
+                *index.definitions.entry(named(name)).or_default() += 1;
+            }
+            for (name, arguments) in calls {
+                index.calls.entry(named(name)).or_default().push(arguments);
+            }
         }
         index
     }
