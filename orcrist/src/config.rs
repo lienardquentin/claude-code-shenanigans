@@ -86,8 +86,8 @@ struct WrittenRule {
 impl Config {
     /// The config of the first folder from the current one up that holds an `orcrist.toml`, going no higher than the
     /// repository's root as git tells it, or only the current folder outside a repository; the defaults when there is
-    /// none. Judging a change `since` a commit, it is the config as that commit holds it, which the change cannot
-    /// loosen to pass its own check.
+    /// none. Without `since` the search also stops at a folder holding its own `.git`. Judging a change `since` a
+    /// commit, it is the config as that commit holds it, which the change cannot loosen to pass its own check.
     pub fn find(since: Option<&str>) -> Result<Config, String> {
         let current = env::current_dir().map_err(|error| format!("cannot tell the current folder: {error}"))?;
         // Where it really is, as git names the root: a folder reached through a link is below it all the same
@@ -149,12 +149,12 @@ impl Config {
                 return Config::parse(&text, (folder.to_path_buf(), current.clone()))
                     .map_err(|error| format!("{read}: {error}"));
             }
-            // No higher than the repository's root, nor than a folder holding a `.git`, nor than the current folder
-            // where it is not below the root git names
+            // No higher than the repository's root, nor than the current folder where it is not below the root git
+            // names, nor, without `--since`, than a folder holding a `.git`: a change can add one under `--since`
             let last = root
                 .as_deref()
                 .is_none_or(|root| folder == root || !folder.starts_with(root))
-                || folder.join(".git").exists();
+                || (since.is_none() && folder.join(".git").exists());
             if last {
                 break;
             }

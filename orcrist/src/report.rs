@@ -1,6 +1,7 @@
 //! How the findings are written: as lines a person reads, as JSON, or as SARIF for code scanning.
 
-use std::path::{Component, PathBuf};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf, Prefix};
 
 use clap::ValueEnum;
 use serde_json::{Value, json};
@@ -93,29 +94,64 @@ fn sarif(findings: &[(PathBuf, Finding)]) -> Value {
 }
 
 /// A path as a URI: relative to the current folder as it is given, or a `file:///` URI when it is absolute, with `/`
-/// between its parts and every byte but the ones a URI path may hold as they are written `%XX`, as in
-/// `caf%C3%A9/a%20b.rs`.
-fn uri(path: &std::path::Path) -> String {
-    let parts: Vec<String> = path
-        .components()
-        // The root is the `file:///` below, and a drive is no part of a URI path
-        .filter(|part| !matches!(part, Component::RootDir | Component::Prefix(_)))
-        .map(|part| {
-            part.as_os_str()
-                .to_string_lossy()
-                .bytes()
-                .map(|byte| match byte {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (byte as char).to_string(),
-                    _ => format!("%{byte:02X}"),
-                })
-                .collect()
-        })
-        .collect();
+/// between its parts and every byte but the ones a URI path may hold, as the path holds them, written `%XX`, as in
+/// `caf%C3%A9/a%20b.rs`. A Windows drive stays in the path (`file:///C:/a.rs`) and a UNC host goes in the authority
+/// (`file://server/share/a.rs`).
+fn uri(path: &Path) -> String {
+    let mut authority = String::new();
+    let mut parts = Vec::new();
+    for part in path.components() {
+        match part {
+            // The root is the `file:///` below
+            Component::RootDir => {}
+            Component::Prefix(prefix) => match prefix.kind() {
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => parts.push(format!("{}:", letter as char)),
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                    authority = escape(server);
+                    parts.push(escape(share));
+                }
+                _ => {}
+            },
+            _ => parts.push(escape(part.as_os_str())),
+        }
+    }
     let relative = parts.join("/");
     if path.is_absolute() {
-        format!("file:///{relative}")
+        format!("file://{authority}/{relative}")
     } else {
         relative
+    }
+}
+
+/// The bytes of a path part as the path holds them: the ones of its OS string on unix, of its UTF-8 elsewhere, where
+/// paths are UTF-16.
+fn escape(part: &OsStr) -> String {
+    #[cfg(unix)]
+    let bytes = std::os::unix::ffi::OsStrExt::as_bytes(part).to_vec();
+    #[cfg(not(unix))]
+    let bytes = part.to_string_lossy().into_owned().into_bytes();
+    bytes
+        .iter()
+        .map(|&byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::uri;
+    use std::path::Path;
+
+    #[test]
+    fn a_drive_stays_in_the_path() {
+        assert_eq!(uri(Path::new(r"C:\a b\x.rs")), "file:///C:/a%20b/x.rs");
+    }
+
+    #[test]
+    fn a_unc_host_goes_in_the_authority() {
+        assert_eq!(uri(Path::new(r"\\server\share\x.rs")), "file://server/share/x.rs");
     }
 }
 

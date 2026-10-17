@@ -12,6 +12,7 @@ With [rustup](https://rustup.rs)'s toolchain, from this folder:
 ```
 cargo build
 cargo test
+sudo cargo test -- --ignored   # the cache folder's owner check, which needs root
 target/debug/orcrist check src/*.rs
 ```
 
@@ -26,7 +27,8 @@ target/debug/orcrist check src/*.rs
 Each finding is printed as `file:line rule: what is wrong`, or, with `--format json`, as an array of objects with
 its `file`, `line`, `column`, `rule` and `message`, or, with `--format sarif`, as SARIF 2.1.0 for code scanning. Lines
 and columns count from 1, a column in characters. SARIF names each file by its path relative to the current folder,
-or by a `file:///` URI when it was given as an absolute path; for GitHub's code scanning, run orcrist from the
+or by a `file:///` URI when it was given as an absolute path (`file:///C:/...` for a Windows drive,
+`file://server/share/...` for a UNC path); for GitHub's code scanning, run orcrist from the
 repository's root on relative paths.
 
 Whatever the format, orcrist exits 0 when there is no finding, 1 when there is any, and 2 when a file cannot be read,
@@ -61,7 +63,7 @@ Elsewhere, the folder's privacy is the system's to keep.
 | `swallowed-error` | An error dropped where someone needed to know of it | `call().ok();`, `let _ = call();`, `if let Err(_) = call() {}` | `except …: pass` or `...`, Ctrl+C's `KeyboardInterrupt` and an optional import's `ImportError` aside | `catch {}`, `catch { return }`, `.catch(() => {})` |
 | `vague-name` | A function, variable or parameter every word of whose name could name anything (`data`, `tmp2`, `info`); a verb such as `process` or `handle` only in a function's name | ✓ | ✓ | ✓ |
 | `impossible-guard` | A check on a parameter that its own annotation decides: `isinstance`/`typeof` of the type it has, a None, null or undefined check, `?.`; built-in types alone, an alias's or a generic's values being unknown | | ✓ | ✓ |
-| `single-use-abstraction` | An interface one type implements in the whole project; a parameter every one of at least two calls passes the same literal for | traits | ABCs | interfaces, abstract classes |
+| `single-use-abstraction` | An interface one type implements in the whole project; a parameter every one of at least two calls passes the same literal for, among the calls that reach its function: a local's bare calls in the function defining it, a method's calls through a receiver or a path, a free function's bare calls and those through a receiver or a path; a method and a free function of one name called through a receiver or a path are neither judged | traits | ABCs | interfaces, abstract classes |
 | `duplicate-helper` | A function whose parameters and body are piece for piece another's of the project, the names each declares itself aside; a closure, a lambda or an arrow function held by a name among them | ✓ | ✓ | ✓ |
 | `unexplained-spare` | A spare that does not say why | ✓ | ✓ | ✓ |
 
@@ -78,9 +80,10 @@ A spare without a reason spares nothing and is a finding of its own.
 ## Configuring it
 
 A project tells orcrist what fits it in an `orcrist.toml`, looked for in the current folder and each folder above it up
-to the repository's root as git tells it; outside a repository, only in the current folder. With `--since`, it is the
-`orcrist.toml` that commit holds, so that a change cannot loosen the config that judges it; a new or changed config
-judges once it is committed. Without one, every rule judges everywhere by the defaults below. Globs are relative to
+to the repository's root as git tells it; outside a repository, only in the current folder. Without `--since`
+the search also stops at a folder holding its own `.git`; under it, only at the repository's root. With `--since`, it
+is the `orcrist.toml` that commit holds, so that a change cannot loosen the config that judges it; a new or changed
+config judges once it is committed. Without one, every rule judges everywhere by the defaults below. Globs are relative to
 the folder of the `orcrist.toml`: `*` does not cross a `/`, `**` crosses any number.
 
 ```toml
@@ -130,9 +133,12 @@ What orcrist knows of a language's grammar is gathered in one table in `src/synt
 functions, calls and literals, where its names are declared, and which of its checks tell a swallowed error, an
 impossible guard or an interface. To read another language, add its tree-sitter grammar to `Cargo.toml`; a
 `Language` with its extensions, pathspecs and grammar in `src/lang.rs`; and its table, with any check of its own
-written in the rule's module. A rule the language has no case of leaves the table's list empty. The rules still take
-some grammar as given: a call names what it calls in a `function` field, a function its parameters in `parameters`,
-and a bare name is an `identifier`. A grammar shaped otherwise needs those rules taught too.
+written in the rule's module. A rule the language has no case of leaves the table's list empty; `interface` and
+`implemented`, which are functions, give one that finds nothing. The rules still take some grammar as given: a call
+names what it calls in a `function` field, a function its parameters in `parameters`, and a bare name is an
+`identifier`. A callee reached through a path or a receiver names its member in a `name`, `field`, `attribute` or
+`property` field, an `identifier`, `field_identifier` or `property_identifier`, and the call's arguments are in
+`arguments`. A grammar shaped otherwise needs those rules taught too.
 
 ## Keeping it precise
 

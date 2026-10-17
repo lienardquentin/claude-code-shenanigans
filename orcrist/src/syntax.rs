@@ -1,7 +1,9 @@
 //! What orcrist knows of each language's grammar, one table per language: the rules ask the table of a file's
 //! language rather than match on it. A language's own checks, such as how it swallows an error, are written in the
 //! rule's module and named here. The rules still take some grammar as given: a call names what it calls in its
-//! `function` field, a function its parameters in `parameters`, and a bare name is an `identifier`.
+//! `function` field, a function its parameters in `parameters`, and a bare name is an `identifier`. A callee reached
+//! through a path or a receiver names its member in a `name`, `field`, `attribute` or `property` field, an
+//! `identifier`, `field_identifier` or `property_identifier`, and the call's arguments are in `arguments`.
 
 use tree_sitter::Node;
 
@@ -57,6 +59,8 @@ pub struct Syntax {
     /// `const light = (beacon) => …`, `let light = |beacon| …;`, `light = lambda beacon: …`
     pub bindings: &'static [Binding],
     pub function_values: &'static [&'static str],
+    /// Kinds of the nodes whose functions are methods, reached through a receiver or a path: an impl, a class
+    pub methods: &'static [&'static str],
     /// Where a node of each kind declares a name that is a value's, a variable's or a parameter's
     pub declarations: &'static [(&'static str, Place)],
     /// Where the name stands in a parameter of each kind
@@ -74,7 +78,7 @@ pub struct Syntax {
     pub guards: &'static [Guard],
 }
 
-/// Python's receivers, left out in every language as they were before the tables.
+/// A method's own receiver names, which no call passes: shared by every language's table.
 const RECEIVERS: &[&str] = &["self", "cls"];
 
 /// What a rule says of an error caught and left there.
@@ -89,6 +93,7 @@ pub static RUST: Syntax = Syntax {
         value: "value",
     }],
     function_values: &["closure_expression"],
+    methods: &["impl_item", "trait_item"],
     declarations: &[
         ("let_declaration", Place::Field("pattern")),
         ("parameter", Place::Field("pattern")),
@@ -135,6 +140,7 @@ pub static PYTHON: Syntax = Syntax {
         value: "right",
     }],
     function_values: &["lambda"],
+    methods: &["class_definition"],
     declarations: &[
         ("default_parameter", Place::Field("name")),
         ("typed_default_parameter", Place::Field("name")),
@@ -174,6 +180,8 @@ pub static TYPESCRIPT: Syntax = Syntax {
         value: "value",
     }],
     function_values: &["arrow_function", "function_expression"],
+    // A class's, and an object literal's `{ light() {} }`
+    methods: &["class_body", "object"],
     declarations: &[
         ("variable_declarator", Place::Field("name")),
         ("required_parameter", Place::Field("pattern")),

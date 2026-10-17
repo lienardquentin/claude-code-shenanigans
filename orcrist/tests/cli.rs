@@ -1102,12 +1102,47 @@ fn a_column_counts_characters_and_a_uri_escapes_what_a_path_may_not_hold() {
     assert!(sarif.contains("\"uri\": \"caf%C3%A9/a%20b.rs\""), "{sarif}");
     assert!(sarif.contains("\"startColumn\": 16,"), "{sarif}");
     assert_eq!(output.status.code(), Some(1));
+    assert_eq!(absolute.status.code(), Some(1));
     let absolute_sarif = stdout(&absolute);
-    let absolute_uri = format!(
-        "\"uri\": \"file:///{}/caf%C3%A9/a%20b.rs\"",
-        &folder.to_str().unwrap()[1..]
-    );
+    let escaped_folder: Vec<String> = folder
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::RootDir))
+        .map(|part| percent_encoded(part.as_os_str().to_str().unwrap()))
+        .collect();
+    let absolute_uri = format!("\"uri\": \"file:///{}/caf%C3%A9/a%20b.rs\"", escaped_folder.join("/"));
     assert!(absolute_sarif.contains(&absolute_uri), "{absolute_sarif}");
+}
+
+/// A part of a path with every byte but the unreserved ones written `%XX`.
+fn percent_encoded(part: &str) -> String {
+    part.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | 126 => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_uri_keeps_the_bytes_of_a_name_that_is_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let folder = folder("non-utf8-name");
+    let name = OsStr::from_bytes(b"a\xFFb.rs");
+    fs::write(folder.join(name), "fn lit() { let data = 1; }\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_orcrist"))
+        .args(["check", "--format", "sarif"])
+        .arg(name)
+        .current_dir(&folder)
+        .output()
+        .unwrap();
+
+    let sarif = stdout(&output);
+    assert!(sarif.contains("a%FFb.rs"), "{sarif}");
+    assert!(!sarif.contains("%EF%BF%BD"), "{sarif}");
 }
 
 #[test]
@@ -1448,6 +1483,136 @@ fn a_python_lambda_held_by_a_name_is_a_function_its_parameters_its_own_names() {
     assert_eq!(output.status.code(), Some(1));
 }
 
+#[test]
+fn a_rust_closure_and_a_free_function_of_one_name_are_each_judged_on_their_own_calls() {
+    let output = check(
+        "scoped-closure",
+        "light.rs",
+        "fn light(beacon: &str, keeper: &str) {\n    send(beacon, keeper);\n}\n\n\
+         fn chain() {\n    light(\"amon-din\", \"Hirgon\");\n    light(\"eilenach\", \"Hirgon\");\n}\n\n\
+         fn watch() {\n    let light = |beacon: &str, keeper: &str| send(beacon, keeper);\n    \
+         light(\"min-rimmon\", \"Denethor\");\n    light(\"calenhad\", \"Denethor\");\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "light.rs:1 single-use-abstraction: every call passes \"Hirgon\" for keeper\n\
+         light.rs:11 single-use-abstraction: every call passes \"Denethor\" for keeper\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_python_module_function_is_judged_on_its_own_calls_beside_a_method_of_its_name() {
+    let output = check(
+        "scoped-method",
+        "light.py",
+        "class Tower:\n    def light(self, keeper):\n        send(self, keeper)\n\n\n\
+         def light(beacon, keeper):\n    send(beacon, keeper)\n\n\n\
+         light(\"amon-din\", \"Hirgon\")\nlight(\"eilenach\", \"Hirgon\")\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "light.py:6 single-use-abstraction: every call passes \"Hirgon\" for keeper\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_nested_arrow_and_the_top_level_function_it_shadows_are_each_judged_on_their_own_calls() {
+    let output = check(
+        "scoped-arrow",
+        "light.ts",
+        "function light(beacon: string, keeper: string) {\n  send(beacon, keeper)\n}\n\n\
+         export function watch() {\n  const light = (beacon: string, keeper: string) => send(beacon, keeper)\n  \
+         light('min-rimmon', 'Denethor')\n  light('calenhad', 'Denethor')\n}\n\n\
+         light('amon-din', 'Hirgon')\nlight('eilenach', 'Hirgon')\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "light.ts:1 single-use-abstraction: every call passes 'Hirgon' for keeper\n\
+         light.ts:6 single-use-abstraction: every call passes 'Denethor' for keeper\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_dot_call_to_a_name_both_a_method_and_a_free_function_hold_judges_neither() {
+    let folder = folder("scoped-dot");
+    fs::write(
+        folder.join("light.ts"),
+        "class Tower {\n  light(keeper: string) {\n    send(this, keeper)\n  }\n}\n\n\
+         export function light(beacon: string, keeper: string) {\n  send(beacon, keeper)\n}\n\n\
+         light('amon-din', 'Hirgon')\nlight('eilenach', 'Hirgon')\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("watch.ts"),
+        "export function watch(tower: Tower) {\n  tower.light('Denethor')\n  tower.light('Denethor')\n}\n",
+    )
+    .unwrap();
+
+    let bare_calls_only = run(&folder, &["check", "light.ts"]);
+    let with_dot_calls = run(&folder, &["check", "light.ts", "watch.ts"]);
+
+    assert_eq!(
+        stdout(&bare_calls_only),
+        "light.ts:7 single-use-abstraction: every call passes 'Hirgon' for keeper\n"
+    );
+    assert_eq!(bare_calls_only.status.code(), Some(1));
+    assert_eq!(stdout(&with_dot_calls), "");
+    assert_eq!(with_dot_calls.status.code(), Some(0));
+}
+
+#[test]
+fn a_rust_path_call_to_a_name_both_an_associated_and_a_free_function_hold_judges_neither() {
+    let folder = folder("scoped-path");
+    fs::write(
+        folder.join("light.rs"),
+        "fn light(beacon: &str, keeper: &str) {\n    send(beacon, keeper);\n}\n\n\
+         struct Disk;\n\nimpl Disk {\n    fn light(keeper: &str) {\n        send(\"disk\", keeper);\n    }\n}\n\n\
+         fn chain() {\n    light(\"amon-din\", \"Hirgon\");\n    light(\"eilenach\", \"Hirgon\");\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("watch.rs"),
+        "fn watch() {\n    Disk::light(\"Denethor\");\n    Disk::light(\"Denethor\");\n}\n",
+    )
+    .unwrap();
+
+    let bare_calls_only = run(&folder, &["check", "light.rs"]);
+    let with_path_calls = run(&folder, &["check", "light.rs", "watch.rs"]);
+
+    assert_eq!(
+        stdout(&bare_calls_only),
+        "light.rs:1 single-use-abstraction: every call passes \"Hirgon\" for keeper\n"
+    );
+    assert_eq!(bare_calls_only.status.code(), Some(1));
+    assert_eq!(stdout(&with_path_calls), "");
+    assert_eq!(with_path_calls.status.code(), Some(0));
+}
+
+// sting: orcrist check fixtures/scoped.py
+#[test]
+fn a_method_and_a_function_of_one_name_in_a_fixture_are_each_judged_on_their_own_calls() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/scoped.py"]);
+
+    // The fixture holds a method and a function of one name, each called with one literal: one finding for each, on
+    // lines of their own
+    let found = stdout(&output);
+    let lines: Vec<&str> = found.lines().collect();
+    assert_eq!(lines.len(), 2, "{found}");
+    for line in &lines {
+        assert!(line.starts_with("fixtures/scoped.py:"), "{found}");
+        assert!(line.contains(" single-use-abstraction: every call passes "), "{found}");
+    }
+    let line_of = |finding: &str| finding.split(' ').next().unwrap().to_string();
+    assert_ne!(line_of(lines[0]), line_of(lines[1]), "{found}");
+    assert_eq!(output.status.code(), Some(1));
+}
+
 // sting: orcrist check --root fixtures/allowing api.py
 #[test]
 fn a_project_judged_from_its_root_may_allow_a_built_in_vague_word() {
@@ -1665,6 +1830,44 @@ fn since_a_commit_from_a_subfolder_the_configs_of_that_commit_are_found() {
 }
 
 #[test]
+fn since_a_commit_a_new_bare_git_folder_below_the_root_does_not_hide_the_committed_config() {
+    let folder = folder("config-since-bare-git");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("orcrist.toml", "[rules.vague-name]\noff = true\n"),
+            ("app/sub/load.ts", "export const load = () => 1\n"),
+        ],
+    );
+    git(&folder, &["add", "."]);
+    git(&folder, &["commit", "--quiet", "-m", "start"]);
+    fs::create_dir_all(folder.join("app/.git")).unwrap();
+    write(
+        &folder,
+        &[(
+            "app/sub/load.ts",
+            "export const load = () => 1\nexport const data = load()\n",
+        )],
+    );
+
+    let since = run(&folder.join("app/sub"), &["check", "--since", "HEAD"]);
+    let plain = run(&folder.join("app/sub"), &["check", "load.ts"]);
+
+    // Under --since only git's root bounds the search, so the root's committed config turns the rule off
+    assert_eq!(stdout(&since), "");
+    assert_eq!(
+        since.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&since.stderr)
+    );
+    // Without it the search still stops at app/.git, which holds no config: the defaults report the name
+    assert!(stdout(&plain).contains("vague-name"), "{}", stdout(&plain));
+    assert_eq!(plain.status.code(), Some(1));
+}
+
+#[test]
 fn since_a_commit_outside_a_repository_is_said_to_need_one() {
     let folder = folder("since-outside");
     write(&folder, &[("load.rs", "fn load() {}\n")]);
@@ -1676,4 +1879,50 @@ fn since_a_commit_outside_a_repository_is_said_to_need_one() {
         "orcrist: --since judges a change in a git repository, and this folder is in none\n"
     );
     assert_eq!(since.status.code(), Some(2));
+}
+
+#[test]
+fn a_run_that_only_reads_kept_findings_leaves_the_cache_folder_untouched() {
+    let folder = folder("cache-untouched");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("names.ts", SLUG_OF),
+            ("beacons.ts", &SLUG_OF.replace("slugOf", "beaconId")),
+        ],
+    );
+    let cache = folder.join(".git/orcrist-cache");
+
+    run(&folder, &["check", "beacons.ts"]);
+    assert!(!cache_entries(&folder).is_empty(), "the findings of names.ts were kept");
+    let kept = fs::metadata(&cache).unwrap().modified().unwrap();
+    let second = run(&folder, &["check", "beacons.ts"]);
+
+    assert_eq!(second.status.code(), Some(1));
+    assert_eq!(fs::metadata(&cache).unwrap().modified().unwrap(), kept);
+}
+
+#[test]
+#[ignore = "needs root: run with sudo cargo test -- --ignored"]
+fn a_cache_folder_another_user_owns_keeps_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    assert_eq!(stdout(&uid).trim(), "0", "this test runs as root");
+    let folder = folder("cache-foreign-owner");
+    git(&folder, &["init", "--quiet"]);
+    write(&folder, &[("names.ts", SLUG_OF), ("load.rs", "fn load() {}\n")]);
+    let cache = folder.join(".git/orcrist-cache");
+    fs::create_dir(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    std::os::unix::fs::chown(&cache, Some(65534), None).unwrap();
+    let before = fs::metadata(&cache).unwrap().modified().unwrap();
+
+    run(&folder, &["check", "load.rs"]);
+
+    assert!(
+        cache_entries(&folder).is_empty(),
+        "nothing is kept where another user owns"
+    );
+    assert_eq!(fs::metadata(&cache).unwrap().modified().unwrap(), before);
 }
