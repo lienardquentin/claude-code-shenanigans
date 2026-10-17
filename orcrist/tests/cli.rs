@@ -234,3 +234,114 @@ fn only_a_comment_spares() {
     );
     assert_eq!(output.status.code(), Some(1));
 }
+
+/// orcrist run on one file of the given name and source, in a folder of the test's own.
+fn check(test: &str, name: &str, source: &str) -> Output {
+    let folder = folder(test);
+    fs::write(folder.join(name), source).unwrap();
+    run(&folder, &["check", name])
+}
+
+#[test]
+fn a_python_comment_that_restates_its_line_is_found() {
+    let output = check(
+        "python-restating",
+        "load.py",
+        "def load(path):\n    # read the config file\n    config = read_config_file(path)\n    return config\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.py:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_file_of_a_language_orcrist_does_not_read_is_refused() {
+    let output = check(
+        "unknown-language",
+        "notes.txt",
+        "// read the config file\nread_config_file()\n",
+    );
+
+    assert_eq!(
+        String::from_utf8(output.stderr.clone()).unwrap(),
+        "orcrist: no language orcrist reads has the extension of notes.txt\n"
+    );
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(2));
+}
+
+#[test]
+fn a_python_except_that_only_passes_is_found() {
+    let output = check(
+        "python-except-pass",
+        "save.py",
+        "def save(path, text):\n    try:\n        write(path, text)\n    except OSError:\n        pass\n    try:\n        write(path, text)\n    except OSError:\n        log.warning(\"not saved\")\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "save.py:4 swallowed-error: the error is caught and nothing is done with it\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_comment_that_restates_its_line_is_found() {
+    let output = check(
+        "typescript-restating",
+        "load.ts",
+        "export function load(path: string): Config {\n  // read the config file\n  const config = readConfigFile(path)\n  return config\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.ts:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_catch_that_does_nothing_is_found() {
+    let output = check(
+        "typescript-empty-catch",
+        "save.ts",
+        "export async function save(path: string, text: string) {\n  try {\n    await write(path, text)\n  } catch {}\n  await write(path, text).catch(() => {})\n  await write(path, text).catch((error) => report(error))\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "save.ts:4 swallowed-error: the error is caught and nothing is done with it\n\
+         save.ts:5 swallowed-error: the error is caught and nothing is done with it\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn the_script_of_a_vue_component_is_judged_where_it_stands() {
+    let output = check(
+        "vue",
+        "Load.vue",
+        "<template>\n  <!-- read the config file -->\n  <p>{{ config }}</p>\n</template>\n\n<script setup lang=\"ts\">\n// read the config file\nconst config = readConfigFile()\n</script>\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "Load.vue:7 restating-comment: the comment says what line 8 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_python_except_that_lets_ctrl_c_stop_quietly_is_left_alone() {
+    let output = check(
+        "python-keyboard-interrupt",
+        "serve.py",
+        "def serve():\n    try:\n        loop()\n    except KeyboardInterrupt:\n        pass\n",
+    );
+
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(0));
+}

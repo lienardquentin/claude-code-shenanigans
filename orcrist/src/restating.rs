@@ -2,6 +2,7 @@
 
 use tree_sitter::Node;
 
+use crate::lang::{self, Language};
 use crate::rules::Finding;
 
 /// Words a comment is made of that carry no meaning of their own.
@@ -12,13 +13,13 @@ const FILLER: &[&str] = &[
 /// Share of a comment's meaningful words that, found in the code below, make the comment a restatement.
 const RESTATED_SHARE: f64 = 0.75;
 
-pub fn judge(node: Node, source: &str) -> Option<Finding> {
-    if node.kind() != "line_comment" {
+pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
+    if !language.is_comment(node) {
         return None;
     }
     let code = node.next_named_sibling()?;
     let code_row = code.start_position().row;
-    let comment = source[node.byte_range()].trim_start_matches('/');
+    let comment = lang::comment_text(&source[node.byte_range()]);
     let code_line = source.lines().nth(code_row)?;
     restates(comment, code_line).then(|| Finding {
         line: node.start_position().row + 1,

@@ -4,28 +4,37 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::lang::Language;
+
 /// The lines of a file a change added, None when it added the whole file.
 pub type Added = Option<BTreeSet<usize>>;
 
-/// Each Rust file the working tree changed since `since`, relative to the current folder, with the lines it added. A
+/// Each file of a language orcrist reads that the working tree changed since `since`, relative to the current folder, with the lines it added. A
 /// file git does not track yet is added whole.
 pub fn added_lines(since: &str) -> Result<BTreeMap<PathBuf, Added>, String> {
     let diff = git(&[
-        "diff",
-        "--unified=0",
-        "--no-color",
-        "--no-ext-diff",
-        "--relative",
-        "--end-of-options",
-        since,
-        "--",
-        "*.rs",
-    ])?;
+        &[
+            "diff",
+            "--unified=0",
+            "--no-color",
+            "--no-ext-diff",
+            "--relative",
+            "--end-of-options",
+            since,
+            "--",
+        ],
+        &Language::PATHSPECS[..],
+    ]
+    .concat())?;
     let mut added: BTreeMap<PathBuf, Added> = parse(&diff)
         .into_iter()
         .map(|(file, lines)| (file, Some(lines)))
         .collect();
-    let untracked = git(&["ls-files", "--others", "--exclude-standard", "-z", "--", "*.rs"])?;
+    let untracked = git(&[
+        &["ls-files", "--others", "--exclude-standard", "-z", "--"],
+        &Language::PATHSPECS[..],
+    ]
+    .concat())?;
     added.extend(
         untracked
             .split('\0')
