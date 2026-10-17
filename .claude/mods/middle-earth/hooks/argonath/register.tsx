@@ -13,7 +13,7 @@ import { rootOf, toolFailed } from '../flow'
 import type { Section, Target, TurnEnded } from '../flow'
 import { askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Review } from './proof'
-import { UNREADABLE, affectedIn, changeText, changesOf, cliChanged, gateIn, marksIn, proveIn, serviceJob, serviceLive, servicePlayed, testsDiffIn, wholeFingerprint } from './handlers'
+import { UNREADABLE, affectedIn, changeText, changesOf, cliChanged, gateIn, marksIn, proveIn, serviceJob, serviceLive, servicePlayed, sizeIn, testsDiffIn, wholeFingerprint } from './handlers'
 import type { Found, Place } from './handlers'
 import {
   HOME,
@@ -490,12 +490,13 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   const seats: ArgonathSeat[] = []
   const brief = await briefOf($, against, place)
   const rules = await standardsText($)
+  const size = await sizeIn($, place.tree, against)
   // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
   const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
 
   for (const seat of chosen) {
     // A statue judging a quest's change reads it in the quest's worktree
-    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
+    const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules, size), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
     if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'statue', root: await homeOf($), tree: place.tree })

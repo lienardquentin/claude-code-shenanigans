@@ -1,5 +1,5 @@
 import type { ElrondDecision, ElrondForge, ElrondPlan, ElrondQuestion, ElrondRef, ElrondRisk, ElrondSeverity, ElrondTask, ElrondTaskState, ElrondWeight } from '../../types'
-import { TRUSTED_ASSOCIATIONS, forgeOfHost, resolvedFrom } from '../flow'
+import { TRUSTED_ASSOCIATIONS, WEIGHT_MEANS, forgeOfHost, resolvedFrom } from '../flow'
 export { isChanging } from '../flow'
 
 /** The project's own repository, as its git remote names it: where a bare `#12` lives. */
@@ -298,7 +298,7 @@ export const COUNCIL_SYSTEM = [
   '  "risks": [{ "risk": "What could go wrong", "severity": "high", "mitigation": "How to make it less likely or less harmful", "tasks": [2] }]',
   '}',
   '```',
-  "Weigh each task by what it asks of whoever builds it, which says who is sent to build it. The weight is exactly one of three words: `light` for docs, config, a rename or a test to adjust; `standard` for one module's change and the test that proves it; `heavy` for a change that crosses targets, reworks a design, or touches code that is risky to change.",
+  `Weigh each task by what it asks of whoever builds it, which says who is sent to build it. The weight is exactly one of three words: \`light\` for ${WEIGHT_MEANS.light}; \`standard\` for ${WEIGHT_MEANS.standard}; \`heavy\` for ${WEIGHT_MEANS.heavy}.`,
   'Rate each risk by what it would cost this change: high, it could break behaviour, lose data or block the work; medium, it could cost rework or a failed review; low, a nuisance. Name the tasks it threatens by id, and a mitigation the person could choose.',
   'Once it is written, your final answer is one line and nothing else: "The plan is laid: N tasks, M questions." Elrond reads the file and shows the plan to the person. Anything worth saying goes in the plan: a doubt in questions, a danger in risks. Only if the write is refused, answer the plan as a single fenced json block instead.',
 ].join('\n')

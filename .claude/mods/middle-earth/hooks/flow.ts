@@ -13,6 +13,13 @@ export const PR_TRAILER = '🤖 Generated with [Claude Code](https://claude.com/
 /** The model the statues judge a change with when it is not heavy: lighter than their own, and enough for it. */
 export const SWIFT_STATUE_MODEL = 'claude-sonnet-5-5'
 
+/** What a task of each weight is, as the council weighs it and the statues weigh a change's size against it. */
+export const WEIGHT_MEANS = {
+  light: 'docs, config, a rename or a test to adjust',
+  standard: "one module's change and the test that proves it",
+  heavy: 'a change that crosses targets, reworks a design, or touches code that is risky to change',
+} as const
+
 // How long the forge is given to take a push or open a pull request
 const FORGE_TIMEOUT_MS = 120_000
 

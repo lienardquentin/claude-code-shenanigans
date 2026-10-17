@@ -651,6 +651,58 @@ export const manifestsOf = (change: string): string[] =>
     ),
   ]
 
+// The files a dependency's lock is written whole in: they say nothing of what a change wrote
+const LOCKED = /(^|\/)(Cargo\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|uv\.lock|poetry\.lock|Pipfile\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/
+
+// How many of the files a change adds most to are named
+const SIZE_FILES = 5
+
+/**
+ * The files git's `--numstat -z` names, each with the lines it adds and takes out: `added<TAB>removed<TAB>path`, or for
+ * a rename `added<TAB>removed<TAB>`, then where from and where to, each ended by a NUL. A binary file adds no line.
+ */
+const numstatOf = (tokens: readonly string[], isNew: boolean): { path: string; added: number; removed: number; isNew: boolean }[] => {
+  const files: { path: string; added: number; removed: number; isNew: boolean }[] = []
+
+  for (let at = 0; at < tokens.length; at += 1) {
+    const found = /^(\d+|-)\t(\d+|-)\t(.*)$/s.exec(tokens[at] ?? '')
+
+    if (found === null) continue
+
+    // A rename names where it came from and where it went, after its counts
+    const path = found[3] !== '' ? (found[3] ?? '') : (tokens[(at += 2)] ?? '')
+
+    files.push({ path, added: Number(found[1]) || 0, removed: Number(found[2]) || 0, isNew })
+  }
+
+  return files
+}
+
+/**
+ * How big a change is, in a sentence for the statues, from git's `--numstat -z` of its diff, `UNTRACKED`, then of each
+ * new file against nothing: the lines it adds and takes out, across how many files, how many new, and where it adds
+ * most. Lock files are not counted. Nothing for a change of no line.
+ */
+export const sizeText = (output: string): string => {
+  const tokens = output.split('\0')
+  const split = tokens.indexOf(UNTRACKED)
+  const all = [...numstatOf(split === -1 ? tokens : tokens.slice(0, split), false), ...(split === -1 ? [] : numstatOf(tokens.slice(split + 1), true))]
+  const counted = all.filter(one => !LOCKED.test(one.path))
+  const added = counted.reduce((sum, one) => sum + one.added, 0)
+  const removed = counted.reduce((sum, one) => sum + one.removed, 0)
+
+  if (added === 0 && removed === 0) return ''
+
+  const news = counted.filter(one => one.isNew).length
+  const most = [...counted].filter(one => one.added > 0).sort((one, other) => other.added - one.added).slice(0, SIZE_FILES)
+
+  return [
+    `The change adds ${plural(added, 'line', 'lines')} and takes out ${removed}, across ${plural(counted.length, 'file', 'files')}${news > 0 ? `, ${news} of them new` : ''}.`,
+    ...(most.length > 0 ? [`Where it adds most: ${most.map(one => `${one.path} +${one.added}${one.isNew ? ' (new)' : ''}`).join(', ')}.`] : []),
+    ...(counted.length < all.length ? ['Lock files are not counted.'] : []),
+  ].join(' ')
+}
+
 // A test declared, as a removed or added line of a diff spells it: Rust's attribute, Python's and Go's test functions,
 // a JavaScript runner's call
 const TEST_DECLARED = /^\s*(#\[(\w+::)?test\]|(async\s+)?def\s+test_\w+|func\s+Test\w+|(it|test)\s*\(\s*['"`])/

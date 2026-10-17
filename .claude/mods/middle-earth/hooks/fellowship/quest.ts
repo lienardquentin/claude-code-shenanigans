@@ -1,5 +1,5 @@
 import type { FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
-import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, forgeOfUrl, issueOf, requestArgv, resolvedFrom } from '../flow'
+import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, WEIGHT_MEANS, forgeOfUrl, issueOf, requestArgv, resolvedFrom } from '../flow'
 import type { Target } from '../flow'
 import { QUEST_TREES } from '../kit/trees'
 
@@ -437,6 +437,9 @@ export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: Fell
       : []),
   ].join('\n')
 
+/** What a task was weighed as before it was built, for the statues to weigh its change's size against. */
+const weighedAs = (task: FellowshipTask): string => `Weighed as ${task.weight} before it was built: ${WEIGHT_MEANS[task.weight]}.`
+
 /** What a task's change is meant to do, for the statues to judge it against. */
 export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, amendments: readonly { file: string; why: string; by: string }[] = []): string => {
   if (quest.kind === 'errand') return [`The whole of issue ${quest.ref}, "${quest.title}", in one change, as an errand. What the issue says:`, (task.brief ?? '').trim().slice(0, 4_000)].join('\n')
@@ -446,11 +449,13 @@ export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: Fellowship
       `The answer to one review comment on ${quest.ref.replace(/^review:/, '')}, "${quest.title}": what it asks, and nothing else of the pull request.`,
       `The comment, by ${task.author ?? 'a reviewer'}${task.where !== undefined && task.where !== '' ? ` on ${task.where}` : ''}:`,
       (task.brief ?? '').slice(0, 3_000),
+      weighedAs(task),
     ].join('\n')
   }
 
   return [
     `Task ${task.id} of the plan for ${plan.ref}, "${plan.title}": ${task.title}.`,
+    weighedAs(task),
     ...(task.why !== '' ? [`Why: ${task.why}`] : []),
     ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
     ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
