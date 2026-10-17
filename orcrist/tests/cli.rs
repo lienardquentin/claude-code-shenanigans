@@ -1145,3 +1145,141 @@ fn idiomatic_code_in_each_language_holds_no_finding() {
         assert_eq!(output.status.code(), Some(0), "{fixture}");
     }
 }
+
+/// The findings orcrist keeps between runs, in the repository's git folder.
+fn cache_entries(folder: &Path) -> Vec<PathBuf> {
+    fs::read_dir(folder.join(".git/orcrist-cache"))
+        .map(|entries| entries.map(|entry| entry.unwrap().path()).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_file_changed_since_the_last_run_is_read_again() {
+    let folder = folder("cache-changed");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("names.ts", SLUG_OF),
+            ("beacons.ts", &SLUG_OF.replace("slugOf", "beaconId")),
+        ],
+    );
+
+    let first = run(&folder, &["check", "beacons.ts"]);
+    write(&folder, &[("names.ts", "export const realm = 'Gondor'\n")]);
+    let second = run(&folder, &["check", "beacons.ts"]);
+
+    assert_eq!(
+        stdout(&first),
+        "beacons.ts:1 duplicate-helper: beaconId does what slugOf in names.ts:1 already does\n"
+    );
+    assert!(!cache_entries(&folder).is_empty(), "the findings of names.ts were kept");
+    assert_eq!(stdout(&second), "");
+    assert_eq!(second.status.code(), Some(0));
+}
+
+#[test]
+fn kept_findings_that_cannot_be_read_are_found_again() {
+    let folder = folder("cache-unreadable");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("names.ts", SLUG_OF),
+            ("beacons.ts", &SLUG_OF.replace("slugOf", "beaconId")),
+        ],
+    );
+    run(&folder, &["check", "beacons.ts"]);
+    for entry in cache_entries(&folder) {
+        fs::write(entry, "not what orcrist wrote").unwrap();
+    }
+
+    let output = run(&folder, &["check", "beacons.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "beacons.ts:1 duplicate-helper: beaconId does what slugOf in names.ts:1 already does\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn findings_no_run_used_for_a_week_are_let_go() {
+    let folder = folder("cache-pruned");
+    git(&folder, &["init", "--quiet"]);
+    write(&folder, &[("names.ts", SLUG_OF), ("load.rs", "fn load() {}\n")]);
+    run(&folder, &["check", "load.rs"]);
+    let kept = cache_entries(&folder);
+    let eight_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+    for entry in &kept {
+        fs::File::options()
+            .write(true)
+            .open(entry)
+            .unwrap()
+            .set_modified(eight_days_ago)
+            .unwrap();
+    }
+    write(&folder, &[("names.ts", "export const realm = 'Gondor'\n")]);
+
+    run(&folder, &["check", "load.rs"]);
+
+    assert!(!kept.is_empty());
+    assert!(kept.iter().all(|entry| !entry.exists()), "{kept:?}");
+    assert_eq!(
+        cache_entries(&folder).len(),
+        1,
+        "the findings of names.ts as it is now are kept"
+    );
+}
+
+#[test]
+fn only_what_orcrist_kept_is_let_go_and_never_through_a_link() {
+    let eight_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+    let age = |path: &Path| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(eight_days_ago)
+            .unwrap();
+    };
+    let linked = folder("cache-linked");
+    git(&linked, &["init", "--quiet"]);
+    write(
+        &linked,
+        &[
+            ("names.ts", SLUG_OF),
+            ("load.rs", "fn load() {}\n"),
+            ("elsewhere/precious.txt", "mine\n"),
+            ("elsewhere/0123456789abcdef.json", "{}"),
+        ],
+    );
+    age(&linked.join("elsewhere/precious.txt"));
+    age(&linked.join("elsewhere/0123456789abcdef.json"));
+    std::os::unix::fs::symlink(linked.join("elsewhere"), linked.join(".git/orcrist-cache")).unwrap();
+    let foreign = folder("cache-foreign");
+    git(&foreign, &["init", "--quiet"]);
+    write(
+        &foreign,
+        &[
+            ("names.ts", SLUG_OF),
+            ("load.rs", "fn load() {}\n"),
+            (".git/orcrist-cache/precious.txt", "mine\n"),
+        ],
+    );
+    age(&foreign.join(".git/orcrist-cache/precious.txt"));
+
+    let through_link = run(&linked, &["check", "load.rs"]);
+    let beside_foreign = run(&foreign, &["check", "load.rs"]);
+
+    assert_eq!(through_link.status.code(), Some(0));
+    assert!(linked.join("elsewhere/precious.txt").exists());
+    assert!(linked.join("elsewhere/0123456789abcdef.json").exists());
+    assert_eq!(
+        fs::read_dir(linked.join("elsewhere")).unwrap().count(),
+        2,
+        "nothing was kept through the link"
+    );
+    assert_eq!(beside_foreign.status.code(), Some(0));
+    assert!(foreign.join(".git/orcrist-cache/precious.txt").exists());
+}

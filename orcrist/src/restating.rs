@@ -23,7 +23,10 @@ pub fn judge(node: Node, source: &str, language: Language, settings: &Settings) 
         .find(|sibling| !language.is_comment(*sibling))?;
     let code_row = code.start_position().row;
     let comment = lang::comment_text(&source[node.byte_range()]);
-    let code_line = source.lines().nth(code_row)?;
+    // The line the code starts on, from its first byte back to the line's start and on to its end
+    let line_start = code.start_byte() - code.start_position().column;
+    let rest = &source[line_start..];
+    let code_line = &rest[..rest.find('\n').unwrap_or(rest.len())];
     restates(comment, code_line, settings).then(|| {
         let message = format!("the comment says what line {} already says", code_row + 1);
         Finding::at(node, source, "restating-comment", message)

@@ -1,3 +1,4 @@
+mod cache;
 mod config;
 mod diff;
 mod duplicate;
@@ -93,12 +94,11 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let indexes = rules::index(&project, &config.settings);
     let findings = parallel::map(&targets, |(path, _)| {
         let file = project
             .file(path)
             .expect("every file judged is loaded into the project");
-        rules::check(file, &indexes, &config.settings)
+        rules::check(file, &project.indexes, &config.settings)
     });
     let mut reported = Vec::new();
     for ((path, lines), findings) in targets.iter().zip(findings) {

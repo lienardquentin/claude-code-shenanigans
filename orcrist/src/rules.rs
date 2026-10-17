@@ -1,10 +1,13 @@
 //! Every rule run over one file of the project.
 
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::config::Settings;
 use crate::lang::{self, Language};
-use crate::project::{File, Project};
+use crate::project::File;
 use crate::{duplicate, impossible, restating, single_use, swallowed, vague};
 
 /// Every rule a finding can come from, as the config and the findings name them, and what it finds.
@@ -64,10 +67,32 @@ pub struct Indexes {
     duplicate: duplicate::Index,
 }
 
-pub fn index(project: &Project, settings: &Settings) -> Indexes {
-    Indexes {
-        single_use: single_use::Index::build(project, settings.calls),
-        duplicate: duplicate::Index::build(project, settings.smallest),
+/// What one file holds for the rules that look across files: all of it they need once the file itself is let go.
+#[derive(Serialize, Deserialize)]
+pub struct Found {
+    single_use: single_use::Found,
+    duplicate: duplicate::Found,
+}
+
+pub fn find(file: &File, settings: &Settings) -> Found {
+    Found {
+        single_use: single_use::find(file),
+        duplicate: duplicate::find(file, settings.smallest),
+    }
+}
+
+impl Indexes {
+    pub fn new(settings: &Settings) -> Indexes {
+        Indexes {
+            single_use: single_use::Index::new(settings.calls),
+            duplicate: duplicate::Index::default(),
+        }
+    }
+
+    /// What one file of `language` at `path` holds, added in the order the files are.
+    pub fn add(&mut self, path: &Path, language: Language, found: Found) {
+        self.single_use.add(path, language, found.single_use);
+        self.duplicate.add(path, language, found.duplicate);
     }
 }
 
