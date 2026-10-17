@@ -25,22 +25,11 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
-#[test]
-fn a_comment_that_restates_its_line_is_found() {
-    let folder = folder("restating");
-    fs::write(
-        folder.join("load.rs"),
-        "fn load(path: &str) -> Config {\n    // read the config file\n    let config = read_config_file(path);\n    config\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "load.rs"]);
-
-    assert_eq!(
-        stdout(&output),
-        "load.rs:2 restating-comment: the comment says what line 3 already says\n"
-    );
-    assert_eq!(output.status.code(), Some(1));
+/// orcrist run on one file of the given name and source, in a folder of the test's own.
+fn check(test: &str, name: &str, source: &str) -> Output {
+    let folder = folder(test);
+    fs::write(folder.join(name), source).unwrap();
+    run(&folder, &["check", name])
 }
 
 fn git(folder: &Path, args: &[&str]) {
@@ -51,6 +40,21 @@ fn git(folder: &Path, args: &[&str]) {
         .status()
         .unwrap();
     assert!(status.success(), "git {args:?} failed");
+}
+
+#[test]
+fn a_comment_that_restates_its_line_is_found() {
+    let output = check(
+        "restating",
+        "load.rs",
+        "fn load(path: &str) -> Config {\n    // read the config file\n    let config = read_config_file(path);\n    config\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.rs:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
 }
 
 #[test]
@@ -134,14 +138,11 @@ fn since_is_only_ever_a_commit_to_git() {
 
 #[test]
 fn a_comment_that_says_why_is_left_alone() {
-    let folder = folder("why");
-    fs::write(
-        folder.join("load.rs"),
+    let output = check(
+        "why",
+        "load.rs",
         "fn load(path: &str) -> Config {\n    // the deploy mounts it read-only, so a missing file means a broken image\n    let config = read_config_file(path);\n    config\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "load.rs"]);
+    );
 
     assert_eq!(stdout(&output), "");
     assert_eq!(output.status.code(), Some(0));
@@ -149,14 +150,11 @@ fn a_comment_that_says_why_is_left_alone() {
 
 #[test]
 fn an_error_turned_into_an_option_and_dropped_is_found() {
-    let folder = folder("ok-dropped");
-    fs::write(
-        folder.join("save.rs"),
+    let output = check(
+        "ok-dropped",
+        "save.rs",
         "fn save(path: &str, text: &str) -> bool {\n    fs::write(path, text).ok();\n    let saved = fs::write(path, text).ok();\n    saved.is_some()\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "save.rs"]);
+    );
 
     assert_eq!(
         stdout(&output),
@@ -167,14 +165,11 @@ fn an_error_turned_into_an_option_and_dropped_is_found() {
 
 #[test]
 fn a_call_bound_to_the_wildcard_is_found() {
-    let folder = folder("let-underscore");
-    fs::write(
-        folder.join("save.rs"),
+    let output = check(
+        "let-underscore",
+        "save.rs",
         "fn save(path: &str, text: &str) {\n    let _ = fs::write(path, text);\n    let _ = sender.send(text);\n    let _ = 3;\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "save.rs"]);
+    );
 
     assert_eq!(
         stdout(&output),
@@ -186,14 +181,11 @@ fn a_call_bound_to_the_wildcard_is_found() {
 
 #[test]
 fn a_finding_spared_with_a_reason_is_not_reported() {
-    let folder = folder("spared");
-    fs::write(
-        folder.join("draw.rs"),
+    let output = check(
+        "spared",
+        "draw.rs",
         "fn draw() {\n    // orcrist: spare swallowed-error: a progress bar that fails to show changes nothing\n    io::stdout().flush().ok();\n    io::stderr().flush().ok(); // orcrist: spare swallowed-error: as above\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "draw.rs"]);
+    );
 
     assert_eq!(stdout(&output), "");
     assert_eq!(output.status.code(), Some(0));
@@ -201,14 +193,11 @@ fn a_finding_spared_with_a_reason_is_not_reported() {
 
 #[test]
 fn a_spare_without_a_reason_is_found_and_spares_nothing() {
-    let folder = folder("unexplained");
-    fs::write(
-        folder.join("draw.rs"),
+    let output = check(
+        "unexplained",
+        "draw.rs",
         "fn draw() {\n    io::stdout().flush().ok(); // orcrist: spare swallowed-error\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "draw.rs"]);
+    );
 
     assert_eq!(
         stdout(&output),
@@ -220,27 +209,17 @@ fn a_spare_without_a_reason_is_found_and_spares_nothing() {
 
 #[test]
 fn only_a_comment_spares() {
-    let folder = folder("spare-in-string");
-    fs::write(
-        folder.join("draw.rs"),
+    let output = check(
+        "spare-in-string",
+        "draw.rs",
         "fn draw() {\n    let marker = \"orcrist: spare swallowed-error\";\n    io::stdout().flush().ok(); let why = \"orcrist: spare swallowed-error: in a string\";\n}\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "draw.rs"]);
+    );
 
     assert_eq!(
         stdout(&output),
         "draw.rs:3 swallowed-error: the error is turned into an Option and dropped\n"
     );
     assert_eq!(output.status.code(), Some(1));
-}
-
-/// orcrist run on one file of the given name and source, in a folder of the test's own.
-fn check(test: &str, name: &str, source: &str) -> Output {
-    let folder = folder(test);
-    fs::write(folder.join(name), source).unwrap();
-    run(&folder, &["check", name])
 }
 
 #[test]
@@ -484,14 +463,11 @@ fn a_trait_with_one_implementation_in_the_project_is_found() {
 
 #[test]
 fn a_python_abstract_class_with_one_subclass_is_found() {
-    let folder = folder("one-subclass");
-    fs::write(
-        folder.join("store.py"),
+    let output = check(
+        "one-subclass",
+        "store.py",
         "class Store(ABC):\n    @abstractmethod\n    def save(self, text: str) -> None: ...\n\n\nclass Disk(Store):\n    def save(self, text: str) -> None:\n        write(text)\n\n\nclass Clock(abc.ABC):\n    pass\n\n\nclass Wall(Clock):\n    pass\n\n\nclass Sun(Clock):\n    pass\n",
-    )
-    .unwrap();
-
-    let output = run(&folder, &["check", "store.py"]);
+    );
 
     assert_eq!(
         stdout(&output),
