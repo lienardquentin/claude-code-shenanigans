@@ -108,6 +108,17 @@ calls = 2                 # calls below which a parameter every call passes one 
 off = true
 ```
 
+Test files are judged as any other code. A project whose tests repeat their helpers and mocks on purpose, or name a
+value `data` for a test's sake, says so in its own config:
+
+```toml
+[rules.duplicate-helper]
+skip = ["tests/**", "**/*.test.ts"]
+
+[rules.vague-name]
+skip = ["tests/**", "**/*.test.ts"]
+```
+
 The built-in words are English; `words`, `verbs`, `filler` and `allow` fit them to a project's own language, each
 entry one word as orcrist splits names. A key orcrist does not know, a rule it has not, a setting given to a rule it is
 not for, an entry of more than one word, or a value out of range is refused with exit 2, so that a typo does not
