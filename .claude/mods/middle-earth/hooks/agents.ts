@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { FellowshipMember, MiddleEarthAgent, MiddleEarthRole } from '../types'
+import type { BuilderName, MiddleEarthAgent, MiddleEarthRole } from '../types'
 import { REVIEWERS, REVIEWER_EFFORT, REVIEWER_MODEL, reviewerSystem } from '../core/review'
 import { PLANNER_SYSTEM, isPlanPath } from './planner/plan'
 import { resolvedFrom } from '../core/paths'
-import { MEMBERS, isModSource, isOutside, memberSystem, reachesOut } from '../core/quest'
+import { BUILDERS, isModSource, isOutside, builderSystem, reachesOut } from '../core/run'
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
 import { TEST_WRITER_EFFORT, TEST_WRITER_LIGHT_MODEL, TEST_WRITER_MODEL, TEST_WRITER_SYSTEM, isTestPath } from '../core/tests-first'
 import type { Trees } from './kit/trees'
@@ -35,7 +35,7 @@ export const TEST_WRITER = 'test-writer'
 // It gazes on Sonnet for a task that is not heavy: the same charge, a lighter model
 export const TEST_WRITER_LIGHT = 'test-writer-light'
 
-// How many agents are kept: a quest's agents are few, and an old one is never asked of again
+// How many agents are kept: a run's agents are few, and an old one is never asked of again
 const KEPT = 64
 
 const agents = atom({ plugin: 'middle-earth', key: 'agents' } as const, {} as Record<string, MiddleEarthAgent>)
@@ -61,7 +61,7 @@ export async function remember($: $, agentId: string, agent: MiddleEarthAgent): 
 /** The agent of an id, as the record holds it; nothing for one the mod neither sent nor saw spawned in a folder. */
 export const agentOf = (agentId: string | undefined): MiddleEarthAgent | undefined => (agentId === undefined ? undefined : known.get(agentId))
 
-/** The folder each agent works in, by its id: a call of one sent to a quest's worktree is about that worktree. */
+/** The folder each agent works in, by its id: a call of one sent to a run's worktree is about that worktree. */
 export const treesOf = (): Trees => Object.fromEntries([...known].map(([id, agent]) => [id, agent.tree]))
 
 /** The role an agent type of the mod is sent in; nothing for any other type. */
@@ -70,7 +70,7 @@ export const roleOfType = (type: string): MiddleEarthRole | undefined => {
 
   const name = type.slice(PLUGIN.length + 1)
 
-  return name === PLANNER ? 'planner' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'reviewer' : undefined
+  return name === PLANNER ? 'planner' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in BUILDERS ? 'builder' : REVIEWERS.some(one => one.name === name) ? 'reviewer' : undefined
 }
 
 // The agents found to be none of the mod's: each is looked up once
@@ -103,12 +103,12 @@ const namedOf = (given: Call): string | undefined =>
 
 const withinOf = (tree: string, path: string): string => (path.startsWith(`${tree}/`) ? path.slice(tree.length + 1) : path.replace(/^\.\//, ''))
 
-/** Why a member's call is refused: it builds in its quest's worktree, and leaves the branch, the commits and the mods' folders alone. */
-const memberRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
+/** Why a builder's call is refused: it builds in its run's worktree, and leaves the branch, the commits and the mods' folders alone. */
+const builderRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
   if (given.tool === 'Bash' && typeof given.command === 'string') {
-    if (isForbiddenGit(given.command)) return "The Fellowship commits and keeps the branch: leave your change uncommitted, run no git command that moves HEAD or the index, and leave git's config as it is."
-    // A cd into the person's checkout would build the quest there, and move where the mod looks with it
-    if (reachesOut(agent.root, agent.tree, given.command)) return `You work in the quest's worktree, ${agent.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.`
+    if (isForbiddenGit(given.command)) return "The build commits and keeps the branch: leave your change uncommitted, run no git command that moves HEAD or the index, and leave git's config as it is."
+    // A cd into the person's checkout would build the run there, and move where the mod looks with it
+    if (reachesOut(agent.root, agent.tree, given.command)) return `You work in the run's worktree, ${agent.tree}: name no path of the person's checkout outside it, and use paths relative to your working directory.`
   }
 
   const named = namedOf(given)
@@ -117,8 +117,8 @@ const memberRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined
 
   const path = resolvedFrom(agent.tree, named)
 
-  if (isOutside(agent.tree, path)) return `You work in the quest's worktree, ${agent.tree}: read and change files there alone.`
-  if (isModPath(agent.tree, path)) return 'That folder belongs to a mod: a member changes the project, not what the mods keep.'
+  if (isOutside(agent.tree, path)) return `You work in the run's worktree, ${agent.tree}: read and change files there alone.`
+  if (isModPath(agent.tree, path)) return 'That folder belongs to a mod: a builder changes the project, not what the mods keep.'
   if (isModSource(agent.tree, path, { files: agent.files ?? [] })) return "That is a mod's source, and your task is not about a mod: say in your account what of it stood in your way, and leave it as it is."
 
   return undefined
@@ -165,8 +165,8 @@ const roleRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined =
       return undefined
     case 'reviewer':
       return given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command) ? REVIEWER_READS : undefined
-    case 'member':
-      return memberRefusal(agent, given)
+    case 'builder':
+      return builderRefusal(agent, given)
     case 'test-writer':
       return testWriterRefusal(agent, given)
     default:
@@ -189,14 +189,14 @@ export async function registerAgents($: $): Promise<void> {
     })
     .catch(() => undefined)
 
-  for (const [name, member] of Object.entries(MEMBERS) as [FellowshipMember, (typeof MEMBERS)[FellowshipMember]][]) {
+  for (const [name, member] of Object.entries(BUILDERS) as [BuilderName, (typeof BUILDERS)[BuilderName]][]) {
     await $.agent
       .register({
         name,
-        description: `${member.title} of the Fellowship: builds one task of a quest in its worktree, proven and reviewed. Sent by the Fellowship alone.`,
-        prompt: memberSystem(name),
+        description: `${member.title} of the build: builds one task of a run in its worktree, proven and reviewed. Sent by the build alone.`,
+        prompt: builderSystem(name),
         // The guard holds it to its fence: its worktree, no git that moves the branch, no mod's folder
-        tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', toolOf('radius'), toolOf('prove'), toolOf('amend')],
+        tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash', toolOf('radius'), toolOf('prove'), toolOf('amend_test')],
         disallowedTools: ['Agent', toolOf('task'), toolOf('review'), toolOf('commit')],
         model: member.model,
         effort: member.effort,
@@ -322,7 +322,7 @@ export async function recall($: $): Promise<void> {
 }
 
 /**
- * An agent spawned in a folder of its own (a quest's worktree) is about that folder: what it asks of the mod is
+ * An agent spawned in a folder of its own (a run's worktree) is about that folder: what it asks of the mod is
  * answered there, and one of the mod's types is held to its role from its first call, before its part keeps it as
  * sent (a spawn may answer its sender no id). One the mod sent is kept as it was sent, which this never overwrites.
  */
@@ -347,5 +347,5 @@ export const guardRefusalNow = (e: unknown): string | undefined => {
 export function registerOffers(on: On): void {
   // Every agent type of the mod answers in a shape its part reads: Claude reaches them through the mod's tools, never
   // through the Agent tool
-  for (const name of [PLANNER, TEST_WRITER, TEST_WRITER_LIGHT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+  for (const name of [PLANNER, TEST_WRITER, TEST_WRITER_LIGHT, ...Object.keys(BUILDERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 }

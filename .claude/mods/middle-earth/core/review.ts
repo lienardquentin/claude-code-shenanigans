@@ -246,7 +246,7 @@ export const answered = async (send: SendReviewer, held: Judgement, seat: Review
 export const nextStep = (made: Judgement): string => {
   const verdict = verdictOf(made)
 
-  // Minor findings are tidied once, as a quest's member tidies them: those of the judgement after are only mentioned
+  // Minor findings are tidied once, as a run's builder tidies them: those of the judgement after are only mentioned
   return verdict === 'fail'
     ? 'Fix what blocks before the change is committed, then prove it again: the reviewers judge the new change.'
     : verdict === 'silent'

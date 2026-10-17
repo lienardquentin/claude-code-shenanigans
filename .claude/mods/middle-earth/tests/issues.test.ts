@@ -33,7 +33,7 @@ const machine = (on: On) => {
     return { value: text } as never
   })
   on('session.cwd', () => ({ value: CWD }) as never)
-  // No quest has cost anything yet: the Fellowship's record of it is not there
+  // No run has cost anything yet: the build's record of it is not there
   on('fs.exists', () => ({ value: false }) as never)
   on('process.run', (_, e) => {
     const line = e.argv.join(' ')
@@ -93,7 +93,7 @@ const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}
 const ends = ($: Engine, agentId: string, answer: string) => $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 
 describe('the issues listed', () => {
-  test('read each issue with the ref Elrond and the Fellowship know it by, from either forge, its body cut for the pane', () => {
+  test('read each issue with the ref Elrond and the build know it by, from either forge, its body cut for the pane', () => {
     expect(listedOf(parseIssues(GH_LIST) ?? [], ORIGIN)).toEqual([
       { ref: `github:${REPO}#12`, number: 12, title: 'Beacons answer how long they have burned', url: `https://github.com/${REPO}/issues/12`, labels: ['ready-for-agent'], author: 'quent', updatedAt: '2026-10-14T09:00:00Z', body: 'The body of #12.' },
       expect.objectContaining({ ref: `github:${REPO}#21`, labels: [] }),
@@ -104,8 +104,8 @@ describe('the issues listed', () => {
     expect(gitlab).toEqual([expect.objectContaining({ ref: 'gitlab:git.example.com/g/p#3', number: 3, labels: ['bug'], author: 'ann', body: `${'x'.repeat(600)}…` })])
   })
 
-  test("say where an issue stands: its quest first, else its plan", () => {
-    expect(standingOf({ kind: 'errand', phase: 'marching' }, 'planned · 0/2 done')).toBe('errand · marching')
+  test("say where an issue stands: its run first, else its plan", () => {
+    expect(standingOf({ kind: 'errand', phase: 'building' }, 'planned · 0/2 done')).toBe('errand · building')
     expect(standingOf(undefined, 'in council')).toBe('in council')
     expect(standingOf(undefined, '')).toBe('')
   })
@@ -113,7 +113,7 @@ describe('the issues listed', () => {
 
 describe('issues', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`lists the open issues, and sends the one opened as an errand to the Fellowship, on ${surface}`, async ($, on) => {
+    test(`lists the open issues, and sends the one opened as an errand to the build, on ${surface}`, async ($, on) => {
       const world = machine(on)
       await $.session.start({ source: 'startup', cwd: CWD } as never)
 
@@ -125,14 +125,14 @@ describe('issues', () => {
       await pane.press({ key: 'issue-21' })
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon\s+by quent · updated 2026-10-14[\s\S]*The body of #21\.[\s\S]*\[e Errand\][\s\S]*\[c Send to the planner\]/)
 
-      // The press only asks: the Fellowship's clock sets the errand out, which sends no agent
+      // The press only asks: the build's clock sets the errand out, which sends no agent
       await pane.press({ key: 'errand' })
       await world.clock.advance(600)
       await world.clock.advance(600)
-      expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(new RegExp(`^Fellowship: The Fellowship sets out on github:${REPO}#21, "Quench answers 404 for an unknown beacon"`))
+      expect(world.toasts.find(toast => toast.startsWith('Build: '))).toMatch(new RegExp(`^Build: The build starts on github:${REPO}#21, "Quench answers 404 for an unknown beacon"`))
 
-      // Once on the Fellowship's road, the issue is the Fellowship's: no second errand, no council
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The Fellowship is on it \(errand · \w+\): \/fellowship goes on with it\./)
+      // Once on the build's road, the issue is the build's: no second errand, no council
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The build is on it \(errand · \w+\): \/build goes on with it\./)
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'issues' })).not.toContain('[e Errand]')
     })
   }

@@ -5,7 +5,7 @@ import type { ListedIssue } from '../../types'
 import { HOW_TO, listedOf, standingOf } from './listed'
 import { parseRemote } from '../../core/forge'
 import { askPlanner, planStanding } from '../planner/register'
-import { askErrand, questLeftovers } from '../fellowship/register'
+import { askErrand, runLeftovers } from '../build/register'
 import { errorText, forgeIn, git } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -61,14 +61,14 @@ async function refreshed($: $): Promise<string> {
   return said
 }
 
-/** Where each listed issue stands with the Fellowship and the planner, by its ref. */
+/** Where each listed issue stands with the build and the planner, by its ref. */
 async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<string, string>> {
-  const quests = await questLeftovers($).catch(() => [])
+  const quests = await runLeftovers($).catch(() => [])
   const found = new Map<string, string>()
 
   for (const issue of listed) {
-    // A review quest is a pull request's, never an issue's
-    const quest = quests.find(one => one.ref === issue.ref && one.kind !== 'review' && one.phase !== 'sailed')
+    // A review run is a pull request's, never an issue's
+    const quest = quests.find(one => one.ref === issue.ref && one.kind !== 'review' && one.phase !== 'submitted')
 
     found.set(issue.ref, standingOf(quest, quest === undefined ? await planStanding($, issue.ref).catch(() => '') : ''))
   }
@@ -78,7 +78,7 @@ async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<stri
 
 /** The issues pane at the session's start: its command. The issues are read once the pane is opened. */
 export async function startIssues($: $): Promise<void> {
-  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the Fellowship, or sent to the planner' })
+  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the build, or sent to the planner' })
 }
 
 export function registerIssues(on: On): void {
@@ -124,8 +124,8 @@ export function registerIssues(on: On): void {
     }
 
     const openStanding = open === undefined ? '' : (standing.get(open.ref) ?? '')
-    // An issue a quest is on already is the Fellowship's: its pane goes on with it
-    const isOnQuest = /^(plan|errand) · /.test(openStanding)
+    // An issue a run is on already is the build's: its pane goes on with it
+    const isOnRun = /^(plan|errand) · /.test(openStanding)
     const isPlanned = openStanding.startsWith('planned')
 
     return view.keep(
@@ -165,11 +165,11 @@ export function registerIssues(on: On): void {
             )}
             {open.url !== '' && <Text dimColor wrap="truncate-middle">{open.url}</Text>}
             <Box marginTop={1}>
-              {isOnQuest ? (
-                <Text color="suggestion">{`The Fellowship is on it (${openStanding}): /fellowship goes on with it.`}</Text>
+              {isOnRun ? (
+                <Text color="suggestion">{`The build is on it (${openStanding}): /build goes on with it.`}</Text>
               ) : (
                 <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-                  <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the Fellowship pane shows it set out.`))}>
+                  <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the build pane shows it started.`))}>
                     {keyed('e', 'Errand')}
                   </Button>
                   <Button key="planner" hotkey="c" onPress={() => askPlanner($, open.ref).then(said)}>

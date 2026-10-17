@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-// Elrond's plans and the Fellowship's quests were kept, before the mods were one, in a store of each mod's own: a JSON
+// Elrond's plans and the build's runs were kept, before the mods were one, in a store of each mod's own: a JSON
 // file under the configuration folder, named by the plugin's id. This carries what they keep into the plugin's own
 // store, once; a key the plugin already holds is never overwritten, and the old files are left as they are.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
@@ -27,7 +27,7 @@ export const carriedOf = (text: string, prefix: string, held: readonly string[])
   }
 }
 
-/** Carries the plans and quests the old stores keep into this plugin's own, once. */
+/** Carries the plans and runs the old stores keep into this plugin's own, once. */
 export async function carryStores($: $): Promise<void> {
   if ((await $.store.get(CARRIED)) === true) return
 

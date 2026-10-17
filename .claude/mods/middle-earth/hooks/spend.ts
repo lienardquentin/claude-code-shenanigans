@@ -3,8 +3,8 @@ import type { EngineInterface, TurnUsage } from 'claude-code'
 import type { MiddleEarthAgent, MiddleEarthSpend } from '../types'
 
 // What each agent the mod sends costs, a line a turn: its role, its model, its tokens and its time, by the issue it
-// works for and the folder it works in. Kept in .fellowship/, which no commit takes, across sessions, so a quest says
-// what it has cost and the person can weigh what quests cost from the record.
+// works for and the folder it works in. Kept in .fellowship/, which no commit takes, across sessions, so a run says
+// what it has cost and the person can weigh what runs cost from the record.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
@@ -91,7 +91,7 @@ export const costLine = (turns: readonly MiddleEarthSpend[]): string => {
   return `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}, ${minutes(ms)}, ${count(read)} tokens in (${count(cached)} cached), ${count(out)} out`
 }
 
-/** What a quest's agents cost: in all, then by role, each as `costLine` says it, with the models it ran on. Nothing for a quest none was counted to. */
+/** What a run's agents cost: in all, then by role, each as `costLine` says it, with the models it ran on. Nothing for a run none was counted to. */
 export const costText = (turns: readonly MiddleEarthSpend[]): string => {
   if (turns.length === 0) return ''
 

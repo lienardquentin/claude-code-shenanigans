@@ -142,7 +142,7 @@ describe('a proof', () => {
     expect(world.jobs[2]?.job).toMatchObject({ command: 'uv run pytest beacons/tests', tests: ['/proj/beacons/tests'] })
   })
 
-  test('hands a service played in a quest worktree the project folder, whose database it plays against', async () => {
+  test('hands a service played in a run worktree the project folder, whose database it plays against', async () => {
     const { fake, world } = machine({ service: ok({ label: 'gondor', from: side('HEAD', ''), to: side('work', ''), error: '', cases: [] }) })
 
     await lookAt(fake, look({ chosen: [target('gondor')], tree: '/proj/.fellowship/trees/x', project: TREE }))

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { applyAfresh, commitTask, landLane, leakOf } from '../core/git'
 import type { Ran, Shell } from '../core/forge'
 
-const TREE = '/proj/.fellowship/trees/fellowship-12-x'
+const TREE = '/proj/.fellowship/trees/build-12-x'
 
 const ok = (stdout = ''): Ran => ({ exitCode: 0, stdout, stderr: '' })
 const failed = (stderr: string): Ran => ({ exitCode: 1, stdout: '', stderr })
@@ -47,7 +47,7 @@ describe("a task's commit", () => {
     expect(ran).toHaveLength(1)
   })
 
-  test("is refused once what git runs on a commit changed since the quest set out, or the change touches its hooks", async () => {
+  test("is refused once what git runs on a commit changed since the run started, or the change touches its hooks", async () => {
     const changed = shell([
       ['git status', ok(' M a.py')],
       ['git config', ok('file:.git/config core.hookspath evil')],
@@ -86,11 +86,11 @@ describe("a task's commit", () => {
 })
 
 describe("a lane's landing", () => {
-  const landing = { taskId: 3, sha: 'lane123', branch: 'fellowship/12-x', laneTree: `${TREE}--task-3`, questTree: TREE }
+  const landing = { taskId: 3, sha: 'lane123', branch: 'build/12-x', laneTree: `${TREE}--task-3`, questTree: TREE }
 
-  test("fast-forwards its quest's branch where nothing landed since it set out", async () => {
+  test("fast-forwards its run's branch where nothing landed since it started", async () => {
     const lane = shell([
-      ['git rev-parse refs/heads/fellowship/12-x', ok('tip456')],
+      ['git rev-parse refs/heads/build/12-x', ok('tip456')],
       ['git merge-base HEAD tip456', ok('tip456')],
     ])
     const quest = shell([['git rev-parse HEAD', ok('lane123')]])
@@ -101,7 +101,7 @@ describe("a lane's landing", () => {
 
   test('is taken onto what landed since, and left uncommitted there to be proved again', async () => {
     const lane = shell([
-      ['git rev-parse refs/heads/fellowship/12-x', ok('tip789')],
+      ['git rev-parse refs/heads/build/12-x', ok('tip789')],
       ['git merge-base HEAD tip789', ok('tip456')],
     ])
 
@@ -117,7 +117,7 @@ describe("a lane's landing", () => {
     ])
 
     expect(await landLane(conflicting.fake, shell([]).fake, landing)).toEqual({ kind: 'conflicts', onto: 'tip789' })
-    expect(await landLane(shell([['git rev-parse', failed('unknown revision')]]).fake, shell([]).fake, landing)).toEqual({ kind: 'stop', why: 'Task 3 cannot land: git could not say where fellowship/12-x stands against the lane (unknown revision).' })
+    expect(await landLane(shell([['git rev-parse', failed('unknown revision')]]).fake, shell([]).fake, landing)).toEqual({ kind: 'stop', why: 'Task 3 cannot land: git could not say where build/12-x stands against the lane (unknown revision).' })
   })
 
   test('marks a task that changed nothing as landed with no commit', async () => {
@@ -146,7 +146,7 @@ describe('a change applied afresh on what landed', () => {
 })
 
 describe('a branch about to leave the machine', () => {
-  const quest = { kind: 'plan', branch: 'fellowship/12-x', base: 'main' }
+  const quest = { kind: 'plan', branch: 'build/12-x', base: 'main' }
 
   test("is read for secrets in what it adds over origin's base, else the local one", async () => {
     const fetched = shell([['git diff', ok('+++ b/a.py\n+print(1)')]])
@@ -161,8 +161,8 @@ describe('a branch about to leave the machine', () => {
   })
 
   test("stays where what it adds holds a secret, could not be read, or a review's branch is not on origin", async () => {
-    expect(await leakOf(shell([['git diff', ok('+++ b/s.py\n+K = "AKIAABCDEFGHIJKLMNOP"')]]).fake, quest)).toBe('fellowship/12-x adds what looks like a secret (s.py: an AWS access key), so it does not leave the machine: take it out of the branch\'s history, then push again.')
-    expect(await leakOf(shell([['git diff', failed('fatal: bad revision')]]).fake, quest)).toBe('What fellowship/12-x adds over origin/main could not be read for secrets: fatal: bad revision')
-    expect(await leakOf(shell([['git rev-parse --verify', failed('')]]).fake, { ...quest, kind: 'review' })).toBe('origin/fellowship/12-x is not known here, so what fellowship/12-x adds cannot be read for secrets: fetch it, then push again.')
+    expect(await leakOf(shell([['git diff', ok('+++ b/s.py\n+K = "AKIAABCDEFGHIJKLMNOP"')]]).fake, quest)).toBe('build/12-x adds what looks like a secret (s.py: an AWS access key), so it does not leave the machine: take it out of the branch\'s history, then push again.')
+    expect(await leakOf(shell([['git diff', failed('fatal: bad revision')]]).fake, quest)).toBe('What build/12-x adds over origin/main could not be read for secrets: fatal: bad revision')
+    expect(await leakOf(shell([['git rev-parse --verify', failed('')]]).fake, { ...quest, kind: 'review' })).toBe('origin/build/12-x is not known here, so what build/12-x adds cannot be read for secrets: fetch it, then push again.')
   })
 })

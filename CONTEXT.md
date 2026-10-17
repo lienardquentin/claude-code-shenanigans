@@ -24,8 +24,8 @@ _Avoid_: Track, swimlane, thread
 One stretch of work drawn in a lane: a turn of the main conversation, or one tool call, with when it started and ended.
 _Avoid_: Event, entry, bar
 
-**Run**:
-One feature taken from an idea or an existing issue to a pull request by the workflow mod.
+**Ship-flow run**:
+One feature taken from an idea or an existing issue to a pull request by ship-flow, the older workflow mod.
 _Avoid_: Job, pipeline, session
 
 **Feature issue**:
@@ -92,11 +92,11 @@ _Avoid_: Session usage, context usage, tokens left
 
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
 committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the issues pane lists the issues,
-the planner plans, the Fellowship builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
+the planner plans, the build builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
 review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
-One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, the planner, the Fellowship, tests first, the
+One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, the planner, the build, tests first, the
 verify, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
@@ -105,53 +105,53 @@ A subagent a part sends (the planner, a builder, the test writer, a reviewer), r
 held to what its role allows under the session's own permission mode.
 _Avoid_: Worker, helper, bot
 
-**Quest**:
-One piece of work the Fellowship takes to a pull request, or to a push: a plan, an errand or a review. Several quests run
-at once, one an issue or pull request.
-_Avoid_: Run, job, flow
+**Run**:
+One piece of work the build (`/build`) takes to a pull request, or to a push: a plan, an errand or a review. Several
+runs go at once, one an issue or pull request.
+_Avoid_: Quest, job, flow
 
 **Issues pane**:
-The pane of the origin's open issues (/issues), where the person sends one as an errand to the Fellowship or to the
-planner; an issue a quest is on already is left to the Fellowship.
+The pane of the origin's open issues (/issues), where the person sends one as an errand to the build or to the
+planner; an issue a run is on already is left to the build.
 _Avoid_: Rings, backlog, inbox
 
 **Plan**:
-The planner's (`/planner`) split of one issue into tasks, with the questions the person answers and the risks they decide before a quest
+The planner's (`/planner`) split of one issue into tasks, with the questions the person answers and the risks they decide before a run
 on it may start.
 _Avoid_: Spec, ticket list
 
 **Errand**:
-A quest on an issue small enough for one change, built with no plan; its builder hands it back when it is not.
-_Avoid_: Quick fix, small quest
+A run on an issue small enough for one change, built with no plan; its builder hands it back when it is not.
+_Avoid_: Quick fix, small run
 
-**Review quest**:
-A quest the review follow-up (`/follow-up`) hands over: the review comments of an open pull request that ask for a change, each a task
+**Review run**:
+A run the review follow-up (`/follow-up`) hands over: the review comments of an open pull request that ask for a change, each a task
 answered on the pull request's own branch, and pushed there, never opened as a new pull request.
 _Avoid_: Gate run, review run
 
 **Task**:
-One step of a quest, built in one change and committed alone: a plan's task, an errand's whole issue, or one review
+One step of a run, built in one change and committed alone: a plan's task, an errand's whole issue, or one review
 comment.
 _Avoid_: Ticket, step, job
 
-**Quest worktree**:
-The git worktree a quest is built in, under `.fellowship/trees/`; the person's own checkout is never switched by a
-quest. A review whose branch is already checked out somewhere is built there instead.
+**Run worktree**:
+The git worktree a run is built in, under `.fellowship/trees/`; the person's own checkout is never switched by a
+run. A review whose branch is already checked out somewhere is built there instead.
 _Avoid_: Sandbox, clone, workspace
 
 **Lane**:
-One task of a plan's quest built beside its others, in a worktree and on a branch of its own off the quest's, when the
-tasks ready share no file (three at most). Once passed, it lands on the quest's branch: rebased onto what landed before
+One task of a plan's run built beside its others, in a worktree and on a branch of its own off the run's, when the
+tasks ready share no file (three at most). Once passed, it lands on the run's branch: rebased onto what landed before
 it and proved again, or sent back to its builder where the two conflict.
-_Avoid_: Ticket worktree, parallel task, sub-quest
+_Avoid_: Ticket worktree, parallel task, sub-run
 
 **Builder**:
-The subagent that builds one task in the quest worktree (a member of the Fellowship, chosen by the task's weight and
-target, a rung up on each try, Gandalf last).
+The subagent that builds one task in the run worktree (light, CLI, service, frontend, heavy or last, chosen by the
+task's weight and target, a rung up on each try, the last builder last).
 _Avoid_: Implementer, worker, companion
 
 **Hand back**:
-A builder's ending its turn with `Handed back:` and why, building nothing more: a plan that must be revised (Gandalf
+A builder's ending its turn with `Handed back:` and why, building nothing more: a plan that must be revised (the last builder
 alone), an issue that is no errand, a review comment only the person can answer.
 _Avoid_: Refuse, give up, bail
 

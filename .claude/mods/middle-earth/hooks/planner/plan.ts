@@ -3,7 +3,7 @@ import { parseIssueRef } from '../../core/forge'
 import type { Issue, IssueRef, Repo } from '../../core/forge'
 import { fencedJson } from '../../core/answers'
 import { resolvedFrom } from '../../core/paths'
-import { WEIGHT_MEANS } from '../../core/quest'
+import { WEIGHT_MEANS } from '../../core/run'
 export { isChanging } from '../flow'
 
 // What the planner is handed of an issue at most: a longer body or thread is cut, and says so

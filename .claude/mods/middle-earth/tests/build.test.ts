@@ -3,14 +3,14 @@ import type { TestBody } from 'claude-code/testing'
 
 import { refOf } from '../core/forge'
 import { refusalOf } from '../hooks/agents'
-import { besideOf, branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isModSource, isOutside, memberFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, proofVerdict, purposeOf, reachesOut, readyTasks, requestOf, reviewTasks, spentOn, triesOf, unsettledOf, wardModelFor } from '../core/quest'
+import { besideOf, branchOf, closingLine, commitMessage, builderPrompt, errandTask, handBackOf, isModSource, isOutside, builderFor, nextTask, ownMinor, parseJudgement, parsePlan, parseWorktrees, proofVerdict, purposeOf, reachesOut, readyTasks, requestOf, reviewTasks, spentOn, triesOf, unsettledOf, wardModelFor } from '../core/run'
 import { isForbiddenGit, isModPath, treePathOf } from '../hooks/flow'
-import type { QuestOf } from '../core/quest'
-import { canMove, restingPhase } from '../hooks/fellowship/phases'
+import type { RunOf } from '../core/run'
+import { canMove, restingPhase } from '../hooks/build/phases'
 import { shortRef } from '../hooks/look'
-import type { FellowshipPlan, FellowshipQuest, MiddleEarthSpend } from '../types'
-import { MEMBERS } from '../core/quest'
-import type { TargetFolders } from '../core/quest'
+import type { RunWork, Run, MiddleEarthSpend } from '../types'
+import { BUILDERS } from '../core/run'
+import type { TargetFolders } from '../core/run'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -35,8 +35,8 @@ const PLAN = {
 }
 
 const REF = PLAN.ref
-const BRANCH = 'fellowship/12-beacons-answer-how-long-they-have-burned'
-const TREE = `${CWD}/.fellowship/trees/fellowship-12-beacons-answer-how-long-they-have-burned`
+const BRANCH = 'build/12-beacons-answer-how-long-they-have-burned'
+const TREE = `${CWD}/.fellowship/trees/build-12-beacons-answer-how-long-they-have-burned`
 
 /** The plan with its two tasks apart: neither waits on the other, and they change no file in common. */
 const apart = (): typeof PLAN => {
@@ -51,10 +51,10 @@ const apart = (): typeof PLAN => {
 const LANE_1 = `${TREE}--task-1`
 const LANE_2 = `${TREE}--task-2`
 
-/** The quest the plan's prompts and messages are made for. */
-const QUEST: QuestOf = { kind: 'plan', ref: REF, url: PLAN.url, title: PLAN.title, branch: BRANCH }
+/** The run the plan's prompts and messages are made for. */
+const QUEST: RunOf = { kind: 'plan', ref: REF, url: PLAN.url, title: PLAN.title, branch: BRANCH }
 
-const plan = (change: Partial<FellowshipPlan> = {}): FellowshipPlan => ({ ...(parsePlan(JSON.stringify(PLAN)) as FellowshipPlan), ...change })
+const plan = (change: Partial<RunWork> = {}): RunWork => ({ ...(parsePlan(JSON.stringify(PLAN)) as RunWork), ...change })
 
 const PINNED_TEXT = ['gondor: 1 kept request changed · 1 pinned.', '', 'pinned: GET /beacons/minas-tirith', '  pinned by test_burned: it fails on the commit\'s source and passes on the working tree.'].join('\n')
 const BARE_TEXT = ['gondor: 1 kept request changed · 1 bare.', '', 'bare: GET /beacons/minas-tirith', '  no test is marked on it.'].join('\n')
@@ -99,10 +99,10 @@ describe('the plan the planner answers', () => {
   test('is read from its JSON, and is none when the planner holds none', () => {
     expect(plan().tasks[1]).toMatchObject({ id: 2, dependsOn: [1], state: 'todo' })
     expect(parsePlan('null')).toBeNull()
-    expect(parsePlan('No plan is in force.')).toMatch(/no plan the Fellowship can read/)
+    expect(parsePlan('No plan is in force.')).toMatch(/no plan the build can read/)
   })
 
-  test('is not set out on while a question is open or a risk undecided', () => {
+  test('is not start on while a question is open or a risk undecided', () => {
     expect(unsettledOf(plan())).toEqual([])
     expect(unsettledOf(plan({ questions: [{ text: 'Q', options: [], answer: '' }], risks: [{ text: 'R', severity: 'high', mitigation: '', tasks: [1], wantsTask: false }] }))).toEqual(['1 unanswered question', '1 undecided risk (accept each, or have it covered or asked about)'])
   })
@@ -136,14 +136,14 @@ describe('the issue, its branch and its worktree', () => {
   })
 
   test('name the commit and the pull request that closes it, on either forge', () => {
-    expect(commitMessage(QUEST, plan(), plan().tasks[0]!, 'Merry', ['- Correctness reviewer, app.py:70: lit could be named burning.'])).toMatch(
-      /^#12: Keep when a beacon is lit\n\nTask 1 of the plan for https:\/\/github\.com\/.*\/issues\/12, built by Merry of the Fellowship[\s\S]*Minor findings of the reviewers, left as they are:\n- Correctness reviewer, app\.py:70[\s\S]*Co-Authored-By: Claude/,
+    expect(commitMessage(QUEST, plan(), plan().tasks[0]!, 'Light builder 3', ['- Correctness reviewer, app.py:70: lit could be named burning.'])).toMatch(
+      /^#12: Keep when a beacon is lit\n\nTask 1 of the plan for https:\/\/github\.com\/.*\/issues\/12, built by Light builder 3[\s\S]*Minor findings of the reviewers, left as they are:\n- Correctness reviewer, app\.py:70[\s\S]*Co-Authored-By: Claude/,
     )
 
-    const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'fellowship/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Frodo', minor: ['- Correctness reviewer, app.py:70: lit could be named burning.'] }] } as unknown as FellowshipQuest
+    const quest = { kind: 'plan', ref: REF, base: 'main', branch: 'build/12-x', commits: [{ taskId: 1, title: 'Keep', sha: 'abcdef1234', by: 'Light builder 1', minor: ['- Correctness reviewer, app.py:70: lit could be named burning.'] }] } as unknown as Run
 
-    expect(requestOf(quest, plan())).toMatchObject({ forge: 'github', request: { branch: 'fellowship/12-x', base: 'main' } })
-    expect(requestOf(quest, plan()).request.body).toMatch(/- abcdef1 1\. Keep \(Frodo\)[\s\S]*## Minor findings[\s\S]*- task 1: Correctness reviewer, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
+    expect(requestOf(quest, plan())).toMatchObject({ forge: 'github', request: { branch: 'build/12-x', base: 'main' } })
+    expect(requestOf(quest, plan()).request.body).toMatch(/- abcdef1 1\. Keep \(Light builder 1\)[\s\S]*## Minor findings[\s\S]*- task 1: Correctness reviewer, app\.py:70[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/)
     expect(requestOf({ ...quest, ref: 'gitlab:g/p#3' }, plan({ ref: 'gitlab:g/p#3' })).forge).toBe('gitlab')
   })
 })
@@ -161,35 +161,35 @@ describe('Verify\'s proof', () => {
   })
 })
 
-describe("a quest's course", () => {
-  test('goes only where the Fellowship leads it: no commit unjudged, no pull request from the middle of a task', () => {
+describe("a run's course", () => {
+  test('goes only where the build leads it: no commit unjudged, no pull request from the middle of a task', () => {
     // A change is committed (judging → ready) only after the reviewers sat, and they review only on a proved change
-    expect(canMove('judging', 'ready')).toBe(true)
+    expect(canMove('reviewing', 'ready')).toBe(true)
     expect(canMove('proving', 'ready')).toBe(false)
-    expect(canMove('ready', 'judging')).toBe(false)
-    expect(canMove('marching', 'judging')).toBe(false)
-    // It sails only once arrived
-    for (const from of ['ready', 'gazing', 'marching', 'proving', 'judging', 'stuck', 'warding'] as const) expect(canMove(from, 'sailed')).toBe(false)
-    expect(canMove('arrived', 'sailed')).toBe(true)
-    // It may stop for the person from anywhere before it has sailed, and stay where it is
-    for (const from of ['ready', 'gazing', 'marching', 'proving', 'judging', 'arrived', 'warding'] as const) expect(canMove(from, 'stuck')).toBe(true)
-    expect(canMove('sailed', 'stuck')).toBe(false)
-    expect(canMove('judging', 'judging')).toBe(true)
+    expect(canMove('ready', 'reviewing')).toBe(false)
+    expect(canMove('building', 'reviewing')).toBe(false)
+    // It is submitted only once built
+    for (const from of ['ready', 'writing-tests', 'building', 'proving', 'reviewing', 'stuck', 'reviewing-branch'] as const) expect(canMove(from, 'submitted')).toBe(false)
+    expect(canMove('built', 'submitted')).toBe(true)
+    // It may stop for the person from anywhere before it has submitted, and stay where it is
+    for (const from of ['ready', 'writing-tests', 'building', 'proving', 'reviewing', 'built', 'reviewing-branch'] as const) expect(canMove(from, 'stuck')).toBe(true)
+    expect(canMove('submitted', 'stuck')).toBe(false)
+    expect(canMove('reviewing', 'reviewing')).toBe(true)
   })
 
-  test('rests, once its agents are out no more, stuck where one was out and arrived where its branch was judged', () => {
-    expect(['gazing', 'marching', 'proving', 'judging'].map(one => restingPhase(one as never))).toEqual(['stuck', 'stuck', 'stuck', 'stuck'])
-    expect(restingPhase('warding')).toBe('arrived')
+  test('rests, once its agents are out no more, stuck where one was out and built where its branch was judged', () => {
+    expect(['writing-tests', 'building', 'proving', 'reviewing'].map(one => restingPhase(one as never))).toEqual(['stuck', 'stuck', 'stuck', 'stuck'])
+    expect(restingPhase('reviewing-branch')).toBe('built')
     expect(restingPhase('ready')).toBe('ready')
-    expect(restingPhase('sailed')).toBe('sailed')
+    expect(restingPhase('submitted')).toBe('submitted')
   })
 })
 
 describe('every agent the mod sends', () => {
-  const sent = (role: 'member' | 'reviewer' | 'planner' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'member' || role === 'test-writer' ? TREE : CWD })
+  const sent = (role: 'builder' | 'reviewer' | 'planner' | 'test-writer' | 'other') => ({ role, root: CWD, tree: role === 'builder' || role === 'test-writer' ? TREE : CWD })
 
   test('stays in the sandbox, out of the home folder and the private folders of the machine, and runs nothing it downloads', () => {
-    for (const role of ['member', 'reviewer', 'planner', 'test-writer'] as const) {
+    for (const role of ['builder', 'reviewer', 'planner', 'test-writer'] as const) {
       for (const call of [
         { tool: 'Bash', command: 'cargo test', dangerouslyDisableSandbox: true },
         { tool: 'Bash', command: 'cat ~/.ssh/id_rsa' },
@@ -240,9 +240,9 @@ describe('the reviewers\' judgement', () => {
 })
 
 describe('tasks beside one another', () => {
-  const task = (id: number, files: string[], change: Partial<FellowshipPlan['tasks'][number]> = {}) => ({ ...plan().tasks[0]!, id, title: `t${id}`, files, dependsOn: [], ...change })
+  const task = (id: number, files: string[], change: Partial<RunWork['tasks'][number]> = {}) => ({ ...plan().tasks[0]!, id, title: `t${id}`, files, dependsOn: [], ...change })
 
-  test('are those ready: not behind the quest, their dependencies done, and none out in a lane already', () => {
+  test('are those ready: not behind the run, their dependencies done, and none out in a lane already', () => {
     const made = plan({ tasks: [task(1, ['a'], { state: 'done' }), task(2, ['b'], { dependsOn: [1] }), task(3, ['c'], { dependsOn: [4] }), task(4, ['d']), task(5, ['e'], { state: 'asked' })] })
 
     expect(readyTasks(made, []).map(one => one.id)).toEqual([2, 4])
@@ -262,54 +262,54 @@ describe('tasks beside one another', () => {
     expect(besideOf([task(2, ['b'])], [task(1, [])])).toEqual([])
   })
 
-  test('are named by their quest and their task', () => {
+  test('are named by their run and their task', () => {
     expect(shortRef(`${REF}~3`)).toBe('#12 task 3')
     expect(shortRef(REF)).toBe('#12')
   })
 })
 
-describe('what a quest cost', () => {
-  const turn = (change: Partial<MiddleEarthSpend>): MiddleEarthSpend => ({ role: 'member', tree: TREE, model: 'claude-opus-5-5', input: 1, cacheRead: 0, cacheWrite: 0, output: 1, durationMs: 1, at: 1, ...change })
+describe('what a run cost', () => {
+  const turn = (change: Partial<MiddleEarthSpend>): MiddleEarthSpend => ({ role: 'builder', tree: TREE, model: 'claude-opus-5-5', input: 1, cacheRead: 0, cacheWrite: 0, output: 1, durationMs: 1, at: 1, ...change })
 
   test('counts the turns of its issue, and those sent into its worktree with no issue named, and no other', () => {
     const turns = [turn({ ref: REF }), turn({ role: 'planner', ref: REF, tree: CWD }), turn({ role: 'reviewer' }), turn({ role: 'reviewer', tree: CWD }), turn({ ref: 'github:o/r#3', tree: '/proj/.fellowship/trees/other' })]
 
     expect(spentOn({ ref: REF, tree: TREE }, CWD, turns)).toEqual(turns.slice(0, 3))
-    // A quest built in the project's own folder takes none of the turns there that name no issue
+    // A run built in the project's own folder takes none of the turns there that name no issue
     expect(spentOn({ ref: REF, tree: CWD }, CWD, turns)).toEqual(turns.slice(0, 2))
   })
 })
 
-describe('a member', () => {
-  test('is chosen by the weight of the task and its target, one rung up each try, Gandalf last', () => {
+describe('a builder', () => {
+  test('is chosen by the weight of the task and its target, one rung up each try, the last builder last', () => {
     const made = plan()
     const [light, standard] = made.tasks
 
-    expect([1, 2, 3, 4].map(attempt => memberFor(made, light!, attempt, TARGETS))).toEqual(['frodo', 'gimli', 'aragorn', 'gandalf'])
+    expect([1, 2, 3, 4].map(attempt => builderFor(made, light!, attempt, TARGETS))).toEqual(['builder-light-1', 'builder-service', 'builder-heavy', 'builder-last'])
     expect(triesOf(made, light!)).toBe(4)
-    expect(memberFor(made, { ...standard!, files: ['beacons/anor/src/App.tsx', 'beacons/gondor/app.py', 'beacons/anor/src/Beacon.tsx'] }, 1, TARGETS)).toBe('legolas')
-    expect(memberFor(made, { ...standard!, files: ['narsil/src/main.rs'] }, 1, TARGETS)).toBe('boromir')
-    expect(memberFor(made, { ...standard!, id: 3, weight: 'light' }, 1, TARGETS)).toBe('merry')
-    expect(memberFor(made, { ...standard!, weight: 'heavy' }, 1, TARGETS)).toBe('aragorn')
+    expect(builderFor(made, { ...standard!, files: ['beacons/anor/src/App.tsx', 'beacons/gondor/app.py', 'beacons/anor/src/Beacon.tsx'] }, 1, TARGETS)).toBe('builder-frontend')
+    expect(builderFor(made, { ...standard!, files: ['narsil/src/main.rs'] }, 1, TARGETS)).toBe('builder-cli')
+    expect(builderFor(made, { ...standard!, id: 3, weight: 'light' }, 1, TARGETS)).toBe('builder-light-3')
+    expect(builderFor(made, { ...standard!, weight: 'heavy' }, 1, TARGETS)).toBe('builder-heavy')
     expect(triesOf(made, { ...standard!, weight: 'heavy' })).toBe(2)
   })
 
   test('is sent a rung up when a high risk threatens the task', () => {
     const made = plan({ risks: [{ text: 'Data loss', severity: 'high', mitigation: '', tasks: [1], wantsTask: false }] })
 
-    expect(memberFor(made, made.tasks[0]!, 1, TARGETS)).toBe('gimli')
+    expect(builderFor(made, made.tasks[0]!, 1, TARGETS)).toBe('builder-service')
   })
 
   test('is sent with its task, the risks that threaten it, and on a retry what stopped the try before', () => {
     const made = plan({ risks: [{ text: 'Old beacons have no lit_at', severity: 'medium', mitigation: 'Default to null', tasks: [2], wantsTask: false }] })
-    const prompt = companionPrompt(QUEST, made, made.tasks[1]!, 'gimli', { attempt: 2, by: 'Gimli', answer: 'Added burned_for.', proof: BARE_TEXT })
+    const prompt = builderPrompt(QUEST, made, made.tasks[1]!, 'builder-service', { attempt: 2, by: 'Service builder', answer: 'Added burned_for.', proof: BARE_TEXT })
 
     expect(prompt).toMatch(/Risks that threaten this task:\n- \(medium\) Old beacons have no lit_at Mitigation: Default to null/)
     expect(prompt).toMatch(/Task 2: Answer the seconds burned[\s\S]*Done when: A test reads burned_for/)
-    expect(prompt).toMatch(/This is try 2\. The change Gimli made[\s\S]*What Gimli said:[\s\S]*<proof>\ngondor: 1 kept request changed · 1 bare/)
-    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toMatch(/Risks that threaten/)
+    expect(prompt).toMatch(/This is try 2\. The change Service builder made[\s\S]*What Service builder said:[\s\S]*<proof>\ngondor: 1 kept request changed · 1 bare/)
+    expect(builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1')).not.toMatch(/Risks that threaten/)
 
-    const judged = companionPrompt(QUEST, made, made.tasks[1]!, 'gimli', { attempt: 2, by: 'Gimli', answer: '', findings: ['- Security reviewer, app.py:72: The archive error is swallowed whole.'] })
+    const judged = builderPrompt(QUEST, made, made.tasks[1]!, 'builder-service', { attempt: 2, by: 'Service builder', answer: '', findings: ['- Security reviewer, app.py:72: The archive error is swallowed whole.'] })
 
     expect(judged).toMatch(/the review found what blocks the change\. Fix each:\n<findings>\n- Security reviewer, app\.py:72/)
     expect(judged).not.toContain('<proof>')
@@ -318,33 +318,33 @@ describe('a member', () => {
   test("is sent with the tests written first to make pass, and those that cannot run here apart, owed no passing", () => {
     const made = plan()
     const vision = { taskId: 1, tests: [{ file: 'orcrist/tests/cli.rs', name: 'mtime_untouched' }], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'owner_check', why: 'needs root' }], red: 'mtime changed' }
-    const prompt = companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, vision)
+    const prompt = builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1', undefined, vision)
 
     expect(prompt).toMatch(/Make them pass\.[\s\S]*- orcrist\/tests\/cli\.rs: mtime_untouched/)
-    expect(prompt).toMatch(/cannot run here: locked as hers are, and owed no passing\.[\s\S]*\n- orcrist\/tests\/cli\.rs: owner_check, needs root/)
+    expect(prompt).toMatch(/cannot run here: locked as its others are, and owed no passing\.[\s\S]*\n- orcrist\/tests\/cli\.rs: owner_check, needs root/)
   })
 
   test("is sent with the project's standards to build to, and with none when the project names none", () => {
     const made = plan()
 
-    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, null, '# docs/agents/standards.md\n## Blocking\n- An error swallowed.')).toMatch(
+    expect(builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1', undefined, null, '# docs/agents/standards.md\n## Blocking\n- An error swallowed.')).toMatch(
       /build to them, as the reviewers judge your change by them\.\n<standards>\n# docs\/agents\/standards\.md\n## Blocking\n- An error swallowed\.\n<\/standards>/,
     )
-    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toContain('<standards>')
+    expect(builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1')).not.toContain('<standards>')
   })
 
-  test('hands a plan\'s task back only as Gandalf, an errand or a review comment as any member', () => {
+  test('hands a plan\'s task back only as the last builder, an errand or a review comment as any builder', () => {
     const made = plan()
 
-    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')).not.toMatch(/hand it back/)
-    expect(companionPrompt(QUEST, made, made.tasks[0]!, 'gandalf')).toMatch(/You may hand it back if it cannot be built as the plan says/)
+    expect(builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1')).not.toMatch(/hand it back/)
+    expect(builderPrompt(QUEST, made, made.tasks[0]!, 'builder-last')).toMatch(/You may hand it back if it cannot be built as the plan says/)
 
     const errand = { ...QUEST, kind: 'errand' as const, ref: ISSUE.ref, title: ISSUE.title }
     const task = errandTask(ISSUE)
 
-    expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/^The issue: github:.*#21, "Quench answers 404 for an unknown beacon"[\s\S]*<issue>\nIt answers 500 today\.\n\n--- faramir:\nSeen on amon-din too\.\n<\/issue>[\s\S]*You may hand it back if it is not one/)
+    expect(builderPrompt(errand, made, task, 'builder-service')).toMatch(/^The issue: github:.*#21, "Quench answers 404 for an unknown beacon"[\s\S]*<issue>\nIt answers 500 today\.\n\n--- faramir:\nSeen on amon-din too\.\n<\/issue>[\s\S]*You may hand it back if it is not one/)
     // #37 took "refuse it the way --since does" for true, and --since refused nothing: the builder made it strict unasked
-    expect(companionPrompt(errand, made, task, 'gimli')).toMatch(/change no behaviour it does not name\. Where the issue takes for true something the code does not do[\s\S]*hand it back, saying what the issue assumes, what the code does instead/)
+    expect(builderPrompt(errand, made, task, 'builder-service')).toMatch(/change no behaviour it does not name\. Where the issue takes for true something the code does not do[\s\S]*hand it back, saying what the issue assumes, what the code does instead/)
     expect(handBackOf('I looked.\nHanded back: it needs a decision on 410.')).toBe('it needs a decision on 410.')
     expect(handBackOf('Done.')).toBeUndefined()
     // A builder that says it hands nothing back hands nothing back
@@ -369,24 +369,24 @@ describe('a member', () => {
     expect(isOutside(TREE, `${TREE}/../../../beacons/gondor/app.py`)).toBe(true)
     expect(isOutside(TREE, '../../../beacons/gondor/app.py')).toBe(true)
     expect(isOutside(TREE, 'beacons/../narsil/./src/main.rs')).toBe(false)
-    // A shell command reaches the person's checkout by naming it: Gimli once built an errand there with cd
+    // A shell command reaches the person's checkout by naming it: Service builder once built an errand there with cd
     for (const command of [`cd ${CWD}/narsil && cargo test`, `cd ${CWD}`, `sed -n 1,9p '${CWD}/narsil/src/main.rs'`, `cargo test --manifest-path ${CWD}/narsil/Cargo.toml`]) expect(reachesOut(CWD, TREE, command)).toBe(true)
     for (const command of [`cd ${TREE}/narsil && cargo test`, 'cd narsil && cargo test', `ls ${CWD}-old/narsil`, `git -C ${TREE} diff`]) expect(reachesOut(CWD, TREE, command)).toBe(false)
     // A relative path or a cd climbs out as well, and a cd to the home folder leaves it
     for (const command of ['cd ../../.. && cargo test', 'cat ../../../narsil/src/main.rs', 'cd narsil; cd ../../../..', 'cd', 'cd ~/proj']) expect(reachesOut(CWD, TREE, command)).toBe(true)
     for (const command of ['cd narsil && cat ../Cargo.toml', 'git log main..HEAD', 'ls beacons/../narsil']) expect(reachesOut(CWD, TREE, command)).toBe(false)
-    // A fix to a mod is not the quest's, unless the task is about the mod: it would ride into its pull request
+    // A fix to a mod is not the run's, unless the task is about the mod: it would ride into its pull request
     const task = { files: ['beacons/gondor/app.py'] }
 
     expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', task)).toBe(true)
-    expect(isModSource(CWD, '.claude/mods/fellowship/hooks/quest.ts', task)).toBe(true)
+    expect(isModSource(CWD, '.claude/mods/build/hooks/run.ts', task)).toBe(true)
     expect(isModSource(CWD, '/proj/.claude/argonath', task)).toBe(false)
     expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', { files: ['.claude/mods/verify/handlers/live.py'] })).toBe(false)
   })
 
   test('is told every decision the person made, the answers to the plan\'s own questions among them, and so are the reviewers', () => {
     const made = plan({ decided: [{ text: 'Is an unlit beacon 0 or null?', answer: 'null' }], questions: [{ text: 'How long may a keeper be?', options: [], answer: '64 characters, refused with a 422' }, { text: 'Open?', options: [], answer: '' }] })
-    const prompt = companionPrompt(QUEST, made, made.tasks[0]!, 'frodo')
+    const prompt = builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1')
     const purpose = purposeOf(QUEST, made, made.tasks[0]!)
 
     for (const text of [prompt, purpose]) {
@@ -397,7 +397,7 @@ describe('a member', () => {
   })
 
   test('tells the reviewers the weight a task was given, and none for a task no one weighed', () => {
-    const made = parsePlan(JSON.stringify({ ...PLAN, tasks: [PLAN.tasks[0], { ...PLAN.tasks[1], isUnweighed: true }, { ...PLAN.tasks[1], id: 3, weight: undefined }] })) as FellowshipPlan
+    const made = parsePlan(JSON.stringify({ ...PLAN, tasks: [PLAN.tasks[0], { ...PLAN.tasks[1], isUnweighed: true }, { ...PLAN.tasks[1], id: 3, weight: undefined }] })) as RunWork
 
     expect(purposeOf(QUEST, made, made.tasks[0]!)).toContain('\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust.\n')
     expect(made.tasks.map(task => task.isUnweighed === true)).toEqual([false, true, true])
@@ -413,15 +413,15 @@ describe('a review handed over', () => {
     expect(tasks.map(task => `${task.id} ${task.weight} ${task.author ?? ''}`)).toEqual(['1 light faramir', '2 standard denethor'])
 
     const quest = { kind: 'review' as const, ref: `review:${REVIEW.ref}`, url: REVIEW.url, title: REVIEW.title, branch: BRANCH }
-    const prompt = companionPrompt(quest, plan(), tasks[0]!, 'frodo')
+    const prompt = builderPrompt(quest, plan(), tasks[0]!, 'builder-light-1')
 
     expect(prompt).toMatch(/^You answer one review comment on the pull request lienardquentin\/claude-code-shenanigans#13[\s\S]*by faramir, on beacons\/gondor\/app\.py:70:\n<comment>\nName it burned_seconds/)
-    expect(commitMessage(quest, plan(), tasks[0]!, 'Frodo')).toMatch(/^Review: Name it burned_seconds: the unit belongs in the name\.\n\nAnswers faramir's comment on beacons\/gondor\/app\.py:70 on lienardquentin\/claude-code-shenanigans#13/)
+    expect(commitMessage(quest, plan(), tasks[0]!, 'Light builder 1')).toMatch(/^Review: Name it burned_seconds: the unit belongs in the name\.\n\nAnswers faramir's comment on beacons\/gondor\/app\.py:70 on lienardquentin\/claude-code-shenanigans#13/)
   })
 })
 
 
-// --- The quest, with Elrond, verify, Lothlórien and the reviewers as they are: what each reads is the machine's ------
+// --- The run, with Elrond, verify, Lothlórien and the reviewers as they are: what each reads is the machine's ------
 
 /** What the project builds, as verify reads it: gondor, a service whose one kept request the change reaches, and anor, a frontend nothing proves. */
 const PROJECT = [
@@ -445,7 +445,7 @@ const pytest = (ended: Record<string, boolean>) => Object.entries(ended).map(([n
 /** What the tests answer on HEAD's source and on the working tree: each fails before the change and passes after it. */
 const PROVED = JSON.stringify({ label: 'gondor', from: { ref: 'HEAD', sha: 'c0ffee1aaaa', error: '', exitCode: 1, output: pytest({ test_burned: false, test_burned_for: false }) }, to: { ref: 'work', sha: '', error: '', exitCode: 0, output: pytest({ test_burned: true, test_burned_for: true }) } })
 
-/** The test that pins the kept request, once a member has marked it. */
+/** The test that pins the kept request, once a builder has marked it. */
 const MARKED = [`# sting: ${RUN}`, 'def test_burned(client):', '    assert client.get("/beacons/minas-tirith").json()["burned_for"] == 3'].join('\n')
 
 /** The lines the test writer adds, which stay locked until committed. */
@@ -457,7 +457,7 @@ const SHOWN = ['I wrote one test.', '', '```json', JSON.stringify({ tests: [{ fi
 /** A reviewer's answer: its account, then its findings as the json block it ends with. */
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
-/** The pull request the review follow-up reads for a review: one comment asks for a change, the other a question its member hands back. */
+/** The pull request the review follow-up reads for a review: one comment asks for a change, the other a question its builder hands back. */
 const thread = (id: string, author: string, path: string, line: number | null, body: string) => ({ id, isResolved: false, isOutdated: false, path, line, comments: { nodes: [{ author: { login: author }, authorAssociation: 'MEMBER', body, url: `https://github.com/x/pull/13#${id}` }] } })
 const GITHUB = JSON.stringify({
   data: {
@@ -488,17 +488,17 @@ const STATUES = ['reviewer-correctness', 'reviewer-security']
 /**
  * Stands for the machine, the forge and the engine beneath the mod. What verify proves, what the reviewers find and
  * what the Mirror shows are queued here, each as the real part will read it: the service handler's answer and the test
- * file a member marked, the findings a reviewer ends its turn with, what the test writer writes and answers.
+ * file a builder marked, the findings a reviewer ends its turn with, what the test writer writes and answers.
  */
 const machine = (on: On) => {
   const world = {
     ran: [] as string[],
-    // Where each git command ran: the person's checkout, or a quest's worktree
+    // Where each git command ran: the person's checkout, or a run's worktree
     at: [] as { line: string; cwd: string }[],
-    // The members sent, the reviewers sent, and the test writer each time she gazed
+    // The builders sent, the reviewers sent, and the test writer each time she gazed
     spawned: [] as Record<string, unknown>[],
     judged: [] as Record<string, unknown>[],
-    gazed: [] as Record<string, unknown>[],
+    testsFor: [] as Record<string, unknown>[],
     // The reviewers sent each time they sat, by name
     reviewers: [] as string[][],
     // Those whose turn the machine ends when the clock next moves
@@ -520,32 +520,32 @@ const machine = (on: On) => {
     mirror: ['empty'] as Vision[],
     // What the proof at hand plays: what the last service handler's run was queued as
     proving: 'pinned' as Proof,
-    // Whether the test writer wrote her tests in the worktree, and whether a member took a line of them out
+    // Whether the test writer wrote her tests in the worktree, and whether a builder took a line of them out
     wrote: false,
     tampered: false,
-    // Each change a member made: what verify's fingerprint of the change counts
+    // Each change a builder made: what verify's fingerprint of the change counts
     edits: 0,
     jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[] },
     registered: [] as Record<string, unknown>[],
     tools: [] as string[],
     prState: {} as Record<string, unknown>,
-    // The person's checkout: its branch and what it holds uncommitted, which no quest touches
+    // The person's checkout: its branch and what it holds uncommitted, which no run touches
     branch: 'main',
     mine: '',
     branches: ['main'] as string[],
     // The branches fetched from origin, which it then knows as origin/<branch>
     remotes: [] as string[],
-    // What a quest's worktree holds staged, as git diff --cached shows it, and what its branch adds over origin's
+    // What a run's worktree holds staged, as git diff --cached shows it, and what its branch adds over origin's
     staged: '',
     pushed: '',
     worktrees: [{ path: CWD, branch: 'main' }] as { path: string; branch: string }[],
-    // What a quest's worktree holds uncommitted, and the files its change wrote, as git names them
+    // What a run's worktree holds uncommitted, and the files its change wrote, as git names them
     dirty: '',
     changed: 'beacons/gondor/app.py',
     // What the agents sent have cost, as .fellowship/spend.jsonl keeps it
     spend: '',
-    // Each lane's worktree, by its folder: what it holds uncommitted, its HEAD, and where it left its quest's branch. The
-    // tip of the quest's branch, which lanes land on, and how a lane's rebase onto it goes
+    // Each lane's worktree, by its folder: what it holds uncommitted, its HEAD, and where it left its run's branch. The
+    // tip of the run's branch, which lanes land on, and how a lane's rebase onto it goes
     lanes: {} as Record<string, { dirty: string; head: string; forkedAt: string }>,
     tip: 'b45e000aaaa',
     rebase: 'clean' as 'clean' | 'conflict',
@@ -557,10 +557,10 @@ const machine = (on: On) => {
     commits: 0,
     // Commits rewritten since they were recorded (amended), each with the sha its branch holds now
     rewritten: {} as Record<string, string>,
-    // Whether origin/main gained commits the quest's branch lacks, and whether taking them in conflicts
+    // Whether origin/main gained commits the run's branch lacks, and whether taking them in conflicts
     isBehind: false,
     isConflicting: false,
-    // What the Fellowship sent a member back with, by its id
+    // What the build sent a builder back with, by its id
     sent: [] as { agentId: string; text: string }[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
@@ -662,7 +662,7 @@ const machine = (on: On) => {
       }
     }
     if (line.startsWith('git rev-parse refs/heads/')) return answer(`${world.tip}\n`)
-    // A lane lands on the quest's branch, in its worktree
+    // A lane lands on the run's branch, in its worktree
     if (line.startsWith('git merge --ff-only ')) {
       world.tip = e.argv.at(-1) ?? ''
       world.head = world.tip
@@ -710,7 +710,7 @@ const machine = (on: On) => {
       return answer('')
     }
     if (line === 'git rev-parse HEAD') return answer(`${world.head}\n`)
-    // The base a quest follows
+    // The base a run follows
     if (line === 'git merge-base --is-ancestor origin/main HEAD') return answer('', world.isBehind ? 1 : 0)
     if (line === 'git merge --no-edit origin/main') {
       if (world.isConflicting) return answer('', 1)
@@ -750,11 +750,11 @@ const machine = (on: On) => {
       world.judged.push(given)
       world.reviewing.push(agentId)
     } else if (name.startsWith('test-writer')) {
-      world.gazed.push(given)
+      world.testsFor.push(given)
       world.gazing.push(agentId)
     } else {
       world.spawned.push(given)
-      // The member builds something, in its worktree: a lane's, or the quest's
+      // The builder builds something, in its worktree: a lane's, or the run's
       const lane = world.lanes[String(given.cwd ?? '')]
 
       if (lane !== undefined) lane.dirty = ' M beacons/gondor/app.py\n'
@@ -764,7 +764,7 @@ const machine = (on: On) => {
     return { model: 'opus', agentId } as never
   })
   // Core alone mints an agent's id: each is known by the type it runs as
-  on('agent.list', () => ({ value: [...Object.keys(MEMBERS), ...STATUES, 'test-writer', 'test-writer-light'].map(name => ({ id: `${name}-1`, description: 'x', type: `middle-earth:${name}`, status: 'running' })).concat([{ id: 'someone-else', description: 'x', type: 'Explore', status: 'running' }]) }) as never)
+  on('agent.list', () => ({ value: [...Object.keys(BUILDERS), ...STATUES, 'test-writer', 'test-writer-light'].map(name => ({ id: `${name}-1`, description: 'x', type: `middle-earth:${name}`, status: 'running' })).concat([{ id: 'someone-else', description: 'x', type: 'Explore', status: 'running' }]) }) as never)
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
 
@@ -821,7 +821,7 @@ type World = ReturnType<typeof machine>
 
 const call = async ($: Engine, tool: string, input: Record<string, unknown> = {}) => String((await $.tool.call({ tool, ...input } as never)).result)
 
-/** An agent's turn ends; a member's has changed the tree, and verify's fingerprint of the change with it. */
+/** An agent's turn ends; a builder's has changed the tree, and verify's fingerprint of the change with it. */
 const ends = ($: Engine, agentId: string, answer: string, world?: World) => {
   if (world !== undefined) world.edits += 1
 
@@ -887,79 +887,79 @@ const gitIn = (world: World, cwd: string) => world.at.filter(one => one.cwd === 
 const aboutOf = (sent: Record<string, unknown> | undefined) => /<purpose>\n([\s\S]*?)\n<\/purpose>/.exec(String(sent?.prompt ?? ''))?.[1] ?? ''
 
 describe('fellowship', () => {
-  test('sets out on a settled plan in a worktree of its own, on a branch of its own, and sends a hobbit there on a light first task', async ($, on) => {
+  test('starts on a settled plan in a worktree of its own, on a branch of its own, and sends a hobbit there on a light first task', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__set_out')).toMatch(new RegExp(`sets out on github:.*#12.*on ${BRANCH} from main, in its worktree ${TREE}`))
+    expect(await call($, 'mcp__middle-earth__start_run')).toMatch(new RegExp(`starts on github:.*#12.*on ${BRANCH} from main, in its worktree ${TREE}`))
     await settle($, world)
 
     expect(world.ran).toContain(`git worktree add -b ${BRANCH} ${TREE} main`)
     // The person's checkout is never switched
     expect(world.ran.some(line => line.startsWith('git switch'))).toBe(false)
     expect(world.marked).toEqual(['1 doing'])
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', description: 'Frodo: task 1, Keep when a beacon is lit', cwd: TREE })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-light-1', description: 'Light builder 1: task 1, Keep when a beacon is lit', cwd: TREE })
   })
 
-  test('offers Claude no tool that pushes or opens a pull request: the person sails', async ($, on) => {
+  test('offers Claude no tool that pushes or opens a pull request: the person is submitted', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    expect(world.tools).toEqual(expect.arrayContaining(['set_out', 'errand', 'quest', 'commit', 'next']))
-    expect(world.tools.some(tool => /sail|push|pull/.test(tool))).toBe(false)
+    expect(world.tools).toEqual(expect.arrayContaining(['start_run', 'start_errand', 'run', 'commit', 'next']))
+    expect(world.tools.some(tool => /submit|push|pull/.test(tool))).toBe(false)
   })
 
-  test('registers each member on its model and effort, and offers none to Claude', async ($, on) => {
+  test('registers each builder on its model and effort, and offers none to Claude', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    const registered = world.registered.filter(one => String(one.name) in MEMBERS)
+    const registered = world.registered.filter(one => String(one.name) in BUILDERS)
 
     expect(registered.map(one => `${String(one.name)} ${String(one.model)} ${String(one.effort)}`)).toEqual([
-      'gandalf claude-opus-5-5 high',
-      'aragorn claude-opus-5-5 medium',
-      'legolas claude-sonnet-5-5 medium',
-      'gimli claude-sonnet-5-5 medium',
-      'boromir claude-sonnet-5-5 medium',
-      'frodo claude-haiku-5-5 medium',
-      'samwise claude-haiku-5-5 medium',
-      'merry claude-haiku-5-5 medium',
-      'pippin claude-haiku-5-5 medium',
+      'builder-last claude-opus-5-5 high',
+      'builder-heavy claude-opus-5-5 medium',
+      'builder-frontend claude-sonnet-5-5 medium',
+      'builder-service claude-sonnet-5-5 medium',
+      'builder-cli claude-sonnet-5-5 medium',
+      'builder-light-1 claude-haiku-5-5 medium',
+      'builder-light-2 claude-haiku-5-5 medium',
+      'builder-light-3 claude-haiku-5-5 medium',
+      'builder-light-4 claude-haiku-5-5 medium',
     ])
     expect(String(registered[0]?.prompt)).toContain('Handed back:')
-    expect(String(registered[0]?.prompt)).toContain("in the quest's git worktree, which is your working directory")
+    expect(String(registered[0]?.prompt)).toContain("in the run's git worktree, which is your working directory")
     expect(registered[0]?.disallowedTools).toContain('mcp__middle-earth__review')
   })
 
-  test('does not set out on a plan the council left open, and sets out whatever the person\'s checkout holds', async ($, on) => {
+  test('does not start on a plan the council left open, and starts whatever the person\'s checkout holds', async ($, on) => {
     const world = machine(on)
     world.plan = { ...PLAN, questions: [{ text: 'Q', options: [], answer: '' }] }
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__set_out')).toMatch(/not settled: 1 unanswered question/)
+    expect(await call($, 'mcp__middle-earth__start_run')).toMatch(/not settled: 1 unanswered question/)
     expect(world.spawned).toHaveLength(0)
 
     world.plan = structuredClone(PLAN)
     await inForce($, world)
     world.mine = ' M README.md\n'
 
-    expect(await call($, 'mcp__middle-earth__set_out')).toMatch(/sets out on github:.*#12/)
+    expect(await call($, 'mcp__middle-earth__start_run')).toMatch(/starts on github:.*#12/)
     expect(gitIn(world, CWD).some(line => /^git (add|commit|stash|switch|checkout)/.test(line))).toBe(false)
   })
 
-  test('proves what the member built in its worktree, sends the reviewers to judge it there, and commits it there once they pass it', async ($, on) => {
+  test('proves what the builder built in its worktree, sends the reviewers to judge it there, and commits it there once they pass it', async ($, on) => {
     const world = machine(on)
     world.judgements = ['minor']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // Another agent's turn is none of the quest's
+    // Another agent's turn is none of the run's
     await ends($, 'someone-else', 'x')
     await settle($, world)
     expect(world.judged).toHaveLength(0)
 
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.jobs.service[0]).toMatchObject({ home: TREE, project: CWD })
@@ -970,33 +970,33 @@ describe('fellowship', () => {
     expect(world.judged[1]).toMatchObject({ cwd: TREE })
     expect(aboutOf(world.judged[0])).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust\.\nWhy:[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
 
-    // A pass with a minor finding sends the member back once to tidy it, and commits nothing yet
+    // A pass with a minor finding sends the builder back once to tidy it, and commits nothing yet
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
-    expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1'])
+    expect(world.sent.map(one => one.agentId)).toEqual(['builder-light-1-1'])
     expect(world.sent[0]?.text).toMatch(/passed its review, with minor findings[\s\S]*change no behaviour[\s\S]*<findings>\n- Correctness reviewer, app\.py:70: lit could be named burning\.\n<\/findings>/)
 
     // The minor finding of the judgement after is committed as it is
-    await ends($, 'frodo-1', 'Tidied.', world)
+    await ends($, 'builder-light-1-1', 'Tidied.', world)
     await settle($, world)
 
     expect(world.sent).toHaveLength(1)
     expect(world.judged).toHaveLength(4)
-    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Frodo[\s\S]*- Correctness reviewer, app\.py:70: lit could be named burning\./)
+    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #12: Keep when a beacon is lit[\s\S]*built by Light builder 1[\s\S]*- Correctness reviewer, app\.py:70: lit could be named burning\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
     // No Claude is woken: the reviewers are the judges
     expect(world.submitted).toEqual([])
     // Attended: the next task waits for the person
     expect(world.spawned).toHaveLength(1)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: ready[\s\S]*● 1\. Keep when a beacon is lit · c0ffee/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: ready[\s\S]*● 1\. Keep when a beacon is lit · c0ffee/)
   })
 
-  test('commits a pass whose minor findings are about files the change did not write, without sending its member back to tidy them', async ($, on) => {
+  test('commits a pass whose minor findings are about files the change did not write, without sending its builder back to tidy them', async ($, on) => {
     const world = machine(on)
     world.judgements = ['stray']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.sent).toEqual([])
@@ -1005,41 +1005,41 @@ describe('fellowship', () => {
     expect(world.marked).toEqual(['1 doing', '1 done'])
   })
 
-  test('counts what each turn of an agent it sends costs, and says it of the quest', async ($, on) => {
+  test('counts what each turn of an agent it sends costs, and says it of the run', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
     world.edits += 1
-    await $.turn.complete({ answer: 'Added lit_at.', durationMs: 120_000, isAborted: false, turnId: 't', reason: 'answer', agentId: 'frodo-1', usage: { model: 'claude-haiku-5-5', input_tokens: 2_000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 8_000, output_tokens: 3_000 } } as never)
+    await $.turn.complete({ answer: 'Added lit_at.', durationMs: 120_000, isAborted: false, turnId: 't', reason: 'answer', agentId: 'builder-light-1-1', usage: { model: 'claude-haiku-5-5', input_tokens: 2_000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 8_000, output_tokens: 3_000 } } as never)
     await settle($, world)
 
-    // The reviewers' turns here count no tokens, and are not kept. The member is known by its worktree: a spawn answered
-    // by a hook gives its sender no id, so the quest never named its issue to it
+    // The reviewers' turns here count no tokens, and are not kept. The builder is known by its worktree: a spawn answered
+    // by a hook gives its sender no id, so the run never named its issue to it
     const kept = world.spend.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(kept).toHaveLength(1)
-    expect(kept[0]).toMatchObject({ role: 'member', tree: TREE, model: 'claude-haiku-5-5', input: 2_000, cacheRead: 40_000, cacheWrite: 8_000, output: 3_000, durationMs: 120_000 })
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/Spent: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out\.\n- member: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out \(claude-haiku-5-5 ×1\)/)
+    expect(kept[0]).toMatchObject({ role: 'builder', tree: TREE, model: 'claude-haiku-5-5', input: 2_000, cacheRead: 40_000, cacheWrite: 8_000, output: 3_000, durationMs: 120_000 })
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/Spent: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out\.\n- builder: 1 turn, 2 min, 50k tokens in \(40k cached\), 3k out \(claude-haiku-5-5 ×1\)/)
   })
 
-  test('builds tasks apart beside each other, each in a lane of its own, and lands each on the quest\'s branch, the later one proved again on what landed first', async ($, on) => {
+  test('builds tasks apart beside each other, each in a lane of its own, and lands each on the run\'s branch, the later one proved again on what landed first', async ($, on) => {
     const world = machine(on)
     world.plan = apart()
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // Each lane is a worktree on a branch off the quest's, its member sent there, and none in the quest's own
+    // Each lane is a worktree on a branch off the run's, its builder sent there, and none in the run's own
     expect(world.ran).toContain(`git worktree add -b ${BRANCH}--task-1 ${LANE_1} ${BRANCH}`)
     expect(world.ran).toContain(`git worktree add -b ${BRANCH}--task-2 ${LANE_2} ${BRANCH}`)
     expect(world.spawned.map(one => [one.subagent_type, one.cwd])).toEqual([
-      ['middle-earth:frodo', LANE_1],
-      ['middle-earth:samwise', LANE_2],
+      ['middle-earth:builder-light-1', LANE_1],
+      ['middle-earth:builder-light-2', LANE_2],
     ])
     expect(world.marked).toEqual(['1 doing', '2 doing'])
 
-    // The first back lands on the quest's branch as it is
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    // The first back lands on the run's branch as it is
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.judged.map(one => one.cwd)).toEqual([LANE_1, LANE_1])
@@ -1048,12 +1048,12 @@ describe('fellowship', () => {
     expect(world.ran).toContain(`git worktree remove --force ${LANE_1}`)
     expect(world.ran).toContain(`git branch -D ${BRANCH}--task-1`)
     expect(world.marked).toEqual(['1 doing', '2 doing', '1 done'])
-    expect(await call($, 'mcp__middle-earth__quest')).not.toMatch(/~1/)
+    expect(await call($, 'mcp__middle-earth__run')).not.toMatch(/~1/)
 
-    // The second left the quest's branch before the first landed: taken onto it, proved again, and landed as it passed
+    // The second left the run's branch before the first landed: taken onto it, proved again, and landed as it passed
     const proved = world.jobs.service.length
 
-    await ends($, 'samwise-1', 'Added the archive.', world)
+    await ends($, 'builder-light-2-1', 'Added the archive.', world)
     await settle($, world)
 
     expect(gitIn(world, LANE_2)).toContain('git rebase c0ffee2lane')
@@ -1064,31 +1064,31 @@ describe('fellowship', () => {
     expect(gitIn(world, TREE)).toContain('git merge --ff-only c0ffee4lane')
     expect(world.marked).toEqual(['1 doing', '2 doing', '1 done', '2 done'])
     expect(world.sent).toEqual([])
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*● 1\. Keep when a beacon is lit · c0ffee2[\s\S]*● 2\. Answer the seconds burned · c0ffee4/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: built[\s\S]*● 1\. Keep when a beacon is lit · c0ffee2[\s\S]*● 2\. Answer the seconds burned · c0ffee4/)
   })
 
-  test('sends a lane\'s member back to resolve what conflicts with a task landed before it, and judges what it resolved', async ($, on) => {
+  test('sends a lane\'s builder back to resolve what conflicts with a task landed before it, and judges what it resolved', async ($, on) => {
     const world = machine(on)
     world.plan = apart()
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     world.rebase = 'conflict'
-    await ends($, 'samwise-1', 'Added the archive.', world)
+    await ends($, 'builder-light-2-1', 'Added the archive.', world)
     await settle($, world)
 
-    // Put on what landed, its change applied with the conflict marked, and its member sent back with it
+    // Put on what landed, its change applied with the conflict marked, and its builder sent back with it
     expect(gitIn(world, LANE_2)).toEqual(expect.arrayContaining(['git rebase --abort', 'git reset -q --hard c0ffee2lane', 'git cherry-pick --no-commit c0ffee3lane', 'git cherry-pick --quit']))
-    expect(world.sent.map(one => one.agentId)).toEqual(['samwise-1'])
+    expect(world.sent.map(one => one.agentId)).toEqual(['builder-light-2-1'])
     expect(world.sent[0]?.text).toMatch(/moved while you built it[\s\S]*\(beacons\/gondor\/app\.py\)/)
     expect(world.marked).not.toContain('2 done')
 
     // Resolved, it is judged again, and lands
     world.rebase = 'clean'
-    await ends($, 'samwise-1', 'Resolved.', world)
+    await ends($, 'builder-light-2-1', 'Resolved.', world)
     await settle($, world)
 
     expect(world.judged).toHaveLength(6)
@@ -1096,31 +1096,31 @@ describe('fellowship', () => {
     expect(world.marked).toContain('2 done')
   })
 
-  test('abandons no quest while a lane of it is out', async ($, on) => {
+  test('abandons no run while a lane of it is out', async ($, on) => {
     const world = machine(on)
     world.plan = apart()
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    expect((await $.command.run({ command: 'fellowship', args: `abandon ${REF}` } as never)).text).toMatch(/~1 is marching: wait until Frodo is back/)
+    expect((await $.command.run({ command: 'build', args: `abandon ${REF}` } as never)).text).toMatch(/~1 is building: wait until Light builder 1 is back/)
     expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
   })
 
-  test('commits nothing once what git runs on a commit changed since the quest set out, until the person puts it up for verification again', async ($, on) => {
+  test('commits nothing once what git runs on a commit changed since the run started, until the person puts it up for verification again', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('git config --show-origin --get-regexp '))).toBe(true)
 
-    // The member's change set git to run a script of its own on the commit
+    // The builder's change set git to run a script of its own on the commit
     world.gitRuns = 'file:.git/config\tcore.fsmonitor ./watch.sh\n'
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
     expect(world.toasts.some(text => /git's config of what a commit runs/.test(text))).toBe(true)
 
     // The person looked, and puts it up for verification: git's config is theirs as it stands
@@ -1134,110 +1134,110 @@ describe('fellowship', () => {
     world.hooks = `${TREE}/.husky`
     world.isHookTouched = true
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
   })
 
-  test('sends the member back once with what the reviewers find blocking, then the task a rung up with the findings alone', async ($, on) => {
+  test('sends the builder back once with what the reviewers find blocking, then the task a rung up with the findings alone', async ($, on) => {
     const world = machine(on)
     world.judgements = ['fail', 'fail', 'pass']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
-    // Frodo has the change in his context: he mends it before a fresh member starts over cold
+    // Light builder 1 has the change in his context: he mends it before a fresh builder starts over cold
     expect(world.spawned).toHaveLength(1)
-    expect(world.sent).toEqual([{ agentId: 'frodo-1', text: expect.stringMatching(/its review found what blocks it[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/) }])
+    expect(world.sent).toEqual([{ agentId: 'builder-light-1-1', text: expect.stringMatching(/its review found what blocks it[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/) }])
 
-    await ends($, 'frodo-1', 'Raised it, I think.', world)
+    await ends($, 'builder-light-1-1', 'Raised it, I think.', world)
     await settle($, world)
 
-    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: TREE })
-    expect(String(world.spawned[1]?.prompt)).toMatch(/This is try 2\. The change Frodo made[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/)
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:builder-service', cwd: TREE })
+    expect(String(world.spawned[1]?.prompt)).toMatch(/This is try 2\. The change Light builder 1 made[\s\S]*<findings>\n- Security reviewer, app\.py:72: The archive error is swallowed whole\.\n<\/findings>/)
     expect(String(world.spawned[1]?.prompt)).not.toContain('<proof>')
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
 
-    await ends($, 'gimli-1', 'Raised the archive error.', world)
+    await ends($, 'builder-service-1', 'Raised the archive error.', world)
     await settle($, world)
-    expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/built by Gimli/)
+    expect(world.ran.find(line => line.startsWith('git commit -m'))).toMatch(/built by Service builder/)
   })
 
-  test('climbs the rungs while the proof does not pin the change, and stops once Gandalf has tried', async ($, on) => {
+  test('climbs the rungs while the proof does not pin the change, and stops once the last builder has tried', async ($, on) => {
     const world = machine(on)
     world.proofs = ['bare']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // Each is sent back once with the proof, then a fresh member a rung up starts over
-    for (const member of ['frodo', 'gimli', 'aragorn', 'gandalf']) {
+    // Each is sent back once with the proof, then a fresh builder a rung up starts over
+    for (const member of ['builder-light-1', 'builder-service', 'builder-heavy', 'builder-last']) {
       await ends($, `${member}-1`, `try of ${member}`, world)
       await settle($, world)
       await ends($, `${member}-1`, `try of ${member}`, world)
       await settle($, world)
     }
 
-    expect(world.spawned.map(one => one.subagent_type)).toEqual(['middle-earth:frodo', 'middle-earth:gimli', 'middle-earth:aragorn', 'middle-earth:gandalf'])
-    expect(world.sent.map(one => one.agentId)).toEqual(['frodo-1', 'gimli-1', 'aragorn-1', 'gandalf-1'])
+    expect(world.spawned.map(one => one.subagent_type)).toEqual(['middle-earth:builder-light-1', 'middle-earth:builder-service', 'middle-earth:builder-heavy', 'middle-earth:builder-last'])
+    expect(world.sent.map(one => one.agentId)).toEqual(['builder-light-1-1', 'builder-service-1', 'builder-heavy-1', 'builder-last-1'])
     expect(world.sent[0]?.text).toMatch(/does not settle your change yet[\s\S]*<proof>\ngondor[\s\S]*bare: gondor GET \/beacons\/minas-tirith/)
-    expect(String(world.spawned[1]?.prompt)).toMatch(/What Frodo said:\n<said>\ntry of frodo[\s\S]*bare: gondor GET/)
+    expect(String(world.spawned[1]?.prompt)).toMatch(/What Light builder 1 said:\n<said>\ntry of builder-light-1[\s\S]*bare: gondor GET/)
     expect(world.judged).toHaveLength(0)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck[\s\S]*Last proof: .*bare/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck[\s\S]*Last proof: .*bare/)
   })
 
-  test('stops for the plan to be revised when Gandalf hands the task back', async ($, on) => {
+  test('stops for the plan to be revised when the last builder hands the task back', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: PLAN.tasks.map(task => ({ ...task, weight: 'heavy' })) }
     world.proofs = ['bare']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    await ends($, 'aragorn-1', 'Could not.', world)
+    await ends($, 'builder-heavy-1', 'Could not.', world)
     await settle($, world)
-    await ends($, 'aragorn-1', 'Still could not.', world)
+    await ends($, 'builder-heavy-1', 'Still could not.', world)
     await settle($, world)
-    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gandalf' })
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:builder-last' })
     expect(String(world.spawned[1]?.prompt)).toMatch(/You may hand it back if it cannot be built as the plan says/)
 
-    await ends($, 'gandalf-1', 'I looked.\nHanded back: beacons keep no clock to measure from.')
+    await ends($, 'builder-last-1', 'I looked.\nHanded back: beacons keep no clock to measure from.')
     await settle($, world)
 
     expect(world.spawned).toHaveLength(2)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
-    expect(world.toasts.some(text => /Gandalf hands github:.*#12 back: beacons keep no clock/.test(text))).toBe(true)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
+    expect(world.toasts.some(text => /Last builder hands github:.*#12 back: beacons keep no clock/.test(text))).toBe(true)
   })
 
-  test('holds the member off the branch, the commits, the mods\' folders and the person\'s checkout, and lets it build', async ($, on) => {
+  test('holds the builder off the branch, the commits, the mods\' folders and the person\'s checkout, and lets it build', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
     const by = async (agentId: string, command: string) => $.tool.call({ tool: 'Bash', command, agentId } as never)
     const edit = async (agentId: string, file_path: string) => $.tool.call({ tool: 'Edit', file_path, old_string: 'a', new_string: 'b', agentId } as never)
 
-    expect(await by('frodo-1', 'git commit -am done')).toMatchObject({ deny: expect.stringMatching(/Fellowship commits/) })
-    expect(await by('frodo-1', 'pytest beacons')).toMatchObject({ result: 'ran' })
+    expect(await by('builder-light-1-1', 'git commit -am done')).toMatchObject({ deny: expect.stringMatching(/The build commits/) })
+    expect(await by('builder-light-1-1', 'pytest beacons')).toMatchObject({ result: 'ran' })
     expect(await by('someone-else', 'git commit -am done')).toMatchObject({ result: 'ran' })
-    expect(await edit('frodo-1', `${CWD}/beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
-    expect(await edit('frodo-1', `${TREE}/.elrond/plans/x.json`)).toMatchObject({ deny: expect.stringMatching(/belongs to a mod/) })
-    expect(await edit('frodo-1', `${TREE}/beacons/gondor/app.py`)).toMatchObject({ result: 'edited' })
+    expect(await edit('builder-light-1-1', `${CWD}/beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
+    expect(await edit('builder-light-1-1', `${TREE}/.elrond/plans/x.json`)).toMatchObject({ deny: expect.stringMatching(/belongs to a mod/) })
+    expect(await edit('builder-light-1-1', `${TREE}/beacons/gondor/app.py`)).toMatchObject({ result: 'edited' })
     // A path that climbs out of the worktree is outside it, and so is a folder searched there
-    expect(await edit('frodo-1', `${TREE}/../../../beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
-    expect(await $.tool.call({ tool: 'Grep', pattern: 'lit', path: CWD, agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
+    expect(await edit('builder-light-1-1', `${TREE}/../../../beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
+    expect(await $.tool.call({ tool: 'Grep', pattern: 'lit', path: CWD, agentId: 'builder-light-1-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
     expect(world.spawned).toHaveLength(1)
   })
 
-  test('sends its members under the session\'s own permission mode, as every agent the mod sends', async ($, on) => {
+  test('sends its builders under the session\'s own permission mode, as every agent the mod sends', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
@@ -1245,92 +1245,92 @@ describe('fellowship', () => {
     for (const spec of world.registered) expect(spec).not.toHaveProperty('permissionMode')
   })
 
-  test('is abandoned at the person\'s word: its worktree removed, its branch deleted, its tasks reopened, and set out on afresh', async ($, on) => {
+  test('is abandoned at the person\'s word: its worktree removed, its branch deleted, its tasks reopened, and start on afresh', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // A member out is waited for
-    expect((await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text).toMatch(/is marching: wait until Frodo is back/)
+    // A builder out is waited for
+    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toMatch(/is building: wait until Light builder 1 is back/)
 
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     // The clock abandons it, outside the command's hooks
-    expect((await $.command.run({ command: 'fellowship', args: 'abandon' } as never)).text).toMatch(/being abandoned/)
+    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toMatch(/being abandoned/)
     await settle($, world)
 
-    expect(world.toasts.at(-1)).toBe(`Fellowship: The quest on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the plan.`)
+    expect(world.toasts.at(-1)).toBe(`Build: The run on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the plan.`)
     expect(world.ran).toContain(`git worktree remove ${TREE}`)
     expect(world.ran).toContain(`git branch -D ${BRANCH}`)
     expect(world.marked.at(-1)).toBe('1 todo')
     expect(world.store[`quest:${REF}`]).toBeUndefined()
 
-    // Nothing is kept: the plan is set out on afresh, from its first task
-    expect(await call($, 'mcp__middle-earth__set_out')).toMatch(/sets out on github:.*#12/)
+    // Nothing is kept: the plan is start on afresh, from its first task
+    expect(await call($, 'mcp__middle-earth__start_run')).toMatch(/starts on github:.*#12/)
   })
 
-  test('has the test writer write the tests of a task that is not light first, in the worktree, and sends its member to make them pass', async ($, on) => {
+  test('has the test writer write the tests of a task that is not light first, in the worktree, and sends its builder to make them pass', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    expect(world.gazed[0]).toMatchObject({ subagent_type: 'middle-earth:test-writer-light', cwd: TREE })
-    expect(String(world.gazed[0]?.prompt)).toMatch(/<purpose>\nTask 1 of the plan for github:.*: Answer the seconds burned\.[\s\S]*Done when: A test reads burned_for/)
+    expect(world.testsFor[0]).toMatchObject({ subagent_type: 'middle-earth:test-writer-light', cwd: TREE })
+    expect(String(world.testsFor[0]?.prompt)).toMatch(/<purpose>\nTask 1 of the plan for github:.*: Answer the seconds burned\.[\s\S]*Done when: A test reads burned_for/)
     expect(world.spawned).toHaveLength(1)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-service' })
     expect(String(world.spawned[0]?.prompt)).toMatch(/The tests written first show what is to come[\s\S]*- beacons\/tests\/test_gondor\.py: test_burned_for\nHow they failed:\n<red>\nFAILED test_burned_for - KeyError\n<\/red>/)
 
-    // Gimli changes one of them, saying why
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'It asserted seconds as a string.', agentId: 'gimli-1' })).toMatch(/unlocked/)
-    await ends($, 'gimli-1', 'Made them pass.', world)
+    // Service builder changes one of them, saying why
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'It asserted seconds as a string.', agentId: 'builder-service-1' })).toMatch(/unlocked/)
+    await ends($, 'builder-service-1', 'Made them pass.', world)
     await settle($, world)
 
     // Her tests are owed a pass on the working tree before the proof settles
     expect(String(world.jobs.prove[0]?.test)).toContain('test_burned_for')
     // The reviewers are told what was changed of her tests, and why
-    expect(aboutOf(world.judged[0])).toContain("the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: It asserted seconds as a string.")
+    expect(aboutOf(world.judged[0])).toContain("the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by middle-earth:builder-service: It asserted seconds as a string.")
     expect(world.ran.some(line => line.startsWith('git commit -m #12: Answer the seconds burned'))).toBe(true)
   })
 
-  test('owes no passing to a test of hers a member says cannot run here, and tells the reviewers why', async ($, on) => {
+  test('owes no passing to a test of hers a builder says cannot run here, and tells the reviewers why', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_nothing_here', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/is none of the red tests written first: test_burned_for/)
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_burned_for', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
-    await ends($, 'gimli-1', 'Made what runs here pass.', world)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_nothing_here', why: 'It needs root to chown the folder.', agentId: 'builder-service-1' })).toMatch(/is none of the red tests written first: test_burned_for/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', test: 'test_burned_for', why: 'It needs root to chown the folder.', agentId: 'builder-service-1' })).toMatch(/cannot run here: it stays locked/)
+    await ends($, 'builder-service-1', 'Made what runs here pass.', world)
     await settle($, world)
 
     expect(String(world.jobs.prove[0]?.test)).not.toContain('test_burned_for')
-    expect(aboutOf(world.judged[0])).toContain('- beacons/tests/test_gondor.py, by middle-earth:gimli: test_burned_for cannot run here, and is owed no passing: It needs root to chown the folder.')
+    expect(aboutOf(world.judged[0])).toContain('- beacons/tests/test_gondor.py, by middle-earth:builder-service: test_burned_for cannot run here, and is owed no passing: It needs root to chown the folder.')
   })
 
   test('skips the Mirror for a light task, and builds a task it shows nothing for as it is', async ($, on) => {
     const world = machine(on)
     world.mirror = ['empty']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
     // Task 1 is light: no gaze
-    expect(world.gazed).toEqual([])
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    expect(world.testsFor).toEqual([])
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
     // Task 2 is standard: she gazes, shows nothing to test, and it is built as it is
-    expect(world.gazed).toHaveLength(1)
-    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
+    expect(world.testsFor).toHaveLength(1)
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:builder-service' })
     expect(String(world.spawned[1]?.prompt)).not.toContain('The tests written first')
     // With none of hers, no test is owed a pass beyond the proof's own
     expect(String(world.jobs.prove[0]?.test)).not.toContain('test_burned_for')
@@ -1341,151 +1341,151 @@ describe('fellowship', () => {
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['clouded']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
     expect(world.spawned).toEqual([])
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
 
     world.mirror = ['empty']
-    expect((await $.command.run({ command: 'fellowship', args: 'next' } as never)).text).toMatch(/sent on the next task/)
+    expect((await $.command.run({ command: 'build', args: 'next' } as never)).text).toMatch(/sent on the next task/)
     await settle($, world)
-    expect(world.gazed).toHaveLength(2)
+    expect(world.testsFor).toHaveLength(2)
     expect(world.spawned).toHaveLength(1)
   })
 
-  test('sets out from /fellowship --auto in the command, where the member it sends is held', async ($, on) => {
+  test('starts from /build --auto in the command, where the builder it sends is held', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    expect((await $.command.run({ command: 'fellowship', args: '--auto' } as never)).text).toMatch(/sets out on the plan, going on by itself/)
-    // The member is out before the command answers: no clock sent it
+    expect((await $.command.run({ command: 'build', args: '--auto' } as never)).text).toMatch(/starts on the plan, going on by itself/)
+    // The builder is out before the command answers: no clock sent it
     expect(world.spawned).toHaveLength(1)
 
-    expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(/sets out on github:.*#12/)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo' })
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/going on by itself/)
+    expect(world.toasts.find(toast => toast.startsWith('Build: '))).toMatch(/starts on github:.*#12/)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-light-1' })
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/going on by itself/)
   })
 
-  test('on an auto quest, goes on task by task and opens the pull request that closes the issue, from its worktree', async ($, on) => {
+  test('on an auto run, goes on task by task and opens the pull request that closes the issue, from its worktree', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out', { auto: true })
+    await call($, 'mcp__middle-earth__start_run', { auto: true })
     await settle($, world)
 
-    await ends($, 'frodo-1', 'built 1', world)
+    await ends($, 'builder-light-1-1', 'built 1', world)
     await settle($, world)
-    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
-    await ends($, 'gimli-1', 'built 2', world)
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:builder-service' })
+    await ends($, 'builder-service-1', 'built 2', world)
     await settle($, world)
 
     expect(world.spawned).toHaveLength(2)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/--base main --head fellowship\/12-.*\(Frodo\)[\s\S]*\(Gimli\)[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/s)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: sailed[\s\S]*Pull request: https:\/\/github\.com\/.*\/pull\/13/)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/--base main --head build\/12-.*\(Light builder 1\)[\s\S]*\(Service builder\)[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/s)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: submitted[\s\S]*Pull request: https:\/\/github\.com\/.*\/pull\/13/)
   })
 
-  test('builds quests on two issues side by side, each in its own worktree, and acts on the one a command names', async ($, on) => {
+  test('builds runs on two issues side by side, each in its own worktree, and acts on the one a command names', async ($, on) => {
     const world = machine(on)
     const other = { ...structuredClone(PLAN), ref: 'github:lienardquentin/claude-code-shenanigans#14', title: 'Beacons answer who lit them' }
     world.kept[other.ref] = other
     await start($, world)
 
-    await call($, 'mcp__middle-earth__set_out')
-    await call($, 'mcp__middle-earth__set_out', { ref: other.ref })
+    await call($, 'mcp__middle-earth__start_run')
+    await call($, 'mcp__middle-earth__start_run', { ref: other.ref })
     await settle($, world)
 
-    const otherTree = `${CWD}/.fellowship/trees/fellowship-14-beacons-answer-who-lit-them`
+    const otherTree = `${CWD}/.fellowship/trees/build-14-beacons-answer-who-lit-them`
     expect(world.spawned.map(one => one.cwd)).toEqual([TREE, otherTree])
     expect(world.marked).toEqual(['1 doing', '1 doing'])
 
-    // In a narrow pane each quest is a row that fits it: its ref and phase whole, its title cut to what is left
-    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 30 } as never, requestId: 'fellowship' })
-    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'fellowship' })
+    // In a narrow pane each run is a row that fits it: its ref and phase whole, its title cut to what is left
+    await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 30 } as never, requestId: 'build' })
+    const drawn = await call($, 'mcp__middle-earth__pane', { pane: 'build' })
     // The text read off a button is trimmed: a row that is not shown gives back the two cells before its ref
     const rows = [...drawn.matchAll(/\[((?:▸ )?#1[24] ● \w+ [^\]]*)\]/g)].map(found => (found[1] ?? '').replace(/^(?!▸)/, '  '))
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatch(/^▸ #14 ● marching plan Beac.*…$/)
-    expect(rows[1]).toMatch(/^ {2}#12 ● marching plan .*…$/)
+    expect(rows[0]).toMatch(/^▸ #14 ● building plan Beac.*…$/)
+    expect(rows[1]).toMatch(/^ {2}#12 ● building plan .*…$/)
     for (const row of rows) expect(row.length).toBeLessThanOrEqual(30)
 
-    // The first quest's member ends: only that quest is proved
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    // The first run's builder ends: only that run is proved
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
     expect(world.jobs.service).toHaveLength(1)
     expect(world.jobs.service[0]).toMatchObject({ home: TREE })
 
-    // A command that names none acts on the quest the pane shows, the last set out; one names another by its ref or branch
-    expect((await $.command.run({ command: 'fellowship', args: 'halt' } as never)).text).toMatch(/#14 stops after the task it is on/)
-    expect((await $.command.run({ command: 'fellowship', args: `halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
-    expect((await $.command.run({ command: 'fellowship', args: 'halt #99' } as never)).text).toMatch(/No quest on #99 is under way/)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/#12 \(plan\)[\s\S]*―――[\s\S]*#14 \(plan\)/)
+    // A command that names none acts on the run the pane shows, the last started; one names another by its ref or branch
+    expect((await $.command.run({ command: 'build', args: 'halt' } as never)).text).toMatch(/#14 stops after the task it is on/)
+    expect((await $.command.run({ command: 'build', args: `halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
+    expect((await $.command.run({ command: 'build', args: 'halt #99' } as never)).text).toMatch(/No run on #99 is under way/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/#12 \(plan\)[\s\S]*―――[\s\S]*#14 \(plan\)/)
   })
 })
 
-describe('an agent the Fellowship sends', () => {
+describe('an agent the build sends', () => {
   // The engine holds an agent to the mod's hooks only when it is sent from one: from the clock, or a press, it would
-  // run unheld, in the person's checkout. A press asks; Claude is asked to call for it; the member goes out held
-  test('is sent from a hook alone: a press waits, Claude is asked once to call for it, and the member goes out held in its worktree', async ($, on) => {
+  // run unheld, in the person's checkout. A press asks; Claude is asked to call for it; the builder goes out held
+  test('is sent from a hook alone: a press waits, Claude is asked once to call for it, and the builder goes out held in its worktree', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'fellowship' })
+    const pane = await $.ui.mount({ plugin: 'middle-earth', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'build' })
 
-    await pane.press({ key: 'set-out' })
+    await pane.press({ key: 'start' })
     for (let at = 0; at < 4; at += 1) await world.clock.advance(600)
 
     expect(world.spawned).toEqual([])
-    expect(world.submitted.filter(text => text.includes('call mcp__middle-earth__pump'))).toEqual([expect.stringMatching(/a Fellowship quest waits to send its next agent/)])
+    expect(world.submitted.filter(text => text.includes('call mcp__middle-earth__pump'))).toEqual([expect.stringMatching(/a build run waits to send its next agent/)])
 
     await call($, 'mcp__middle-earth__pump')
 
     expect(world.spawned).toHaveLength(1)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', cwd: TREE })
-    // A quest under way leaves another to set out beside it, from its own pane
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-light-1', cwd: TREE })
+    // A run under way leaves another to started beside it, from its own pane
     await pane.redraw()
-    expect(await pane.find({ key: 'set-out' })).toBeDefined()
+    expect(await pane.find({ key: 'start' })).toBeDefined()
     expect(await pane.find({ key: 'auto' })).toBeDefined()
-    expect(await $.tool.call({ tool: 'Bash', command: 'git commit -am done', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/Fellowship commits/) })
-    expect(await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'frodo-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
+    expect(await $.tool.call({ tool: 'Bash', command: 'git commit -am done', agentId: 'builder-light-1-1' } as never)).toMatchObject({ deny: expect.stringMatching(/The build commits/) })
+    expect(await $.tool.call({ tool: 'Edit', file_path: `${CWD}/beacons/gondor/app.py`, old_string: 'a', new_string: 'b', agentId: 'builder-light-1-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
   })
 })
 
-describe('a quest kept across sessions', () => {
+describe('a run kept across sessions', () => {
   test('is back after a restart as it stood, stuck where it was out on a task, and nothing is sent', async ($, on) => {
     const world = machine(on)
     world.plan = null
-    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
-    world.store[`quest:${ISSUE.ref}`] = { kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'fellowship/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'doing' }], isAuto: false, phase: 'marching', march: { taskId: 1, title: ISSUE.title, member: 'gimli', agentId: 'gimli-0', attempt: 1, at: 1, answer: '' }, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 }
+    const tree = `${CWD}/.fellowship/trees/build-21-quench-answers-404-for-an-unknown-beacon`
+    world.store[`quest:${ISSUE.ref}`] = { kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'build/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'doing' }], isAuto: false, phase: 'building', current: { taskId: 1, title: ISSUE.title, member: 'builder-service', agentId: 'builder-service-0', attempt: 1, at: 1, answer: '' }, proof: '', proofLine: '', verdictLine: '', testsToPass: null, commits: [], pr: '', at: 1 }
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/#21 \(errand\), "Quench answers 404 for an unknown beacon" \(0\/1 done\): stuck/)
-    // A bare /fellowship lists it, and sets nothing out
-    expect((await $.command.run({ command: 'fellowship', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/#21 \(errand\), "Quench answers 404 for an unknown beacon" \(0\/1 done\): stuck/)
+    // A bare /build lists it, and sets nothing out
+    expect((await $.command.run({ command: 'build', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
     expect(world.spawned).toEqual([])
 
-    // Claude sends the stuck task again itself, with no /fellowship next typed: in its worktree, from the tool's hook
-    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/A member is sent on the next task of github:.*#21/)
+    // Claude sends the stuck task again itself, with no /build next typed: in its worktree, from the tool's hook
+    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/A builder is sent on the next task of github:.*#21/)
     await settle($, world)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
-    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/is marching: no task is sent now/)
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-service', cwd: tree })
+    expect(await call($, 'mcp__middle-earth__next', { ref: ISSUE.ref })).toMatch(/is building: no task is sent now/)
   })
 })
 
-describe('a quest whose base moved on', () => {
-  const kept = (tree: string) => ({ kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'fellowship/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'todo' }], isAuto: false, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 })
+describe('a run whose base moved on', () => {
+  const kept = (tree: string) => ({ kind: 'errand', ref: ISSUE.ref, url: ISSUE.url, title: ISSUE.title, branch: 'build/21-quench-answers-404-for-an-unknown-beacon', base: 'main', tree, tasks: [{ ...errandTask(ISSUE), id: 1, state: 'todo' }], isAuto: false, phase: 'ready', current: null, proof: '', proofLine: '', verdictLine: '', testsToPass: null, commits: [], pr: '', at: 1 })
 
   test('takes in what main gained when it is taken up again, and goes on', async ($, on) => {
     const world = machine(on)
     world.plan = null
     world.isBehind = true
-    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    const tree = `${CWD}/.fellowship/trees/build-21-quench-answers-404-for-an-unknown-beacon`
     world.store[`quest:${ISSUE.ref}`] = kept(tree)
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/takes up its quest/)
+    expect(await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })).toMatch(/takes up its run/)
     expect(world.at).toContainEqual({ line: 'git merge --no-edit origin/main', cwd: tree })
     await settle($, world)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-service', cwd: tree })
   })
 
   test('stops for the person when main conflicts with it, and takes the merge back', async ($, on) => {
@@ -1493,15 +1493,15 @@ describe('a quest whose base moved on', () => {
     world.plan = null
     world.isBehind = true
     world.isConflicting = true
-    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    const tree = `${CWD}/.fellowship/trees/build-21-quench-answers-404-for-an-unknown-beacon`
     world.store[`quest:${ISSUE.ref}`] = kept(tree)
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/but stops: .* cannot take in origin\/main: it conflicts in beacons\/gondor\/app\.py/)
+    expect(await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })).toMatch(/but stops: .* cannot take in origin\/main: it conflicts in beacons\/gondor\/app\.py/)
     expect(world.ran).toContain('git merge --abort')
     await settle($, world)
     expect(world.spawned).toEqual([])
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
   })
 
   test('leaves a worktree holding a change as it is, and only says it is behind', async ($, on) => {
@@ -1509,29 +1509,29 @@ describe('a quest whose base moved on', () => {
     world.plan = null
     world.isBehind = true
     world.dirty = ' M beacons/gondor/app.py\n'
-    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
+    const tree = `${CWD}/.fellowship/trees/build-21-quench-answers-404-for-an-unknown-beacon`
     world.store[`quest:${ISSUE.ref}`] = kept(tree)
     await start($, world)
 
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     expect(world.ran.some(line => line.startsWith('git merge --no-edit'))).toBe(false)
   })
 })
 
 describe('an errand', () => {
-  test('on an issue opened from outside the repository is set out on by the person alone, never on a call of Claude\'s', async ($, on) => {
+  test('on an issue opened from outside the repository is start on by the person alone, never on a call of Claude\'s', async ($, on) => {
     const world = machine(on)
     world.plan = null
     world.association = 'NONE'
     await start($, world)
 
-    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/opened by quent, from outside the repository[\s\S]*only the person sets out on it/)
+    expect(await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })).toMatch(/opened by quent, from outside the repository[\s\S]*only the person starts on it/)
     await settle($, world)
     expect(world.spawned).toEqual([])
 
-    expect((await $.command.run({ command: 'fellowship', args: 'errand #21' } as never)).text).toMatch(/sets out on #21 as an errand/)
+    expect((await $.command.run({ command: 'build', args: 'errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
     await settle($, world)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli' })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-service' })
   })
 
   test('builds a small issue in one change in its worktree, and waits for the person\'s go to open its pull request', async ($, on) => {
@@ -1539,30 +1539,30 @@ describe('an errand', () => {
     world.plan = null
     await start($, world)
 
-    expect((await $.command.run({ command: 'fellowship', args: 'errand #21' } as never)).text).toMatch(/sets out on #21 as an errand/)
+    expect((await $.command.run({ command: 'build', args: 'errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
     await settle($, world)
 
-    const tree = `${CWD}/.fellowship/trees/fellowship-21-quench-answers-404-for-an-unknown-beacon`
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:gimli', cwd: tree })
+    const tree = `${CWD}/.fellowship/trees/build-21-quench-answers-404-for-an-unknown-beacon`
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-service', cwd: tree })
     expect(String(world.spawned[0]?.prompt)).toMatch(/^The issue: github:.*#21[\s\S]*<issue>\nIt answers 500 today\./)
     // No council planned it, and no Mirror is gazed into
     expect(world.marked).toEqual([])
-    expect(world.gazed).toEqual([])
+    expect(world.testsFor).toEqual([])
 
-    await ends($, 'gimli-1', 'Quench answers 404 now; test_quench_unknown proves it.', world)
+    await ends($, 'builder-service-1', 'Quench answers 404 now; test_quench_unknown proves it.', world)
     await settle($, world)
 
     // An errand is judged by both reviewers: the issue it is built from may be anyone's
     expect(world.reviewers[0]).toEqual(['reviewer-correctness', 'reviewer-security'])
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
-    expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Gimli/)
+    expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Service builder/)
     // What the mods keep in the worktree (Andúril's builds, verify's trees) is none of the change
     expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).elrond :(exclude).argonath :(exclude).anduril :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: arrived/)
+    expect(await call($, 'mcp__middle-earth__run', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: built/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
     // The person says go: no ward for one change both reviewers judged whole
-    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.judged).toHaveLength(2)
     expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The the proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
@@ -1574,15 +1574,15 @@ describe('an errand', () => {
     world.plan = null
     world.staged = `diff --git a/beacons/gondor/settings.py b/beacons/gondor/settings.py\n+++ b/beacons/gondor/settings.py\n+KEY = "AKIA${'Q'.repeat(16)}"\n`
     await start($, world)
-    await $.command.run({ command: 'fellowship', args: 'errand #21' } as never)
+    await $.command.run({ command: 'build', args: 'errand #21' } as never)
     await settle($, world)
-    await ends($, 'gimli-1', 'Quench answers 404 now.', world)
+    await ends($, 'builder-service-1', 'Quench answers 404 now.', world)
     await settle($, world)
 
     // The secret is read in what was staged: it is unstaged, and the change waits in the worktree for the person
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
     expect(world.ran).toContain('git reset -q')
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run', { ref: ISSUE.ref })).toMatch(/: stuck/)
     expect(world.toasts.some(text => /adds what looks like a secret \(beacons\/gondor\/settings\.py: an AWS access key\)/.test(text))).toBe(true)
 
     // Taken out, it is committed; a secret committed by hand on the branch keeps it on the machine
@@ -1592,12 +1592,12 @@ describe('an errand', () => {
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(true)
 
     world.pushed = `+++ b/narsil/deploy.pem\n+-----BEGIN RSA PRIVATE KEY-----\n`
-    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('git push') || line.startsWith('gh pr create'))).toBe(false)
 
     world.pushed = ''
-    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(true)
   })
@@ -1606,54 +1606,54 @@ describe('an errand', () => {
     const world = machine(on)
     world.plan = null
     await start($, world)
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     await settle($, world)
 
-    await ends($, 'gimli-1', 'Handed back: it asks whether an unknown beacon is 404 or 410, which the person decides.')
+    await ends($, 'builder-service-1', 'Handed back: it asks whether an unknown beacon is 404 or 410, which the person decides.')
     await settle($, world)
 
     expect(world.jobs.service).toEqual([])
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/: stuck[\s\S]*Gimli is back from task 1/)
-    expect(world.toasts.some(text => /Gimli hands github:.*#21 back: it asks whether/.test(text))).toBe(true)
+    expect(await call($, 'mcp__middle-earth__run', { ref: ISSUE.ref })).toMatch(/: stuck[\s\S]*Service builder is back from task 1/)
+    expect(world.toasts.some(text => /Service builder hands github:.*#21 back: it asks whether/.test(text))).toBe(true)
   })
 
   test('taken up again is still the one task, the whole issue', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     await settle($, world)
-    await ends($, 'gimli-1', 'Handed back: it asks whether an unknown beacon is 404 or 410, which the person decides.')
+    await ends($, 'builder-service-1', 'Handed back: it asks whether an unknown beacon is 404 or 410, which the person decides.')
     await settle($, world)
 
-    expect(await call($, 'mcp__middle-earth__errand', { issue: '#21' })).toMatch(/takes up its quest on github:.*#21 \(0\/1 done/)
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).not.toMatch(/2\. /)
+    expect(await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })).toMatch(/takes up its run on github:.*#21 \(0\/1 done/)
+    expect(await call($, 'mcp__middle-earth__run', { ref: ISSUE.ref })).not.toMatch(/2\. /)
   })
 
-  test('does not arrive when its member left no change in the worktree', async ($, on) => {
+  test('does not arrive when its builder left no change in the worktree', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     await settle($, world)
 
     // It built in the person's checkout instead: the worktree is clean
     world.dirty = ''
-    await ends($, 'gimli-1', 'Quench answers 404 now; test_quench_unknown proves it.', world)
+    await ends($, 'builder-service-1', 'Quench answers 404 now; test_quench_unknown proves it.', world)
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
+    expect(await call($, 'mcp__middle-earth__run', { ref: ISSUE.ref })).toMatch(/\(0\/1 done\): stuck/)
   })
 
   test('put up for verification through the commit tool, is proved and judged in that call, where the reviewers are held', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     await settle($, world)
     world.dirty = ''
-    await ends($, 'gimli-1', 'It built nothing here.', world)
+    await ends($, 'builder-service-1', 'It built nothing here.', world)
     await settle($, world)
 
     // The person mends the change by hand in the worktree
@@ -1670,22 +1670,22 @@ describe('an errand', () => {
     const world = machine(on)
     world.plan = null
     await start($, world)
-    await call($, 'mcp__middle-earth__errand', { issue: '#21' })
+    await call($, 'mcp__middle-earth__start_errand', { issue: '#21' })
     await settle($, world)
 
     // It built in the person's checkout: stuck, and its account says so
     world.dirty = ''
-    await ends($, 'gimli-1', 'The proof could not be made: the tools were unreachable.', world)
+    await ends($, 'builder-service-1', 'The proof could not be made: the tools were unreachable.', world)
     await settle($, world)
 
     // The person brings the change into the worktree and puts it up for verification
     world.dirty = ' M beacons/gondor/app.py\n'
-    await $.command.run({ command: 'fellowship', args: `commit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'build', args: `commit ${ISSUE.ref}` } as never)
     await settle($, world)
-    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
     await settle($, world)
 
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nGimli's account above was written before its change was proven: the person put it up for verification, whose proof says: every changed run is pinned\./)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nService builder's account above was written before its change was proven: the person put it up for verification, whose proof says: every changed run is pinned\./)
   })
 })
 
@@ -1702,48 +1702,48 @@ describe('a review handed over by the review follow-up', () => {
     world.plan = null
     await start($, world)
 
-    expect(await handOver($)).toMatch(new RegExp(`sets out on review:lienardquentin/claude-code-shenanigans#13.*on ${BRANCH} from main, in its worktree ${TREE}`))
+    expect(await handOver($)).toMatch(new RegExp(`starts on review:lienardquentin/claude-code-shenanigans#13.*on ${BRANCH} from main, in its worktree ${TREE}`))
     await settle($, world)
 
     // The pull request's own branch, fetched and checked out in a worktree
     expect(world.ran).toContain(`git fetch origin ${BRANCH}`)
     expect(world.ran).toContain(`git worktree add ${TREE} ${BRANCH}`)
-    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:frodo', cwd: TREE })
+    expect(world.spawned[0]).toMatchObject({ subagent_type: 'middle-earth:builder-light-1', cwd: TREE })
 
-    await ends($, 'frodo-1', 'Renamed it burned_seconds.', world)
+    await ends($, 'builder-light-1-1', 'Renamed it burned_seconds.', world)
     await settle($, world)
     expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m Review: Name it burned_seconds/)
 
-    // The second comment asks a question: its member builds nothing and hands it back
-    await $.command.run({ command: 'fellowship', args: 'next' } as never)
+    // The second comment asks a question: its builder builds nothing and hands it back
+    await $.command.run({ command: 'build', args: 'next' } as never)
     await settle($, world)
     world.dirty = ''
-    await ends($, 'gimli-1', 'Handed back: whether to answer seconds or a timestamp is the author\'s call.')
+    await ends($, 'builder-service-1', 'Handed back: whether to answer seconds or a timestamp is the author\'s call.')
     await settle($, world)
 
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*\? 2\. Why answer seconds and not the timestamp itself\?.*whether to answer seconds or a timestamp/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: built[\s\S]*\? 2\. Why answer seconds and not the timestamp itself\?.*whether to answer seconds or a timestamp/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
     // The first answer was amended by hand since it was committed: its reply names the commit its branch holds
     world.rewritten = { c0ffee2aaaa: 'feedbee1234567' }
 
-    await $.command.run({ command: 'fellowship', args: 'sail' } as never)
+    await $.command.run({ command: 'build', args: 'submit' } as never)
     await settle($, world)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: sailed/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: submitted/)
 
     // Once pushed, each thread is answered on the pull request: the comment built is told its commit and resolved; the
     // one handed back is told why, and left open for the person
     const threads = world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))
     expect(threads).toEqual([
-      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in feedbee by Frodo\.$/),
+      expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r1 -f body=Answered in feedbee by Light builder 1\.$/),
       expect.stringMatching(/resolveReviewThread.* -f id=r1$/),
       expect.stringMatching(/addPullRequestReviewThreadReply.* -f id=r2 -f body=Handed back to the author: whether to answer seconds or a timestamp is the author's call\.$/),
     ])
 
     // Sailed again, no thread is answered twice
-    await $.command.run({ command: 'fellowship', args: `sail review:${REVIEW.ref}` } as never)
+    await $.command.run({ command: 'build', args: `submit review:${REVIEW.ref}` } as never)
     await settle($, world)
     expect(world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))).toHaveLength(3)
   })
@@ -1753,7 +1753,7 @@ describe('a review handed over by the review follow-up', () => {
     world.plan = null
     // A review taken up before its comments carried their threads
     const ref = `review:${REVIEW.ref}`
-    world.store[`quest:${ref}`] = { kind: 'review', ref, url: REVIEW.url, title: REVIEW.title, branch: BRANCH, base: 'main', tree: TREE, tasks: reviewTasks(REVIEW.comments), isAuto: false, phase: 'ready', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: REVIEW.url, at: 1 }
+    world.store[`quest:${ref}`] = { kind: 'review', ref, url: REVIEW.url, title: REVIEW.title, branch: BRANCH, base: 'main', tree: TREE, tasks: reviewTasks(REVIEW.comments), isAuto: false, phase: 'ready', current: null, proof: '', proofLine: '', verdictLine: '', testsToPass: null, commits: [], pr: REVIEW.url, at: 1 }
     world.worktrees.push({ path: TREE, branch: BRANCH })
     await start($, world)
 
@@ -1778,79 +1778,79 @@ describe('a review handed over by the review follow-up', () => {
     expect(world.spawned[0]).toMatchObject({ cwd: CWD })
     expect(world.ran.some(line => line.startsWith('git worktree add'))).toBe(false)
 
-    await ends($, 'frodo-1', 'Renamed it.', world)
+    await ends($, 'builder-light-1-1', 'Renamed it.', world)
     await settle($, world)
-    await $.command.run({ command: 'fellowship', args: 'abandon' } as never)
+    await $.command.run({ command: 'build', args: 'abandon' } as never)
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git worktree remove') || line.startsWith('git branch -D'))).toBe(false)
   })
 })
 
-describe('a quest named in a command', () => {
+describe('a run named in a command', () => {
   test('is found by its whole number, never by the end of another\'s, and two a number names alike name none', async ($, on) => {
     const world = machine(on)
-    const kept = (ref: string, branch: string) => ({ kind: 'errand', ref, url: '', title: ref, branch, base: 'main', tree: `${CWD}/.fellowship/trees/${branch}`, tasks: [], isAuto: true, phase: 'stuck', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 })
+    const kept = (ref: string, branch: string) => ({ kind: 'errand', ref, url: '', title: ref, branch, base: 'main', tree: `${CWD}/.fellowship/trees/${branch}`, tasks: [], isAuto: true, phase: 'stuck', current: null, proof: '', proofLine: '', verdictLine: '', testsToPass: null, commits: [], pr: '', at: 1 })
     world.plan = null
-    for (const [ref, branch] of [['github:o/r#12', 'fellowship/12-a'], ['github:o/r#2', 'fellowship/2-b'], ['github:a/x#5', 'fellowship/5-c'], ['github:b/y#5', 'fellowship/5-d']]) world.store[`quest:${ref}`] = kept(ref ?? '', branch ?? '')
+    for (const [ref, branch] of [['github:o/r#12', 'build/12-a'], ['github:o/r#2', 'build/2-b'], ['github:a/x#5', 'build/5-c'], ['github:b/y#5', 'build/5-d']]) world.store[`quest:${ref}`] = kept(ref ?? '', branch ?? '')
     await start($, world)
 
-    const halt = async (named: string) => String((await $.command.run({ command: 'fellowship', args: `halt ${named}` } as never)).text)
+    const halt = async (named: string) => String((await $.command.run({ command: 'build', args: `halt ${named}` } as never)).text)
 
-    expect(await halt('2')).toMatch(/^The quest on github:o\/r#2 stops/)
-    expect(await halt('#12')).toMatch(/^The quest on github:o\/r#12 stops/)
-    expect(await halt('5')).toBe('No quest on 5 is under way.')
-    expect(await halt('fellowship/5-d')).toMatch(/^The quest on github:b\/y#5 stops/)
+    expect(await halt('2')).toMatch(/^The run on github:o\/r#2 stops/)
+    expect(await halt('#12')).toMatch(/^The run on github:o\/r#12 stops/)
+    expect(await halt('5')).toBe('No run on 5 is under way.')
+    expect(await halt('build/5-d')).toMatch(/^The run on github:b\/y#5 stops/)
   })
 })
 
 describe('the hand-offs of a task', () => {
-  test('stop the quest when the member committed past the proof, and commit nothing of it', async ($, on) => {
+  test('stop the run when the builder committed past the proof, and commit nothing of it', async ($, on) => {
     const world = machine(on)
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // The member got a commit past the guard: HEAD moved, and the tree is clean
+    // The builder got a commit past the guard: HEAD moved, and the tree is clean
     world.head = 'deadbeef99'
     world.dirty = ''
-    await ends($, 'frodo-1', 'Added lit_at, and committed it.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at, and committed it.', world)
     await settle($, world)
 
     expect(world.judged).toHaveLength(0)
     expect(world.marked).toEqual(['1 doing'])
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck/)
     expect(world.toasts.some(text => /HEAD moved from c0ffee1 to deadbee[\s\S]*git reset --soft c0ffee1/.test(text))).toBe(true)
   })
 
-  test('stop at once where verify could not look at what the change reached: no member mends that', async ($, on) => {
+  test('stop at once where verify could not look at what the change reached: no builder mends that', async ($, on) => {
     const world = machine(on)
     world.proofs = ['unlooked']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.spawned).toHaveLength(1)
     expect(world.sent).toEqual([])
     expect(world.judged).toHaveLength(0)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: stuck[\s\S]*Last proof: .*gondor/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: stuck[\s\S]*Last proof: .*gondor/)
   })
 
   test('send both reviewers on every task, a light one on a lighter model', async ($, on) => {
     const world = machine(on)
     world.proofs = ['pinned', 'unhandled']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
-    await ends($, 'gimli-1', 'Added burned_for.', world)
+    await ends($, 'builder-service-1', 'Added burned_for.', world)
     await settle($, world)
 
     expect(world.reviewers).toEqual([['reviewer-correctness', 'reviewer-security'], ['reviewer-correctness', 'reviewer-security']])
@@ -1859,37 +1859,37 @@ describe('the hand-offs of a task', () => {
     expect(world.ran.filter(line => line.startsWith('git commit -m')).at(-1)).toContain('Not proven by verify, which has no handler for anor')
   })
 
-  test('send the task a rung up when a member took lines out of the test writer\'s tests with no reason', async ($, on) => {
+  test('send the task a rung up when a builder took lines out of the test writer\'s tests with no reason', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['shown']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out')
+    await call($, 'mcp__middle-earth__start_run')
     await settle($, world)
 
-    // Gimli takes one of her lines out with a shell command, which the lock does not see
+    // Service builder takes one of her lines out with a shell command, which the lock does not see
     world.tampered = true
-    await ends($, 'gimli-1', 'Made them pass.', world)
+    await ends($, 'builder-service-1', 'Made them pass.', world)
     await settle($, world)
 
-    // Gimli is sent back once to put them back, then the task goes a rung up
-    expect(world.sent).toEqual([{ agentId: 'gimli-1', text: expect.stringContaining("- Tests first, beacons/tests/test_gondor.py: locked lines of the tests written first") }])
-    await ends($, 'gimli-1', 'Left them as they were.', world)
+    // Service builder is sent back once to put them back, then the task goes a rung up
+    expect(world.sent).toEqual([{ agentId: 'builder-service-1', text: expect.stringContaining("- Tests first, beacons/tests/test_gondor.py: locked lines of the tests written first") }])
+    await ends($, 'builder-service-1', 'Left them as they were.', world)
     await settle($, world)
 
     expect(world.judged).toHaveLength(0)
-    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:aragorn' })
+    expect(world.spawned[1]).toMatchObject({ subagent_type: 'middle-earth:builder-heavy' })
     expect(String(world.spawned[1]?.prompt)).toMatch(/<findings>\n- Tests first, beacons\/tests\/test_gondor\.py: locked lines of the tests written first were taken out with no reason given \(`assert body\["burned_for"\] == 3`\)/)
   })
 
-  test('have both reviewers judge a plan\'s whole branch in its worktree before it sails, and hold it back when they find what blocks it', async ($, on) => {
+  test('have both reviewers judge a plan\'s whole branch in its worktree before it is submitted, and hold it back when they find what blocks it', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [structuredClone(PLAN.tasks[0]!)] }
     world.judgements = ['pass', 'fail']
     await start($, world)
-    await call($, 'mcp__middle-earth__set_out', { auto: true })
+    await call($, 'mcp__middle-earth__start_run', { auto: true })
     await settle($, world)
-    await ends($, 'frodo-1', 'Added lit_at.', world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     expect(world.reviewers.at(-1)).toEqual(['reviewer-correctness', 'reviewer-security'])
@@ -1900,12 +1900,12 @@ describe('the hand-offs of a task', () => {
     expect(world.judged.at(-1)?.model).toBe('sonnet')
     expect(aboutOf(world.judged.at(-1))).toMatch(/^The whole branch of the plan for github:.*#12[\s\S]*one task undoing or contradicting another[\s\S]*- 1\. Keep when a beacon is lit/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__quest')).toMatch(/: arrived[\s\S]*The reviewers: the whole branch: 1 blocking finding/)
+    expect(await call($, 'mcp__middle-earth__run')).toMatch(/: built[\s\S]*The reviewers: the whole branch: 1 blocking finding/)
 
-    // Fixed, committed, and passed: it sails
+    // Fixed, committed, and passed: it is submitted
     world.head = 'f1xed00aaaa'
     world.judgements = ['pass']
-    await $.command.run({ command: 'fellowship', args: 'sail' } as never)
+    await $.command.run({ command: 'build', args: 'submit' } as never)
     await settle($, world)
     expect(world.ran).toContain(`git push -u origin ${BRANCH}`)
   })

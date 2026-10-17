@@ -7,7 +7,7 @@ import { resolvedFrom } from '../core/paths'
 import { QUEST_TREES } from './kit/trees'
 
 // What the parts of the mod share: the project's folder, git and the forge, what a command changes, and how the
-// Fellowship reads the proof and judgement of a builder's change.
+// Build reads the proof and judgement of a builder's change.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
@@ -108,8 +108,8 @@ export const privateRefusal = (root: string, cwd: string, command: string): stri
 
 /**
  * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself. Inside a linked worktree (a quest's, a target's) it is
- * still the main checkout, whose `.git` the worktree shares: never the worktree, or a quest set out from there would
+ * Claude's shell moves it), else the session's directory itself. Inside a linked worktree (a run's, a target's) it is
+ * still the main checkout, whose `.git` the worktree shares: never the worktree, or a run started from there would
  * nest its own worktree inside it.
  */
 export async function rootOf($: $): Promise<string> {
@@ -132,7 +132,7 @@ export async function gitRootOf($: $): Promise<string | undefined> {
 }
 
 /**
- * A command run in a folder, the project's when none is named (a quest's commands run in its worktree): whether it
+ * A command run in a folder, the project's when none is named (a run's commands run in its worktree): whether it
  * ended well, and what it said (its error when it did not).
  */
 export async function run($: $, argv: readonly string[], timeoutMs?: number, cwd?: string): Promise<{ ok: boolean; out: string }> {

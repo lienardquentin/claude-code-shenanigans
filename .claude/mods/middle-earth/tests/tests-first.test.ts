@@ -73,7 +73,7 @@ describe('the tests written first', () => {
 
 /** Stands for the machine and the engine beneath the mod. */
 const machine = (on: On) => {
-  // `tops`: the folders git runs at the top of, the project's and any quest's worktree
+  // `tops`: the folders git runs at the top of, the project's and any run's worktree
   const world = { spawned: [] as Record<string, unknown>[], submitted: [] as string[], head: 'aaa111', status: ' M beacons/tests/test_gondor.py\n', diff: DIFF, cwd: CWD, tops: [CWD], files: {} as Record<string, string>, clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   // The session's directory may wander into a subfolder; git's top stays the project's
@@ -94,11 +94,11 @@ const machine = (on: On) => {
 
     world.spawned.push(given)
 
-    // A member another mod sends is answered its id; the test writer is known by her type
-    return { model: 'opus', ...(/^middle-earth:(?!test-writer)/.test(String(given.subagent_type ?? given.subagentType ?? '')) ? { agentId: 'gimli-1' } : {}) } as never
+    // A builder another mod sends is answered its id; the test writer is known by her type
+    return { model: 'opus', ...(/^middle-earth:(?!test-writer)/.test(String(given.subagent_type ?? given.subagentType ?? '')) ? { agentId: 'builder-service-1' } : {}) } as never
   })
   // Core alone mints an agent's id: she is known by the type she runs as
-  on('agent.list', () => ({ value: [{ id: 'test-writer-1', description: 'x', type: 'middle-earth:test-writer', status: 'running' }, { id: 'gimli-1', description: 'x', type: 'middle-earth:gimli', status: 'running' }] }) as never)
+  on('agent.list', () => ({ value: [{ id: 'test-writer-1', description: 'x', type: 'middle-earth:test-writer', status: 'running' }, { id: 'builder-service-1', description: 'x', type: 'middle-earth:builder-service', status: 'running' }] }) as never)
   on('prompt.submit', (_, e) => {
     world.submitted.push(e.text)
 
@@ -180,19 +180,19 @@ describe('tests first', () => {
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 
-    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
-    expect(await edit($, 'gimli-1', FILE, before, `# sting: gondor POST /beacons/amon-din/quench\n${before}`)).toMatchObject({ result: 'done' })
-    expect(await $.tool.call({ tool: 'Write', file_path: FILE, content: 'import x\n', agentId: 'gimli-1' } as never)).toMatchObject({ deny: expect.any(String) })
+    expect(await edit($, 'builder-service-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
+    expect(await edit($, 'builder-service-1', FILE, before, `# sting: gondor POST /beacons/amon-din/quench\n${before}`)).toMatchObject({ result: 'done' })
+    expect(await $.tool.call({ tool: 'Write', file_path: FILE, content: 'import x\n', agentId: 'builder-service-1' } as never)).toMatchObject({ deny: expect.any(String) })
 
     // A reason unlocks the file, and is kept
     expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, why: 'too short' })).toMatch(/Say why/)
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
-    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
-    expect(await call($, 'mcp__middle-earth__tests_first')).toContain('Changed since, and why:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, why: 'The issue asks for 409 here, not 404.', agentId: 'builder-service-1' })).toMatch(/unlocked/)
+    expect(await edit($, 'builder-service-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
+    expect(await call($, 'mcp__middle-earth__tests_first')).toContain('Changed since, and why:\n- beacons/tests/test_gondor.py, by middle-earth:builder-service: The issue asks for 409 here, not 404.')
 
     // A test of hers that cannot run here is owed no passing, and stays locked: the file is not unlocked for it
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, test: 'test_quenching_one_beacon', why: 'It needs a second host to quench from.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
-    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first show what is to come: 0 tests, red, and 1 that cannot run here, locked[\s\S]*cannot run here, and are owed no passing:\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon, It needs a second host to quench from\. \(said by middle-earth:gimli\)/)
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: FILE, test: 'test_quenching_one_beacon', why: 'It needs a second host to quench from.', agentId: 'builder-service-1' })).toMatch(/cannot run here: it stays locked/)
+    expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/^The tests written first show what is to come: 0 tests, red, and 1 that cannot run here, locked[\s\S]*cannot run here, and are owed no passing:\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon, It needs a second host to quench from\. \(said by middle-earth:builder-service\)/)
 
     // Committed: HEAD has moved past them, and they are anyone's to change
     world.head = 'bbb222'
@@ -223,7 +223,7 @@ describe('tests first', () => {
   })
 })
 
-describe('tests first, for a quest', () => {
+describe('tests first, for a run', () => {
   test('gazes on the lighter model for a task that is not heavy', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
@@ -246,15 +246,15 @@ describe('tests first, for a quest', () => {
     expect(await call($, 'mcp__middle-earth__tests_first')).toContain(`Taken out of the tests written first with no reason given (an edit the lock did not see):\n- beacons/tests/test_gondor.py: \`${TEST_LINES[2]?.trim() ?? ''}\``)
   })
 
-  test("gazes in the quest's worktree a builder is sent to, holds her and the builder to her tests there, and leaves the project's own folder be", async ($, on) => {
+  test("gazes in the run's worktree a builder is sent to, holds her and the builder to her tests there, and leaves the project's own folder be", async ($, on) => {
     const tree = `${CWD}/.fellowship/trees/12-quench`
     const world = machine(on)
     world.tops.push(tree)
     await $.session.start({} as never)
 
     // A builder sent into the worktree: what it asks of the Mirror is of that worktree
-    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
-    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: quench.', weight: 'standard', agentId: 'gimli-1' })
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:builder-service', cwd: tree } as never)
+    await call($, 'mcp__middle-earth__write_tests', { purpose: 'Task 2: quench.', weight: 'standard', agentId: 'builder-service-1' })
     expect(world.spawned.at(-1)).toMatchObject({ cwd: tree })
 
     // It writes her tests in the worktree alone: a test file of the person's checkout, or one climbed to, is not hers
@@ -262,7 +262,7 @@ describe('tests first, for a quest', () => {
     expect(await edit($, 'test-writer-1', `${tree}/../../../beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ deny: expect.stringMatching(/The tests are written in/) })
     expect(await edit($, 'test-writer-1', `${tree}/beacons/tests/test_gondor.py`, 'a', 'b')).toMatchObject({ result: 'done' })
     await ends($, 'test-writer-1', SHOWN)
-    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'gimli-1' })).toMatch(/^The tests written first show what is to come: 1 test, red, locked/)
+    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'builder-service-1' })).toMatch(/^The tests written first show what is to come: 1 test, red, locked/)
     expect(await call($, 'mcp__middle-earth__tests_first')).toMatch(/No tests are written first yet/)
 
     // Her tests there are locked to the builder, the project's own file is not; and the builder, sent into the worktree,
@@ -270,13 +270,13 @@ describe('tests first, for a quest', () => {
     const before = TEST_LINES.join('\n')
     const weakened = before.replace('== 200', 'in (200, 404)')
 
-    expect(await edit($, 'gimli-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
+    expect(await edit($, 'builder-service-1', `${tree}/beacons/tests/test_gondor.py`, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
     expect(await edit($, undefined, FILE, before, weakened)).toMatchObject({ result: 'done' })
-    expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/You work in the quest's worktree/) })
+    expect(await edit($, 'builder-service-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
 
     // Its reason is kept with her tests in the worktree, however it names the file
-    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'gimli-1' })).toMatch(/unlocked/)
-    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'gimli-1' })).toContain('- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
+    expect(await call($, 'mcp__middle-earth__amend_test', { file: 'beacons/tests/test_gondor.py', why: 'The issue asks for 409 here, not 404.', agentId: 'builder-service-1' })).toMatch(/unlocked/)
+    expect(await call($, 'mcp__middle-earth__tests_first', { agentId: 'builder-service-1' })).toContain('- beacons/tests/test_gondor.py, by middle-earth:builder-service: The issue asks for 409 here, not 404.')
   })
 
   test('forgets, for an issue, only the visions gazed for it, and the project\'s own for none', () => {

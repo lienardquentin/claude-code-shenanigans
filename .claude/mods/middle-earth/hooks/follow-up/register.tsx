@@ -9,7 +9,7 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
-import { takeReview } from '../fellowship/register'
+import { takeReview } from '../build/register'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -38,7 +38,7 @@ const TOOLS = [
   {
     name: 'answer_review',
     description:
-      "Hands the open follow-up's comments that ask for a change to the Fellowship, which answers them one at a time on the pull request's branch, in a worktree of its own: each answer proven by verify, judged by its reviewers, and committed. Questions are left to the person, and nothing is pushed until the person says so.",
+      "Hands the open follow-up's comments that ask for a change to the build, which answers them one at a time on the pull request's branch, in a worktree of its own: each answer proven by verify, judged by its reviewers, and committed. Questions are left to the person, and nothing is pushed until the person says so.",
     inputSchema: { type: 'object', properties: { auto: { type: 'boolean', description: 'Go on by itself from one comment to the next. Only when the person asked for it.' } } },
   },
   {
@@ -111,23 +111,23 @@ async function open($: $, input: string): Promise<string> {
   const changes = comments.filter(one => one.kind === 'change').length
   const questions = comments.length - changes
 
-  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /follow-up answer hands them to the Fellowship.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
+  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /follow-up answer hands them to the build.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
 }
 
-/** Hands the comments that ask for a change to the Fellowship, which builds them on the pull request's branch. */
+/** Hands the comments that ask for a change to the build, which builds them on the pull request's branch. */
 async function hand($: $, isAuto: boolean): Promise<string> {
   const held = await read($, followUp)
 
   if (held === null) return HOW_TO
   if (held.phase === 'weighing') return 'The comments are still being weighed.'
-  if (held.pr.isFork === true) return `${held.pr.repo}#${held.pr.number} comes from a fork: its branch cannot be pushed to from this repository, so the Fellowship does not take it up. Answer its comments on the fork.`
+  if (held.pr.isFork === true) return `${held.pr.repo}#${held.pr.number} comes from a fork: its branch cannot be pushed to from this repository, so the build does not take it up. Answer its comments on the fork.`
   if (!held.comments.some(one => one.kind === 'change')) return `No comment of ${held.pr.repo}#${held.pr.number} asks for a change: the questions are yours to answer.`
 
-  await update($, working, () => `Handing ${held.pr.repo}#${held.pr.number}'s comments to the Fellowship…`)
+  await update($, working, () => `Handing ${held.pr.repo}#${held.pr.number}'s comments to the build…`)
 
   const got = await takeReview($, handedOf(held), isAuto).catch((error: unknown) => errorText(error))
 
-  if (!/sets out|takes up/.test(got)) return `The Fellowship did not take the comments up: ${got.slice(0, 300)}`
+  if (!/starts|takes up/.test(got)) return `The build did not take the comments up: ${got.slice(0, 300)}`
 
   await keep($, was => ({ ...was, phase: 'handed' }))
 
@@ -190,7 +190,7 @@ async function alone<T>($: $, act: () => Promise<T>): Promise<T> {
 
 /** The review follow-up at the session's start: its command, its tools, and the clock that does what a command asked. */
 export async function startFollowUp($: $): Promise<void> {
-  await $.command.register({ name: 'follow-up', description: "Answer a pull request's review comments: /follow-up <pr> opens them; answer (--auto) hands them to the Fellowship; close" })
+  await $.command.register({ name: 'follow-up', description: "Answer a pull request's review comments: /follow-up <pr> opens them; answer (--auto) hands them to the build; close" })
 
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
 
@@ -216,14 +216,14 @@ export function registerFollowUp(on: On): void {
 
     await $.ui.open({ id: PANE, title: TITLE })
 
-    // Handed over here, where the member the Fellowship sends on the first comment is held
+    // Handed over here, where the builder the build sends on the first comment is held
     if (verb === 'answer') return { text: await alone($, () => hand($, words.includes('--auto'))) }
 
     if (verb === 'close') {
       if (held?.phase === 'weighing') return { text: 'The follow-up weighs the comments: close it once it settles.' }
       await update($, followUp, () => null)
 
-      return { text: `The review follow-up is closed.${held?.phase === 'handed' ? ` The Fellowship's quest on ${reviewRef(held.pr)} goes on: /fellowship abandon ${reviewRef(held.pr)} stops it.` : ''}` }
+      return { text: `The review follow-up is closed.${held?.phase === 'handed' ? ` The build's run on ${reviewRef(held.pr)} goes on: /build abandon ${reviewRef(held.pr)} stops it.` : ''}` }
     }
 
     if (verb === '' && held !== null) return { text: followUpText(held) }
@@ -295,11 +295,11 @@ export function registerFollowUp(on: On): void {
             )
           })}
         </Box>
-        {held.phase === 'handed' && <Text dimColor>{`The Fellowship answers ${changes.length === 1 ? 'the comment' : `the ${changes.length} comments`} that ask for a change as ${shortRef(reviewRef(held.pr))}: its pane says how each stands, and pushes them once you say so.`}</Text>}
+        {held.phase === 'handed' && <Text dimColor>{`The build answers ${changes.length === 1 ? 'the comment' : `the ${changes.length} comments`} that ask for a change as ${shortRef(reviewRef(held.pr))}: its pane says how each stands, and pushes them once you say so.`}</Text>}
         {held.phase === 'ready' && changes.length > 0 && (
           <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
             <Button key="answer" hotkey="m" variant="primary" onPress={() => update($, wanted, () => ({ what: 'hand' as const }))}>
-              {keyed('m', 'Hand them to the Fellowship')}
+              {keyed('m', 'Hand them to the build')}
             </Button>
             <Button key="answer-auto" hotkey="a" onPress={() => update($, wanted, () => ({ what: 'hand auto' as const }))}>
               {keyed('a', 'Hand them over, going on by itself')}

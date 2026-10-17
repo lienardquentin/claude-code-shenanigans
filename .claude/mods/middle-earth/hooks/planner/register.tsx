@@ -11,7 +11,7 @@ import { targetsKnown } from '../verify/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed, shortRef } from '../look'
-import { settlingOf } from '../../core/quest'
+import { settlingOf } from '../../core/run'
 import { PLANNER, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 
 type $ = EngineInterface
@@ -31,7 +31,7 @@ const wanted = atom({ plugin: 'middle-earth', key: 'plannerWanted' } as const, '
 const setOut = atom({ plugin: 'middle-earth', key: 'plannerSetOut' } as const, '' as '' | 'step' | 'auto')
 
 /**
- * The setting out a press of the pane asked for, taken once: the plan in force, and whether the Fellowship goes on by
+ * The starting a press of the pane asked for, taken once: the plan in force, and whether the build goes on by
  * itself. Its clock takes it, outside the press, as what it starts does not outlive the press.
  */
 export async function takeSetOut($: $): Promise<{ ref: string; isAuto: boolean } | undefined> {
@@ -41,7 +41,7 @@ export async function takeSetOut($: $): Promise<{ ref: string; isAuto: boolean }
 
   await update($, setOut, () => '')
 
-  // The plan in force, by its issue: quests on other issues may be under way beside it
+  // The plan in force, by its issue: runs on other issues may be under way beside it
   return { ref: (await current($))?.ref ?? '', isAuto: how === 'auto' }
 }
 
@@ -292,7 +292,7 @@ async function isPlanner($: $, sitting: Planning, agentId: string): Promise<bool
 
 /**
  * The plan of an issue: the one in force when it is of that issue, else the one kept across sessions. The plan in force
- * when none is named. Quests built side by side each work from their own.
+ * when none is named. Runs built side by side each work from their own.
  */
 export async function planFor($: $, ref = ''): Promise<IssuePlan | null> {
   const held = await current($)
@@ -306,10 +306,10 @@ async function keepPlan($: $, made: IssuePlan): Promise<void> {
   else await $.store.set(STORE_KEY(made.ref), made).catch(() => undefined)
 }
 
-// One mark at a time: a quest's lanes mark their tasks beside one another, each writing the plan as it read it
+// One mark at a time: a run's lanes mark their tasks beside one another, each writing the plan as it read it
 const oneMark = inTurn()
 
-/** Marks a task of a plan, the one in force when none is named, keeps it, and says where the quest stands. */
+/** Marks a task of a plan, the one in force when none is named, keeps it, and says where the run stands. */
 export function markTask($: $, id: number, state: PlanTaskState, ref = ''): Promise<string> {
   return oneMark(() => markNow($, id, state, ref))
 }
@@ -500,7 +500,7 @@ export function registerPlanner(on: On): void {
     const unDecide = (index: number) => keep($, reopened(held, index))
     const asking = await read($, setOut)
     const width = e.props.bodyColumns ?? 80
-    // What the Fellowship refuses to set out on, as its setOut's unsettledOf counts it: the questions not answered, the
+    // What the build refuses to start on, as its setOut's unsettledOf counts it: the questions not answered, the
     // risks not decided, and those to cover with a task, which only a revision of the plan settles
     const { unanswered, toCover, undecided } = settlingOf(held)
     const blockers = [
@@ -542,14 +542,14 @@ export function registerPlanner(on: On): void {
           <Box flexDirection="column">
             <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
               <Button key="set-out" hotkey="s" variant={blockers.length > 0 ? 'secondary' : 'primary'} onPress={() => update($, setOut, () => 'step')}>
-                {keyed('s', 'Set out with the Fellowship')}
+                {keyed('s', 'Start with the build')}
               </Button>
               <Button key="set-out-auto" hotkey="a" onPress={() => update($, setOut, () => 'auto')}>
-                {keyed('a', 'Set out, auto')}
+                {keyed('a', 'Start, auto')}
               </Button>
             </Box>
             {asking !== '' ? (
-              <Text color="suggestion">the Fellowship is setting out…</Text>
+              <Text color="suggestion">the build is starting…</Text>
             ) : blockers.length > 0 ? (
               <Text color="warning">{`First ${blockers.join(' and ')}, below.`}</Text>
             ) : (
@@ -592,7 +592,7 @@ export function registerPlanner(on: On): void {
             ))}
             <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
               {open.state !== 'done' && (
-                // Building a task here is a choice beside setting out with the Fellowship, not the way in
+                // Building a task here is a choice beside starting with the build, not the way in
                 <Button key="begin" hotkey="b" onPress={() => setState(open.id, 'doing').then(() => $.prompt.submit({ text: beginText(held, open), asUser: true })).then(() => undefined)}>
                   {keyed('b', 'Build here myself')}
                 </Button>
@@ -629,8 +629,7 @@ export function registerPlanner(on: On): void {
               <Text color="warning" bold>Questions</Text>
               {badge({ label: `${answersOf(held).length} of ${held.questions.length} answered`, tone: answersOf(held).length === held.questions.length ? 'success' : 'warning' })}
             </Box>
-            <Text dimColor>Pick an answer, or type your own and press Enter. The first answer is the planner's own pick.</Text>
-            {held.questions.map((question, index) =>
+            <Text dimColor>Pick an answer, or type your own and press Enter. The first answer is the planner's own pick.</Text>'            {held.questions.map((question, index) =>
               question.answer !== '' ? (
                 <Box flexDirection="column" borderStyle="round" borderColor="success" paddingX={1} marginTop={1}>
                   <Text>

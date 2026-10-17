@@ -67,10 +67,10 @@ const TOOLS = [
 
 const STATE_TONE: Record<TestsFirstState, Tone> = { gazing: 'info', shown: 'success', empty: 'neutral', clouded: 'danger' }
 
-/** The folder a vision is of: the project's, or a quest's worktree. */
+/** The folder a vision is of: the project's, or a run's worktree. */
 type Place = { tree: string; isHome: boolean }
 
-/** The place a call is about: a quest's worktree a part names or the calling agent was sent to work in, else the project's. */
+/** The place a call is about: a run's worktree a part names or the calling agent was sent to work in, else the project's. */
 async function placeOf($: $, agentId?: string, named?: unknown): Promise<Place> {
   const home = await rootOf($)
   const tree = treeOf(home, treesOf(), agentId, named)
@@ -78,7 +78,7 @@ async function placeOf($: $, agentId?: string, named?: unknown): Promise<Place> 
   return { tree, isHome: tree === home }
 }
 
-/** The place a file is in: the quest's worktree that holds it, else the project's folder. */
+/** The place a file is in: the run's worktree that holds it, else the project's folder. */
 async function placeOfPath($: $, path: string): Promise<Place> {
   const home = await rootOf($)
   const whole = path.startsWith('/') ? path : `${home}/${path.replace(/^\.\//, '')}`
@@ -122,7 +122,7 @@ async function git($: $, place: Place, args: readonly string[]): Promise<{ ok: b
   return { ok: ran.exitCode === 0, out: (ran.exitCode === 0 ? ran.stdout : ran.stderr || ran.stdout).trimEnd() }
 }
 
-/** A path as its folder names it: from the project's folder, or from the quest's worktree it is in. */
+/** A path as its folder names it: from the project's folder, or from the run's worktree it is in. */
 const within = (place: Place, path: string): string => (path.startsWith(`${place.tree}/`) ? path.slice(place.tree.length + 1) : path.replace(/^\.\//, ''))
 
 /** Whether the tests written first are still locked: shown, and not committed yet, HEAD where it was when they were written. */
@@ -139,7 +139,7 @@ async function gaze($: $, purpose: string, by: TestsFirst['by'], place: Place, r
   if (held?.state === 'gazing') return 'The test writer is at work already: wait for the tests it writes.'
 
   const head = (await git($, place, ['rev-parse', 'HEAD'])).out
-  // In a quest's worktree it writes its tests there
+  // In a run's worktree it writes its tests there
   const started = await spawnIn($, { subagentType: weight === 'heavy' ? AGENT_TYPE : SWIFT_TYPE, description: 'The test writer writes the tests first', prompt: testsFirstPrompt(purpose), ...(place.isHome ? {} : { cwd: place.tree }) })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
@@ -152,7 +152,7 @@ async function gaze($: $, purpose: string, by: TestsFirst['by'], place: Place, r
   return 'The test writer writes the tests of what is to come and shows them red. mcp__middle-earth__tests_first says what it showed.'
 }
 
-/** Has the test writer write a quest's task's tests first, in its worktree. Answers what was done, in a sentence. */
+/** Has the test writer write a run's task's tests first, in its worktree. Answers what was done, in a sentence. */
 export async function writeTestsFor($: $, purpose: string, ref: string, weight: string, tree: string): Promise<string> {
   return gaze($, purpose, 'tool', await placeOf($, undefined, tree), ref, weight)
 }
@@ -232,7 +232,7 @@ async function tampered($: $, place: Place, held: TestsFirst | null): Promise<{ 
   return tamperedWith(held.blocks, held.amendments, files)
 }
 
-/** What the tests written first shows of a quest's worktree, for the Fellowship, which waits on her and reads what was changed of the tests written first. */
+/** What the tests written first shows of a run's worktree, for the build, which waits on her and reads what was changed of the tests written first. */
 export async function testsFirstIn($: $, tree: string): Promise<Shown> {
   const place = await placeOf($, undefined, tree)
   const held = await visionIn($, place)
@@ -364,7 +364,7 @@ export function registerTestsFirst(on: On): void {
   on('tool.call', { tool: 'mcp__middle-earth__amend_test' }, async ($, e) => {
     const given = e as unknown as { file?: unknown; why?: unknown; test?: unknown }
     const file = String(given.file ?? '')
-    // A builder in a quest's worktree amends the tests there, whichever way it names the file
+    // A builder in a run's worktree amends the tests there, whichever way it names the file
     const sent = await placeOf($, e.agentId)
     const place = sent.isHome && file.startsWith('/') ? await placeOfPath($, file) : sent
 
@@ -387,7 +387,7 @@ export function registerTestsFirst(on: On): void {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    // The project's own vision, else the last a quest's worktree holds
+    // The project's own vision, else the last a run's worktree holds
     const shown = (await allTestsFirst($)).sort((one, other) => (one.place.isHome ? -1 : other.place.isHome ? 1 : other.held.at - one.held.at))[0]
     const problem = await read($, note)
 
@@ -417,8 +417,8 @@ export function registerTestsFirst(on: On): void {
             {held.tests.length > 0 && <Text color="error">{`${held.tests.length} red ${held.tests.length === 1 ? 'test' : 'tests'}`}</Text>}
             <Text dimColor>{clockOf(held.at)}</Text>
           </Box>
-          {!place.isHome && <Text dimColor>{`In the quest's worktree ${place.tree.split('/').slice(-1)[0] ?? ''}${held.ref !== undefined ? `, for ${shortRef(held.ref)}` : ''}`}</Text>}
-          {elsewhere > 0 && <Text dimColor>{`${elsewhere} more ${elsewhere === 1 ? 'vision' : 'visions'} in other quests' worktrees`}</Text>}
+          {!place.isHome && <Text dimColor>{`In the run's worktree ${place.tree.split('/').slice(-1)[0] ?? ''}${held.ref !== undefined ? `, for ${shortRef(held.ref)}` : ''}`}</Text>}
+          {elsewhere > 0 && <Text dimColor>{`${elsewhere} more ${elsewhere === 1 ? 'vision' : 'visions'} in other runs' worktrees`}</Text>}
         </Box>
         {problem !== '' && <Text color="warning">{problem}</Text>}
         <Text>{held.purpose.split('\n')[0] ?? ''}</Text>

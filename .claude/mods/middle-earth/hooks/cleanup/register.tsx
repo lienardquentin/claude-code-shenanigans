@@ -11,7 +11,7 @@ import { UNMODDED } from '../../core/change'
 import { errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../planner/register'
-import { forgetQuest, questLeftovers } from '../fellowship/register'
+import { forgetRun, runLeftovers } from '../build/register'
 import { forgetTestsFirst } from '../tests-first/register'
 
 type $ = EngineInterface
@@ -48,7 +48,7 @@ const TOOLS = [
 /** Has a part forget what it keeps of a leftover, and says whether it did. */
 async function forgets($: $, keeper: 'build' | 'follow-up' | 'planner' | 'tests-first', leftover: Pick<Leftover, 'ref' | 'pr'>): Promise<boolean> {
   const forgot =
-    keeper === 'build' ? forgetQuest($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetTestsFirst($, leftover.ref)
+    keeper === 'build' ? forgetRun($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetTestsFirst($, leftover.ref)
 
   return (await forgot.catch(() => ({ forgotten: false }))).forgotten
 }
@@ -66,7 +66,7 @@ function git($: $, args: readonly string[]) {
 /** Looks at what the parts keep, and asks the forge whether each is merged; tells the person of each newly merged once. */
 async function watch($: $): Promise<Leftover[]> {
   const answers = [
-    { keeper: 'build' as const, kept: await questLeftovers($).catch(() => []) },
+    { keeper: 'build' as const, kept: await runLeftovers($).catch(() => []) },
     { keeper: 'follow-up' as const, kept: await followUpLeftovers($).catch(() => []) },
   ]
 
