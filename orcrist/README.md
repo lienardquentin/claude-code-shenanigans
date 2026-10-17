@@ -26,7 +26,8 @@ target/debug/orcrist check src/*.rs
 Each finding is printed as `file:line rule: what is wrong`, or, with `--format json`, as an array of objects with
 its `file`, `line`, `column`, `rule` and `message`, or, with `--format sarif`, as SARIF 2.1.0 for code scanning. Lines
 and columns count from 1, a column in characters. SARIF names each file by its path relative to the current folder,
-or by a `file:///` URI when it was given as an absolute path; for GitHub's code scanning, run orcrist from the
+or by a `file:///` URI when it was given as an absolute path (`file:///C:/...` for a Windows drive,
+`file://server/share/...` for a UNC path); for GitHub's code scanning, run orcrist from the
 repository's root on relative paths.
 
 Whatever the format, orcrist exits 0 when there is no finding, 1 when there is any, and 2 when a file cannot be read,

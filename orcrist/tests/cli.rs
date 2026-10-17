@@ -1102,12 +1102,47 @@ fn a_column_counts_characters_and_a_uri_escapes_what_a_path_may_not_hold() {
     assert!(sarif.contains("\"uri\": \"caf%C3%A9/a%20b.rs\""), "{sarif}");
     assert!(sarif.contains("\"startColumn\": 16,"), "{sarif}");
     assert_eq!(output.status.code(), Some(1));
+    assert_eq!(absolute.status.code(), Some(1));
     let absolute_sarif = stdout(&absolute);
-    let absolute_uri = format!(
-        "\"uri\": \"file:///{}/caf%C3%A9/a%20b.rs\"",
-        &folder.to_str().unwrap()[1..]
-    );
+    let escaped_folder: Vec<String> = folder
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::RootDir))
+        .map(|part| percent_encoded(part.as_os_str().to_str().unwrap()))
+        .collect();
+    let absolute_uri = format!("\"uri\": \"file:///{}/caf%C3%A9/a%20b.rs\"", escaped_folder.join("/"));
     assert!(absolute_sarif.contains(&absolute_uri), "{absolute_sarif}");
+}
+
+/// A part of a path with every byte but the unreserved ones written `%XX`.
+fn percent_encoded(part: &str) -> String {
+    part.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | 126 => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_uri_keeps_the_bytes_of_a_name_that_is_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let folder = folder("non-utf8-name");
+    let name = OsStr::from_bytes(b"a\xFFb.rs");
+    fs::write(folder.join(name), "fn lit() { let data = 1; }\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_orcrist"))
+        .args(["check", "--format", "sarif"])
+        .arg(name)
+        .current_dir(&folder)
+        .output()
+        .unwrap();
+
+    let sarif = stdout(&output);
+    assert!(sarif.contains("a%FFb.rs"), "{sarif}");
+    assert!(!sarif.contains("%EF%BF%BD"), "{sarif}");
 }
 
 #[test]
