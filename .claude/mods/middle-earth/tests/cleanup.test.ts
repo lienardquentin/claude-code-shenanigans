@@ -9,22 +9,22 @@ type On = Parameters<TestBody>[1]
 
 const CWD = '/proj'
 const REF = 'github:lienardquentin/claude-code-shenanigans#34'
-const BRANCH = 'fellowship/34-gondor-quench-a-single-beacon'
+const BRANCH = 'build/34-gondor-quench-a-single-beacon'
 const PR = 'https://github.com/lienardquentin/claude-code-shenanigans/pull/40'
-const TREE = `${CWD}/.fellowship/trees/fellowship-34-gondor-quench-a-single-beacon`
+const TREE = `${CWD}/.fellowship/trees/build-34-gondor-quench-a-single-beacon`
 const REVIEW_REF = 'review:lienardquentin/claude-code-shenanigans#40'
 
 describe('the leftovers', () => {
   test('are one a branch: a run and the follow-up open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
     const leftovers = gathered([
       { keeper: 'follow-up', kept: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR }] },
-      { keeper: 'build', kept: [{ ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: '' }, { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '' }] },
+      { keeper: 'build', kept: [{ ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: '' }, { ref: 'github:o/r#35', branch: 'build/35-x', base: 'main', tree: '', pr: '' }] },
       { keeper: 'build', kept: [{ branch: '' }] },
     ])
 
     expect(leftovers).toEqual([
       { ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: PR, keepers: ['follow-up', 'build'], quests: [REF], isMerged: false },
-      { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '', keepers: ['build'], quests: ['github:o/r#35'], isMerged: false },
+      { ref: 'github:o/r#35', branch: 'build/35-x', base: 'main', tree: '', pr: '', keepers: ['build'], quests: ['github:o/r#35'], isMerged: false },
     ])
   })
 
@@ -35,13 +35,13 @@ describe('the leftovers', () => {
   })
 })
 
-/** A quest the Fellowship keeps across sessions, as its store holds it. */
-const quest = (tree: string, pr = PR) => ({ kind: 'plan', ref: REF, url: '', title: 'Quench a single beacon', branch: BRANCH, base: 'main', tree, isAuto: false, phase: 'sailed', march: null, proof: '', proofLine: '', verdictLine: '', commits: [], pr, at: 0 })
+/** A run the build keeps across sessions, as its store holds it. */
+const quest = (tree: string, pr = PR) => ({ kind: 'plan', ref: REF, url: '', title: 'Quench a single beacon', branch: BRANCH, base: 'main', tree, isAuto: false, phase: 'submitted', current: null, proof: '', proofLine: '', verdictLine: '', commits: [], pr, at: 0 })
 
 /** The plan Elrond keeps of the issue. */
 const PLAN = { ref: REF, url: '', title: 'Quench a single beacon', summary: '', approach: '', tasks: [], questions: [], decided: [], risks: [], accepted: [], at: 0 }
 
-/** Stands for the machine and the forge beneath the mod, and the store the Fellowship and Elrond keep their work in. */
+/** Stands for the machine and the forge beneath the mod, and the store the build and Elrond keep their work in. */
 const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?: boolean } = {}) => {
   const world = {
     tools: [] as string[],
@@ -50,7 +50,7 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     // The branch the forge says the pull request was merged from
     mergedFrom: BRANCH,
     dirty: '',
-    // What the quest's worktree holds uncommitted
+    // What the run's worktree holds uncommitted
     treeDirty: '',
     isTreeGone: false,
     state: 'OPEN',
@@ -67,10 +67,10 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
 
-  // A review of the same pull request, answered by the Fellowship on the same branch
+  // A review of the same pull request, answered by the build on the same branch
   const review = { ...quest(kept.tree ?? ''), kind: 'review', ref: REVIEW_REF }
   mock.store(on, { [`quest:${REF}`]: quest(kept.tree ?? ''), ...(kept.isReviewed === true ? { [`quest:${REVIEW_REF}`]: review } : {}), ...(kept.isPlanned !== false ? { [`plan:${REF}`]: PLAN } : {}) })
-  // Whether the quest's worktree is gone already, removed by an earlier cleanup
+  // Whether the run's worktree is gone already, removed by an earlier cleanup
   on('fs.exists', (_, e) => ({ value: !(world.isTreeGone && (e as unknown as { path: string }).path === TREE) }) as never)
   on('session.cwd', () => ({ value: CWD }) as never)
   on('process.run', (_, e) => {
@@ -89,7 +89,7 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     if (line === `git -C ${TREE} status --porcelain`) return answer(world.treeDirty)
     // What the tree holds, the mods' own folders left out
     if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(elrond|argonath|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
-    // Andúril builds the quest's CLI in a worktree of its own, inside the quest's
+    // Andúril builds the run's CLI in a worktree of its own, inside the run's
     if (line === 'git worktree list --porcelain') return answer([`worktree ${CWD}\nbranch refs/heads/main\n`, `worktree ${TREE}\nbranch refs/heads/${BRANCH}\n`, `worktree ${TREE}/.anduril/trees/narsil\ndetached\n`].join('\n'))
     if (line.startsWith('git switch ')) {
       world.branch = e.argv.at(-1) ?? ''
@@ -129,13 +129,13 @@ const cleaning = async ($: Engine, world: ReturnType<typeof machine>, args = 'cl
 }
 
 describe('cleanup', () => {
-  test('watches what the Fellowship keeps, tells the person once when it is merged, and offers Claude no way to clean it up', async ($, on) => {
+  test('watches what the build keeps, tells the person once when it is merged, and offers Claude no way to clean it up', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
     expect(world.tools).toContain('leftovers')
     expect(world.tools.some(tool => /clean/.test(tool))).toBe(false)
-    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/watches 1 leftover; 0 merged[\s\S]*· github:.*#34 on fellowship\/34-gondor-quench-a-single-beacon \(build\) · https:.*\/pull\/40$/)
+    expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/watches 1 leftover; 0 merged[\s\S]*· github:.*#34 on build\/34-gondor-quench-a-single-beacon \(build\) · https:.*\/pull\/40$/)
 
     // The first look, once the session has settled, finds it merged; every look after it tells the person nothing more
     world.state = 'MERGED'
@@ -161,7 +161,7 @@ describe('cleanup', () => {
     // Open: nothing to clean up
     const open = await pane()
     expect(open).toMatch(/● watching 1  \[l Look again\]/)
-    expect(open).toMatch(/·\s+#34  open\n\s*fellowship\/34-gondor-quench-a-single-beacon · kept by build\n\s*https:.*\/pull\/40/)
+    expect(open).toMatch(/·\s+#34  open\n\s*build\/34-gondor-quench-a-single-beacon · kept by build\n\s*https:.*\/pull\/40/)
     expect(open).not.toContain('Clean them up')
 
     // The forge could not say: it is unknown, never open, and why is said under it
@@ -232,10 +232,10 @@ describe('cleanup', () => {
     expect(await call($, 'mcp__middle-earth__leftovers')).toMatch(/^Nothing is kept of any run/)
   })
 
-  test('removes the worktree a quest was built in before its branch, and leaves one with uncommitted work in it as it is', async ($, on) => {
+  test('removes the worktree a run was built in before its branch, and leaves one with uncommitted work in it as it is', async ($, on) => {
     const world = machine(on, { tree: TREE })
     world.state = 'MERGED'
-    // The person's checkout is elsewhere: the quest was built in its worktree
+    // The person's checkout is elsewhere: the run was built in its worktree
     world.branch = 'main'
     world.treeDirty = ' M beacons/gondor/app.py\n'
     await $.session.start({} as never)
@@ -253,7 +253,7 @@ describe('cleanup', () => {
     const world = machine(on, { tree: TREE })
     world.state = 'MERGED'
     world.branch = 'main'
-    // Andúril's build, untracked: none of the quest's work
+    // Andúril's build, untracked: none of the run's work
     world.treeDirty = '?? .anduril/\n'
     await $.session.start({} as never)
 
@@ -271,7 +271,7 @@ describe('cleanup', () => {
 
     expect(await cleaning($, world)).toMatch(/is cleaned up/)
     expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
-    // Neither quest on the branch is kept any more
+    // Neither run on the branch is kept any more
     const kept = String((await $.tool.call({ tool: 'mcp__middle-earth__leftovers' } as never)).result)
     expect(kept).not.toContain(REF)
     expect(kept).not.toContain(REVIEW_REF)

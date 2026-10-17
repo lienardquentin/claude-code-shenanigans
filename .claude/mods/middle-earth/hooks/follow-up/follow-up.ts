@@ -1,7 +1,7 @@
 import type { FollowUpComment, FollowUp, FollowUpPr, CommentWeight } from '../../types'
-import { WEIGHT_MEANS } from '../../core/quest'
+import { WEIGHT_MEANS } from '../../core/run'
 
-export const HOW_TO = "No review follow-up is open. /follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /follow-up answer hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
+export const HOW_TO = "No review follow-up is open. /follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /follow-up answer hands those that ask for a change to the build, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
 /** What weighs the comments, a sentence each. */
 export const WEIGHER_MODEL = 'claude-haiku-5-5'
@@ -77,12 +77,12 @@ export const parseWeights = (answer: string): Map<string, { weight: CommentWeigh
 
 const firstLine = (body: string): string => cutShort(body.split('\n').find(one => one.trim() !== '' && !one.startsWith('---'))?.trim() ?? 'a review comment')
 
-/** The ref a follow-up's quest is known by in the Fellowship. */
+/** The ref a follow-up's run is known by in the build. */
 export const reviewRef = (pr: FollowUpPr): string => `review:${pr.repo}#${pr.number}`
 
 /**
- * What the Fellowship is handed: the pull request, and each comment that asks for a change as the task of answering
- * it, its body fenced as data by the member that builds it.
+ * What the build is handed: the pull request, and each comment that asks for a change as the task of answering
+ * it, its body fenced as data by the builder that builds it.
  */
 export const handedOf = (followUp: FollowUp): { ref: string; url: string; title: string; branch: string; base: string; comments: Record<string, unknown>[] } => ({
   ref: reviewRef(followUp.pr),
@@ -106,7 +106,7 @@ export const followUpText = (followUp: FollowUp): string => {
 
   return [
     `The review follow-up is open on ${followUp.pr.repo}#${followUp.pr.number}, "${followUp.pr.title}" (${followUp.pr.branch} onto ${followUp.pr.base}): ${followUp.phase}.`,
-    `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change${followUp.phase === 'handed' ? `, handed to the Fellowship as ${reviewRef(followUp.pr)}: mcp__middle-earth__quest says how each stands` : ''}; ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person to answer.`,
+    `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change${followUp.phase === 'handed' ? `, handed to the build as ${reviewRef(followUp.pr)}: mcp__middle-earth__run says how each stands` : ''}; ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person to answer.`,
     '',
     ...followUp.comments.map(commentLine),
   ].join('\n')

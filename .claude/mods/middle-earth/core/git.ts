@@ -1,8 +1,8 @@
 import { UNMODDED, secretsIn } from './change'
 import type { Shell } from './forge'
 
-// What a quest asks of git in its worktrees: committing a task's change as its own, and landing a lane's commit on its
-// quest's branch. Each runs through a shell in the worktree it is about, and answers what came of it for the quest to
+// What a run asks of git in its worktrees: committing a task's change as its own, and landing a lane's commit on its
+// run's branch. Each runs through a shell in the worktree it is about, and answers what came of it for the run to
 // act on.
 
 /** A git command's end: whether it ended well, and what it said (its error when it did not). */
@@ -23,13 +23,13 @@ export const gitRunsOf = async (shell: Shell): Promise<string> =>
   (await git(shell, ['config', '--show-origin', '--get-regexp', GIT_RUNS])).out
 
 /**
- * Why a commit in a tree is not the mod's to make: what git's config runs changed since the quest set out (`gitRuns`,
+ * Why a commit in a tree is not the mod's to make: what git's config runs changed since the run started (`gitRuns`,
  * as it was then), or the change touches the hooks the commit would run. Nothing when it may be made.
  */
 export const commitRefusal = async (shell: Shell, tree: string, gitRuns: string | undefined): Promise<string | undefined> => {
   const runs = await gitRunsOf(shell)
 
-  if (gitRuns !== undefined && runs !== gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${tree} since the quest set out, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task up for verification again.`
+  if (gitRuns !== undefined && runs !== gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${tree} since the run started, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task up for verification again.`
 
   const hooks = (await git(shell, ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'])).out
   const touched = hooks.startsWith(`${tree}/`) ? (await git(shell, ['status', '--porcelain', '--', hooks])).out : ''
@@ -71,7 +71,7 @@ export const commitTask = async (shell: Shell, asked: { tree: string; taskId: nu
   return { kind: 'committed', sha: (await git(shell, ['rev-parse', 'HEAD'])).out }
 }
 
-/** What came of landing a lane's commit on its quest's branch. */
+/** What came of landing a lane's commit on its run's branch. */
 export type Landed =
   | { kind: 'landed'; sha: string }
   | { kind: 'rebased'; onto: string }
@@ -79,9 +79,9 @@ export type Landed =
   | { kind: 'stop'; why: string }
 
 /**
- * Lands a lane's commit (`sha`, empty for a task that changed nothing) on its quest's branch: fast-forwarded there as it
- * is, where nothing landed since the lane set out; else taken onto what landed and left uncommitted on it, to be proved
- * there again; or found in conflict with it. `lane` runs in the lane's worktree, `quest` in its quest's.
+ * Lands a lane's commit (`sha`, empty for a task that changed nothing) on its run's branch: fast-forwarded there as it
+ * is, where nothing landed since the lane started; else taken onto what landed and left uncommitted on it, to be proved
+ * there again; or found in conflict with it. `lane` runs in the lane's worktree, `run` in its run's.
  */
 export const landLane = async (lane: Shell, quest: Shell, asked: { taskId: number; sha: string; branch: string; laneTree: string; questTree: string }): Promise<Landed> => {
   const tip = await git(lane, ['rev-parse', `refs/heads/${asked.branch}`])
@@ -113,7 +113,7 @@ export const landLane = async (lane: Shell, quest: Shell, asked: { taskId: numbe
 }
 
 /**
- * Where a lane's change no longer applies on its quest's branch: the lane put on that branch as it stands (`onto`), and
+ * Where a lane's change no longer applies on its run's branch: the lane put on that branch as it stands (`onto`), and
  * the change applied on it with no commit, git's conflict markers in the files where the two meet. Answers that it
  * applies after all, the files in conflict, or why it could not be applied.
  */
@@ -136,7 +136,7 @@ export const applyAfresh = async (lane: Shell, onto: string, sha: string): Promi
 }
 
 /**
- * Why a quest's branch may not leave the machine: what it adds over the branch it is pushed onto (`onto`'s on origin
+ * Why a run's branch may not leave the machine: what it adds over the branch it is pushed onto (`onto`'s on origin
  * where it is fetched, else the local base; a review's own branch on origin, which it cannot do without) holds what
  * looks like a secret, or could not be read. Nothing when it may.
  */

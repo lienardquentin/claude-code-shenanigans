@@ -247,7 +247,7 @@ const machine = (on: On) => {
   })
 
   on('session.cwd', () => ({ value: CWD }) as never)
-  // No quest has cost anything yet: the Fellowship's record of it is not there
+  // No run has cost anything yet: the build's record of it is not there
   on('fs.exists', () => ({ value: false }) as never)
   on('process.run', (_, e) => {
     world.ran.push(e.argv.join(' '))
@@ -432,7 +432,7 @@ describe('planner', () => {
     await ends($, 'planner-1', PLAN)
     const twelve = 'github:lienardquentin/claude-code-shenanigans#12'
     const thirteen = 'github:lienardquentin/claude-code-shenanigans#13'
-    // Another quest's plan, kept from an earlier council and built beside this one
+    // Another run's plan, kept from an earlier council and built beside this one
     world.store[`plan:${thirteen}`] = { ...(world.store[`plan:${twelve}`] as Record<string, unknown>), ref: thirteen, title: 'Beacons answer who lit them' }
 
     expect(await call($, 'mcp__middle-earth__plan', { ref: thirteen })).toMatch(/^Plan for github:.*#13: Beacons answer who lit them/)
@@ -516,22 +516,22 @@ describe('planner', () => {
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`sets the Fellowship out from the pane, stopping after each task or going on by itself, and builds a task here only by choice, on ${surface}`, async ($, on) => {
+    test(`sets the build out from the pane, stopping after each task or going on by itself, and builds a task here only by choice, on ${surface}`, async ($, on) => {
       const world = machine(on)
       await $.session.start({ source: 'startup', cwd: CWD } as never)
       await call($, 'mcp__middle-earth__make_plan', { issue: '#12' })
       await ends($, 'planner-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
 
       const pane = await $.ui.mount({ plugin: 'middle-earth', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'planner' })
-      expect(await call($, 'mcp__middle-earth__pane', { pane: 'planner' })).toMatch(/\[s Set out with the Fellowship\]\*\s+\[a Set out, auto\][\s\S]*\[b Build here myself\]/)
+      expect(await call($, 'mcp__middle-earth__pane', { pane: 'planner' })).toMatch(/\[s Start with the build\]\*\s+\[a Start, auto\][\s\S]*\[b Build here myself\]/)
 
-      // The press only asks: the Fellowship's clock sets out on the plan in force, by its issue, as quests on other
+      // The press only asks: the build's clock starts on the plan in force, by its issue, as runs on other
       // issues may be under way beside it
       await pane.press({ key: 'set-out-auto' })
       await world.clock.advance(600)
       await world.clock.advance(600)
-      expect(world.toasts.find(toast => toast.startsWith('Fellowship: '))).toMatch(/^Fellowship: The Fellowship sets out on github:lienardquentin\/claude-code-shenanigans#12, "Beacons answer how long they have burned", .*going on by itself/)
-      // Setting out sends no prompt: the Fellowship's members build, not this session
+      expect(world.toasts.find(toast => toast.startsWith('Build: '))).toMatch(/^Build: The build starts on github:lienardquentin\/claude-code-shenanigans#12, "Beacons answer how long they have burned", .*going on by itself/)
+      // Starting sends no prompt: the build's members build, not this session
       expect(world.submitted.filter(text => text.startsWith('Implement task'))).toEqual([])
     })
 
@@ -545,10 +545,10 @@ describe('planner', () => {
 
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'planner' })).toMatch(/Questions\s+● 0 of 2 answered[\s\S]*\? Q1  Is an unlit beacon 0 or null\?\s*\[null\]\* suggested\s*\[0\]\s*Or your own: \[\][\s\S]*\? Q2  Which log level\?\s*Your answer: \[\]/)
       expect(await call($, 'mcp__middle-earth__pane', { pane: 'planner' })).toContain('[r Revise the plan]\nThe planner plans the issue again.')
-      // What stops the Fellowship setting out is said, as its refusal counts it: Set out is no longer the main action
+      // What stops the build starting is said, as its refusal counts it: Start is no longer the main action
       const blocked = await call($, 'mcp__middle-earth__pane', { pane: 'planner' })
       expect(blocked).toMatch(/● 0\/2 done {2}● 2 questions to answer/)
-      expect(blocked).toMatch(/\[s Set out with the Fellowship\] \[a Set out, auto\]\nFirst 2 questions to answer, below\./)
+      expect(blocked).toMatch(/\[s Start with the build\] \[a Start, auto\]\nFirst 2 questions to answer, below\./)
 
       await pane.press({ key: 'option-0-0' })
       await pane.input({ key: 'own-1', text: 'info, as quench logs' })

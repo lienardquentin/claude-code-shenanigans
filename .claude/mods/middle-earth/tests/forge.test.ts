@@ -102,7 +102,7 @@ describe('a pull request', () => {
     expect(await github(shell([[/^gh/, failed('HTTP 404')]]).fake).pullState('https://github.com/o/r/pull/7')).toBe('gh could not read https://github.com/o/r/pull/7: HTTP 404')
     expect(await gitlab(shell([[/^glab/, ok('null')]]).fake).pullState('https://gitlab.com/g/p/-/merge_requests/3')).toMatch(/^glab answered nothing that reads/)
     expect(await pullStateAt(shell().fake, '')).toBe('no pull request is known')
-    expect(await pullStateAt(shell().fake, 'fellowship/12-x')).toBe("fellowship/12-x is no pull request's URL")
+    expect(await pullStateAt(shell().fake, 'build/12-x')).toBe("build/12-x is no pull request's URL")
   })
 
   test('is asked of the forge its URL names', async () => {
@@ -128,16 +128,16 @@ describe('a pull request', () => {
   })
 
   test('is opened from a branch onto its base, its URL read from what the CLI printed', async () => {
-    const request = { branch: 'fellowship/12-x', base: 'main', title: 'Quench', body: 'Closes #12' }
+    const request = { branch: 'build/12-x', base: 'main', title: 'Quench', body: 'Closes #12' }
     const on = shell([[/^gh pr create/, ok('Creating pull request\nhttps://github.com/o/r/pull/41\n')]])
 
     expect(await github(on.fake).openRequest(request)).toEqual({ url: 'https://github.com/o/r/pull/41' })
-    expect(on.ran).toEqual([['gh', 'pr', 'create', '--base', 'main', '--head', 'fellowship/12-x', '--title', 'Quench', '--body', 'Closes #12']])
+    expect(on.ran).toEqual([['gh', 'pr', 'create', '--base', 'main', '--head', 'build/12-x', '--title', 'Quench', '--body', 'Closes #12']])
 
     const lab = shell([[/^glab mr create/, ok('!4 Quench\nhttps://gitlab.com/g/p/-/merge_requests/4\n')]])
 
     expect(await gitlab(lab.fake).openRequest(request)).toEqual({ url: 'https://gitlab.com/g/p/-/merge_requests/4' })
-    expect(lab.ran).toEqual([['glab', 'mr', 'create', '--source-branch', 'fellowship/12-x', '--target-branch', 'main', '--title', 'Quench', '--description', 'Closes #12', '--yes']])
+    expect(lab.ran).toEqual([['glab', 'mr', 'create', '--source-branch', 'build/12-x', '--target-branch', 'main', '--title', 'Quench', '--description', 'Closes #12', '--yes']])
     expect(await gitlab(shell([[/^glab/, failed('a merge request already exists')]]).fake).openRequest(request)).toBe('The pull request could not be opened: glab said a merge request already exists')
   })
 })

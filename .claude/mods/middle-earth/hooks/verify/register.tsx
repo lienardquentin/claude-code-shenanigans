@@ -12,7 +12,7 @@ import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
 import { errorText, rootOf, shellIn, toolFailed } from '../flow'
-import type { TargetFolders } from '../../core/quest'
+import type { TargetFolders } from '../../core/run'
 import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Review } from '../../core/proof'
@@ -94,11 +94,11 @@ async function homeOf($: $): Promise<string> {
 
 /**
  * Where a look, a proof or a judgement is made: the project's own folder, whose radius the pane and the band show, or
- * a quest's worktree, whose answers go to the one who asked alone.
+ * a run's worktree, whose answers go to the one who asked alone.
  */
 type Place = { tree: string; isHome: boolean }
 
-/** The place a call is about: a quest's worktree a part names or the calling agent was sent to work in, else the project's. */
+/** The place a call is about: a run's worktree a part names or the calling agent was sent to work in, else the project's. */
 async function placeOf($: $, agentId?: string, named?: unknown): Promise<Place> {
   const cwd = await homeOf($)
   const tree = treeOf(cwd, treesOf(), agentId, named)
@@ -111,7 +111,7 @@ async function homePlace($: $): Promise<Place> {
   return ({ tree: await homeOf($), isHome: true })
 }
 
-// The last radius of each target in a quest's worktree, by its folder: the pane shows only the project's own
+// The last radius of each target in a run's worktree, by its folder: the pane shows only the project's own
 const treeRadii = new Map<string, Radius[]>()
 
 // The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
@@ -121,7 +121,7 @@ const RUN_TIMEOUT_MS = 600_000
 
 /**
  * What a look runs and reads in a place, through the engine. Each radius it makes is kept at once: the project's in
- * the pane's state, a quest's worktree's apart, in the order the place's targets are named.
+ * the pane's state, a run's worktree's apart, in the order the place's targets are named.
  */
 function machineIn($: $, place: Place, list: readonly Target[]): Machine {
   return {
@@ -194,7 +194,7 @@ async function allJudgements($: $): Promise<{ place: Place; held: Judgement }[]>
 export const verifyView = paneView({ id: PANE, title: TITLE, command: '/verify' })
 const view = verifyView
 
-// An agent sent to work in a quest's worktree is looked at there
+// An agent sent to work in a run's worktree is looked at there
 const ASKED = {
   target: { type: 'string', description: 'One target by its name; every target the project names when left out.' },
   against: { type: 'string', description: 'The commit the working tree is compared with, by any name git resolves (a tag, a branch). HEAD when left out.' },
@@ -263,7 +263,7 @@ async function setUp($: $): Promise<Target[]> {
 
 /**
  * The targets of a place, their folders in that place. The project's own are read afresh, or, `isKnown`, as last read.
- * A quest's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
+ * A run's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
  * (its tests, its database, its live stage) is never read from a branch. The requests it plays are the project's own,
  * then those its own file keeps besides: a request the branch takes out is played still, as the change it proves
  * cannot shrink what proves it.
@@ -295,7 +295,7 @@ const lastProofs = new Map<string, { key: string; looked: Looked[] }>()
 async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looked[]> {
   const place = asked.place ?? (await homePlace($))
   const cwd = place.tree
-  // A quest's worktree is the quest's own: its proof owes the session's turn no review, and the pane does not show it
+  // A run's worktree is the run's own: its proof owes the session's turn no review, and the pane does not show it
   const isOwing = place.isHome && asked.isOwing !== false
   const list = await targetsIn($, place)
 
@@ -304,7 +304,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
 
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
   const wanted = (asked.required ?? []).map(({ file, name }) => `${file}:${name}`).sort().join(',')
-  // A proof takes minutes: one asked again of the same change, as a member's last and its mod's next are, is not made twice
+  // A proof takes minutes: one asked again of the same change, as a builder's last and its mod's next are, is not made twice
   const fingerprint = asked.isProving ? await fingerprintOf(shellIn($, place.tree)) : ''
   // A change git could not read is proved afresh each time: its proof is no other change's
   const key = asked.isProving && !fingerprint.startsWith(UNREADABLE) ? `${fingerprint}|${asked.against}|${chosen.map(({ label }) => label).join(',')}|${wanted}` : ''
@@ -357,7 +357,7 @@ async function proofShape($: $, looked: readonly Looked[], place: Place) {
 }
 
 /**
- * Proves the change in a quest's worktree for the Fellowship, which sends the reviewers on it itself: so the proof owes
+ * Proves the change in a run's worktree for the build, which sends the reviewers on it itself: so the proof owes
  * no review at the turn's end. The tests written first must pass for it to settle.
  */
 export async function proveFor($: $, tree: string, mustPass: readonly { file: string; name: string }[]): Promise<unknown> {
@@ -367,7 +367,7 @@ export async function proveFor($: $, tree: string, mustPass: readonly { file: st
   return proofShape($, looked, place)
 }
 
-/** What the project builds, by label, kind and folders from the project's folder: the Fellowship chooses a builder by it. */
+/** What the project builds, by label, kind and folders from the project's folder: the build chooses a builder by it. */
 export async function targetsKnown($: $): Promise<TargetFolders[]> {
   const cwd = await homeOf($)
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
@@ -388,7 +388,7 @@ async function owe($: $): Promise<void> {
 }
 
 /**
- * The standards the reviewers judge by, and a builder builds to, each file as the project's folder holds it: a quest's
+ * The standards the reviewers judge by, and a builder builds to, each file as the project's folder holds it: a run's
  * branch, whose change is the one judged, never loosens them. A file that cannot be read is said so, not left out unseen.
  */
 export async function standardsText($: $): Promise<string> {
@@ -454,7 +454,7 @@ async function sendReviewers($: $, by: Judgement['by'], about = '', only?: reado
 
 /**
  * Sends a reviewer on the change in a place, from the hook it is asked in, where it is held: a reviewer judging a
- * quest's change reads it in the quest's worktree. It is recorded as the issue's, which what it costs is counted to.
+ * run's change reads it in the run's worktree. It is recorded as the issue's, which what it costs is counted to.
  */
 function reviewerSender($: $, place: Place, ref?: string): SendReviewer {
   return async (reviewer, task) => {
@@ -560,7 +560,7 @@ async function edited($: $, path: unknown, agentId?: string): Promise<void> {
   lastProofs.delete(cwd)
   // The radius is old either way; a look at the turn's end, and the reviewers it may send, are owed only to an edit no
   // builder the mod sent made: its part proves the change and has it judged itself
-  if (!['member', 'test-writer'].includes((await roleOf($, agentId)) ?? '')) await update($, touched, held => [...new Set([...held, ...hit])])
+  if (!['builder', 'test-writer'].includes((await roleOf($, agentId)) ?? '')) await update($, touched, held => [...new Set([...held, ...hit])])
   await update($, radii, held => held.map(one => (hit.includes(one.label) && !one.isStale ? { ...one, isStale: true } : one)))
 }
 
@@ -672,7 +672,7 @@ async function judgementOf($: $, asked: ReviewAsk, place: Place): Promise<{ held
   return { held, isStale: held !== null && held.fingerprint !== (await fingerprintOf(shellIn($, place.tree), held.against ?? 'HEAD')) }
 }
 
-/** The reviewers' judgement of the change in a quest's worktree, for the Fellowship: sent on it first when asked. */
+/** The reviewers' judgement of the change in a run's worktree, for the build: sent on it first when asked. */
 export async function judgementFor($: $, tree: string, asked: ReviewAsk = {}): Promise<unknown> {
   const got = await judgementOf($, asked, await placeOf($, undefined, tree))
 

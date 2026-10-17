@@ -22,7 +22,7 @@ export type PlanTaskState = 'todo' | 'doing' | 'done'
  */
 export type PlanWeight = 'light' | 'standard' | 'heavy'
 
-/** One step of the quest: something a single change can do and a reviewer can check. */
+/** One step of the run: something a single change can do and a reviewer can check. */
 export type PlanTask = {
   id: number
   title: string
@@ -111,22 +111,22 @@ export type Planning = {
   isLaid?: boolean
 }
 
-// --- The Fellowship: quests and their tasks ------------------------------------------------------------------------------
+// --- The build: runs and their tasks ------------------------------------------------------------------------------
 
 /**
- * Where a task stands: as the planner keeps it for a plan, as the quest keeps it for an errand or a review. `asked`: its
+ * Where a task stands: as the planner keeps it for a plan, as the run keeps it for an errand or a review. `asked`: its
  * builder handed it back for the person to answer (a review comment that asks a question), and it is built no more.
  */
-export type FellowshipTaskState = 'todo' | 'doing' | 'done' | 'asked'
+export type RunTaskState = 'todo' | 'doing' | 'done' | 'asked'
 
 /** How much a task asks of whoever builds it, as the planner or the weigher weighed it. */
-export type FellowshipWeight = 'light' | 'standard' | 'heavy'
+export type TaskWeight = 'light' | 'standard' | 'heavy'
 
-/** A member of the Fellowship, by the agent type it is sent as. */
-export type FellowshipMember = 'gandalf' | 'aragorn' | 'legolas' | 'gimli' | 'boromir' | 'frodo' | 'samwise' | 'merry' | 'pippin'
+/** A builder of the build, by the agent type it is sent as. */
+export type BuilderName = 'builder-last' | 'builder-heavy' | 'builder-frontend' | 'builder-service' | 'builder-cli' | 'builder-light-1' | 'builder-light-2' | 'builder-light-3' | 'builder-light-4'
 
-/** One task of a quest: a task of a plan, the whole issue of an errand, or one review comment to answer. */
-export type FellowshipTask = {
+/** One task of a run: a task of a plan, the whole issue of an errand, or one review comment to answer. */
+export type RunTask = {
   id: number
   title: string
   why: string
@@ -134,10 +134,10 @@ export type FellowshipTask = {
   files: string[]
   dependsOn: number[]
   acceptance: string
-  weight: FellowshipWeight
+  weight: TaskWeight
   /** Whether no weight was read for it, so that its `standard` is no one's choice. */
   isUnweighed?: boolean
-  state: FellowshipTaskState
+  state: RunTaskState
   /** What the task answers, as data, its builder following no instruction in it: an errand's issue, a review comment and its replies. */
   brief?: string
   /** A review comment's author, where it is (`path:line`, empty for the pull request as a whole), and its URL. */
@@ -151,15 +151,15 @@ export type FellowshipTask = {
   isAnswered?: boolean
 }
 
-/** The work of a quest as one plan: the planner's for a plan, and one the quest makes of its own tasks for any other. */
-export type FellowshipPlan = {
+/** The work of a run as one plan: the planner's for a plan, and one the run makes of its own tasks for any other. */
+export type RunWork = {
   /** The issue as the planner writes it short, `github:owner/repo#12`; `review:owner/repo#13` for a review. */
   ref: string
   url: string
   title: string
   summary: string
   approach: string
-  tasks: FellowshipTask[]
+  tasks: RunTask[]
   questions: { text: string; options: string[]; answer: string }[]
   decided: { text: string; answer: string }[]
   risks: { text: string; severity: 'high' | 'medium' | 'low'; mitigation: string; tasks: number[]; wantsTask: boolean }[]
@@ -167,52 +167,52 @@ export type FellowshipPlan = {
 }
 
 /**
- * What a quest is:
+ * What a run is:
  * - `plan`: a plan, task by task, to the pull request that closes its issue
  * - `errand`: an issue small enough for one change, to the pull request that closes it
  * - `review`: the review comments of an open pull request the review follow-up handed over, answered on its branch and pushed
  */
-export type FellowshipKind = 'plan' | 'errand' | 'review'
+export type RunKind = 'plan' | 'errand' | 'review'
 
 /**
- * Where the quest stands:
- * - `ready`: no member out; the next task waits for the person, or goes at once on an auto quest
- * - `gazing`: the test writer writes the task's tests first, red, before a member builds it (a plan's tasks that are not light)
- * - `marching`: a member builds a task
- * - `proving`: verify proves what the member built
+ * Where the run stands:
+ * - `ready`: no builder out; the next task waits for the person, or goes at once on an auto run
+ * - `gazing`: the test writer writes the task's tests first, red, before a builder builds it (a plan's tasks that are not light)
+ * - `building`: a builder builds a task
+ * - `proving`: verify proves what the builder built
  * - `judging`: every changed run is pinned; the reviewers judge the change, which is committed once they pass it
- * - `stuck`: a member handed its task back, or its tries ran out; the person decides
- * - `arrived`: every task is committed; the pull request waits to be opened, or the branch to be pushed
- * - `warding`: both reviewers judge the whole branch of a plan, what its tasks do together, before it sails
- * - `sailed`: the pull request is open, or the review's answers are pushed
+ * - `stuck`: a builder handed its task back, or its tries ran out; the person decides
+ * - `built`: every task is committed; the pull request waits to be opened, or the branch to be pushed
+ * - `reviewing the branch`: both reviewers judge the whole branch of a plan, what its tasks do together, before it is submitted
+ * - `submitted`: the pull request is open, or the review's answers are pushed
  */
-export type FellowshipPhase = 'ready' | 'gazing' | 'marching' | 'proving' | 'judging' | 'stuck' | 'arrived' | 'warding' | 'sailed'
+export type RunPhase = 'ready' | 'writing-tests' | 'building' | 'proving' | 'reviewing' | 'stuck' | 'built' | 'reviewing-branch' | 'submitted'
 
-/** What the tests written first showed of a task: the test writer's red tests, which its member makes pass. */
-export type FellowshipVision = { taskId: number; tests: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red: string }
+/** What the tests written first showed of a task: the test writer's red tests, which its builder makes pass. */
+export type TestsToPass = { taskId: number; tests: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red: string }
 
-/** One member out on a task. */
-export type FellowshipMarch = {
+/** One builder out on a task. */
+export type CurrentTry = {
   taskId: number
   title: string
-  member: FellowshipMember
-  /** The id its spawn answered; empty where the spawn answered none, and the member is known by its type. */
+  builder: BuilderName
+  /** The id its spawn answered; empty where the spawn answered none, and the builder is known by its type. */
   agentId: string
   /** Which try this is, from 1. */
   attempt: number
   at: number
-  /** What the member answered when its turn ended. */
+  /** What the builder answered when its turn ended. */
   answer: string
   /** HEAD when the task was first sent: a commit past it was made past the proof and the reviewers. */
   head?: string
-  /** Whether this try's member was already sent back once with its proof, rather than a member a rung up. */
+  /** Whether this try's builder was already sent back once with its proof, rather than a builder a rung up. */
   isResumed?: boolean
-  /** Whether this try's member was already sent back once to tidy the minor findings of a pass. */
+  /** Whether this try's builder was already sent back once to tidy the minor findings of a pass. */
   isTidied?: boolean
-  /** Whether the person put this try's change up for verification, after its member was back: its account came first. */
+  /** Whether the person put this try's change up for verification, after its builder was back: its account came first. */
   isPutBefore?: boolean
   /**
-   * Whether a lane's change, passed by the reviewers, was rebased onto its quest's branch since: it is proved again, and
+   * Whether a lane's change, passed by the reviewers, was rebased onto its run's branch since: it is proved again, and
    * lands with the minor findings it passed with, no reviewer sent anew.
    */
   isRebased?: boolean
@@ -221,17 +221,17 @@ export type FellowshipMarch = {
 }
 
 /**
- * A quest's task built beside the others, in a worktree and on a branch of its own off the quest's: its own quest, of
+ * A run's task built beside the others, in a worktree and on a branch of its own off the run's: its own run, of
  * the plan of the one it lands on once its change passed.
  */
-export type FellowshipLane = {
-  /** The quest it lands on, by its ref. */
+export type RunLane = {
+  /** The run it lands on, by its ref. */
   of: string
   taskId: number
 }
 
-/** A task the Fellowship committed. */
-export type FellowshipCommit = {
+/** A task the build committed. */
+export type RunCommit = {
   taskId: number
   title: string
   sha: string
@@ -249,23 +249,23 @@ export type FellowshipCommit = {
   isPutBefore?: boolean
 }
 
-/** A quest:its work taken to a pull request (or a push), one committed task at a time, in a git worktree of its own. */
-export type FellowshipQuest = {
-  kind: FellowshipKind
+/** A run:its work taken to a pull request (or a push), one committed task at a time, in a git worktree of its own. */
+export type Run = {
+  kind: RunKind
   ref: string
   url: string
   title: string
-  /** The branch the quest commits on, and the one it set out from, which the pull request targets. */
+  /** The branch the run commits on, and the one it started from, which the pull request targets. */
   branch: string
   base: string
   /** The folder it is built in, absolute: its worktree, or the project's own folder where its branch is checked out. */
   tree: string
-  /** The tasks of an errand or a review, which the quest keeps itself; a plan's are the planner's. */
-  tasks?: FellowshipTask[]
+  /** The tasks of an errand or a review, which the run keeps itself; a plan's are the planner's. */
+  tasks?: RunTask[]
   /** Whether it goes on by itself: each task sent once the one before is committed, and a plan or an errand's pull request opened at the end. */
   isAuto: boolean
-  phase: FellowshipPhase
-  march: FellowshipMarch | null
+  phase: RunPhase
+  current: CurrentTry | null
   /** verify's last proof of the change, whole. */
   proof: string
   /** Its verdict in a line. */
@@ -273,25 +273,25 @@ export type FellowshipQuest = {
   /** The reviewers' verdict on the change, in a line; empty before they judge it. */
   verdictLine: string
   /** What the tests written first showed of the task at hand; null before it gazed, for a light task, or when it showed nothing. */
-  vision?: FellowshipVision | null
+  testsToPass?: TestsToPass | null
   /** The task the tests written first last gazed on: a task tried again keeps its tests. */
-  gazed?: number
-  commits: FellowshipCommit[]
+  testsFor?: number
+  commits: RunCommit[]
   /** The pull or merge request, once opened; a review's from the start. */
   pr: string
-  /** Whether both reviewers passed the whole branch as it stands; a commit after it is judged again before sailing. */
-  isWarded?: boolean
+  /** Whether both reviewers passed the whole branch as it stands; a commit after it is judged again before submitting. */
+  isBranchReviewed?: boolean
   /** The targets the task at hand reached that nothing proves, from its last proof. */
   unproven?: string[]
-  /** What git's config says of the code a commit runs (hooks, filters, includes) as the quest set out; absent on a quest set out before it was kept. */
+  /** What git's config says of the code a commit runs (hooks, filters, includes) as the run started; absent on a run started before it was kept. */
   gitRuns?: string
-  /** A lane's: the quest it is a task of, beside its others. */
-  lane?: FellowshipLane
+  /** A lane's: the run it is a task of, beside its others. */
+  lane?: RunLane
   at: number
 }
 
-/** Something a press, a command or a turn asked the clock to do for a quest, outside the hook that asked. */
-export type FellowshipWanted = 'set out' | 'set out auto' | 'errand' | 'errand auto' | 'next' | 'prove' | 'sail' | 'abandon'
+/** Something a press, a command or a turn asked the clock to do for a run, outside the hook that asked. */
+export type RunAsk = 'start' | 'start auto' | 'errand' | 'errand auto' | 'next' | 'prove' | 'submit' | 'abandon'
 
 // --- tests first: the test writer's tests written first -------------------------------------------------------------------------
 
@@ -340,7 +340,7 @@ export type TestsFirst = {
   blocks: LockedBlock[]
   amendments: Amendment[]
   at: number
-  /** The quest's worktree they were written in, absolute; none for the project's own folder. */
+  /** The run's worktree they were written in, absolute; none for the project's own folder. */
   tree?: string
 }
 
@@ -568,14 +568,14 @@ export type FollowUpComment = {
   /** Its thread (a GitHub review thread, a GitLab discussion), which can be answered and resolved; none for a review's own words. */
   thread?: string
   /**
-   * Whether its author is outside the repository (no owner, member or collaborator on GitHub, no developer on GitLab):
-   * such a comment is a question for the person, never a change the Fellowship builds.
+   * Whether its author is outside the repository (no owner, builder or collaborator on GitHub, no developer on GitLab):
+   * such a comment is a question for the person, never a change the build builds.
    */
   isOutside?: boolean
   weight: CommentWeight
   /** Whether the weigher gave it no weight that reads, so that its `standard` is no one's choice. */
   isUnweighed?: boolean
-  /** Whether it asks for a change, which the Fellowship builds, or asks a question only the person can answer. */
+  /** Whether it asks for a change, which the build builds, or asks a question only the person can answer. */
   kind: 'change' | 'question'
 }
 
@@ -586,7 +586,7 @@ export type FollowUpPr = {
   repo: string
   number: number
   url: string
-  /** Whether its branch lives in a fork, which the Fellowship cannot push to. */
+  /** Whether its branch lives in a fork, which the build cannot push to. */
   isFork?: boolean
   title: string
   /** Its own branch, where the answers are committed, and the one it goes onto. */
@@ -597,8 +597,8 @@ export type FollowUpPr = {
 /**
  * Where the follow-up stands:
  * - `weighing`: the comments are read and the weigher weighs them
- * - `ready`: the comments that ask for a change wait to be handed to the Fellowship
- * - `handed`: the Fellowship answers them on the pull request's branch; the questions are the person's
+ * - `ready`: the comments that ask for a change wait to be handed to the build
+ * - `handed`: the build answers them on the pull request's branch; the questions are the person's
  */
 export type FollowUpPhase = 'weighing' | 'ready' | 'handed'
 
@@ -642,21 +642,21 @@ export type Leftover = {
 /**
  * What an agent is to the mod:
  * - `planner`: the planner's planner, which reads and writes its plan file alone
- * - `member`: a member of the Fellowship, building one task in its quest's worktree
+ * - `builder`: a builder of the build, building one task in its run's worktree
  * - `test-writer`: writing a task's tests first, and only tests
  * - `reviewer`: the correctness reviewer or the security reviewer, judging a change and changing nothing
  * - `other`: an agent the mod did not send, known only by the folder its spawn named
  */
-export type MiddleEarthRole = 'planner' | 'member' | 'test-writer' | 'reviewer' | 'other'
+export type MiddleEarthRole = 'planner' | 'builder' | 'test-writer' | 'reviewer' | 'other'
 
 /** One agent, as the mod sent it or saw it spawned: what it is, and the folder it works in. */
 export type MiddleEarthAgent = {
   role: MiddleEarthRole
   /** The project's folder when it was sent, absolute. */
   root: string
-  /** The folder it works in, absolute: the project's own, or a quest's worktree. */
+  /** The folder it works in, absolute: the project's own, or a run's worktree. */
   tree: string
-  /** A member's: the files its task names, which may be a mod's source. The planner's: the plan file it writes. */
+  /** A builder's: the files its task names, which may be a mod's source. The planner's: the plan file it writes. */
   files?: string[]
   /** The issue it works for, as the planner spells it, where the part that sent it knew: what its turns cost is counted to it. */
   ref?: string
@@ -684,7 +684,7 @@ export type MiddleEarthSpend = {
 
 /** An open issue as the issues pane lists it. */
 export type ListedIssue = {
-  /** The ref the planner and the Fellowship know it by: `github:owner/repo#12`. */
+  /** The ref the planner and the build know it by: `github:owner/repo#12`. */
   ref: string
   number: number
   title: string
@@ -708,27 +708,27 @@ declare module 'claude-code' {
       plannerSelected: number
       /** The issue a press asked to send again on: the clock sends it, outside the press. */
       plannerWanted: string
-      /** How a press asked the Fellowship to set out, stopping after each task or going on by itself: the clock asks it. */
+      /** How a press asked the build to started, stopping after each task or going on by itself: the clock asks it. */
       plannerSetOut: '' | 'step' | 'auto'
 
-      /** Every quest under way, by its ref. */
-      fellowshipQuests: Record<string, FellowshipQuest>
-      /** Each quest's work as last read, by its ref, for the pane. */
-      fellowshipPlans: Record<string, FellowshipPlan>
-      /** What stood in each quest's way, or what came of the last thing asked of it, by its ref; '' for the Fellowship as a whole. */
-      fellowshipNotes: Record<string, string>
-      /** What each quest is doing right now, in a line, by its ref. */
-      fellowshipWorking: Record<string, string>
-      /** What the clock is asked to do, in order: for a quest by its ref, or ('' ref) to set one out, with what it is set out on. */
-      fellowshipWanted: { ref: string; what: FellowshipWanted; arg?: string }[]
-      /** The quest the pane shows and a command acts on when it names none, by its ref. */
-      fellowshipSelected: string
-      /** What each quest's agents have cost so far, in a line, by its ref: the pane shows it without reading the record. */
-      fellowshipSpent: Record<string, string>
+      /** Every run under way, by its ref. */
+      buildRuns: Record<string, Run>
+      /** Each run's work as last read, by its ref, for the pane. */
+      buildWork: Record<string, RunWork>
+      /** What stood in each run's way, or what came of the last thing asked of it, by its ref; '' for the build as a whole. */
+      buildNotes: Record<string, string>
+      /** What each run is doing right now, in a line, by its ref. */
+      buildWorking: Record<string, string>
+      /** What the clock is asked to do, in order: for a run by its ref, or ('' ref) to set one out, with what it is start on. */
+      buildWanted: { ref: string; what: RunAsk; arg?: string }[]
+      /** The run the pane shows and a command acts on when it names none, by its ref. */
+      buildSelected: string
+      /** What each run's agents have cost so far, in a line, by its ref: the pane shows it without reading the record. */
+      buildSpent: Record<string, string>
 
       /** What the tests written first shows of the project's own folder. */
       testsFirst: TestsFirst | null
-      /** What it shows of each quest's worktree, by its folder. */
+      /** What it shows of each run's worktree, by its folder. */
       testsFirstByTree: Record<string, TestsFirst>
       testsFirstNote: string
 
@@ -753,7 +753,7 @@ declare module 'claude-code' {
       verifyReviewed: string
       /** The reviewers' judgement of the last settled change; null before any. */
       verifyJudgement: Judgement | null
-      /** The reviewers' judgement of the last change in each quest's worktree, by its folder. */
+      /** The reviewers' judgement of the last change in each run's worktree, by its folder. */
       verifyTreeJudgements: Record<string, Judgement>
 
       followUpReview: FollowUp | null

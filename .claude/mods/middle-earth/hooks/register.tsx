@@ -6,7 +6,7 @@ import { errorText, rootOf, toolFailed } from './flow'
 import { verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
-import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, spentFellowship, startFellowship } from './fellowship/register'
+import { endedBuild, buildView, builderFound, pumpBuild, registerBuild, sectionOfBuild, spentBuild, startBuild } from './build/register'
 import { endedTestsFirst, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesView, registerIssues, startIssues } from './issues/register'
@@ -14,7 +14,7 @@ import { carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 
 // The Middle-earth mod: one plugin, each of its parts a folder of its own (the issues pane lists the issues, plans, the
-// Fellowship builds, the test writer writes tests first, verify prove and judge, the review follow-up reads review, the cleanup
+// Build builds, the test writer writes tests first, verify prove and judge, the review follow-up reads review, the cleanup
 // clears what is merged). The parts call one another as functions; the agents they send are registered, kept and guarded in one place.
 // An event every part hears is hooked here once, and handed to each part in turn; a part hooks what is its own alone.
 
@@ -22,7 +22,7 @@ import { sectionOfLag, startLag } from './lag'
 const PANES = {
   issues: issuesView,
   planner: plannerView,
-  fellowship: fellowshipView,
+  build: buildView,
   'tests-first': testsFirstView,
   verify: verifyView,
   'follow-up': followUpView,
@@ -32,7 +32,7 @@ const PANES = {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `fellowship` the quests (/fellowship), `tests-first` the tests written first (/tests), `verify` the proof of the change (/verify), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `build` the runs (/build), `tests-first` the tests written first (/tests), `verify` the proof of the change (/verify), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
 } as const
 
@@ -47,7 +47,7 @@ async function lost($: EngineInterface, agentId: string): Promise<MiddleEarthAge
   if (role === undefined) return undefined
 
   const root = await rootOf($)
-  const agent = (role === 'member' ? await memberFound($, agentId) : role === 'test-writer' ? await testWriterFound($, agentId) : role === 'planner' ? await plannerFound($, agentId) : undefined) ?? { role, root, tree: root }
+  const agent = (role === 'builder' ? await builderFound($, agentId) : role === 'test-writer' ? await testWriterFound($, agentId) : role === 'planner' ? await plannerFound($, agentId) : undefined) ?? { role, root, tree: root }
 
   await remember($, agentId, agent)
 
@@ -74,12 +74,12 @@ function stumbled($: EngineInterface, part: string): (error: unknown) => undefin
 
 /**
  * Does what the parts were asked to do that may send an agent, in the hook that calls it: the planner's planner a press
- * asked for, the Fellowship's quests, the reviewers the session's own change is owed.
+ * asked for, the build's runs, the reviewers the session's own change is owed.
  */
 async function pump($: EngineInterface): Promise<void> {
   pumped()
   await pumpPlanner($).catch(stumbled($, 'the planner'))
-  await pumpFellowship($).catch(stumbled($, 'the Fellowship'))
+  await pumpBuild($).catch(stumbled($, 'the build'))
   await pumpVerify($).catch(stumbled($, 'verify'))
 }
 
@@ -97,7 +97,7 @@ export const register: Register = on => {
     await startPlanner($)
     await startTestsFirst($)
     await startVerify($)
-    await startFellowship($)
+    await startBuild($)
     await startFollowUp($)
     await startCleanup($)
     await startIssues($)
@@ -115,19 +115,19 @@ export const register: Register = on => {
     // What a turn of an agent the mod sent cost is counted, whichever part sent it
     const agent = agentOf(e.agentId)
 
-    if (agent !== undefined && agent.role !== 'other') await spentFellowship($, agent, e).catch(stumbled($, 'the spend record'))
+    if (agent !== undefined && agent.role !== 'other') await spentBuild($, agent, e).catch(stumbled($, 'the spend record'))
 
     await endedPlanner($, e).catch(stumbled($, 'the planner'))
     await endedTestsFirst($, e).catch(stumbled($, 'Tests first'))
     await endedVerify($, e).catch(stumbled($, 'verify'))
-    await endedFellowship($, e).catch(stumbled($, 'the Fellowship'))
+    await endedBuild($, e).catch(stumbled($, 'the build'))
 
     return next(e)
   })
 
   // A turn has ended: what it leads to is done here, where an agent sent is held. The hook that sends one is skipped for
   // that agent's own events, so two take turns: the one that did not send it carries on from its end. The session's
-  // own turn sends only the reviewers its change is owed: a quest's proof takes minutes, not kept from the person
+  // own turn sends only the reviewers its change is owed: a run's proof takes minutes, not kept from the person
   for (const reason of [/./, /[^]/]) {
     on('turn.complete', { reason }, async ($, e, next) => {
       await (e.agentId === undefined ? pumpVerify($) : pump($)).catch(stumbled($, 'the turn\'s end'))
@@ -141,7 +141,7 @@ export const register: Register = on => {
     const composed = await next(e)
     const added = [
       await sectionOfPlanner($).catch(stumbled($, 'the planner')),
-      await sectionOfFellowship($).catch(stumbled($, 'the Fellowship')),
+      await sectionOfBuild($).catch(stumbled($, 'the build')),
       await sectionOfTestsFirst($).catch(stumbled($, 'Tests first')),
       await sectionOfVerify($).catch(stumbled($, 'verify')),
       sectionOfLag(),
@@ -178,7 +178,7 @@ export const register: Register = on => {
   registerPlanner(on)
   registerTestsFirst(on)
   registerVerify(on)
-  registerFellowship(on)
+  registerBuild(on)
   registerFollowUp(on)
   registerCleanup(on)
   registerIssues(on)

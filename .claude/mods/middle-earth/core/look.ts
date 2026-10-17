@@ -39,7 +39,7 @@ export type Look = {
   required: readonly { file: string; name: string }[]
   /** The folder looked at. */
   tree: string
-  /** The project's own folder, where the tree is a quest's worktree: its service plays against the project's database. */
+  /** The project's own folder, where the tree is a run's worktree: its service plays against the project's database. */
   project?: string
   /** What each target's folders hold against HEAD; a target it says is empty is not played. None read against another commit. */
   changes: Map<string, string>
@@ -69,7 +69,7 @@ export const marksIn = async (machine: Machine, tree: string, target: Target): P
   return marks
 }
 
-/** What a service's handler is handed: the target's kept requests, both builds, and the project's folder for a quest's worktree. */
+/** What a service's handler is handed: the target's kept requests, both builds, and the project's folder for a run's worktree. */
 export const serviceJob = (target: Target, against: string, tree: string, project?: string) => ({
   home: tree,
   ...(project !== undefined ? { project } : {}),
@@ -103,7 +103,7 @@ const serviceChanged = async (machine: Machine, target: Target, look: Look): Pro
   if (target.app === '') return `${target.label} names no app: say it as service:module:app, gondor=service:gondor.app:app@beacons/gondor.`
   if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}: $ ${target.label} GET /health`
 
-  // A quest's worktree plays against the project's warm database, which the project's folder names
+  // A run's worktree plays against the project's warm database, which the project's folder names
   const job = serviceJob(target, look.against, look.tree, look.project)
   const played = await machine.handle('service', job)
   const fast = parseServiceAnswer(played.stdout) ?? `The requests could not be played: ${lastLines(played.stderr, 3) || `the service handler exited with ${played.exitCode} and said nothing`}`

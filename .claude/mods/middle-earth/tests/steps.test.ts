@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { afterFailedTry, afterGaze, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parsePlan, whyNotSail } from '../core/quest'
-import type { Judged, Plan, ProofVerdict, Quest } from '../core/quest'
+import { afterFailedTry, afterGaze, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parsePlan, runFromStore, whyNotSail } from '../core/run'
+import type { Judged, Plan, ProofVerdict, Run } from '../core/run'
 
 const proof = (over: Partial<ProofVerdict> = {}): ProofVerdict => ({ isSettled: true, isUnlooked: false, line: 'every changed run is pinned', unhandled: [], unreached: [], text: 'the proof', ...over })
 
@@ -12,10 +12,10 @@ describe('a proof of a task', () => {
     expect(afterProof(proof(), { taskId: 2 }, [])).toEqual({ kind: 'judge' })
   })
 
-  test("stops the quest where verify could not look, as no builder can mend that", () => {
+  test("stops the run where verify could not look, as no builder can mend that", () => {
     expect(afterProof(proof({ isSettled: false, isUnlooked: true, line: 'Verify could not look at gondor (no app)' }), { taskId: 2 }, [])).toEqual({
       kind: 'stop',
-      why: 'Verify could not look at gondor (no app). No member can mend that: set the target right in .claude/argonath, then put task 2 up for verification again.',
+      why: 'Verify could not look at gondor (no app). No builder can mend that: set the target right in .claude/argonath, then put task 2 up for verification again.',
     })
   })
 
@@ -58,59 +58,59 @@ describe("the reviewers' judgement of a task", () => {
     for (const verdict of ['stale', 'unsettled', 'none']) expect(afterVerdict(judged(verdict), { taskId: 2 }, [])).toEqual({ kind: 'prove' })
   })
 
-  test('stops the quest where the reviewers could not judge', () => {
+  test('stops the run where the reviewers could not judge', () => {
     expect(afterVerdict(judged('silent', { line: 'not judged: the correctness reviewer gave no findings that read' }), { taskId: 2 }, [])).toEqual({ kind: 'stop', why: 'The reviewers could not judge task 2: not judged: the correctness reviewer gave no findings that read. Commit it once they can, or send it again.' })
   })
 })
 
 describe('a try that did not pass', () => {
-  const out = { taskId: 2, attempt: 1, by: 'Frodo' }
+  const out = { taskId: 2, attempt: 1, by: 'Light builder 1' }
 
   test('sends its builder back once, a fresh one a rung up after', () => {
     expect(afterFailedTry(out, 3, 'not pinned yet', '/proj/.fellowship/trees/x')).toEqual({ isSentBack: true, otherwise: { kind: 'climb', attempt: 2 } })
     expect(afterFailedTry({ ...out, isResumed: true }, 3, 'not pinned yet', '/t').isSentBack).toBe(false)
   })
 
-  test('stops the quest once the last rung tried, or the task is no longer in the work', () => {
-    const last = afterFailedTry({ ...out, attempt: 3, by: 'Gandalf' }, 3, '1 blocking finding', '/proj/.fellowship/trees/x')
+  test('stops the run once the last rung tried, or the task is no longer in the work', () => {
+    const last = afterFailedTry({ ...out, attempt: 3, by: 'the last builder' }, 3, '1 blocking finding', '/proj/.fellowship/trees/x')
 
-    expect(last.otherwise).toEqual({ kind: 'stop', why: "Task 2 did not pass after 3 tries, the last Gandalf's: 1 blocking finding. Finish it by hand in /proj/.fellowship/trees/x and commit it from the pane, or send it again." })
+    expect(last.otherwise).toEqual({ kind: 'stop', why: "Task 2 did not pass after 3 tries, the last the last builder's: 1 blocking finding. Finish it by hand in /proj/.fellowship/trees/x and commit it from the pane, or send it again." })
     expect(afterFailedTry(out, undefined, 'x', '/t').otherwise).toMatchObject({ kind: 'stop', why: expect.stringMatching(/^Task 2 did not pass after 1 try,/) })
   })
 })
 
-describe('a quest that sails', () => {
-  const quest = (over: Partial<Quest> = {}) => ({ ref: 'github:o/r#12', kind: 'plan' as const, phase: 'arrived' as const, pr: '', commits: [], ...over })
+describe('a run that is submitted', () => {
+  const quest = (over: Partial<Run> = {}) => ({ ref: 'github:o/r#12', kind: 'plan' as const, phase: 'built' as const, pr: '', commits: [], ...over })
 
-  test('sails once every task is committed, and a review with the answers it has', () => {
+  test('is submitted once every task is committed, and a review with the answers it has', () => {
     expect(whyNotSail(quest())).toBeUndefined()
-    expect(whyNotSail(quest({ kind: 'review', phase: 'stuck', commits: [{ taskId: 1, title: 'T', sha: 'a', by: 'Frodo', minor: [] }] }))).toBeUndefined()
+    expect(whyNotSail(quest({ kind: 'review', phase: 'stuck', commits: [{ taskId: 1, title: 'T', sha: 'a', by: 'Light builder 1', minor: [] }] }))).toBeUndefined()
   })
 
-  test("says why it does not: a lane lands by itself, it sailed already, the reviewers judge it, or it has not arrived", () => {
-    expect(whyNotSail(quest({ lane: { of: 'github:o/r#12', taskId: 2 } }))).toBe("A lane lands on its quest's branch by itself: it is github:o/r#12 that sails.")
-    expect(whyNotSail(quest({ phase: 'sailed', pr: 'https://github.com/o/r/pull/7' }))).toBe('The pull request is open: https://github.com/o/r/pull/7')
-    expect(whyNotSail(quest({ phase: 'warding' }))).toBe('The reviewers judge the whole branch of github:o/r#12: the pull request opens once they pass it.')
-    expect(whyNotSail(quest({ phase: 'marching' }))).toBe('The quest on github:o/r#12 has not arrived: it is marching. Every task is committed first.')
+  test("says why it does not: a lane lands by itself, it submitted already, the reviewers judge it, or it is not built", () => {
+    expect(whyNotSail(quest({ lane: { of: 'github:o/r#12', taskId: 2 } }))).toBe("A lane lands on its run's branch by itself: it is github:o/r#12 that is submitted.")
+    expect(whyNotSail(quest({ phase: 'submitted', pr: 'https://github.com/o/r/pull/7' }))).toBe('The pull request is open: https://github.com/o/r/pull/7')
+    expect(whyNotSail(quest({ phase: 'reviewing-branch' }))).toBe('The reviewers judge the whole branch of github:o/r#12: the pull request opens once they pass it.')
+    expect(whyNotSail(quest({ phase: 'building' }))).toBe('The run on github:o/r#12 is not built: it is building. Every task is committed first.')
   })
 
-  test("waits on the reviewers' judgement of its whole branch, sails once they pass it, and stops on what blocks it", () => {
+  test("waits on the reviewers' judgement of its whole branch, is submitted once they pass it, and stops on what blocks it", () => {
     const at = { ref: 'github:o/r#12', tree: '/proj/.fellowship/trees/x' }
 
     expect(afterWard(judged('reviewing'), at)).toMatchObject({ kind: 'wait' })
-    expect(afterWard(judged('pass', { line: 'passed' }), at)).toEqual({ kind: 'sail', line: 'the whole branch passed' })
+    expect(afterWard(judged('pass', { line: 'passed' }), at)).toEqual({ kind: 'submit', line: 'the whole branch passed' })
     expect(afterWard(judged('fail', { blocking: ['- Security reviewer: it leaks'], line: '1 blocking finding' }), at)).toEqual({
       kind: 'stop',
-      why: 'The reviewers found what blocks the whole branch of github:o/r#12:\n- Security reviewer: it leaks\nFix it in /proj/.fellowship/trees/x and commit, then sail again: they judge the branch as it then stands.',
+      why: 'The reviewers found what blocks the whole branch of github:o/r#12:\n- Security reviewer: it leaks\nFix it in /proj/.fellowship/trees/x and commit, then submit again: they judge the branch as it then stands.',
       line: 'the whole branch: 1 blocking finding',
     })
-    expect(afterWard(judged('silent', { line: 'not judged' }), at)).toMatchObject({ kind: 'stop', why: expect.stringMatching(/could not judge the whole branch .*\(not judged\): sail again/) })
+    expect(afterWard(judged('silent', { line: 'not judged' }), at)).toMatchObject({ kind: 'stop', why: expect.stringMatching(/could not judge the whole branch .*\(not judged\): submit again/) })
   })
 })
 
 describe("a builder's brief", () => {
   const plan = parsePlan(JSON.stringify({ ref: 'github:o/r#12', url: 'https://github.com/o/r/issues/12', title: 'Beacons burn', summary: '', approach: '', questions: [], decided: [], risks: [], accepted: [], at: 1, tasks: [{ id: 1, title: 'Keep when a beacon is lit', why: 'Nothing records it.', steps: ['Add lit_at'], files: ['beacons/gondor/app.py'], dependsOn: [], acceptance: 'lit_at is set', weight: 'light', state: 'todo' }] })) as Plan
-  const quest = { kind: 'plan' as const, ref: plan.ref, url: plan.url, title: plan.title, branch: 'fellowship/12-beacons-burn' }
+  const quest = { kind: 'plan' as const, ref: plan.ref, url: plan.url, title: plan.title, branch: 'build/12-beacons-burn' }
 
   test('names the builder its try and the task call for, a rung up on each try', () => {
     const first = briefFor({ quest, plan, task: plan.tasks[0]!, attempt: 1, targets: [], standards: '' })
@@ -130,16 +130,34 @@ describe('a task whose tests were written first', () => {
 
     const shown = afterGaze({ state: 'shown', tests: [{ file: 'beacons/tests/test_gondor.py', name: 'test_burned_for' }], unrun: [], red: '1 failed' }, plan, 2, plan.ref)
 
-    expect(shown).toMatchObject({ kind: 'build', task: { id: 2 }, said: '', vision: { taskId: 2, tests: [{ name: 'test_burned_for' }], red: '1 failed' } })
+    expect(shown).toMatchObject({ kind: 'build', task: { id: 2 }, said: '', testsToPass: { taskId: 2, tests: [{ name: 'test_burned_for' }], red: '1 failed' } })
   })
 
   test('is built with no tests to pass, saying why, where there is nothing to test first', () => {
-    expect(afterGaze({ state: 'empty', why: 'it only renames a field' }, plan, 2, plan.ref)).toMatchObject({ kind: 'build', vision: null, said: 'Nothing to test first in task 2: it only renames a field' })
+    expect(afterGaze({ state: 'empty', why: 'it only renames a field' }, plan, 2, plan.ref)).toMatchObject({ kind: 'build', testsToPass: null, said: 'Nothing to test first in task 2: it only renames a field' })
   })
 
   test('is sent again where its tests could not be read, and is lost where it left the plan', () => {
     expect(afterGaze({ state: 'unreadable', why: 'the test writer did not answer' }, plan, 2, plan.ref)).toMatchObject({ kind: 'clouded', why: 'The tests written first of task 2 could not be read: the test writer did not answer. Send it again, and the test writer writes them anew.' })
     expect(afterGaze({ state: 'shown' }, plan, 9, plan.ref)).toEqual({ kind: 'lost', why: 'The task its tests were written for is not in the plan of github:o/r#12 any more.' })
     expect(afterGaze({ state: 'shown' }, 'No plan is kept.', 2, plan.ref)).toMatchObject({ kind: 'lost' })
+  })
+})
+
+describe('a run kept in the store', () => {
+  const kept = { kind: 'plan', ref: 'github:o/r#12', url: '', title: 'T', branch: 'fellowship/12-t', base: 'main', tree: '/t', isAuto: false, proof: '', proofLine: '', verdictLine: '', commits: [], pr: '', at: 1 }
+
+  test('kept before the rename, reads in its new names: phase, builder and fields', () => {
+    const old = { ...kept, phase: 'marching', march: { taskId: 2, title: 'Two', member: 'gimli', agentId: 'a', attempt: 1, at: 1, answer: '' }, vision: { taskId: 2, tests: [], red: '' }, gazed: 2, isWarded: true }
+
+    expect(runFromStore(old)).toEqual({ ...kept, phase: 'building', current: { taskId: 2, title: 'Two', builder: 'builder-service', agentId: 'a', attempt: 1, at: 1, answer: '' }, testsToPass: { taskId: 2, tests: [], red: '' }, testsFor: 2, isBranchReviewed: true })
+    expect(runFromStore({ ...kept, phase: 'sailed', march: null })).toMatchObject({ phase: 'submitted', current: null })
+  })
+
+  test('kept since, reads as it was kept, and what is no run reads as none', () => {
+    const run = { ...kept, phase: 'reviewing' as const, current: { taskId: 1, title: 'One', builder: 'builder-last' as const, agentId: '', attempt: 4, at: 1, answer: '' } }
+
+    expect(runFromStore(run)).toEqual(run)
+    expect(runFromStore(undefined)).toBeUndefined()
   })
 })
