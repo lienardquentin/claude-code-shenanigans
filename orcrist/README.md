@@ -21,6 +21,7 @@ target/debug/orcrist check src/*.rs
 | --- | --- |
 | `orcrist check <files>…` | Judges every line of the given files |
 | `orcrist check --since <commit>` | Judges only the lines the working tree added since that commit, and the whole of each file git does not track yet; names on stderr what it left unjudged, of no language it reads |
+| `orcrist check --root <folder> …` | Judges as if run from that folder: the files given, the config and the paths written are its |
 
 Each finding is printed as `file:line rule: what is wrong`, or, with `--format json`, as an array of objects with
 its `file`, `line`, `column`, `rule` and `message`, or, with `--format sarif`, as SARIF 2.1.0 for code scanning. Lines
@@ -77,9 +78,10 @@ A spare without a reason spares nothing and is a finding of its own.
 ## Configuring it
 
 A project tells orcrist what fits it in an `orcrist.toml`, looked for in the current folder and each folder above it up
-to the repository's root; outside a repository, only in the current folder. Without one, every rule judges everywhere
-by the defaults below. Globs are relative to the folder of the `orcrist.toml`: `*` does not cross a `/`, `**` crosses
-any number.
+to the repository's root as git tells it; outside a repository, only in the current folder. With `--since`, it is the
+`orcrist.toml` that commit holds, so that a change cannot loosen the config that judges it; a new or changed config
+judges once it is committed. Without one, every rule judges everywhere by the defaults below. Globs are relative to
+the folder of the `orcrist.toml`: `*` does not cross a `/`, `**` crosses any number.
 
 ```toml
 # Left out of the project: neither judged under --since nor read by the rules that look across files.
@@ -97,6 +99,7 @@ filler = ["we", "here"]   # filler besides the built-in words
 [rules.vague-name]
 words = ["blob"]          # vague words besides the built-in ones
 verbs = ["execute"]       # vague verbs, for a function's name, besides the built-in ones
+allow = ["data"]          # built-in vague words or verbs the project means, as an API that speaks of `data`
 
 [rules.single-use-abstraction]
 calls = 2                 # calls below which a parameter every call passes one literal for is not judged
@@ -105,8 +108,10 @@ calls = 2                 # calls below which a parameter every call passes one 
 off = true
 ```
 
-A key orcrist does not know, a rule it has not, a setting given to a rule it is not for, or a value out of range is
-refused with exit 2, so that a typo does not quietly judge by the defaults.
+The built-in words are English; `words`, `verbs`, `filler` and `allow` fit them to a project's own language, each
+entry one word as orcrist splits names. A key orcrist does not know, a rule it has not, a setting given to a rule it is
+not for, an entry of more than one word, or a value out of range is refused with exit 2, so that a typo does not
+quietly judge by the defaults.
 
 ## Adding a language
 

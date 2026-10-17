@@ -10,6 +10,7 @@ use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
 use crate::rules::RULES;
+use crate::words::words;
 use crate::{duplicate, git, restating, single_use};
 
 /// The name of the file orcrist looks for, in the current folder and each folder above it up to the repository's root.
@@ -25,9 +26,11 @@ pub struct Settings {
     pub vague_words: Vec<String>,
     /// Vague verbs, for a function's name, besides the built-in ones
     pub vague_verbs: Vec<String>,
+    /// Built-in vague words and verbs a project's code means, as a library whose API speaks of `data`
+    pub vague_allowed: Vec<String>,
     /// Pieces of code below which two functions alike are alike by chance
     pub smallest: usize,
-    /// Calls below which a parameter every call passes one literal for is not judged
+    /// How many calls `single-use-abstraction` needs before it judges a parameter
     pub calls: usize,
 }
 
@@ -38,6 +41,7 @@ impl Default for Settings {
             filler: Vec::new(),
             vague_words: Vec::new(),
             vague_verbs: Vec::new(),
+            vague_allowed: Vec::new(),
             smallest: duplicate::SMALLEST,
             calls: single_use::CALLS,
         }
@@ -74,26 +78,83 @@ struct WrittenRule {
     filler: Option<Vec<String>>,
     words: Option<Vec<String>>,
     verbs: Option<Vec<String>>,
+    allow: Option<Vec<String>>,
     smallest: Option<usize>,
     calls: Option<usize>,
 }
 
 impl Config {
     /// The config of the first folder from the current one up that holds an `orcrist.toml`, going no higher than the
-    /// repository's root, or only the current folder outside a repository; the defaults when there is none.
-    pub fn find() -> Result<Config, String> {
+    /// repository's root as git tells it, or only the current folder outside a repository; the defaults when there is
+    /// none. Judging a change `since` a commit, it is the config as that commit holds it, which the change cannot
+    /// loosen to pass its own check.
+    pub fn find(since: Option<&str>) -> Result<Config, String> {
         let current = env::current_dir().map_err(|error| format!("cannot tell the current folder: {error}"))?;
-        // Outside a repository no `.git` above would stop the search, and any folder above may be another's to write
-        let inside_repository = git::inside_repository();
+        // Where it really is, as git names the root: a folder reached through a link is below it all the same
+        let current = fs::canonicalize(&current).unwrap_or(current);
+        // Outside a repository any folder above may be another's to write in
+        let root = git::inside_repository()
+            .then(|| git::git(&["rev-parse", "--show-toplevel"]))
+            .transpose()?
+            .map(|root| PathBuf::from(root.trim()));
+        if since.is_some() && root.is_none() {
+            return Err("--since judges a change in a git repository, and this folder is in none".to_string());
+        }
+        // A commit, or a tree as git's empty one, that git does not know is said so, not taken for one without a config
+        let since = since
+            .map(|since| {
+                let tree = format!("{since}^{{tree}}");
+                git::git(&["rev-parse", "--verify", "--quiet", "--end-of-options", &tree]).map(|_| since)
+            })
+            .transpose()
+            .map_err(|error| match error.starts_with("cannot run git") {
+                true => error,
+                false => format!("{} is no commit git knows", since.unwrap_or_default()),
+            })?;
         for folder in current.ancestors() {
             let path = folder.join(FILE_NAME);
-            if path.is_file() {
-                let text =
-                    fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+            let text = match (since, &root) {
+                (Some(since), Some(root)) => {
+                    let in_commit = path
+                        .strip_prefix(root)
+                        .map_err(|_| format!("{} is outside the repository at {}", path.display(), root.display()))?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    // Listed when the commit holds a config at this path, nothing listed when not; git failing is said
+                    let listed = git::git(&[
+                        "ls-tree",
+                        "--full-tree",
+                        "--name-only",
+                        "--end-of-options",
+                        since,
+                        "--",
+                        &in_commit,
+                    ])?;
+                    if listed.trim().is_empty() {
+                        None
+                    } else {
+                        let at = format!("{since}:{in_commit}");
+                        Some((git::git(&["show", "--end-of-options", &at])?, at))
+                    }
+                }
+                _ if path.is_file() => Some((
+                    fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?,
+                    // From the current folder: `orcrist.toml`, `../orcrist.toml`
+                    "../".repeat(current.components().count() - folder.components().count()) + FILE_NAME,
+                )),
+                _ => None,
+            };
+            // Its errors name the file read: the one in the commit under `--since`
+            if let Some((text, read)) = text {
                 return Config::parse(&text, (folder.to_path_buf(), current.clone()))
-                    .map_err(|error| format!("{}: {error}", path.display()));
+                    .map_err(|error| format!("{read}: {error}"));
             }
-            let last = !inside_repository || folder.join(".git").exists();
+            // No higher than the repository's root, nor than a folder holding a `.git`, nor than the current folder
+            // where it is not below the root git names
+            let last = root
+                .as_deref()
+                .is_none_or(|root| folder == root || !folder.starts_with(root))
+                || folder.join(".git").exists();
             if last {
                 break;
             }
@@ -114,9 +175,35 @@ impl Config {
                 let names: Vec<&str> = RULES.iter().map(|(name, _)| *name).collect();
                 return Err(format!("no rule is named {rule}; the rules are {}", names.join(", ")));
             }
+            let owners = [
+                ("share", written.share.is_some(), "restating-comment"),
+                ("filler", written.filler.is_some(), "restating-comment"),
+                ("words", written.words.is_some(), "vague-name"),
+                ("verbs", written.verbs.is_some(), "vague-name"),
+                ("allow", written.allow.is_some(), "vague-name"),
+                ("smallest", written.smallest.is_some(), "duplicate-helper"),
+                ("calls", written.calls.is_some(), "single-use-abstraction"),
+            ];
+            if let Some((key, _, owner)) = owners.iter().find(|(_, set, owner)| *set && *owner != rule) {
+                return Err(format!("{key} is {owner}'s to set, not {rule}'s"));
+            }
             let settings = &mut config.settings;
-            let lowercase = |words: Vec<String>| words.into_iter().map(|word| word.to_lowercase()).collect();
-            let mut set = Vec::new();
+            // A vague word's digits left off, as they are off a name's words when judged: `tmp2` is `tmp`
+            let one_word_each = |key: &str, given: Vec<String>| -> Result<Vec<String>, String> {
+                let digits_off = key != "filler";
+                given
+                    .into_iter()
+                    .map(|word| match words(&word)[..] {
+                        [ref one] if !digits_off => Ok(one.clone()),
+                        [ref one] if !one.trim_end_matches(|digit: char| digit.is_ascii_digit()).is_empty() => {
+                            Ok(one.trim_end_matches(|digit: char| digit.is_ascii_digit()).to_string())
+                        }
+                        _ => Err(format!(
+                            "{rule}'s {key} holds {word:?}, where each is one word, as orcrist splits names"
+                        )),
+                    })
+                    .collect()
+            };
             if let Some(share) = written.share {
                 if !(share > 0.0 && share <= 1.0) {
                     return Err(format!(
@@ -124,26 +211,24 @@ impl Config {
                     ));
                 }
                 settings.restated_share = share;
-                set.push(("share", "restating-comment"));
             }
             if let Some(filler) = written.filler {
-                settings.filler = lowercase(filler);
-                set.push(("filler", "restating-comment"));
+                settings.filler = one_word_each("filler", filler)?;
             }
-            if let Some(words) = written.words {
-                settings.vague_words = lowercase(words);
-                set.push(("words", "vague-name"));
+            if let Some(vague) = written.words {
+                settings.vague_words = one_word_each("words", vague)?;
             }
             if let Some(verbs) = written.verbs {
-                settings.vague_verbs = lowercase(verbs);
-                set.push(("verbs", "vague-name"));
+                settings.vague_verbs = one_word_each("verbs", verbs)?;
+            }
+            if let Some(allowed) = written.allow {
+                settings.vague_allowed = one_word_each("allow", allowed)?;
             }
             if let Some(smallest) = written.smallest {
                 if smallest == 0 {
                     return Err(format!("{rule}'s smallest is 0, where it is a count of pieces of code"));
                 }
                 settings.smallest = smallest;
-                set.push(("smallest", "duplicate-helper"));
             }
             if let Some(calls) = written.calls {
                 if calls < 2 {
@@ -152,10 +237,6 @@ impl Config {
                     ));
                 }
                 settings.calls = calls;
-                set.push(("calls", "single-use-abstraction"));
-            }
-            if let Some((key, owner)) = set.into_iter().find(|(_, owner)| *owner != rule) {
-                return Err(format!("{key} is {owner}'s to set, not {rule}'s"));
             }
             if written.off {
                 config.off.push(rule.clone());
@@ -193,7 +274,12 @@ impl Config {
                 component => absolute.push(component),
             }
         }
-        absolute.strip_prefix(folder).ok().map(Path::to_path_buf)
+        if let Ok(within) = absolute.strip_prefix(folder) {
+            return Some(within.to_path_buf());
+        }
+        // An absolute path through a link, `/tmp/…` where `/tmp` leads elsewhere: where it leads
+        let resolved = fs::canonicalize(&absolute).ok()?;
+        resolved.strip_prefix(folder).ok().map(Path::to_path_buf)
     }
 }
 

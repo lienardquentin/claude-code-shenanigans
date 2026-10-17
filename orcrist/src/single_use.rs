@@ -25,7 +25,7 @@ pub struct Index {
     /// What each call of a function so named passes, argument by argument: the literal's text, None for other than a
     /// literal
     calls: HashMap<(Language, String), Vec<Vec<Option<String>>>>,
-    /// Calls below which a parameter is not judged
+    /// How many calls a parameter is judged from
     least_calls: usize,
 }
 

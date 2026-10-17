@@ -47,12 +47,26 @@ enum Command {
         /// How the findings are written.
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
+        /// Judge as if run from this folder: the files given, the config and the paths written are its.
+        #[arg(long)]
+        root: Option<PathBuf>,
     },
 }
 
 fn main() -> ExitCode {
-    let Command::Check { files, since, format } = Cli::parse().command;
-    let config = match Config::find() {
+    let Command::Check {
+        files,
+        since,
+        format,
+        root,
+    } = Cli::parse().command;
+    if let Some(root) = root
+        && let Err(error) = std::env::set_current_dir(&root)
+    {
+        eprintln!("orcrist: cannot judge from {}: {error}", root.display());
+        return ExitCode::from(2);
+    }
+    let config = match Config::find(since.as_deref()) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("orcrist: {error}");
