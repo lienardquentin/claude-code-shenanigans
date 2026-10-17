@@ -32,7 +32,7 @@ import {
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
-import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, sendBack, sendBackPrompt, toolFailed } from '../flow'
+import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -781,7 +781,21 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
     }
 
     const added = await git($, ['add', '-A', ...UNMODDED], held.tree)
-    const done = added.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : added
+    // What is staged is read for secrets before it is committed: a secret in a commit outlives the commit
+    const staged = added.ok ? await git($, ['diff', '--cached', '--no-color', '--no-ext-diff'], held.tree) : added
+    const leaked = staged.ok ? secretsIn(staged.out) : []
+
+    if (staged.ok && leaked.length > 0) {
+      await git($, ['reset', '-q'], held.tree)
+
+      const why = `Task ${task.id}'s change adds what looks like a secret (${leaked.join('; ')}), so it is not committed: take it out of ${held.tree}, then put the task before the Argonath again.`
+
+      await stop($, held, why)
+
+      return why
+    }
+
+    const done = staged.ok ? await git($, ['commit', '-m', commitMessage(held, made, task, by, minor, unproven)], held.tree) : staged
 
     if (!done.ok) {
       await stop($, held, `Task ${task.id} could not be committed: ${done.out}`)
@@ -938,6 +952,26 @@ async function answerThreads($: $, ref: string): Promise<string> {
   ].join('')
 }
 
+/**
+ * Why a quest's branch may not leave the machine: what it adds over the branch it is pushed onto holds what looks like
+ * a secret, or what it adds could not be read. Nothing when it may.
+ */
+async function leakOf($: $, held: FellowshipQuest): Promise<string | undefined> {
+  const onto = `origin/${held.kind === 'review' ? held.branch : held.base}`
+  const isFetched = (await git($, ['rev-parse', '--verify', '--quiet', `refs/remotes/${onto}`], held.tree)).ok
+  const from = isFetched ? onto : held.kind === 'review' ? '' : held.base
+
+  if (from === '') return `${onto} is not known here, so what ${held.branch} adds cannot be read for secrets: fetch it, then push again.`
+
+  const added = await git($, ['diff', '--no-color', '--no-ext-diff', `${from}...HEAD`], held.tree)
+
+  if (!added.ok) return `What ${held.branch} adds over ${from} could not be read for secrets: ${added.out}`
+
+  const leaked = secretsIn(added.out)
+
+  return leaked.length === 0 ? undefined : `${held.branch} adds what looks like a secret (${leaked.join('; ')}), so it does not leave the machine: take it out of the branch's history, then push again.`
+}
+
 /** Pushes the branch and opens the pull request that closes the issue; a review's answers are pushed onto its pull request. */
 async function sail($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
@@ -950,6 +984,15 @@ async function sail($: $, ref: string): Promise<string> {
   const made = await workOf($, held)
 
   if (typeof made === 'string') return made
+
+  // Nothing that looks like a secret leaves the machine, whoever committed it
+  const leak = await leakOf($, held)
+
+  if (leak !== undefined) {
+    await say($, ref, leak)
+
+    return leak
+  }
 
   if (held.kind === 'review') {
     await work($, ref, `Pushing ${held.branch}…`)

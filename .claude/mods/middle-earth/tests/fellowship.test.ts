@@ -413,6 +413,11 @@ const machine = (on: On) => {
     branch: 'main',
     mine: '',
     branches: ['main'] as string[],
+    // The branches fetched from origin, which it then knows as origin/<branch>
+    remotes: [] as string[],
+    // What a quest's worktree holds staged, as git diff --cached shows it, and what its branch adds over origin's
+    staged: '',
+    pushed: '',
     worktrees: [{ path: CWD, branch: 'main' }] as { path: string; branch: string }[],
     // What a quest's worktree holds uncommitted
     dirty: '',
@@ -498,7 +503,15 @@ const machine = (on: On) => {
 
       return answer('')
     }
+    if (line.startsWith('git fetch origin ')) {
+      world.remotes.push(e.argv[3] ?? '')
+
+      return answer('')
+    }
+    if (line.startsWith('git rev-parse --verify --quiet refs/remotes/origin/')) return answer('', world.remotes.includes((e.argv.at(-1) ?? '').replace('refs/remotes/origin/', '')) ? 0 : 1)
     if (line.startsWith('git rev-parse --verify')) return answer('', world.branches.includes((e.argv.at(-1) ?? '').replace('refs/heads/', '')) ? 0 : 1)
+    if (line === 'git diff --cached --no-color --no-ext-diff') return answer(world.staged)
+    if (line.startsWith('git diff --no-color --no-ext-diff ') && line.endsWith('...HEAD')) return answer(world.pushed)
     if (line.startsWith('git branch -D ')) {
       world.branches = world.branches.filter(one => one !== e.argv.at(-1))
 
@@ -1206,6 +1219,39 @@ describe('an errand', () => {
     expect(world.ran.find(line => line.startsWith('gh pr create'))).not.toMatch(/was written before/)
   })
 
+  test('commits nothing that adds what looks like a secret, and pushes no branch that holds one', async ($, on) => {
+    const world = machine(on)
+    world.plan = null
+    world.staged = `diff --git a/beacons/gondor/settings.py b/beacons/gondor/settings.py\n+++ b/beacons/gondor/settings.py\n+KEY = "AKIA${'Q'.repeat(16)}"\n`
+    await start($, world)
+    await $.command.run({ command: 'fellowship', args: 'errand #21' } as never)
+    await settle($, world)
+    await ends($, 'gimli-1', 'Quench answers 404 now.', world)
+    await settle($, world)
+
+    // The secret is read in what was staged: it is unstaged, and the change waits in the worktree for the person
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)
+    expect(world.ran).toContain('git reset -q')
+    expect(await call($, 'mcp__middle-earth__quest', { ref: ISSUE.ref })).toMatch(/: stuck/)
+    expect(world.toasts.some(text => /adds what looks like a secret \(beacons\/gondor\/settings\.py: an AWS access key\)/.test(text))).toBe(true)
+
+    // Taken out, it is committed; a secret committed by hand on the branch keeps it on the machine
+    world.staged = ''
+    await call($, 'mcp__middle-earth__commit', { ref: ISSUE.ref })
+    await settle($, world)
+    expect(world.ran.some(line => line.startsWith('git commit'))).toBe(true)
+
+    world.pushed = `+++ b/narsil/deploy.pem\n+-----BEGIN RSA PRIVATE KEY-----\n`
+    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await settle($, world)
+    expect(world.ran.some(line => line.startsWith('git push') || line.startsWith('gh pr create'))).toBe(false)
+
+    world.pushed = ''
+    await $.command.run({ command: 'fellowship', args: `sail ${ISSUE.ref}` } as never)
+    await settle($, world)
+    expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(true)
+  })
+
   test('is handed back when it is no errand, for the council to plan', async ($, on) => {
     const world = machine(on)
     world.plan = null
@@ -1497,7 +1543,8 @@ describe('the hand-offs of a task', () => {
     await settle($, world)
 
     expect(world.statues.at(-1)).toEqual(['isildur', 'anarion'])
-    expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' main'))).toBe(true)
+    // Judged against origin's base, just fetched, not a local one behind it
+    expect(world.ran.some(line => line.includes('git merge-base "$1" HEAD') && line.endsWith(' origin/main'))).toBe(true)
     expect(world.judged.at(-1)).toMatchObject({ cwd: TREE })
     // On their own model: the whole branch is no lighter for any of its tasks being light
     expect(world.judged.at(-1)?.model).toBeUndefined()

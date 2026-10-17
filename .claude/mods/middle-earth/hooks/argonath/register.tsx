@@ -47,6 +47,9 @@ import {
   proofAnswer,
   proofBrief,
   affectedOf,
+  gateOf,
+  manifestsOf,
+  weakenedOf,
   requiredOf,
   withLive,
 } from './proof'
@@ -323,6 +326,24 @@ async function affectedIn($: $, target: ArgonathTarget, against: string, place: 
   return affectedOf(ran?.stdout ?? '')
 }
 
+/**
+ * Runs a gate command of a target (its check, or its audit) on the working tree, and on the commit's source where it
+ * fails there, as the affected tests are: what the change broke of it, what was broken before, or why it is not known.
+ */
+async function gateIn($: $, target: ArgonathTarget, name: 'check' | 'audit', against: string, place: Place): Promise<ReturnType<typeof gateOf>> {
+  const job = { home: place.tree, label: target.label, tests: [], command: target[name], from: against }
+  const ran = await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/affected.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+
+  return gateOf(ran.stdout, `${target.label}.${name}`)
+}
+
+/** The diff of a target's tests against HEAD, the files they hold deleted with it: where a change weakens them. */
+async function testsDiffIn($: $, target: ArgonathTarget, place: Place): Promise<string> {
+  if (target.tests.length === 0) return ''
+
+  return (await $.process.run(['git', 'diff', 'HEAD', '--no-color', '--no-ext-diff', '--', ...target.tests], { cwd: place.tree }).catch(() => undefined))?.stdout ?? ''
+}
+
 // `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
 // `required`: tests written before the change (Galadriel's), each `{ file, name }`, that are to pass on the working tree
 // `place`: the project's folder when left out
@@ -408,6 +429,28 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
         const broken = await affectedIn($, target, asked.against, place)
 
         made = { ...made, regressions: broken.regressions, preexisting: broken.preexisting, unproved: [made.unproved, broken.unproved].filter(said => said !== '').join('\n') }
+      }
+
+      // Its checks, when it reached the target, and the audit of its dependencies when it touched their manifests; and
+      // what it does to the target's tests, wherever they are
+      if (asked.isProving) {
+        const manifests = manifestsOf(changes.get(target.label) ?? '')
+        const gates = isUntouched ? [] : (['check', 'audit'] as const).filter(name => target[name] !== '' && (name === 'check' || manifests.length > 0))
+        const found: ReturnType<typeof gateOf>[] = []
+
+        for (const name of gates) {
+          await update($, working, () => `Running ${target.label}.${name} on the working tree…`)
+          found.push(await gateIn($, target, name, asked.against, place))
+        }
+
+        made = {
+          ...made,
+          gates: found.map(one => one.broken).filter(said => said !== ''),
+          gatesBefore: found.map(one => one.before).filter(said => said !== ''),
+          unproved: [made.unproved, ...found.map(one => one.unproved)].filter(said => said !== '').join('\n'),
+          weakened: weakenedOf(await testsDiffIn($, target, place)),
+          manifests,
+        }
       }
 
       const kept = made
