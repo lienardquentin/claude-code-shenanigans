@@ -92,3 +92,13 @@ off = true
 
 A key orcrist does not know, a rule it has not, a setting given to a rule it is not for, or a value out of range is
 refused with exit 2, so that a typo does not quietly judge by the defaults.
+
+## Adding a language
+
+What orcrist knows of a language's grammar is gathered in one table in `src/syntax.rs`: the kinds of its comments,
+functions, calls and literals, where its names are declared, and which of its checks tell a swallowed error, an
+impossible guard or an interface. To read another language, add its tree-sitter grammar to `Cargo.toml`; a
+`Language` with its extensions, pathspecs and grammar in `src/lang.rs`; and its table, with any check of its own
+written in the rule's module. A rule the language has no case of leaves the table's list empty. The rules still take
+some grammar as given: a call names what it calls in a `function` field, a function its parameters in `parameters`,
+and a bare name is an `identifier`. A grammar shaped otherwise needs those rules taught too.
