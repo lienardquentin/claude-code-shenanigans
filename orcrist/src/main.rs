@@ -10,6 +10,7 @@ mod restating;
 mod rules;
 mod single_use;
 mod swallowed;
+mod syntax;
 mod vague;
 mod words;
 

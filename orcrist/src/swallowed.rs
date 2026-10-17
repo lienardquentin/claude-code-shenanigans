@@ -6,37 +6,20 @@ use crate::lang::Language;
 use crate::rules::Finding;
 
 pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
-    let message = match (language, node.kind()) {
-        (Language::Rust, "expression_statement") if ok_dropped(node, source) => {
-            "the error is turned into an Option and dropped"
-        }
-        (Language::Rust, "let_declaration") if call_bound_to_wildcard(node, source) => {
-            "what the call returns, an error among it, is bound to _ and dropped"
-        }
-        (Language::Python, "except_clause") if only_passes(node, source) => {
-            "the error is caught and nothing is done with it"
-        }
-        (Language::TypeScript | Language::Jsx | Language::Vue, "catch_clause")
-            if node.child_by_field_name("body").is_some_and(is_empty) =>
-        {
-            "the error is caught and nothing is done with it"
-        }
-        (Language::TypeScript | Language::Jsx | Language::Vue, "call_expression")
-            if catches_with_nothing(node, source) =>
-        {
-            "the error is caught and nothing is done with it"
-        }
-        _ => return None,
-    };
+    let swallowed = language
+        .syntax()
+        .swallowed
+        .iter()
+        .find(|swallowed| swallowed.kind == node.kind() && (swallowed.drops)(node, source))?;
     Some(Finding {
         line: node.start_position().row + 1,
         rule: "swallowed-error",
-        message: message.to_string(),
+        message: swallowed.message.to_string(),
     })
 }
 
 /// `write(path).ok();`
-fn ok_dropped(statement: Node, source: &str) -> bool {
+pub fn ok_dropped(statement: Node, source: &str) -> bool {
     let Some(call) = statement
         .named_child(0)
         .filter(|child| child.kind() == "call_expression")
@@ -52,7 +35,7 @@ fn ok_dropped(statement: Node, source: &str) -> bool {
 }
 
 /// `let _ = write(path);`
-fn call_bound_to_wildcard(declaration: Node, source: &str) -> bool {
+pub fn call_bound_to_wildcard(declaration: Node, source: &str) -> bool {
     let pattern = declaration.child_by_field_name("pattern");
     let value = declaration.child_by_field_name("value");
     pattern.is_some_and(|pattern| &source[pattern.byte_range()] == "_")
@@ -60,7 +43,7 @@ fn call_bound_to_wildcard(declaration: Node, source: &str) -> bool {
 }
 
 /// `except OSError: pass`, but not `except KeyboardInterrupt: pass`, which is how a program stops quietly on Ctrl+C
-fn only_passes(except: Node, source: &str) -> bool {
+pub fn only_passes(except: Node, source: &str) -> bool {
     let mut cursor = except.walk();
     let children: Vec<Node> = except.named_children(&mut cursor).collect();
     let Some(block) = children.iter().find(|child| child.kind() == "block") else {
@@ -80,6 +63,11 @@ fn only_passes(except: Node, source: &str) -> bool {
     !statements.is_empty() && statements.iter().all(|statement| statement.kind() == "pass_statement")
 }
 
+/// `catch {}`
+pub fn catches_nothing(catch: Node, _source: &str) -> bool {
+    catch.child_by_field_name("body").is_some_and(is_empty)
+}
+
 /// `{}`, or a block of nothing but comments
 fn is_empty(block: Node) -> bool {
     let mut cursor = block.walk();
@@ -87,7 +75,7 @@ fn is_empty(block: Node) -> bool {
 }
 
 /// `promise.catch(() => {})`
-fn catches_with_nothing(call: Node, source: &str) -> bool {
+pub fn catches_with_nothing(call: Node, source: &str) -> bool {
     let method = call
         .child_by_field_name("function")
         .filter(|function| function.kind() == "member_expression")

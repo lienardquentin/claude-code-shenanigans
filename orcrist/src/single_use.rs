@@ -38,7 +38,7 @@ impl Index {
         let found = parallel::map(&project.files, |file| {
             let (mut implementations, mut definitions, mut calls) = (Vec::new(), Vec::new(), Vec::new());
             visit(file.tree.root_node(), &mut |node| {
-                for interface in implemented(node, file) {
+                for interface in (file.language.syntax().implemented)(node, file) {
                     implementations.push((interface, node.start_position().row + 1));
                 }
                 if let Some((name, _)) = file.function(node) {
@@ -71,7 +71,7 @@ impl Index {
 pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
     let named = |name: &str| (file.language.code_language(), name.to_string());
     let mut findings = Vec::new();
-    if let Some(name) = interface(node, file)
+    if let Some(name) = (file.language.syntax().interface)(node, file)
         && let Some([(path, line)]) = index.implementations.get(&named(name)).map(Vec::as_slice)
     {
         findings.push(Finding {
@@ -107,20 +107,10 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
 
 /// The name of the function `node` calls, and what it passes it: `light(a)`, `beacons.light(a)`, `chain::light(a)`.
 fn call<'a>(node: Node, file: &'a File) -> Option<(&'a str, Vec<Option<String>>)> {
-    let literals: &[&str] = match (file.language, node.kind()) {
-        (Language::Rust, "call_expression") => &[
-            "integer_literal",
-            "float_literal",
-            "string_literal",
-            "boolean_literal",
-            "char_literal",
-        ],
-        (Language::Python, "call") => &["integer", "float", "string", "true", "false", "none"],
-        (Language::TypeScript | Language::Jsx | Language::Vue, "call_expression") => {
-            &["number", "string", "true", "false", "null", "undefined"]
-        }
-        _ => return None,
-    };
+    let syntax = file.language.syntax();
+    if !syntax.calls.contains(&node.kind()) {
+        return None;
+    }
     let function = node.child_by_field_name("function")?;
     let name = ["name", "field", "attribute", "property"]
         .iter()
@@ -135,7 +125,8 @@ fn call<'a>(node: Node, file: &'a File) -> Option<(&'a str, Vec<Option<String>>)
         .named_children(&mut cursor)
         .filter(|argument| argument.kind() != "comment")
         .map(|argument| {
-            literals
+            syntax
+                .literals
                 .contains(&argument.kind())
                 .then(|| file.code[argument.byte_range()].to_string())
         })
@@ -143,65 +134,80 @@ fn call<'a>(node: Node, file: &'a File) -> Option<(&'a str, Vec<Option<String>>)
     Some((&file.code[name.byte_range()], passed))
 }
 
-/// The name of the interface `node` declares: a trait, an abstract class, a TypeScript interface.
-fn interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
-    let declares = match (file.language, node.kind()) {
-        (Language::Rust, "trait_item") => true,
-        (Language::Python, "class_definition") => supertypes(node, file).any(|supertype| supertype == "ABC"),
-        (
-            Language::TypeScript | Language::Jsx | Language::Vue,
-            "interface_declaration" | "abstract_class_declaration",
-        ) => true,
-        _ => false,
-    };
+/// The name a node gives itself, when `declares`.
+fn named<'a>(node: Node, file: &'a File, declares: bool) -> Option<&'a str> {
     let name = node.child_by_field_name("name").filter(|_| declares)?;
     Some(&file.code[name.byte_range()])
 }
 
-/// The names of the interfaces `node` implements: `impl Store for Disk`, `class Disk(Store)`,
-/// `class Disk implements Store`, `class Wall extends Clock`.
-fn implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
-    match (file.language, node.kind()) {
-        (Language::Rust, "impl_item") => node
-            .child_by_field_name("trait")
-            .map(|interface| last_segment(&file.code[interface.byte_range()]))
-            .into_iter()
-            .collect(),
-        (Language::Python, "class_definition")
-        | (Language::TypeScript | Language::Jsx | Language::Vue, "class_declaration" | "abstract_class_declaration") => {
-            supertypes(node, file).collect()
-        }
-        _ => Vec::new(),
-    }
+/// `trait Store`
+pub fn rust_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
+    named(node, file, node.kind() == "trait_item")
 }
 
-/// What a class names after its own name: its bases in Python, what it extends and implements in TypeScript.
-fn supertypes<'a>(class: Node, file: &'a File) -> impl Iterator<Item = &'a str> {
-    let mut cursor = class.walk();
-    let listed: Vec<Node> = match file.language {
-        Language::Python => class
-            .child_by_field_name("superclasses")
-            .map(|bases| {
-                let mut cursor = bases.walk();
-                bases
-                    .named_children(&mut cursor)
-                    .filter(|base| base.kind() != "keyword_argument")
-                    .collect()
-            })
-            .unwrap_or_default(),
-        _ => class
-            .children(&mut cursor)
-            .filter(|child| child.kind() == "class_heritage")
-            .flat_map(|heritage| {
-                let mut cursor = heritage.walk();
-                heritage.named_children(&mut cursor).collect::<Vec<_>>()
-            })
-            .flat_map(|clause| {
-                let mut cursor = clause.walk();
-                clause.named_children(&mut cursor).collect::<Vec<_>>()
-            })
-            .collect(),
-    };
+/// `impl Store for Disk`
+pub fn rust_implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
+    if node.kind() != "impl_item" {
+        return Vec::new();
+    }
+    node.child_by_field_name("trait")
+        .map(|interface| last_segment(&file.code[interface.byte_range()]))
+        .into_iter()
+        .collect()
+}
+
+/// `class Store(ABC)`
+pub fn python_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
+    let declares = node.kind() == "class_definition" && python_bases(node, file).any(|supertype| supertype == "ABC");
+    named(node, file, declares)
+}
+
+/// `class Disk(Store)`
+pub fn python_implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
+    if node.kind() != "class_definition" {
+        return Vec::new();
+    }
+    python_bases(node, file).collect()
+}
+
+/// `interface Store`, `abstract class Clock`
+pub fn typescript_interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
+    let declares = matches!(node.kind(), "interface_declaration" | "abstract_class_declaration");
+    named(node, file, declares)
+}
+
+/// `class Disk implements Store`, `class Wall extends Clock`
+pub fn typescript_implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
+    if !matches!(node.kind(), "class_declaration" | "abstract_class_declaration") {
+        return Vec::new();
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| child.kind() == "class_heritage")
+        .flat_map(|heritage| {
+            let mut cursor = heritage.walk();
+            heritage.named_children(&mut cursor).collect::<Vec<_>>()
+        })
+        .flat_map(|clause| {
+            let mut cursor = clause.walk();
+            clause.named_children(&mut cursor).collect::<Vec<_>>()
+        })
+        .map(|supertype| last_segment(&file.code[supertype.byte_range()]))
+        .collect()
+}
+
+/// A Python class's bases, its keyword arguments such as `metaclass=` left out.
+fn python_bases<'a>(class: Node, file: &'a File) -> impl Iterator<Item = &'a str> {
+    let listed: Vec<Node> = class
+        .child_by_field_name("superclasses")
+        .map(|bases| {
+            let mut cursor = bases.walk();
+            bases
+                .named_children(&mut cursor)
+                .filter(|base| base.kind() != "keyword_argument")
+                .collect()
+        })
+        .unwrap_or_default();
     listed
         .into_iter()
         .map(|supertype| last_segment(&file.code[supertype.byte_range()]))

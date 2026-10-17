@@ -6,17 +6,12 @@ use crate::lang::Language;
 use crate::rules::Finding;
 
 pub fn judge(guard: Node, source: &str, language: Language) -> Option<Finding> {
-    let (name, annotation) = match (language, guard.kind()) {
-        (Language::Python, "call") => python_isinstance(guard, source)?,
-        (Language::Python, "comparison_operator") => python_none_check(guard, source)?,
-        (Language::TypeScript | Language::Jsx | Language::Vue, "binary_expression") => {
-            typescript_comparison(guard, source)?
-        }
-        (Language::TypeScript | Language::Jsx | Language::Vue, "member_expression") => {
-            typescript_optional_chain(guard, source)?
-        }
-        _ => return None,
-    };
+    let (name, annotation) = language
+        .syntax()
+        .guards
+        .iter()
+        .filter(|(kind, _)| *kind == guard.kind())
+        .find_map(|(_, rules_out)| rules_out(guard, source))?;
     Some(Finding {
         line: guard.start_position().row + 1,
         rule: "impossible-guard",
@@ -25,7 +20,7 @@ pub fn judge(guard: Node, source: &str, language: Language) -> Option<Finding> {
 }
 
 /// `isinstance(path, str)` where the signature says `path: str`
-fn python_isinstance<'a>(call: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
+pub fn python_isinstance<'a>(call: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
     let function = call.child_by_field_name("function")?;
     let arguments = call.child_by_field_name("arguments")?;
     if &source[function.byte_range()] != "isinstance" || arguments.named_child_count() != 2 {
@@ -38,7 +33,7 @@ fn python_isinstance<'a>(call: Node, source: &'a str) -> Option<(&'a str, &'a st
 }
 
 /// `text is None` where the signature says `text: str`
-fn python_none_check<'a>(comparison: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
+pub fn python_none_check<'a>(comparison: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
     let mut cursor = comparison.walk();
     let operands: Vec<Node> = comparison.named_children(&mut cursor).collect();
     let [name, none] = operands[..] else { return None };
@@ -77,7 +72,7 @@ fn python_annotation<'a>(inside: Node, name: &str, source: &'a str) -> Option<&'
 }
 
 /// `path == null` or `typeof text !== 'string'`, where the signature says `path: string` and `text: string`
-fn typescript_comparison<'a>(comparison: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
+pub fn typescript_comparison<'a>(comparison: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
     let operator = &source[comparison.child_by_field_name("operator")?.byte_range()];
     if !matches!(operator, "==" | "===" | "!=" | "!==") {
         return None;
@@ -108,7 +103,7 @@ fn typescript_comparison<'a>(comparison: Node, source: &'a str) -> Option<(&'a s
 }
 
 /// `text?.length`, where the signature says `text: string`
-fn typescript_optional_chain<'a>(member: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
+pub fn typescript_optional_chain<'a>(member: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
     let receiver = member
         .child_by_field_name("object")
         .filter(|receiver| receiver.kind() == "identifier")?;

@@ -5,6 +5,8 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
+use crate::syntax::{self, Place, Syntax};
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
     Rust,
@@ -52,11 +54,17 @@ impl Language {
         }
     }
 
-    pub fn is_comment(self, node: Node) -> bool {
+    /// What orcrist knows of the language's grammar.
+    pub fn syntax(self) -> &'static Syntax {
         match self {
-            Language::Rust => matches!(node.kind(), "line_comment" | "block_comment"),
-            Language::Python | Language::TypeScript | Language::Jsx | Language::Vue => node.kind() == "comment",
+            Language::Rust => &syntax::RUST,
+            Language::Python => &syntax::PYTHON,
+            Language::TypeScript | Language::Jsx | Language::Vue => &syntax::TYPESCRIPT,
         }
+    }
+
+    pub fn is_comment(self, node: Node) -> bool {
+        self.syntax().comments.contains(&node.kind())
     }
 
     /// The code of `source` its grammar reads, line for line where it stands in the file: a Vue component's lines
@@ -103,31 +111,21 @@ pub fn declared(name: Node, language: Language) -> Option<Declared> {
             .child_by_field_name(field)
             .is_some_and(|child| child.id() == name.id())
     };
+    let syntax = language.syntax();
+    let kind = parent.kind();
     let value_is_function = || {
         parent
             .child_by_field_name("value")
-            .is_some_and(|value| matches!(value.kind(), "arrow_function" | "function_expression"))
+            .is_some_and(|value| syntax.function_values.contains(&value.kind()))
     };
-    let declares = match (language, parent.kind()) {
-        (Language::Rust, "function_item") => return is("name").then_some(Declared::Function),
-        (Language::Rust, "let_declaration" | "parameter") => is("pattern"),
-        (Language::Python, "function_definition") => return is("name").then_some(Declared::Function),
-        (Language::Python, "default_parameter" | "typed_default_parameter") => is("name"),
-        (Language::Python, "assignment") => is("left"),
-        (Language::Python, "parameters") => true,
-        // `info: str`, the name its first child
-        (Language::Python, "typed_parameter") => name.prev_sibling().is_none(),
-        (Language::TypeScript | Language::Jsx | Language::Vue, "function_declaration" | "method_definition") => {
-            return is("name").then_some(Declared::Function);
-        }
-        (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") if value_is_function() => {
-            return is("name").then_some(Declared::Function);
-        }
-        (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") => is("name"),
-        (Language::TypeScript | Language::Jsx | Language::Vue, "required_parameter" | "optional_parameter") => {
-            is("pattern")
-        }
-        _ => false,
+    if syntax.functions.contains(&kind) || (syntax.bindings.contains(&kind) && value_is_function()) {
+        return is("name").then_some(Declared::Function);
+    }
+    let (_, place) = syntax.declarations.iter().find(|(declaring, _)| *declaring == kind)?;
+    let declares = match place {
+        Place::Field(field) => is(field),
+        Place::First => name.prev_sibling().is_none(),
+        Place::Any => true,
     };
     declares.then_some(Declared::Value)
 }

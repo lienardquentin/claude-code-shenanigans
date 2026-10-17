@@ -10,6 +10,7 @@ use crate::config::Config;
 use crate::git::{self, git};
 use crate::lang::Language;
 use crate::parallel;
+use crate::syntax::Holds;
 
 pub struct File {
     pub path: PathBuf,
@@ -23,16 +24,14 @@ impl File {
     /// The name of the function `node` defines, and the function itself: `node`, or its value where a variable holds
     /// the function, as in `const light = (beacon) => …`.
     pub fn defined<'a>(&'a self, node: Node<'a>) -> Option<(&'a str, Node<'a>)> {
-        let function = match (self.language, node.kind()) {
-            (Language::Rust, "function_item")
-            | (Language::Python, "function_definition")
-            | (Language::TypeScript | Language::Jsx | Language::Vue, "function_declaration" | "method_definition") => {
-                node
-            }
-            (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") => node
-                .child_by_field_name("value")
-                .filter(|value| matches!(value.kind(), "arrow_function" | "function_expression"))?,
-            _ => return None,
+        let syntax = self.language.syntax();
+        let function = if syntax.functions.contains(&node.kind()) {
+            node
+        } else if syntax.bindings.contains(&node.kind()) {
+            node.child_by_field_name("value")
+                .filter(|value| syntax.function_values.contains(&value.kind()))?
+        } else {
+            return None;
         };
         let name = node
             .child_by_field_name("name")
@@ -49,17 +48,19 @@ impl File {
         if parameters.kind() == "identifier" {
             return Some((name, vec![parameters]));
         }
+        let syntax = self.language.syntax();
         let mut cursor = parameters.walk();
         let names = parameters
             .named_children(&mut cursor)
-            .filter_map(|parameter| match parameter.kind() {
-                "identifier" => Some(parameter),
-                "typed_parameter" => parameter.named_child(0),
-                "default_parameter" | "typed_default_parameter" => parameter.child_by_field_name("name"),
-                "parameter" | "required_parameter" | "optional_parameter" => parameter.child_by_field_name("pattern"),
-                _ => None,
+            .filter_map(|parameter| {
+                let (_, place) = syntax.parameters.iter().find(|(kind, _)| *kind == parameter.kind())?;
+                match place {
+                    Holds::Field(field) => parameter.child_by_field_name(field),
+                    Holds::First => parameter.named_child(0),
+                    Holds::Itself => Some(parameter),
+                }
             })
-            .filter(|name| !matches!(&self.code[name.byte_range()], "self" | "cls"))
+            .filter(|name| !syntax.receivers.contains(&&self.code[name.byte_range()]))
             .collect();
         Some((name, names))
     }
