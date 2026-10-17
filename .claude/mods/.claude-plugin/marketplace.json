@@ -1,10 +1,21 @@
 {
-  "name": "middle-earth",
-  "description": "The Lord of the Rings mods: middle-earth takes an issue or a pull request's review to committed and reviewed work (Elrond plans, the Fellowship builds in a worktree of its own, Galadriel's Mirror writes tests first, the Argonath prove and judge each change, the Black Gate reads review, Mount Doom clears what is done), while Andúril and the palantír, each useful alone, watch what the code does",
-  "owner": { "name": "quent" },
+  "name": "pipeline",
+  "description": "An AI pipeline for Claude Code: pipeline takes an issue or a pull request's review to committed and reviewed work (the planner plans, the build builds in a worktree of its own, the test writer writes tests first, verify proves and reviews each change, the review follow-up reads review, the cleanup clears what is merged), while the recorder and the runtime watch, each useful alone, what the code does",
+  "owner": {
+    "name": "quent"
+  },
   "plugins": [
-    { "name": "middle-earth", "source": "./middle-earth" },
-    { "name": "anduril", "source": "./anduril" },
-    { "name": "palantir", "source": "./palantir" }
+    {
+      "name": "pipeline",
+      "source": "./pipeline"
+    },
+    {
+      "name": "anduril",
+      "source": "./anduril"
+    },
+    {
+      "name": "palantir",
+      "source": "./palantir"
+    }
   ]
 }

@@ -10,7 +10,7 @@ Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `
 
 ### Standards
 
-What a change must not hold, blocking and minor: `docs/agents/standards.md`. The Argonath's reviewers judge every change by it.
+What a change must not hold, blocking and minor: `docs/agents/standards.md`. The pipeline's reviewers judge every change by it.
 
 ### Domain docs
 
