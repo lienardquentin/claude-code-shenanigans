@@ -1,5 +1,5 @@
 import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../../types'
-import { WEIGHT_MEANS } from '../flow'
+import { WEIGHT_MEANS } from '../../core/quest'
 
 export const HOW_TO = "No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /blackgate march hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 

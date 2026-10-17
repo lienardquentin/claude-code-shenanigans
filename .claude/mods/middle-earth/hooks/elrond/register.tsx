@@ -11,7 +11,7 @@ import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed, shortRef } from '../look'
-import { settlingOf } from '../fellowship/quest'
+import { settlingOf } from '../../core/quest'
 import { COUNCIL, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 
 type $ = EngineInterface

@@ -32,19 +32,20 @@ import {
   spentOn,
   statueModelFor,
   tally,
-  treePathOf,
   triesOf,
   unsettledOf,
   wardModelFor,
   wardPurpose,
-} from './quest'
-import type { Retry } from './quest'
+} from '../../core/quest'
+import type { Retry } from '../../core/quest'
 import { canMove, restingPhase } from './phases'
 import { forgeOfUrl } from '../../core/forge'
 import type { Ran } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
-import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, tidyPrompt, toolFailed } from '../flow'
-import type { Judged, Section, TurnEnded } from '../flow'
+import { afterFailedTry, afterProof, afterVerdict, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt } from '../../core/quest'
+import type { Judged, Why } from '../../core/quest'
+import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, push, rootOf, run, secretsIn, sendBack, toolFailed, treePathOf } from '../flow'
+import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -700,27 +701,27 @@ async function behold($: $, ref: string): Promise<void> {
  * Sends the task up a rung after a try that did not pass, with what stopped it; or, when Gandalf has tried it, stops
  * the quest for the person.
  */
-async function again($: $, ref: string, why: { proof?: string; findings?: string[] }, line: string): Promise<void> {
+async function again($: $, ref: string, why: Why, line: string): Promise<void> {
   const held = await questOf($, ref)
   const out = held?.march
 
   if (held === null || out === null || out === undefined) return
 
-  // A proof that does not settle the change, or findings that block it, send its member back once, with all it read
-  // and did still in its context, before a fresh member a rung up starts over cold
-  if (out.isResumed !== true && (await sendBack($, out.agentId, typeOf(out.member), sendBackPrompt(why)))) {
+  const made = await workOf($, held)
+  const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
+  const next = afterFailedTry({ ...out, by: MEMBERS[out.member].title }, typeof made === 'string' || task === undefined ? undefined : triesOf(made, task), line, held.tree)
+
+  // A proof that does not settle the change, or findings that block it, send its member back once, before a fresh
+  // member a rung up starts over cold
+  if (next.isSentBack && (await sendBack($, out.agentId, typeOf(out.member), sendBackPrompt(why)))) {
     await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isResumed: true, isRebased: false, answer: '' } }))
     await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} with ${why.findings !== undefined ? 'the findings' : 'the proof'}: ${line}`)
 
     return
   }
 
-  const made = await workOf($, held)
-  const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
-
-  if (typeof made !== 'string' && task !== undefined && out.attempt < triesOf(made, task)) return march($, held, made, task, out.attempt + 1, { attempt: out.attempt + 1, by: MEMBERS[out.member].title, answer: out.answer, ...why })
-
-  await stop($, held, `Task ${out.taskId} did not pass after ${out.attempt} ${out.attempt === 1 ? 'try' : 'tries'}, the last ${MEMBERS[out.member].title}'s: ${line}. Finish it by hand in ${held.tree} and commit it from the pane, or send it again.`)
+  if (next.otherwise.kind === 'climb' && typeof made !== 'string' && task !== undefined) return march($, held, made, task, next.otherwise.attempt, { attempt: next.otherwise.attempt, by: MEMBERS[out.member].title, answer: out.answer, ...why })
+  if (next.otherwise.kind === 'stop') await stop($, held, next.otherwise.why)
 }
 
 /**
@@ -772,19 +773,11 @@ async function prove($: $, ref: string): Promise<void> {
 
   await keep($, ref, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
 
-  // Argonath could not look at what the change reached: no member mends that, and no try is spent on it
-  if (verdict.isUnlooked) return stop($, held, `${verdict.line}. No member can mend that: set the target right in .claude/argonath, then put task ${out.taskId} before the Argonath again.`)
-  if (!verdict.isSettled) return again($, ref, { proof: verdict.text }, verdict.line)
+  const step = afterProof(verdict, out, mirror.tampered)
 
-  // What was taken out of Galadriel's tests without a reason blocks the change, as a finding would
-  if (mirror.tampered.length > 0) {
-    const findings = mirror.tampered.map(one => `- Lothlórien, ${one.file}: locked lines of Galadriel's tests were taken out with no reason given (${one.lines.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). Put them back, or call mcp__middle-earth__amend with the file and why before changing them.`)
-
-    return again($, ref, { findings }, `${findings.length} of Galadriel's test ${findings.length === 1 ? 'file' : 'files'} changed with no reason`)
-  }
-
-  // A lane's change the statues passed, rebased since onto its quest's branch, is proved there and lands as it passed
-  if (out.isRebased === true) return void (await commitNow($, ref, out.minor ?? []))
+  if (step.kind === 'stop') return stop($, held, step.why)
+  if (step.kind === 'again') return again($, ref, step.why, step.line)
+  if (step.kind === 'commit') return void (await commitNow($, ref, step.minor))
 
   await work($, ref, `The statues of the Argonath are sent to judge task ${out.taskId}…`)
 
@@ -844,32 +837,34 @@ async function settle($: $, ref: string, judged: ReturnType<typeof parseJudgemen
 
   const out = held.march
 
-  if (judged.verdict === 'sitting') return
-
   // Minor findings of a pass about what the change wrote send its member back once to tidy them; those of the judgement
   // after, and those about files it left alone, are committed as they are, and a member that cannot be reached spends no
   // try on them
-  const tidied = judged.verdict === 'pass' && judged.minor.length > 0 && out.isTidied !== true ? await ownMinorIn($, held.tree, judged) : []
+  const step = afterVerdict(judged, out, isTidyAsked(judged, out) ? await ownMinorIn($, held.tree, judged) : [])
 
-  if (tidied.length > 0 && (await sendBack($, out.agentId, typeOf(out.member), tidyPrompt(tidied)))) {
-    await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isTidied: true, answer: '' } }))
-    await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} to tidy the minor findings: ${judged.line}`)
+  if (step.kind === 'wait') return
+  if (step.kind === 'tidy') {
+    if (await sendBack($, out.agentId, typeOf(out.member), tidyPrompt(step.minor))) {
+      await keep($, ref, was => ({ ...was, phase: 'marching', march: { ...out, isTidied: true, answer: '' } }))
+      await say($, ref, `${MEMBERS[out.member].title} is sent back to task ${out.taskId} to tidy the minor findings: ${judged.line}`)
 
-    return
+      return
+    }
+
+    return void (await commitNow($, ref, step.otherwise.minor))
   }
-
-  if (judged.verdict === 'pass') return void (await commitNow($, ref, judged.minor))
-  if (judged.verdict === 'fail') return again($, ref, { findings: judged.blocking }, judged.line)
+  if (step.kind === 'commit') return void (await commitNow($, ref, step.minor))
+  if (step.kind === 'again') return again($, ref, step.why, step.line)
 
   // The change moved while they sat, or they never sat on it: it is proved and judged afresh
-  if (judged.verdict === 'stale' || judged.verdict === 'unsettled' || judged.verdict === 'none') {
+  if (step.kind === 'prove') {
     await keep($, ref, was => ({ ...was, phase: 'proving' }))
     await want($, ref, 'prove')
 
     return
   }
 
-  await stop($, held, `The statues could not judge task ${out.taskId}: ${judged.line}. Commit it once they can, or send it again.`)
+  if (step.kind === 'stop') await stop($, held, step.why)
 }
 
 /** Commits the change the statues passed as the task's own, and goes on. Answers what was done, in a sentence. */
