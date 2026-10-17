@@ -429,7 +429,7 @@ export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: Fell
     ...(vision !== undefined && vision !== null && vision.tests.length > 0
       ? [
           '',
-          "Galadriel's tests show what is to come: she wrote them from the task before anything was built, and they fail today. Make them pass. They are locked: change one only if it is wrong, after calling mcp__middle-earth__amend with its file and why; the reason goes to the statues.",
+          "Galadriel's tests show what is to come: she wrote them from the task before anything was built, and they fail today. Make them pass. They are locked: change one only if it is wrong, after calling mcp__middle-earth__amend with its file and why; the reason goes to the statues. One that cannot run here (it needs root, another system) is named to it with its file, test and why: it stays as written, and is owed no passing.",
           ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
           ...(vision.red !== '' ? ['How they failed:', '<red>', vision.red, '</red>'] : []),
         ]
@@ -476,7 +476,7 @@ export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: Fellowship
     ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
     ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
     ...(decisionsOf(plan).length > 0 ? ['Decided by the person: a change that goes against one of these, where this task touches it, does not do what was asked.', ...decisionsOf(plan).map(one => `- ${one.text} → ${one.answer}`)] : []),
-    ...(amendments.length > 0 ? ["Galadriel wrote this task's tests before it was built; the builder changed some, saying why. Judge whether each reason holds:", ...amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
+    ...(amendments.length > 0 ? ["Galadriel wrote this task's tests before it was built; the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:", ...amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
     ...(plan.tasks.some(one => one.id !== task.id && !isSettled(one)) ? ['Left to later tasks, and so not owed by this change:', ...plan.tasks.filter(one => one.id !== task.id && !isSettled(one)).map(one => `- ${one.id}. ${one.title}`)] : []),
   ].join('\n')
 }

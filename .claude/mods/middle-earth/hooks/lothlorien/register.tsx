@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { LothlorienState, LothlorienVision, MiddleEarthAgent } from '../../types'
-import { HOW_TO, blocksOf, forgottenOf, gazePrompt, isTestPath, lockedIn, missingFrom, parseGaze, shownOf, takenBy, tamperedWith, visionText } from './mirror'
+import { HOW_TO, blocksOf, forgottenOf, gazePrompt, isTestPath, lockedIn, missingFrom, parseGaze, released, shownOf, takenBy, tamperedWith, visionText } from './mirror'
 import type { Shown } from './mirror'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -50,10 +50,14 @@ const TOOLS = [
   {
     name: 'amend',
     description:
-      "Unlocks a locked test file (tests written first) for a change, with the reason: a test that asserts something the purpose does not ask, or that cannot pass as written. The reason is kept and shown to the reviewers. Never call it to make a test easier to pass.",
+      "Unlocks a locked test file (tests written first) for a change, with the reason: a test that asserts something the purpose does not ask, or that cannot pass as written. With `test`, it unlocks nothing: it says that test cannot run here (it needs root, another system, or is ignored unless asked), and the proof no longer asks it to pass. The reason is kept and shown to the reviewers. Never call it to make a test easier to pass.",
     inputSchema: {
       type: 'object',
-      properties: { file: { type: 'string', description: 'The test file, from the project folder.' }, why: { type: 'string', description: 'What is wrong with the test as she wrote it, in a sentence or two.' } },
+      properties: {
+        file: { type: 'string', description: 'The test file, from the project folder.' },
+        why: { type: 'string', description: 'What is wrong with the test as she wrote it, or what it needs that is not here, in a sentence or two.' },
+        test: { type: 'string', description: 'A test of hers, as its runner names it, that cannot run here: it stays as written, and is owed no passing.' },
+      },
       required: ['file', 'why'],
     },
   },
@@ -250,14 +254,24 @@ export async function forgetVisions($: $, ref: string): Promise<{ forgotten: boo
   return { forgotten: true, text: 'The Mirror is still.' }
 }
 
-/** Unlocks a file of hers for a change, keeping why. */
-async function amend($: $, place: Place, file: string, why: string, by: string): Promise<string> {
+/** Unlocks a file of hers for a change, keeping why; or, given a test, says it cannot run here and owes it no passing. */
+async function amend($: $, place: Place, file: string, why: string, by: string, test = ''): Promise<string> {
   const held = await visionIn($, place)
   const path = within(place, file)
 
   if (!(await isLocked($, place, held)) || held === null) return 'No test of Galadriel\'s is locked: change what you need.'
   if (lockedIn(held.blocks, path).length === 0) return `${path} holds none of Galadriel's tests: it is not locked.`
-  if (why.trim().length < 12) return 'Say why her test is wrong, in a sentence: the reason goes to whoever judges the change.'
+  if (why.trim().length < 12) return `Say ${test !== '' ? 'what her test needs that is not here' : 'why her test is wrong'}, in a sentence: the reason goes to whoever judges the change.`
+
+  if (test !== '') {
+    const made = released(held, test, why, by)
+
+    if (typeof made === 'string') return made
+
+    await setVision($, place, was => (was === null ? was : { ...was, tests: made.tests, unrun: made.unrun ?? [] }))
+
+    return `${test} cannot run here: it stays locked as written, and the proof no longer asks it to pass. The reason is kept and shown to whoever judges the change.`
+  }
 
   await setVision($, place, was => (was === null ? was : { ...was, amendments: [...was.amendments, { file: path, why: why.trim(), by, at: Date.now() }] }))
 
@@ -284,7 +298,7 @@ async function refusal($: $, path: string, taken: (locked: string[]) => string[]
 }
 
 const sectionText = (held: LothlorienVision): string =>
-  `Lothlórien holds Galadriel's tests of what is to come, red and locked until they are committed: ${held.tests.map(test => `${test.file} ${test.name}`).join(', ')}. Make them pass without changing them; a test that is wrong is changed only after mcp__middle-earth__amend says why.`
+  `Lothlórien holds Galadriel's tests of what is to come, red and locked until they are committed: ${held.tests.map(test => `${test.file} ${test.name}`).join(', ')}. Make them pass without changing them; a test that is wrong is changed only after mcp__middle-earth__amend says why, and one that cannot run here is named to it with its test.`
 
 /** Lothlórien at the session's start: its command and its tools. */
 export async function startLothlorien($: $): Promise<void> {
@@ -346,13 +360,13 @@ export function registerLothlorien(on: On): void {
   }).catch((_$, _e, next) => toolFailed('mirror', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__amend' }, async ($, e) => {
-    const given = e as unknown as { file?: unknown; why?: unknown }
+    const given = e as unknown as { file?: unknown; why?: unknown; test?: unknown }
     const file = String(given.file ?? '')
     // A builder in a quest's worktree amends the tests there, whichever way it names the file
     const sent = await placeOf($, e.agentId)
     const place = sent.isHome && file.startsWith('/') ? await placeOfPath($, file) : sent
 
-    return { result: await amend($, place, file, String(given.why ?? ''), await whoIs($, e.agentId)) }
+    return { result: await amend($, place, file, String(given.why ?? ''), await whoIs($, e.agentId), String(given.test ?? '').trim()) }
   }).catch((_$, _e, next) => toolFailed('amend', next.error))
 
   on('command.run', { command: 'mirror' }, async ($, e) => {

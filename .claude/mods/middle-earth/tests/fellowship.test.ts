@@ -1031,8 +1031,25 @@ describe('fellowship', () => {
     // Her tests are owed a pass on the working tree before the proof settles
     expect(String(world.jobs.prove[0]?.test)).toContain('test_burned_for')
     // The statues are told what was changed of her tests, and why
-    expect(aboutOf(world.judged[0])).toContain("the builder changed some, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: It asserted seconds as a string.")
+    expect(aboutOf(world.judged[0])).toContain("the builder changed some, or said some cannot run here, saying why. Judge whether each reason holds:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: It asserted seconds as a string.")
     expect(world.ran.some(line => line.startsWith('git commit -m #12: Answer the seconds burned'))).toBe(true)
+  })
+
+  test('owes no passing to a test of hers a member says cannot run here, and tells the statues why', async ($, on) => {
+    const world = machine(on)
+    world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
+    world.mirror = ['shown']
+    await start($, world)
+    await call($, 'mcp__middle-earth__set_out')
+    await settle($, world)
+
+    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', test: 'test_nothing_here', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/is none of Galadriel's red tests: test_burned_for/)
+    expect(await call($, 'mcp__middle-earth__amend', { file: 'beacons/tests/test_gondor.py', test: 'test_burned_for', why: 'It needs root to chown the folder.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
+    await ends($, 'gimli-1', 'Made what runs here pass.', world)
+    await settle($, world)
+
+    expect(String(world.jobs.prove[0]?.test)).not.toContain('test_burned_for')
+    expect(aboutOf(world.judged[0])).toContain('- beacons/tests/test_gondor.py, by middle-earth:gimli: test_burned_for cannot run here, and is owed no passing: It needs root to chown the folder.')
   })
 
   test('skips the Mirror for a light task, and builds a task it shows nothing for as it is', async ($, on) => {

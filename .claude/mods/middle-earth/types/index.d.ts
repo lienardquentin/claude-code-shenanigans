@@ -289,7 +289,7 @@ export type LothlorienState = 'gazing' | 'shown' | 'empty' | 'clouded'
 export type LothlorienTest = { file: string; name: string }
 
 /** A test Galadriel wrote that cannot run where she gazed (root alone, another system, ignored unless asked), and why. */
-export type LothlorienUnrun = LothlorienTest & { why: string }
+export type LothlorienUnrun = LothlorienTest & { why: string; by?: string }
 
 /** Lines Galadriel added to a test file, kept as they are until HEAD moves past them. */
 export type LothlorienBlock = { file: string; lines: string[] }

@@ -593,7 +593,7 @@ async function behold($: $, ref: string): Promise<void> {
 
   if (held === null || held.phase !== 'gazing') return
 
-  const shown: { state?: string; tests?: { file: string; name: string }[]; red?: string; why?: string } = await mirrorIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable', why: errorText(error).slice(0, 200) }))
+  const shown: { state?: string; tests?: { file: string; name: string }[]; unrun?: { file: string; name: string; why: string }[]; red?: string; why?: string } = await mirrorIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable', why: errorText(error).slice(0, 200) }))
 
   if (shown.state === 'gazing') return
 
@@ -687,8 +687,11 @@ async function prove($: $, ref: string): Promise<void> {
   await work($, ref, `Argonath proves task ${out.taskId}…`)
 
   // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end. Galadriel's
-  // tests, written from the task before it was built, must pass for the proof to settle
-  const written = held.vision?.taskId === out.taskId ? (held.vision?.tests ?? []) : []
+  // tests, written from the task before it was built, must pass for the proof to settle, all but
+  // those a member has since said cannot run here
+  const isSeen = held.vision?.taskId === out.taskId
+  const mirror = isSeen ? await mirrorOf($, held) : { amendments: [], tampered: [], unrun: [] }
+  const written = isSeen ? (held.vision?.tests ?? []).filter(test => !mirror.unrun.some(one => one.file === test.file && one.name === test.name)) : []
   const verdict = proofVerdict(await proveFor($, held.tree, written).catch((error: unknown) => `Argonath could not prove the change: ${errorText(error)}`))
 
   await keep($, ref, was => ({ ...was, proof: verdict.text, proofLine: verdict.line, unproven: verdict.unhandled }))
@@ -696,8 +699,6 @@ async function prove($: $, ref: string): Promise<void> {
   // Argonath could not look at what the change reached: no member mends that, and no try is spent on it
   if (verdict.isUnlooked) return stop($, held, `${verdict.line}. No member can mend that: set the target right in .claude/argonath, then put task ${out.taskId} before the Argonath again.`)
   if (!verdict.isSettled) return again($, ref, { proof: verdict.text }, verdict.line)
-
-  const mirror = held.vision?.taskId === out.taskId ? await mirrorOf($, held) : { amendments: [], tampered: [] }
 
   // What was taken out of Galadriel's tests without a reason blocks the change, as a finding would
   if (mirror.tampered.length > 0) {
@@ -722,11 +723,16 @@ async function prove($: $, ref: string): Promise<void> {
   await settle($, ref, judged)
 }
 
-/** What a member changed of Galadriel's tests and why, and what was taken out of them with no reason, as Lothlórien keeps it. */
-async function mirrorOf($: $, held: FellowshipQuest): Promise<{ amendments: { file: string; why: string; by: string }[]; tampered: { file: string; lines: string[] }[] }> {
+/**
+ * What a member changed of Galadriel's tests and why, what was taken out of them with no reason, and which cannot run
+ * here, as Lothlórien keeps it. A test a member said cannot run here is judged as a change is, its reason with it.
+ */
+async function mirrorOf($: $, held: FellowshipQuest): Promise<{ amendments: { file: string; why: string; by: string }[]; tampered: { file: string; lines: string[] }[]; unrun: { file: string; name: string }[] }> {
   const shown = await mirrorIn($, held.tree).catch(() => undefined)
+  const unrun = shown?.unrun ?? []
+  const said = unrun.flatMap(one => (one.by !== undefined ? [{ file: one.file, why: `${one.name} cannot run here, and is owed no passing: ${one.why}`, by: one.by }] : []))
 
-  return { amendments: shown?.amendments ?? [], tampered: shown?.tampered ?? [] }
+  return { amendments: [...(shown?.amendments ?? []), ...said], tampered: shown?.tampered ?? [], unrun }
 }
 
 /** Looks at the statues' judgement of a quest's change, while they sit. */
