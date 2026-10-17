@@ -446,7 +446,7 @@ const pytest = (ended: Record<string, boolean>) => Object.entries(ended).map(([n
 const PROVED = JSON.stringify({ label: 'gondor', from: { ref: 'HEAD', sha: 'c0ffee1aaaa', error: '', exitCode: 1, output: pytest({ test_burned: false, test_burned_for: false }) }, to: { ref: 'work', sha: '', error: '', exitCode: 0, output: pytest({ test_burned: true, test_burned_for: true }) } })
 
 /** The test that pins the kept request, once a builder has marked it. */
-const MARKED = [`# sting: ${RUN}`, 'def test_burned(client):', '    assert client.get("/beacons/minas-tirith").json()["burned_for"] == 3'].join('\n')
+const MARKED = [`# pins: ${RUN}`, 'def test_burned(client):', '    assert client.get("/beacons/minas-tirith").json()["burned_for"] == 3'].join('\n')
 
 /** The lines the test writer adds, which stay locked until committed. */
 const LOCKED = ['def test_burned_for(client):', '    body = client.get("/beacons/minas-tirith").json()', '    assert body["burned_for"] == 3']

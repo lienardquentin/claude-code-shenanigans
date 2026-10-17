@@ -50,7 +50,7 @@ describe('the tests written first', () => {
   test('lets an edit add around her lines, and finds one that takes one out', () => {
     const before = TEST_LINES.join('\n')
 
-    expect(takenBy(TEST_LINES, before, `# sting: gondor POST /beacons/amon-din/quench\n${before}`)).toEqual([])
+    expect(takenBy(TEST_LINES, before, `# pins: gondor POST /beacons/amon-din/quench\n${before}`)).toEqual([])
     expect(takenBy(TEST_LINES, before, before.replace('== 200', 'in (200, 404)'))).toEqual([TEST_LINES[2]])
     expect(missingFrom(TEST_LINES, `import x\n${before}\n`)).toEqual([])
     expect(missingFrom(TEST_LINES, 'import x\n')).toHaveLength(3)
@@ -60,7 +60,7 @@ describe('the tests written first', () => {
     const blocks = [{ file: 'beacons/tests/test_gondor.py', lines: TEST_LINES }]
     const loosened = TEST_LINES.join('\n').replace('== 200', 'in (200, 404)')
 
-    expect(tamperedWith(blocks, [], [{ file: 'beacons/tests/test_gondor.py', text: `# sting: x\n${TEST_LINES.join('\n')}` }])).toEqual([])
+    expect(tamperedWith(blocks, [], [{ file: 'beacons/tests/test_gondor.py', text: `# pins: x\n${TEST_LINES.join('\n')}` }])).toEqual([])
     expect(tamperedWith(blocks, [], [{ file: 'beacons/tests/test_gondor.py', text: loosened }])).toEqual([{ file: 'beacons/tests/test_gondor.py', lines: [TEST_LINES[2]!] }])
     expect(tamperedWith(blocks, [{ file: 'beacons/tests/test_gondor.py' }], [{ file: 'beacons/tests/test_gondor.py', text: loosened }])).toEqual([])
   })
@@ -181,7 +181,7 @@ describe('tests first', () => {
     const weakened = before.replace('== 200', 'in (200, 404)')
 
     expect(await edit($, 'builder-service-1', FILE, before, weakened)).toMatchObject({ deny: expect.stringMatching(/They are locked/) })
-    expect(await edit($, 'builder-service-1', FILE, before, `# sting: gondor POST /beacons/amon-din/quench\n${before}`)).toMatchObject({ result: 'done' })
+    expect(await edit($, 'builder-service-1', FILE, before, `# pins: gondor POST /beacons/amon-din/quench\n${before}`)).toMatchObject({ result: 'done' })
     expect(await $.tool.call({ tool: 'Write', file_path: FILE, content: 'import x\n', agentId: 'builder-service-1' } as never)).toMatchObject({ deny: expect.any(String) })
 
     // A reason unlocks the file, and is kept

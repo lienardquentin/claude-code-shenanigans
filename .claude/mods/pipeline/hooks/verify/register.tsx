@@ -205,7 +205,7 @@ const TOOLS = [
   {
     name: 'radius',
     description:
-      "Which kept runs (CLI) or requests (service) answer otherwise on the working tree than on HEAD: each `bare` (no test marked on it) or `marked` (a test has `sting: <the run>` above it). Call it after changing a target's source; write a test for each bare run and for no other. Also names changed lines no kept request ran.",
+      "Which kept runs (CLI) or requests (service) answer otherwise on the working tree than on HEAD: each `bare` (no test marked on it) or `marked` (a test has `pins: <the run>` above it). Call it after changing a target's source; write a test for each bare run and for no other. Also names changed lines no kept request ran.",
     inputSchema: { type: 'object', properties: ASKED },
   },
   {

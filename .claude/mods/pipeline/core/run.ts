@@ -814,7 +814,7 @@ export type Step =
  * passed where the change was only rebased since, else judged.
  */
 export const afterProof = (verdict: ProofVerdict, out: { taskId: number; isRebased?: boolean; minor?: readonly string[] }, tampered: readonly { file: string; lines: readonly string[] }[]): Step => {
-  if (verdict.isUnlooked) return { kind: 'stop', why: `${verdict.line}. No builder can mend that: set the target right in .claude/argonath, then put task ${out.taskId} up for verification again.` }
+  if (verdict.isUnlooked) return { kind: 'stop', why: `${verdict.line}. No builder can mend that: set the target right in .claude/verify, then put task ${out.taskId} up for verification again.` }
   if (!verdict.isSettled) return { kind: 'again', why: { proof: verdict.text }, line: verdict.line }
 
   // What was taken out of the tests written first without a reason blocks the change, as a finding would

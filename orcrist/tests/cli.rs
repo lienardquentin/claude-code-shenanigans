@@ -376,7 +376,7 @@ fn the_script_of_a_vue_component_is_judged_where_it_stands() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/Beacons.tsx
+// pins: orcrist check fixtures/Beacons.tsx
 #[test]
 fn a_tsx_component_is_judged_as_typescript() {
     let output = run(
@@ -395,7 +395,7 @@ fn a_tsx_component_is_judged_as_typescript() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/light.js
+// pins: orcrist check fixtures/light.js
 #[test]
 fn javascript_is_judged_as_typescript_without_annotations() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/light.js"]);
@@ -644,7 +644,7 @@ fn a_function_that_does_what_another_already_does_is_found() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/arrows.ts
+// pins: orcrist check fixtures/arrows.ts
 #[test]
 fn functions_held_by_constants_are_compared_and_a_comment_is_not_held_against_the_next() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/arrows.ts"]);
@@ -709,7 +709,7 @@ fn write(folder: &Path, files: &[(&str, &str)]) {
 
 const SLUG_OF: &str = "export function slugOf(name: string): string {\n  const lowered = name.trim().toLowerCase()\n  const joined = lowered.split(' ').join('-')\n  return joined.replace(/[^a-z-]/g, '')\n}\n";
 
-// sting: orcrist check fixtures/configured/load.ts
+// pins: orcrist check fixtures/configured/load.ts
 #[test]
 fn orcrists_own_config_skips_vague_names_in_the_configured_fixtures() {
     let output = run(
@@ -928,7 +928,7 @@ fn a_config_that_says_what_orcrist_does_not_understand_is_refused() {
     }
 }
 
-// sting: orcrist check --format json fixtures/restating.rs
+// pins: orcrist check --format json fixtures/restating.rs
 #[test]
 fn json_gives_each_finding_its_file_line_column_rule_and_message() {
     let output = run(
@@ -986,7 +986,7 @@ const RESTATING_JSON: &str = r#"[
 ]
 "#;
 
-// sting: orcrist check --format sarif fixtures/configured/load.ts
+// pins: orcrist check --format sarif fixtures/configured/load.ts
 #[test]
 fn sarif_gives_code_scanning_the_rules_and_where_each_finding_is() {
     let output = run(
@@ -1159,7 +1159,7 @@ fn json_and_sarif_without_a_finding_are_still_a_document() {
     assert_eq!(sarif.status.code(), Some(0));
 }
 
-// sting: orcrist check fixtures/clean/cart.ts
+// pins: orcrist check fixtures/clean/cart.ts
 #[test]
 fn an_element_named_for_its_collection_is_not_vague() {
     let output = run(
@@ -1340,7 +1340,7 @@ fn only_what_orcrist_kept_is_let_go_and_never_through_a_link() {
     assert!(foreign.join(".git/orcrist-cache/precious.txt").exists());
 }
 
-// sting: orcrist check fixtures/precise.ts
+// pins: orcrist check fixtures/precise.ts
 #[test]
 fn typescript_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.ts"]);
@@ -1354,7 +1354,7 @@ fn typescript_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/precise.py
+// pins: orcrist check fixtures/precise.py
 #[test]
 fn python_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.py"]);
@@ -1369,7 +1369,7 @@ fn python_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/precise.rs
+// pins: orcrist check fixtures/precise.rs
 #[test]
 fn an_error_matched_and_left_is_swallowed() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.rs"]);
@@ -1408,7 +1408,7 @@ fn a_cache_folder_others_may_read_keeps_nothing() {
     assert_eq!(mode(&entries[0]), 0o600);
 }
 
-// sting: orcrist check fixtures/Signals.vue
+// pins: orcrist check fixtures/Signals.vue
 #[test]
 fn every_script_of_a_vue_component_is_judged_where_it_stands_in_the_file() {
     let output = run(
@@ -1449,7 +1449,7 @@ fn every_script_of_a_vue_component_is_judged_where_it_stands_in_the_file() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/closures.rs
+// pins: orcrist check fixtures/closures.rs
 #[test]
 fn a_rust_closure_held_by_a_name_is_a_function_its_parameters_its_own_names() {
     let output = run(
@@ -1468,7 +1468,7 @@ fn a_rust_closure_held_by_a_name_is_a_function_its_parameters_its_own_names() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check fixtures/lambdas.py
+// pins: orcrist check fixtures/lambdas.py
 #[test]
 fn a_python_lambda_held_by_a_name_is_a_function_its_parameters_its_own_names() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/lambdas.py"]);
@@ -1594,7 +1594,7 @@ fn a_rust_path_call_to_a_name_both_an_associated_and_a_free_function_hold_judges
     assert_eq!(with_path_calls.status.code(), Some(0));
 }
 
-// sting: orcrist check fixtures/scoped.py
+// pins: orcrist check fixtures/scoped.py
 #[test]
 fn a_method_and_a_function_of_one_name_in_a_fixture_are_each_judged_on_their_own_calls() {
     let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/scoped.py"]);
@@ -1613,7 +1613,7 @@ fn a_method_and_a_function_of_one_name_in_a_fixture_are_each_judged_on_their_own
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check --root fixtures/allowing api.py
+// pins: orcrist check --root fixtures/allowing api.py
 #[test]
 fn a_project_judged_from_its_root_may_allow_a_built_in_vague_word() {
     let output = run(
@@ -1739,7 +1739,7 @@ fn a_filler_word_keeps_its_digits() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check --root fixtures/misconfigured load.rs
+// pins: orcrist check --root fixtures/misconfigured load.rs
 #[test]
 fn a_config_entry_of_two_words_is_refused_and_named_from_the_current_folder() {
     let output = run(
@@ -1755,7 +1755,7 @@ fn a_config_entry_of_two_words_is_refused_and_named_from_the_current_folder() {
     assert_eq!(output.status.code(), Some(2));
 }
 
-// sting: orcrist check fixtures/Unquoted.vue
+// pins: orcrist check fixtures/Unquoted.vue
 #[test]
 fn an_unquoted_lang_in_a_fixture_is_read() {
     let output = run(
@@ -1770,7 +1770,7 @@ fn an_unquoted_lang_in_a_fixture_is_read() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-// sting: orcrist check --since no-such-commit
+// pins: orcrist check --since no-such-commit
 #[test]
 fn since_a_commit_git_does_not_know_is_said_so_from_any_folder() {
     let output = run(

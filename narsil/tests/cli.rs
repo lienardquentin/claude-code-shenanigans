@@ -91,7 +91,7 @@ fn ls_since_a_date_leaves_the_earlier_ones_out() {
     assert!(lightings.iter().all(|l| l["lit_at"].as_str().unwrap() >= "3019-03-09"));
 }
 
-// sting: narsil ls --until 3019-03-10
+// pins: narsil ls --until 3019-03-10
 #[test]
 fn ls_until_a_date_leaves_the_later_ones_out_and_keeps_the_whole_day() {
     let home = forged("ls-until", "25");
@@ -195,7 +195,7 @@ fn a_date_that_is_not_one_is_refused_for_since_and_until() {
     }
 }
 
-// sting: narsil show 999
+// pins: narsil show 999
 #[test]
 fn a_lighting_that_is_not_there_is_said_on_stderr() {
     let home = forged("show-missing", "5");
@@ -221,8 +221,8 @@ fn a_tally_counts_every_lighting_once() {
     }
 }
 
-// sting: narsil tally --by keeper
-// sting: narsil --chronicle big.jsonl tally
+// pins: narsil tally --by keeper
+// pins: narsil --chronicle big.jsonl tally
 #[test]
 fn a_tally_as_a_table_ends_with_the_sum_of_all() {
     let home = forged("tally-all", "300");
