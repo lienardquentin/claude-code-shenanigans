@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { FellowshipMember, MiddleEarthAgent, MiddleEarthRole } from '../types'
-import { STATUES, STATUE_EFFORT, STATUE_MODEL, statueSystem } from './argonath/statues'
+import { REVIEWERS, REVIEWER_EFFORT, REVIEWER_MODEL, reviewerSystem } from '../core/review'
 import { COUNCIL_SYSTEM, isPlanPath } from './elrond/council'
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, resolvedFrom, rootOf } from './flow'
 import { MEMBERS, isModSource, isOutside, memberSystem, reachesOut } from './fellowship/quest'
@@ -69,7 +69,7 @@ export const roleOfType = (type: string): MiddleEarthRole | undefined => {
 
   const name = type.slice(PLUGIN.length + 1)
 
-  return name === COUNCIL ? 'council' : name === GALADRIEL || name === GALADRIEL_SWIFT ? 'galadriel' : name in MEMBERS ? 'member' : STATUES.some(one => one.name === name) ? 'statue' : undefined
+  return name === COUNCIL ? 'council' : name === GALADRIEL || name === GALADRIEL_SWIFT ? 'galadriel' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
 }
 
 // The agents found to be none of the mod's: each is looked up once
@@ -218,16 +218,16 @@ export async function registerAgents($: $): Promise<void> {
       .catch(() => undefined)
   }
 
-  for (const statue of STATUES) {
+  for (const statue of REVIEWERS) {
     await $.agent
       .register({
         name: statue.name,
         description: `${statue.title}, a statue of the Argonath: judges a change every integration test pins, read-only. Sent by the Argonath alone.`,
-        prompt: statueSystem(statue.title),
+        prompt: reviewerSystem(statue.title),
         tools: ['Read', 'Grep', 'Glob', 'Bash', 'Skill'],
         disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Agent'],
-        model: STATUE_MODEL,
-        effort: STATUE_EFFORT,
+        model: REVIEWER_MODEL,
+        effort: REVIEWER_EFFORT,
       })
       .catch(() => undefined)
   }
@@ -346,5 +346,5 @@ export const guardRefusalNow = (e: unknown): string | undefined => {
 export function registerOffers(on: On): void {
   // Every agent type of the mod answers in a shape its part reads: Claude reaches them through the mod's tools, never
   // through the Agent tool
-  for (const name of [COUNCIL, GALADRIEL, GALADRIEL_SWIFT, ...Object.keys(MEMBERS), ...STATUES.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+  for (const name of [COUNCIL, GALADRIEL, GALADRIEL_SWIFT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 }
