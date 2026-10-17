@@ -2,6 +2,7 @@
 
 use tree_sitter::Node;
 
+use crate::config::Settings;
 use crate::lang::{Declared, Language, declared};
 use crate::rules::Finding;
 use crate::words::words;
@@ -16,24 +17,27 @@ const VAGUE: &[&str] = &[
 /// Words that say a function does something, but not what: a variable may be a process or a handle and be clear.
 const VAGUE_VERBS: &[&str] = &["process", "handle", "manage", "do", "perform"];
 
-pub fn judge(name: Node, source: &str, language: Language) -> Option<Finding> {
+pub fn judge(name: Node, source: &str, language: Language, settings: &Settings) -> Option<Finding> {
     if !matches!(name.kind(), "identifier" | "property_identifier") {
         return None;
     }
     let declared = declared(name, language)?;
     let text = &source[name.byte_range()];
-    vague(text, declared).then(|| Finding {
+    vague(text, declared, settings).then(|| Finding {
         line: name.start_position().row + 1,
         rule: "vague-name",
         message: format!("{text} says nothing of what it is"),
     })
 }
 
-fn vague(name: &str, declared: Declared) -> bool {
+fn vague(name: &str, declared: Declared, settings: &Settings) -> bool {
     let words = words(name);
     let is_vague = |word: &String| {
         let word = word.trim_end_matches(|character: char| character.is_ascii_digit());
-        VAGUE.contains(&word) || (matches!(declared, Declared::Function) && VAGUE_VERBS.contains(&word))
+        let vague_verb = VAGUE_VERBS.contains(&word) || settings.vague_verbs.iter().any(|verb| verb == word);
+        VAGUE.contains(&word)
+            || settings.vague_words.iter().any(|vague| vague == word)
+            || (matches!(declared, Declared::Function) && vague_verb)
     };
     !words.is_empty() && words.iter().all(is_vague)
 }

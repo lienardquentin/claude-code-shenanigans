@@ -2,6 +2,7 @@
 
 use tree_sitter::Node;
 
+use crate::config::Settings;
 use crate::lang::{self, Language};
 use crate::rules::Finding;
 use crate::words::words;
@@ -12,9 +13,9 @@ const FILLER: &[&str] = &[
 ];
 
 /// Share of a comment's meaningful words that, found in the code below, make the comment a restatement.
-const RESTATED_SHARE: f64 = 0.75;
+pub const RESTATED_SHARE: f64 = 0.75;
 
-pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
+pub fn judge(node: Node, source: &str, language: Language, settings: &Settings) -> Option<Finding> {
     if !language.is_comment(node) {
         return None;
     }
@@ -23,22 +24,22 @@ pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
     let code_row = code.start_position().row;
     let comment = lang::comment_text(&source[node.byte_range()]);
     let code_line = source.lines().nth(code_row)?;
-    restates(comment, code_line).then(|| Finding {
+    restates(comment, code_line, settings).then(|| Finding {
         line: node.start_position().row + 1,
         rule: "restating-comment",
         message: format!("the comment says what line {} already says", code_row + 1),
     })
 }
 
-fn restates(comment: &str, code: &str) -> bool {
+fn restates(comment: &str, code: &str, settings: &Settings) -> bool {
     let said: Vec<String> = words(comment)
         .into_iter()
-        .filter(|word| !FILLER.contains(&word.as_str()))
+        .filter(|word| !FILLER.contains(&word.as_str()) && !settings.filler.contains(word))
         .collect();
     if said.len() < 2 {
         return false;
     }
     let in_code = words(code);
     let restated = said.iter().filter(|word| in_code.contains(word)).count();
-    restated as f64 / said.len() as f64 >= RESTATED_SHARE
+    restated as f64 / said.len() as f64 >= settings.restated_share
 }

@@ -58,3 +58,37 @@ io::stdout().flush().ok(); // orcrist: spare swallowed-error: a progress bar tha
 ```
 
 A spare without a reason spares nothing and is a finding of its own.
+
+## Configuring it
+
+A project tells orcrist what fits it in an `orcrist.toml`, looked for in the current folder and each folder above it up
+to the repository's root; outside a repository, only in the current folder. Without one, every rule judges everywhere
+by the defaults below. Globs are relative to the folder of the `orcrist.toml`: `*` does not cross a `/`, `**` crosses
+any number.
+
+```toml
+# Left out of the project: neither judged under --since nor read by the rules that look across files.
+# A file named on the command line is judged all the same.
+ignore = ["dist/**", "**/*.min.js"]
+
+[rules.duplicate-helper]
+skip = ["hooks/kit/**"]   # where this rule's findings are not reported; every rule takes `skip` and `off`
+smallest = 24             # pieces of code below which two functions alike are alike by chance
+
+[rules.restating-comment]
+share = 0.75              # share of a comment's words, the filler left out, found in the line below it
+filler = ["we", "here"]   # filler besides the built-in words
+
+[rules.vague-name]
+words = ["blob"]          # vague words besides the built-in ones
+verbs = ["execute"]       # vague verbs, for a function's name, besides the built-in ones
+
+[rules.single-use-abstraction]
+calls = 2                 # calls below which a parameter every call passes one literal for is not judged
+
+[rules.swallowed-error]
+off = true
+```
+
+A key orcrist does not know, a rule it has not, a setting given to a rule it is not for, or a value out of range is
+refused with exit 2, so that a typo does not quietly judge by the defaults.

@@ -2,6 +2,7 @@
 
 use tree_sitter::Node;
 
+use crate::config::Settings;
 use crate::lang::{self, Language};
 use crate::project::{File, Project};
 use crate::{duplicate, impossible, restating, single_use, swallowed, vague};
@@ -19,22 +20,22 @@ pub struct Indexes {
     duplicate: duplicate::Index,
 }
 
-pub fn index(project: &Project) -> Indexes {
+pub fn index(project: &Project, settings: &Settings) -> Indexes {
     Indexes {
-        single_use: single_use::Index::build(project),
-        duplicate: duplicate::Index::build(project),
+        single_use: single_use::Index::build(project, settings.calls),
+        duplicate: duplicate::Index::build(project, settings.smallest),
     }
 }
 
 /// The findings in `file`, in the order of their lines.
-pub fn check(file: &File, indexes: &Indexes) -> Vec<Finding> {
+pub fn check(file: &File, indexes: &Indexes, settings: &Settings) -> Vec<Finding> {
     let (source, language) = (file.code.as_str(), file.language);
     let mut findings = Vec::new();
     let mut spares = Vec::new();
     visit(file.tree.root_node(), &mut |node| {
-        findings.extend(restating::judge(node, source, language));
+        findings.extend(restating::judge(node, source, language, settings));
         findings.extend(swallowed::judge(node, source, language));
-        findings.extend(vague::judge(node, source, language));
+        findings.extend(vague::judge(node, source, language, settings));
         findings.extend(impossible::judge(node, source, language));
         findings.extend(single_use::judge(node, file, &indexes.single_use));
         findings.extend(duplicate::judge(node, file, &indexes.duplicate));

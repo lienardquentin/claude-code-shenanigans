@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use tree_sitter::{Node, Parser, Tree};
 
+use crate::config::Config;
 use crate::git::{self, git};
 use crate::lang::Language;
 use crate::parallel;
@@ -78,13 +79,14 @@ pub struct Project {
 impl Project {
     /// The files judged, and in a git repository every other file of a language orcrist reads below the current
     /// folder, tracked or not yet, that the working tree holds. One of those others that cannot be read, a bundle that
-    /// is not UTF-8, is left out with a word on stderr: it is no file the person asked to be judged.
-    pub fn load(judged: &[PathBuf]) -> Result<Project, String> {
+    /// is not UTF-8, is left out with a word on stderr: it is no file the person asked to be judged. So is one the
+    /// config leaves out, without a word.
+    pub fn load(judged: &[PathBuf], config: &Config) -> Result<Project, String> {
         let judged: Vec<PathBuf> = judged.iter().map(|path| normal(path)).collect();
         let judging: HashSet<&PathBuf> = judged.iter().collect();
         let others: Vec<PathBuf> = repository_files()?
             .into_iter()
-            .filter(|path| !judging.contains(path) && path.exists())
+            .filter(|path| !judging.contains(path) && !config.ignores(path) && path.exists())
             .collect();
         let mut files = parallel::map(&judged, |path| parse(path.clone()))
             .into_iter()
