@@ -472,7 +472,7 @@ export async function askErrand($: $, issue: string): Promise<void> {
   await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
 }
 
-/** Takes up the review comments the Black Gate handed over, on the pull request's own branch. Answers what was done, in a sentence. */
+/** Takes up the review comments the review follow-up handed over, on the pull request's own branch. Answers what was done, in a sentence. */
 export async function takeReview($: $, given: unknown, isAuto: boolean): Promise<string> {
   const pr = (typeof given === 'object' && given !== null ? given : {}) as { ref?: unknown; url?: unknown; title?: unknown; branch?: unknown; base?: unknown; comments?: unknown }
   const tasks = reviewTasks(pr.comments)
@@ -484,7 +484,7 @@ export async function takeReview($: $, given: unknown, isAuto: boolean): Promise
   const spec: Spec = { kind: 'review', ref, url: typeof pr.url === 'string' ? pr.url : '', title: typeof pr.title === 'string' ? pr.title : '', branch: pr.branch, base: typeof pr.base === 'string' && pr.base !== '' ? pr.base : undefined, isAuto, tasks, pr: typeof pr.url === 'string' ? pr.url : '' }
   const said = await begin($, spec, ownPlan(spec))
 
-  // The first comment's member is sent here when the Black Gate hands it over from a hook; from the clock, at the next
+  // The first comment's member is sent here when the review follow-up hands it over from a hook; from the clock, at the next
   await pumpFellowship($, ref)
 
   return said

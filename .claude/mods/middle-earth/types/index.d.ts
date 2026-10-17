@@ -119,7 +119,7 @@ export type ElrondCouncil = {
  */
 export type FellowshipTaskState = 'todo' | 'doing' | 'done' | 'asked'
 
-/** How much a task asks of whoever builds it, as the council or the Mouth of Sauron weighed it. */
+/** How much a task asks of whoever builds it, as the council or the weigher weighed it. */
 export type FellowshipWeight = 'light' | 'standard' | 'heavy'
 
 /** A member of the Fellowship, by the agent type it is sent as. */
@@ -170,7 +170,7 @@ export type FellowshipPlan = {
  * What a quest is:
  * - `plan`: an Elrond plan, task by task, to the pull request that closes its issue
  * - `errand`: an issue small enough for one change, to the pull request that closes it
- * - `review`: the review comments of an open pull request the Black Gate handed over, answered on its branch and pushed
+ * - `review`: the review comments of an open pull request the review follow-up handed over, answered on its branch and pushed
  */
 export type FellowshipKind = 'plan' | 'errand' | 'review'
 
@@ -541,13 +541,13 @@ export type ArgonathJudgement = {
  */
 export type ArgonathProofState = 'pinned' | 'unchanged' | 'unreached' | 'unsettled' | 'unlooked' | 'unhandled' | 'untouched'
 
-// --- The Black Gate: a pull request's review comments --------------------------------------------------------------------
+// --- Review follow-up: a pull request's review comments-----------------------------------------------------------------
 
-/** How much a comment asks of whoever answers it, as the Mouth of Sauron weighs it. */
-export type BlackgateWeight = 'light' | 'standard' | 'heavy'
+/** How much a comment asks of whoever answers it, as the weigher weighs it. */
+export type CommentWeight = 'light' | 'standard' | 'heavy'
 
 /** One review comment: an open thread on a line, or a review's own words. */
-export type BlackgateComment = {
+export type FollowUpComment = {
   id: string
   author: string
   /** The file and line it is on; empty for a review's own words. */
@@ -557,7 +557,7 @@ export type BlackgateComment = {
   body: string
   /**
    * What its first comment says alone, as the forge gave it apart from the replies: what a pane says under its author.
-   * A review's own words are all of its body. None in a gate kept before it was.
+   * A review's own words are all of its body. None in a follow-up kept before it was.
    */
   said?: string
   /** How many replies of its thread its body carries, as the forge counted them: never read from the body's text. */
@@ -572,15 +572,15 @@ export type BlackgateComment = {
    * such a comment is a question for the person, never a change the Fellowship builds.
    */
   isOutside?: boolean
-  weight: BlackgateWeight
-  /** Whether the Mouth of Sauron gave it no weight that reads, so that its `standard` is no one's choice. */
+  weight: CommentWeight
+  /** Whether the weigher gave it no weight that reads, so that its `standard` is no one's choice. */
   isUnweighed?: boolean
   /** Whether it asks for a change, which the Fellowship builds, or asks a question only the person can answer. */
   kind: 'change' | 'question'
 }
 
-/** The pull or merge request at the gate. */
-export type BlackgatePr = {
+/** The pull or merge request a follow-up is open on. */
+export type FollowUpPr = {
   forge: 'github' | 'gitlab'
   /** The repository's path on its forge, `owner/repo`. */
   repo: string
@@ -595,17 +595,17 @@ export type BlackgatePr = {
 }
 
 /**
- * Where the gate stands:
- * - `weighing`: the comments are read and the Mouth of Sauron weighs them
+ * Where the follow-up stands:
+ * - `weighing`: the comments are read and the weigher weighs them
  * - `ready`: the comments that ask for a change wait to be handed to the Fellowship
  * - `handed`: the Fellowship answers them on the pull request's branch; the questions are the person's
  */
-export type BlackgatePhase = 'weighing' | 'ready' | 'handed'
+export type FollowUpPhase = 'weighing' | 'ready' | 'handed'
 
-export type BlackgateGate = {
-  pr: BlackgatePr
-  comments: BlackgateComment[]
-  phase: BlackgatePhase
+export type FollowUp = {
+  pr: FollowUpPr
+  comments: FollowUpComment[]
+  phase: FollowUpPhase
   at: number
 }
 
@@ -616,7 +616,7 @@ export type CleanupKeeper = 'build' | 'follow-up'
 
 /** One branch's work, as the mods that keep it remember it. */
 export type Leftover = {
-  /** The issue as the planner writes it short, `github:owner/repo#12`; the pull request's own for a review or a gate alone. */
+  /** The issue as the planner writes it short, `github:owner/repo#12`; the pull request's own for a review or a follow-up alone. */
   ref: string
   branch: string
   base: string
@@ -756,11 +756,11 @@ declare module 'claude-code' {
       /** The statues' judgement of the last change in each quest's worktree, by its folder. */
       argonathTreeJudgements: Record<string, ArgonathJudgement>
 
-      blackgateGate: BlackgateGate | null
-      blackgateNote: string
-      /** What a command asked the clock to do, outside its hooks: open the gate on a pull request, or hand it over. */
-      blackgateWanted: { what: 'open' | 'hand' | 'hand auto'; arg?: string } | null
-      blackgateWorking: string
+      followUpReview: FollowUp | null
+      followUpNote: string
+      /** What a command asked the clock to do, outside its hooks: open a follow-up on a pull request, or hand it over. */
+      followUpWanted: { what: 'open' | 'hand' | 'hand auto'; arg?: string } | null
+      followUpWorking: string
 
       /** The open issues as last read, the most recently updated first. */
       issuesIssues: ListedIssue[]

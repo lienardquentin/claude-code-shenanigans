@@ -9,7 +9,7 @@ import { keyed, shortRef } from '../look'
 import { forgeOfHost } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
 import { errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
-import { closeGate, gateLeftovers } from '../blackgate/register'
+import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questLeftovers } from '../fellowship/register'
 import { forgetVisions } from '../lothlorien/register'
@@ -48,7 +48,7 @@ const TOOLS = [
 /** Has a part forget what it keeps of a leftover, and says whether it did. */
 async function forgets($: $, keeper: 'build' | 'follow-up' | 'planner' | 'tests-first', leftover: Pick<Leftover, 'ref' | 'pr'>): Promise<boolean> {
   const forgot =
-    keeper === 'build' ? forgetQuest($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeGate($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetVisions($, leftover.ref)
+    keeper === 'build' ? forgetQuest($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetVisions($, leftover.ref)
 
   return (await forgot.catch(() => ({ forgotten: false }))).forgotten
 }
@@ -67,7 +67,7 @@ function git($: $, args: readonly string[]) {
 async function watch($: $): Promise<Leftover[]> {
   const answers = [
     { keeper: 'build' as const, kept: await questLeftovers($).catch(() => []) },
-    { keeper: 'follow-up' as const, kept: await gateLeftovers($).catch(() => []) },
+    { keeper: 'follow-up' as const, kept: await followUpLeftovers($).catch(() => []) },
   ]
 
   const origin = (await git($, ['remote', 'get-url', 'origin'])).out

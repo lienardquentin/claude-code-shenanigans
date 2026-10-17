@@ -4,7 +4,7 @@ import type { MiddleEarthAgent } from '../types'
 import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
 import { errorText, rootOf, toolFailed } from './flow'
 import { argonathView, endedArgonath, pumpArgonath, registerArgonath, sectionOfArgonath, startArgonath } from './argonath/register'
-import { blackgateView, registerBlackgate, startBlackgate } from './blackgate/register'
+import { followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
 import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, spentFellowship, startFellowship } from './fellowship/register'
 import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerLothlorien, sectionOfLothlorien, startLothlorien } from './lothlorien/register'
@@ -14,7 +14,7 @@ import { carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 
 // The Middle-earth mod: one plugin, each of its parts a folder of its own (the issues pane lists the issues, Elrond plans, the
-// Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the Black Gate reads review, the cleanup
+// Fellowship builds, Lothlórien writes tests first, the Argonath prove and judge, the review follow-up reads review, the cleanup
 // clears what is merged). The parts call one another as functions; the agents they send are registered, kept and guarded in one place.
 // An event every part hears is hooked here once, and handed to each part in turn; a part hooks what is its own alone.
 
@@ -25,14 +25,14 @@ const PANES = {
   fellowship: fellowshipView,
   lothlorien: lothlorienView,
   argonath: argonathView,
-  blackgate: blackgateView,
+  'follow-up': followUpView,
   cleanup: cleanupView,
 } as const
 
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `lothlorien` the tests written first (/mirror), `argonath` the proof of the change (/argonath), `blackgate` the review comments (/blackgate), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `elrond` the plan (/elrond), `fellowship` the quests (/fellowship), `lothlorien` the tests written first (/mirror), `argonath` the proof of the change (/argonath), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
 } as const
 
@@ -98,7 +98,7 @@ export const register: Register = on => {
     await startLothlorien($)
     await startArgonath($)
     await startFellowship($)
-    await startBlackgate($)
+    await startFollowUp($)
     await startCleanup($)
     await startIssues($)
     // A plugin of the marketplace that lags its folder is said, to the person and to Claude
@@ -179,7 +179,7 @@ export const register: Register = on => {
   registerLothlorien(on)
   registerArgonath(on)
   registerFellowship(on)
-  registerBlackgate(on)
+  registerFollowUp(on)
   registerCleanup(on)
   registerIssues(on)
 
