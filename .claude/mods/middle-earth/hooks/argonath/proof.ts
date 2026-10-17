@@ -212,6 +212,9 @@ export const proofStateOf = (found: ArgonathRadius | string, kind: ArgonathTarge
 
   const isClean = isQuiet(found) && found.unproved === ''
 
+  // No kept run of it is compared: nothing proves what it does, and its tests and checks can still hold the change
+  if (found.isUnhandled === true && isTouched) return isClean ? 'unhandled' : 'unsettled'
+
   if (found.seams.length === 0 && isClean) return isTouched ? 'unreached' : 'unchanged'
 
   return isClean ? 'pinned' : 'unsettled'
@@ -779,7 +782,7 @@ export const radiusText = (radius: ArgonathRadius): string => {
     ...((radius.weakened ?? []).length > 0 ? ['', 'The change weakens tests: a test taken out or skipped is blocking unless what the change is for takes the behaviour it tested away.', ...(radius.weakened ?? []).map(one => `- ${one}`)] : []),
     ...((radius.manifests ?? []).length > 0 ? ['', `Dependency manifests the change touches: ${(radius.manifests ?? []).join(', ')}. A dependency added or bumped is judged as part of the change.`] : []),
     ...(radius.unproved !== '' ? ['', radius.unproved] : []),
-    ...(radius.seams.length === 0 && regressions.length === 0 && unmetTests.length === 0 ? [`No kept ${kept} answered otherwise: no integration test is owed.`] : []),
+    ...(radius.seams.length === 0 && regressions.length === 0 && unmetTests.length === 0 && radius.isUnhandled !== true ? [`No kept ${kept} answered otherwise: no integration test is owed.`] : []),
     ...(radius.unchanged.length > 0 ? [`${radius.unchanged.length} other kept ${radius.unchanged.length === 1 ? kept : `${kept}s`} answered as before.`] : []),
   ].join('\n')
 }

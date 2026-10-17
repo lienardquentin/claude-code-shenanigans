@@ -305,7 +305,7 @@ function changedIn($: $, target: ArgonathTarget, against: string, place: Place):
     ? cliChanged($, target, against, place)
     : target.kind === 'service'
       ? serviceChanged($, target, against, place)
-      : Promise.resolve(`${target.label} is a frontend: Argonath has no handler for a frontend yet, so what changed in it is not known.`)
+      : Promise.resolve({ summary: `${target.label} is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run`, changed: [], unchanged: [] })
 }
 
 /** Runs a target's tests on both sides, and says where each changed run, and each test required, stands. */
@@ -406,7 +406,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
         continue
       }
 
-      let made: ArgonathRadius = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: isUntouched ? [] : await marksIn($, cwd, target) }), live: changed.live ?? '' }
+      let made: ArgonathRadius = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: isUntouched ? [] : await marksIn($, cwd, target) }), live: changed.live ?? '', ...(target.kind === 'frontend' && !isUntouched ? { isUnhandled: true } : {}) }
 
       // A proof runs only the tests marked on what changed, and those required: with none, there is nothing to run
       if (asked.isProving && (markedTests(made).length > 0 || required.length > 0)) {
@@ -565,7 +565,8 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
 
   const fresh = (await radiiIn($, place)).filter(one => !one.isStale)
   const changes = await changesOf($, place, await targetsIn($, place, true))
-  const unreached = fresh.filter(one => one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
+  // A frontend's runs are compared by none: the statues are told so where the change reached it, not that none changed
+  const unreached = fresh.filter(one => one.isUnhandled !== true && one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
 
   return proofBrief(fresh, unreached)
 }

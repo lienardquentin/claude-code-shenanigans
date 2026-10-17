@@ -73,5 +73,8 @@ $ gondor GET /palantiri/ithil/gaze
 $ gondor GET /palantiri/mordor/gaze
 $ gondor POST /muster
 
-# Anor, the Nuxt frontend: Argonath has no frontend handler yet.
+# Anor, the Nuxt frontend: Argonath compares no kept run of a frontend, so its own tests alone prove a change of it,
+# run as Gondor's are, verbose so each test is named as it ends
 anor=frontend@beacons/anor
+anor.tests=beacons/anor/tests
+anor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose

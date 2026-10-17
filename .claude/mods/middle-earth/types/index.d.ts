@@ -453,6 +453,8 @@ export type ArgonathRadius = {
   weakened?: string[]
   /** The dependency manifests of the target the change touches. */
   manifests?: string[]
+  /** Whether no kept run of the target is compared (a frontend): its tests and checks alone were run on the change. */
+  isUnhandled?: boolean
 }
 
 /** One of the two statues of the Argonath, which judge a settled change. */

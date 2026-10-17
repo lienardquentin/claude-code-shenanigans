@@ -402,7 +402,7 @@ describe('argonath', () => {
     expect(await call($, 'mcp__middle-earth__radius')).toMatch(/Argonath knows no target here.*gondor=service:gondor\.app:app/s)
   })
 
-  test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to none yet', async ($, on) => {
+  test('sends each target to the handler of its kind: a CLI to anduril, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {
     const world = machine(on)
 
     const said = await call($, 'mcp__middle-earth__radius')
@@ -411,7 +411,8 @@ describe('argonath', () => {
     expect(world.jobs.service[0]).toMatchObject({ label: 'gondor', app: 'gondor.app:app', python: 'beacons', env: { ROHAN_URL: 'http://127.0.0.1:9', DATABASE_URL: '' }, requests: ['gondor GET /health', 'gondor POST /beacons/amon-din/light'], from: 'HEAD' })
     expect(said).toContain('bare: narsil show 999')
     expect(said).toContain('marked: gondor GET /health\n  marked by test_health_counts_what_burns, not proved')
-    expect(said).toContain('anor is a frontend: Argonath has no handler for a frontend yet')
+    expect(said).toContain('anor is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run.')
+    expect(said).not.toContain('No kept run answered otherwise: no integration test is owed.\n')
     expect(world.jobs.prove).toHaveLength(0)
   })
 
@@ -799,13 +800,17 @@ describe('a proof read as JSON', () => {
 
   test('lets a target the change did not reach go, and names a frontend it reached that nothing proves', () => {
     const answer = proofAnswer([
-      { label: 'anor', kind: 'frontend', found: 'anor is a frontend: Argonath has no handler for a frontend yet.', isTouched: true },
+      { label: 'anor', kind: 'frontend', found: { ...radiusWith('anor', []), isUnhandled: true }, isTouched: true },
       { label: 'gondor', kind: 'service', found: 'No request of gondor is kept to play.', isTouched: false },
       { label: 'narsil', kind: 'cli', found: radiusWith('narsil', ['pinned']), isTouched: true },
     ])
 
     expect(answer).toMatchObject({ verdict: 'settled', line: 'every changed run is pinned; nothing proves anor', unhandled: ['anor'] })
     expect(answer.targets.map(one => one.state)).toEqual(['unhandled', 'untouched', 'pinned'])
+    // Nothing compares what a frontend does, but its own tests and checks hold the change all the same
+    const broken = proofAnswer([{ label: 'anor', kind: 'frontend', found: { ...radiusWith('anor', [], { regressions: ['tests/realm.test.ts > realm > names the beacons'] }), isUnhandled: true }, isTouched: true }])
+
+    expect(broken).toMatchObject({ verdict: 'unsettled', line: 'the change breaks a test: tests/realm.test.ts > realm > names the beacons' })
   })
 
   test('settles a change no kept run sees, as a refactor, but names the target it reached', () => {
@@ -897,6 +902,16 @@ describe('a database, a readiness and the tests a change can break', () => {
     expect(audited).toContain("gondor.audit fails on the commit's source too, so it is not owed by the change")
     expect(audited).toContain('Dependency manifests the change touches: beacons/gondor/requirements.txt.')
     expect(audited).not.toContain('gondor.check fails')
+  })
+
+  test("are run for a frontend the change reached, which no kept run proves, and hold it", async ($, on) => {
+    const world = machine(on, { [`${CWD}/.claude/argonath`]: `${PROJECT}\nanor.tests=beacons/anor/tests\nanor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose` })
+    world.gates['npm --prefix beacons/anor test --silent -- --reporter=verbose'] = JSON.stringify({ label: 'anor', to: { error: '', exitCode: 1, output: ' × realm > names the beacons 3ms' }, from: { error: '', exitCode: 0, output: ' ✓ realm > names the beacons 3ms' } })
+
+    const said = await call($, 'mcp__middle-earth__prove', { target: 'anor' })
+
+    expect(world.jobs.affected[0]).toMatchObject({ label: 'anor', command: 'npm --prefix beacons/anor test --silent -- --reporter=verbose', from: 'HEAD' })
+    expect(said).toContain("Broken by the change (they pass on the commit's source): realm > names the beacons.")
   })
 
   test('does not run them for a target the change did not reach', async ($, on) => {
