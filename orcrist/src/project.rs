@@ -1,5 +1,6 @@
 //! Every file a rule may look across, each parsed once.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,6 +8,7 @@ use tree_sitter::{Node, Parser, Tree};
 
 use crate::git::{self, git};
 use crate::lang::Language;
+use crate::parallel;
 
 pub struct File {
     pub path: PathBuf,
@@ -79,12 +81,16 @@ impl Project {
     /// is not UTF-8, is left out with a word on stderr: it is no file the person asked to be judged.
     pub fn load(judged: &[PathBuf]) -> Result<Project, String> {
         let judged: Vec<PathBuf> = judged.iter().map(|path| normal(path)).collect();
-        let mut files = judged.iter().cloned().map(parse).collect::<Result<Vec<_>, _>>()?;
-        for path in repository_files()? {
-            if judged.contains(&path) || !path.exists() {
-                continue;
-            }
-            match parse(path) {
+        let judging: HashSet<&PathBuf> = judged.iter().collect();
+        let others: Vec<PathBuf> = repository_files()?
+            .into_iter()
+            .filter(|path| !judging.contains(path) && path.exists())
+            .collect();
+        let mut files = parallel::map(&judged, |path| parse(path.clone()))
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        for parsed in parallel::map(&others, |path| parse(path.clone())) {
+            match parsed {
                 Ok(file) => files.push(file),
                 Err(error) => eprintln!("orcrist: left out of the project: {error}"),
             }

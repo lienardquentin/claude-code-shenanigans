@@ -3,6 +3,7 @@ mod duplicate;
 mod git;
 mod impossible;
 mod lang;
+mod parallel;
 mod project;
 mod restating;
 mod rules;
@@ -76,12 +77,15 @@ fn main() -> ExitCode {
         }
     };
     let indexes = rules::index(&project);
-    let mut found = false;
-    for (path, lines) in targets {
+    let findings = parallel::map(&targets, |(path, _)| {
         let file = project
-            .file(&path)
+            .file(path)
             .expect("every file judged is loaded into the project");
-        for finding in rules::check(file, &indexes) {
+        rules::check(file, &indexes)
+    });
+    let mut found = false;
+    for ((path, lines), findings) in targets.iter().zip(findings) {
+        for finding in findings {
             if lines.as_ref().is_some_and(|lines| !lines.contains(&finding.line)) {
                 continue;
             }

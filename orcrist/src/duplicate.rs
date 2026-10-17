@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use tree_sitter::Node;
 
 use crate::lang::{Language, declared};
+use crate::parallel;
 use crate::project::{self, File, Project};
 use crate::rules::{Finding, visit};
 
@@ -22,17 +23,23 @@ pub struct Index {
 
 impl Index {
     pub fn build(project: &Project) -> Index {
-        let mut functions: HashMap<Shape, Vec<(PathBuf, usize, String)>> = HashMap::new();
-        for file in &project.files {
+        let found = parallel::map(&project.files, |file| {
+            let mut shapes = Vec::new();
             visit(file.tree.root_node(), &mut |node| {
                 if let Some((name, shape)) = shape(node, file) {
-                    let line = node.start_position().row + 1;
-                    functions
-                        .entry((file.language.code_language(), shape))
-                        .or_default()
-                        .push((file.path.clone(), line, name.to_string()));
+                    shapes.push((node.start_position().row + 1, name, shape));
                 }
             });
+            shapes
+        });
+        let mut functions: HashMap<Shape, Vec<(PathBuf, usize, String)>> = HashMap::new();
+        for (file, shapes) in project.files.iter().zip(found) {
+            for (line, name, shape) in shapes {
+                functions
+                    .entry((file.language.code_language(), shape))
+                    .or_default()
+                    .push((file.path.clone(), line, name.to_string()));
+            }
         }
         Index { functions }
     }
