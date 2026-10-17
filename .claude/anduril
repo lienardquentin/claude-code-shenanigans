@@ -28,9 +28,15 @@ $ narsil seal chronicle.jsonl
 $ narsil forge big.jsonl --count 20000
 $ narsil --chronicle big.jsonl tally
 
-# orcrist's, in a copy of orcrist/: each fixture holds the slop of one language, or none.
+# orcrist's, in a copy of orcrist/: each fixture holds the slop of one language, or none; fixtures/clean holds
+# idiomatic code of each, in styles other than this repository's, where any finding is a false one.
 $ orcrist check fixtures/restating.rs
 $ orcrist check fixtures/clean.rs
+$ orcrist check fixtures/clean/cart.ts
+$ orcrist check fixtures/clean/TodoList.tsx
+$ orcrist check fixtures/clean/debounce.js
+$ orcrist check fixtures/clean/shapes.py
+$ orcrist check fixtures/clean/inventory.rs
 $ orcrist check fixtures/swallowed.py
 $ orcrist check fixtures/guards.ts
 $ orcrist check fixtures/arrows.ts

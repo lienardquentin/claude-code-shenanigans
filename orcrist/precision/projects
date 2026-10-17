@@ -1,0 +1,6 @@
+# Well-known projects in each language orcrist reads, each at the commit its findings were kept at:
+# name      repository                                commit
+anyhow      https://github.com/dtolnay/anyhow.git      2cbb4e1bcbf8e7015f8d8b04a291c4c0597030b4
+requests    https://github.com/psf/requests.git        611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60
+ky          https://github.com/sindresorhus/ky.git     3541888878c4d303a8bc2ad61815f4e048f55a5d
+zustand     https://github.com/pmndrs/zustand.git      d7a5583cffd80af515f7dfb69583c95cbdc9e2ce

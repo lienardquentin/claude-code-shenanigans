@@ -1,0 +1,102 @@
+docs/_themes/flask_theme_support.py:41 restating-comment: the comment says what line 42 already says
+docs/_themes/flask_theme_support.py:42 restating-comment: the comment says what line 43 already says
+docs/_themes/flask_theme_support.py:52 restating-comment: the comment says what line 53 already says
+docs/_themes/flask_theme_support.py:53 restating-comment: the comment says what line 54 already says
+docs/_themes/flask_theme_support.py:54 restating-comment: the comment says what line 55 already says
+docs/conf.py:21 restating-comment: the comment says what line 24 already says
+docs/conf.py:50 restating-comment: the comment says what line 51 already says
+src/requests/__init__.py:84 restating-comment: the comment says what line 85 already says
+src/requests/__init__.py:89 restating-comment: the comment says what line 90 already says
+src/requests/__init__.py:146 swallowed-error: the error is caught and nothing is done with it
+src/requests/_internal_utils.py:46 impossible-guard: the signature already says u_string is str
+src/requests/_types.py:32 vague-name: obj says nothing of what it is
+src/requests/_types.py:78 restating-comment: the comment says what line 79 already says
+src/requests/_types.py:174 vague-name: data says nothing of what it is
+src/requests/_types.py:178 vague-name: data says nothing of what it is
+src/requests/adapters.py:282 vague-name: manager says nothing of what it is
+src/requests/adapters.py:285 vague-name: manager says nothing of what it is
+src/requests/adapters.py:296 vague-name: manager says nothing of what it is
+src/requests/adapters.py:381 restating-comment: the comment says what line 382 already says
+src/requests/api.py:119 vague-name: data says nothing of what it is
+src/requests/api.py:138 vague-name: data says nothing of what it is
+src/requests/api.py:155 vague-name: data says nothing of what it is
+src/requests/auth.py:100 duplicate-helper: __eq__ does what __eq__ in src/requests/auth.py:345 already does
+src/requests/auth.py:345 duplicate-helper: __eq__ does what __eq__ in src/requests/auth.py:100 already does
+src/requests/compat.py:43 swallowed-error: the error is caught and nothing is done with it
+src/requests/cookies.py:89 vague-name: val says nothing of what it is
+src/requests/cookies.py:128 vague-name: info says nothing of what it is
+src/requests/cookies.py:149 vague-name: res says nothing of what it is
+src/requests/help.py:67 vague-name: info says nothing of what it is
+src/requests/hooks.py:33 single-use-abstraction: every call passes "response" for key
+src/requests/models.py:134 vague-name: data says nothing of what it is
+src/requests/models.py:138 vague-name: data says nothing of what it is
+src/requests/models.py:143 vague-name: data says nothing of what it is
+src/requests/models.py:148 vague-name: data says nothing of what it is
+src/requests/models.py:152 vague-name: data says nothing of what it is
+src/requests/models.py:184 vague-name: data says nothing of what it is
+src/requests/models.py:205 vague-name: val says nothing of what it is
+src/requests/models.py:317 vague-name: data says nothing of what it is
+src/requests/models.py:329 vague-name: data says nothing of what it is
+src/requests/models.py:337 vague-name: data says nothing of what it is
+src/requests/models.py:430 vague-name: data says nothing of what it is
+src/requests/models.py:577 vague-name: data says nothing of what it is
+src/requests/models.py:656 impossible-guard: the signature already says body is _t.BodyType
+src/requests/models.py:683 restating-comment: the comment says what line 685 already says
+src/requests/models.py:1110 swallowed-error: the error is caught and nothing is done with it
+src/requests/sessions.py:118 impossible-guard: the signature already says session_hooks is _t.HooksType
+src/requests/sessions.py:121 impossible-guard: the signature already says request_hooks is _t.HooksType
+src/requests/sessions.py:562 vague-name: data says nothing of what it is
+src/requests/sessions.py:698 vague-name: data says nothing of what it is
+src/requests/sessions.py:715 vague-name: data says nothing of what it is
+src/requests/sessions.py:729 vague-name: data says nothing of what it is
+src/requests/sessions.py:783 restating-comment: the comment says what line 784 already says
+src/requests/sessions.py:823 swallowed-error: the error is caught and nothing is done with it
+src/requests/status_codes.py:92 restating-comment: the comment says what line 93 already says
+src/requests/structures.py:51 vague-name: data says nothing of what it is
+src/requests/structures.py:56 vague-name: data says nothing of what it is
+src/requests/utils.py:178 swallowed-error: the error is caught and nothing is done with it
+src/requests/utils.py:279 swallowed-error: the error is caught and nothing is done with it
+src/requests/utils.py:283 vague-name: obj says nothing of what it is
+src/requests/utils.py:434 vague-name: item says nothing of what it is
+src/requests/utils.py:1008 vague-name: data says nothing of what it is
+src/requests/utils.py:1040 single-use-abstraction: every call passes "http" for new_scheme
+tests/test_lowlevel.py:28 vague-name: data says nothing of what it is
+tests/test_lowlevel.py:68 vague-name: data says nothing of what it is
+tests/test_lowlevel.py:86 vague-name: data says nothing of what it is
+tests/test_requests.py:843 vague-name: data says nothing of what it is
+tests/test_requests.py:853 vague-name: ret says nothing of what it is
+tests/test_requests.py:856 vague-name: ret says nothing of what it is
+tests/test_requests.py:919 vague-name: data says nothing of what it is
+tests/test_requests.py:1125 vague-name: data says nothing of what it is
+tests/test_requests.py:1181 vague-name: data says nothing of what it is
+tests/test_requests.py:1355 duplicate-helper: test_cookie_as_dict_keys does what test_cookie_as_dict_values in tests/test_requests.py:1371 already does
+tests/test_requests.py:1371 duplicate-helper: test_cookie_as_dict_values does what test_cookie_as_dict_keys in tests/test_requests.py:1355 already does
+tests/test_requests.py:1387 duplicate-helper: test_cookie_as_dict_items does what test_cookie_as_dict_keys in tests/test_requests.py:1355 already does
+tests/test_requests.py:1888 vague-name: data says nothing of what it is
+tests/test_requests.py:1903 vague-name: data says nothing of what it is
+tests/test_requests.py:2008 vague-name: data says nothing of what it is
+tests/test_requests.py:2013 vague-name: data says nothing of what it is
+tests/test_requests.py:2026 vague-name: data says nothing of what it is
+tests/test_requests.py:2041 vague-name: data says nothing of what it is
+tests/test_requests.py:2050 vague-name: data says nothing of what it is
+tests/test_requests.py:2061 vague-name: data says nothing of what it is
+tests/test_requests.py:2073 vague-name: data says nothing of what it is
+tests/test_requests.py:2084 vague-name: data says nothing of what it is
+tests/test_requests.py:2093 vague-name: data says nothing of what it is
+tests/test_requests.py:2279 vague-name: data says nothing of what it is
+tests/test_requests.py:2575 swallowed-error: the error is caught and nothing is done with it
+tests/test_requests.py:2596 swallowed-error: the error is caught and nothing is done with it
+tests/test_requests.py:2700 vague-name: data says nothing of what it is
+tests/test_requests.py:2895 vague-name: data says nothing of what it is
+tests/test_requests.py:2929 duplicate-helper: response_handler does what response_handler in tests/test_requests.py:2962 already does
+tests/test_requests.py:2962 duplicate-helper: response_handler does what response_handler in tests/test_requests.py:2929 already does
+tests/test_requests.py:2995 duplicate-helper: response_handler does what response_handler in tests/test_requests.py:2929 already does
+tests/test_requests.py:3065 vague-name: data says nothing of what it is
+tests/test_requests.py:3079 vague-name: data says nothing of what it is
+tests/test_testserver.py:133 vague-name: data says nothing of what it is
+tests/test_utils.py:128 vague-name: foo says nothing of what it is
+tests/test_utils.py:140 vague-name: foo says nothing of what it is
+tests/test_utils.py:336 vague-name: obj says nothing of what it is
+tests/test_utils.py:423 vague-name: data says nothing of what it is
+tests/test_utils.py:439 vague-name: data says nothing of what it is
+tests/testserver/server.py:91 swallowed-error: the error is caught and nothing is done with it

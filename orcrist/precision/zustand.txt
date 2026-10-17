@@ -1,0 +1,44 @@
+src/middleware/devtools.ts:204 swallowed-error: the error is caught and nothing is done with it
+src/middleware/devtools.ts:220 impossible-guard: the signature already says nameOrAction is Action
+src/vanilla/shallow.ts:1 vague-name: obj says nothing of what it is
+src/vanilla/shallow.ts:54 impossible-guard: the signature already says valueA is T
+src/vanilla/shallow.ts:56 impossible-guard: the signature already says valueB is T
+tests/basic.test.tsx:103 vague-name: item says nothing of what it is
+tests/basic.test.tsx:336 duplicate-helper: constructor does what constructor in tests/basic.test.tsx:386 already does
+tests/basic.test.tsx:343 duplicate-helper: render does what render in tests/basic.test.tsx:393 already does
+tests/basic.test.tsx:386 duplicate-helper: constructor does what constructor in tests/basic.test.tsx:336 already does
+tests/basic.test.tsx:393 duplicate-helper: render does what render in tests/basic.test.tsx:343 already does
+tests/devtools.test.tsx:1423 duplicate-helper: getTestPayload does what getTestPayload in tests/devtools.test.tsx:2610 already does
+tests/devtools.test.tsx:2610 duplicate-helper: getTestPayload does what getTestPayload in tests/devtools.test.tsx:1423 already does
+tests/middlewareTypes.test.tsx:46 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:70 already does
+tests/middlewareTypes.test.tsx:70 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:46 already does
+tests/middlewareTypes.test.tsx:163 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:372 already does
+tests/middlewareTypes.test.tsx:230 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:455 already does
+tests/middlewareTypes.test.tsx:257 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:46 already does
+tests/middlewareTypes.test.tsx:339 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:46 already does
+tests/middlewareTypes.test.tsx:372 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:163 already does
+tests/middlewareTypes.test.tsx:432 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:163 already does
+tests/middlewareTypes.test.tsx:455 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:230 already does
+tests/middlewareTypes.test.tsx:481 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:576 already does
+tests/middlewareTypes.test.tsx:515 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:549 already does
+tests/middlewareTypes.test.tsx:549 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:515 already does
+tests/middlewareTypes.test.tsx:576 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:481 already does
+tests/middlewareTypes.test.tsx:612 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:654 already does
+tests/middlewareTypes.test.tsx:654 duplicate-helper: TestComponent does what TestComponent in tests/middlewareTypes.test.tsx:612 already does
+tests/middlewareTypes.test.tsx:695 vague-name: foo says nothing of what it is
+tests/middlewareTypes.test.tsx:721 vague-name: foo says nothing of what it is
+tests/persistAsync.test.tsx:11 single-use-abstraction: every call passes null for initialValue
+tests/persistAsync.test.tsx:151 duplicate-helper: createStore does what createStore in tests/persistSync.test.tsx:101 already does
+tests/persistAsync.test.tsx:865 duplicate-helper: createStore does what createStore in tests/persistSync.test.tsx:695 already does
+tests/persistSync.test.tsx:8 single-use-abstraction: every call passes null for initialValue
+tests/persistSync.test.tsx:101 duplicate-helper: createStore does what createStore in tests/persistAsync.test.tsx:151 already does
+tests/persistSync.test.tsx:695 duplicate-helper: createStore does what createStore in tests/persistAsync.test.tsx:865 already does
+tests/types.test.tsx:205 duplicate-helper: foo does what foo in tests/types.test.tsx:225 already does
+tests/types.test.tsx:205 vague-name: foo says nothing of what it is
+tests/types.test.tsx:225 duplicate-helper: foo does what foo in tests/types.test.tsx:205 already does
+tests/types.test.tsx:225 vague-name: foo says nothing of what it is
+tests/vanilla/shallow.test.tsx:98 vague-name: obj says nothing of what it is
+tests/vanilla/shallow.test.tsx:99 vague-name: obj2 says nothing of what it is
+tests/vanilla/shallow.test.tsx:119 vague-name: obj says nothing of what it is
+tests/vanilla/shallow.test.tsx:120 vague-name: obj2 says nothing of what it is
+tests/vanilla/shallow.test.tsx:180 vague-name: obj says nothing of what it is

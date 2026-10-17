@@ -1,0 +1,24 @@
+build.rs:74 restating-comment: the comment says what line 76 already says
+build.rs:80 restating-comment: the comment says what line 82 already says
+src/ensure.rs:10 single-use-abstraction: BothDebug has one implementation, in src/ensure.rs:14; the code could use it directly
+src/ensure.rs:25 single-use-abstraction: NotBothDebug has one implementation, in src/ensure.rs:29; the code could use it directly
+src/ensure.rs:88 restating-comment: the comment says what line 89 already says
+src/error.rs:30 duplicate-helper: new does what from in src/error.rs:679 already does
+src/error.rs:581 restating-comment: the comment says what line 598 already says
+src/error.rs:623 restating-comment: the comment says what line 641 already says
+src/error.rs:679 duplicate-helper: from does what new in src/error.rs:30 already does
+src/kind.rs:58 single-use-abstraction: AdhocKind has one implementation, in src/kind.rs:65; the code could use it directly
+src/kind.rs:80 single-use-abstraction: TraitKind has one implementation, in src/kind.rs:87; the code could use it directly
+src/kind.rs:104 single-use-abstraction: BoxedKind has one implementation, in src/kind.rs:112; the code could use it directly
+src/lib.rs:419 restating-comment: the comment says what line 468 already says
+src/ptr.rs:181 single-use-abstraction: CastTo has one implementation, in src/ptr.rs:185; the code could use it directly
+src/wrapper.rs:17 duplicate-helper: fmt does what fmt in src/wrapper.rs:62 already does
+src/wrapper.rs:26 duplicate-helper: fmt does what fmt in src/wrapper.rs:40 already does
+src/wrapper.rs:40 duplicate-helper: fmt does what fmt in src/wrapper.rs:26 already does
+src/wrapper.rs:49 duplicate-helper: fmt does what fmt in src/wrapper.rs:26 already does
+src/wrapper.rs:62 duplicate-helper: fmt does what fmt in src/wrapper.rs:17 already does
+src/wrapper.rs:69 duplicate-helper: fmt does what fmt in src/wrapper.rs:26 already does
+tests/test_backtrace.rs:14 swallowed-error: what the call returns, an error among it, is bound to _ and dropped
+tests/test_ensure.rs:50 single-use-abstraction: Trait has one implementation, in tests/test_ensure.rs:57; the code could use it directly
+tests/test_ensure.rs:113 vague-name: val says nothing of what it is
+tests/test_ensure.rs:633 single-use-abstraction: EqDebug has one implementation, in tests/test_ensure.rs:637; the code could use it directly
