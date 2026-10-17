@@ -44,6 +44,9 @@ $ orcrist check fixtures/Beacon.vue
 $ orcrist check fixtures/Beacons.tsx
 $ orcrist check fixtures/light.js
 $ orcrist check fixtures/configured/load.ts
+$ orcrist check fixtures/precise.ts
+$ orcrist check fixtures/precise.py
+$ orcrist check fixtures/precise.rs
 $ orcrist check --format json fixtures/restating.rs
 $ orcrist check --format sarif fixtures/configured/load.ts
 $ orcrist check fixtures/store.rs fixtures/disk.rs

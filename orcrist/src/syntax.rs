@@ -105,6 +105,11 @@ pub static RUST: Syntax = Syntax {
             drops: swallowed::call_bound_to_wildcard,
             message: "what the call returns, an error among it, is bound to _ and dropped",
         },
+        Swallowed {
+            kind: "if_expression",
+            drops: swallowed::err_ignored,
+            message: "the error is matched and nothing is done with it",
+        },
     ],
     guards: &[],
 };

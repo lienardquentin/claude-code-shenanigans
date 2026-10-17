@@ -1283,3 +1283,70 @@ fn only_what_orcrist_kept_is_let_go_and_never_through_a_link() {
     assert_eq!(beside_foreign.status.code(), Some(0));
     assert!(foreign.join(".git/orcrist-cache/precious.txt").exists());
 }
+
+// sting: orcrist check fixtures/precise.ts
+#[test]
+fn typescript_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.ts"]);
+
+    // An alias's or a generic's values are not known, and a comment after code speaks of its own line
+    assert_eq!(
+        stdout(&output),
+        "fixtures/precise.ts:9 swallowed-error: the error is caught and nothing is done with it\n\
+         fixtures/precise.ts:12 impossible-guard: the signature already says text is string\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/precise.py
+#[test]
+fn python_is_judged_where_orcrist_knows_and_left_alone_where_it_guesses() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.py"]);
+
+    // An optional import is meant, an alias's values are not known, and `...` does as little as `pass`
+    assert_eq!(
+        stdout(&output),
+        "fixtures/precise.py:12 swallowed-error: the error is caught and nothing is done with it\n\
+         fixtures/precise.py:14 impossible-guard: the signature already says path is str\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/precise.rs
+#[test]
+fn an_error_matched_and_left_is_swallowed() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/precise.rs"]);
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/precise.rs:2 swallowed-error: the error is matched and nothing is done with it\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_cache_folder_others_may_read_keeps_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let folder = folder("cache-shared");
+    git(&folder, &["init", "--quiet"]);
+    write(&folder, &[("names.ts", SLUG_OF), ("load.rs", "fn load() {}\n")]);
+    fs::create_dir(folder.join(".git/orcrist-cache")).unwrap();
+    fs::set_permissions(folder.join(".git/orcrist-cache"), fs::Permissions::from_mode(0o755)).unwrap();
+    let private = folder.join("private");
+    fs::create_dir(&private).unwrap();
+    git(&private, &["init", "--quiet"]);
+    write(&private, &[("names.ts", SLUG_OF), ("load.rs", "fn load() {}\n")]);
+
+    run(&folder, &["check", "load.rs"]);
+    run(&private, &["check", "load.rs"]);
+
+    assert!(
+        cache_entries(&folder).is_empty(),
+        "nothing is kept where others may read"
+    );
+    let entries = cache_entries(&private);
+    assert_eq!(entries.len(), 1);
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&private.join(".git/orcrist-cache")), 0o700);
+    assert_eq!(mode(&entries[0]), 0o600);
+}

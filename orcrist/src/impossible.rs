@@ -50,7 +50,8 @@ pub fn python_none_check<'a>(comparison: Node, source: &'a str) -> Option<(&'a s
 }
 
 /// The annotation the function around `inside` gives its parameter `name`: None when it gives none, when its default
-/// is None, or when the function assigns to it, so that what it holds is no longer what the signature says.
+/// is None, when the function assigns to it, so that what it holds is no longer what the signature says, or when it
+/// is no built-in type, whose values orcrist knows: an alias or a class may well take None.
 fn python_annotation<'a>(inside: Node, name: &str, source: &'a str) -> Option<&'a str> {
     let function = ancestors(inside).find(|node| node.kind() == "function_definition")?;
     let parameters = function.child_by_field_name("parameters")?;
@@ -69,8 +70,20 @@ fn python_annotation<'a>(inside: Node, name: &str, source: &'a str) -> Option<&'
     if defaults_to_none || assigns(function.child_by_field_name("body")?, name, source) {
         return None;
     }
-    Some(&source[parameter.child_by_field_name("type")?.byte_range()])
+    let annotation = &source[parameter.child_by_field_name("type")?.byte_range()];
+    let base = annotation.split('[').next().unwrap_or(annotation).trim();
+    PYTHON_BUILT_INS.contains(&base).then_some(annotation)
 }
+
+/// Python's types whose values are never None, and the `typing` names of its collections.
+#[rustfmt::skip]
+const PYTHON_BUILT_INS: &[&str] = &[
+    "str", "int", "float", "complex", "bool", "bytes", "bytearray", "list", "dict", "set", "frozenset", "tuple",
+    "List", "Dict", "Set", "FrozenSet", "Tuple",
+];
+
+/// TypeScript's types that hold neither null nor undefined, arrays of them among them.
+const TYPESCRIPT_BUILT_INS: &[&str] = &["string", "number", "boolean", "bigint", "symbol", "object"];
 
 /// `path == null` or `typeof text !== 'string'`, where the signature says `path: string` and `text: string`
 pub fn typescript_comparison<'a>(comparison: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
@@ -120,7 +133,8 @@ pub fn typescript_optional_chain<'a>(member: Node, source: &'a str) -> Option<(&
 }
 
 /// The type the function around `inside` gives its parameter `name`, when that type holds neither null nor undefined:
-/// None when it is optional, holds either, or is any, or when the function assigns to it.
+/// None when it is optional, holds either, or is any, when the function assigns to it, or when it is no built-in type,
+/// whose values orcrist knows: an alias or a generic may well hold either.
 fn typescript_annotation<'a>(inside: Node, name: &str, source: &'a str) -> Option<&'a str> {
     let function = ancestors(inside).find(|node| {
         matches!(
@@ -143,7 +157,8 @@ fn typescript_annotation<'a>(inside: Node, name: &str, source: &'a str) -> Optio
     if may_be_nothing || assigns(function.child_by_field_name("body")?, name, source) {
         return None;
     }
-    Some(annotation)
+    let base = annotation.trim_end_matches("[]").trim();
+    TYPESCRIPT_BUILT_INS.contains(&base).then_some(annotation)
 }
 
 fn assigns(body: Node, name: &str, source: &str) -> bool {

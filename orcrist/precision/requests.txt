@@ -1,16 +1,9 @@
-docs/_themes/flask_theme_support.py:41 restating-comment: the comment says what line 42 already says
-docs/_themes/flask_theme_support.py:42 restating-comment: the comment says what line 43 already says
-docs/_themes/flask_theme_support.py:52 restating-comment: the comment says what line 53 already says
-docs/_themes/flask_theme_support.py:53 restating-comment: the comment says what line 54 already says
-docs/_themes/flask_theme_support.py:54 restating-comment: the comment says what line 55 already says
 docs/conf.py:21 restating-comment: the comment says what line 24 already says
 docs/conf.py:50 restating-comment: the comment says what line 51 already says
 src/requests/__init__.py:84 restating-comment: the comment says what line 85 already says
 src/requests/__init__.py:89 restating-comment: the comment says what line 90 already says
-src/requests/__init__.py:146 swallowed-error: the error is caught and nothing is done with it
 src/requests/_internal_utils.py:46 impossible-guard: the signature already says u_string is str
 src/requests/_types.py:32 vague-name: obj says nothing of what it is
-src/requests/_types.py:78 restating-comment: the comment says what line 79 already says
 src/requests/_types.py:174 vague-name: data says nothing of what it is
 src/requests/_types.py:178 vague-name: data says nothing of what it is
 src/requests/adapters.py:282 vague-name: manager says nothing of what it is
@@ -22,7 +15,6 @@ src/requests/api.py:138 vague-name: data says nothing of what it is
 src/requests/api.py:155 vague-name: data says nothing of what it is
 src/requests/auth.py:100 duplicate-helper: __eq__ does what __eq__ in src/requests/auth.py:345 already does
 src/requests/auth.py:345 duplicate-helper: __eq__ does what __eq__ in src/requests/auth.py:100 already does
-src/requests/compat.py:43 swallowed-error: the error is caught and nothing is done with it
 src/requests/cookies.py:89 vague-name: val says nothing of what it is
 src/requests/cookies.py:128 vague-name: info says nothing of what it is
 src/requests/cookies.py:149 vague-name: res says nothing of what it is
@@ -40,11 +32,7 @@ src/requests/models.py:329 vague-name: data says nothing of what it is
 src/requests/models.py:337 vague-name: data says nothing of what it is
 src/requests/models.py:430 vague-name: data says nothing of what it is
 src/requests/models.py:577 vague-name: data says nothing of what it is
-src/requests/models.py:656 impossible-guard: the signature already says body is _t.BodyType
-src/requests/models.py:683 restating-comment: the comment says what line 685 already says
 src/requests/models.py:1110 swallowed-error: the error is caught and nothing is done with it
-src/requests/sessions.py:118 impossible-guard: the signature already says session_hooks is _t.HooksType
-src/requests/sessions.py:121 impossible-guard: the signature already says request_hooks is _t.HooksType
 src/requests/sessions.py:562 vague-name: data says nothing of what it is
 src/requests/sessions.py:698 vague-name: data says nothing of what it is
 src/requests/sessions.py:715 vague-name: data says nothing of what it is

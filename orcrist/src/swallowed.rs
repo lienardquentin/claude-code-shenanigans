@@ -50,9 +50,11 @@ pub fn only_passes(except: Node, source: &str) -> bool {
     let Some(block) = children.iter().find(|child| child.kind() == "block") else {
         return false;
     };
+    // Ctrl+C stopping quietly, and a module that is optional when it cannot be imported
+    let meant = ["KeyboardInterrupt", "ImportError", "ModuleNotFoundError"];
     if children
         .iter()
-        .any(|child| &source[child.byte_range()] == "KeyboardInterrupt")
+        .any(|child| meant.contains(&&source[child.byte_range()]))
     {
         return false;
     }
@@ -61,7 +63,11 @@ pub fn only_passes(except: Node, source: &str) -> bool {
         .named_children(&mut cursor)
         .filter(|statement| statement.kind() != "comment")
         .collect();
-    !statements.is_empty() && statements.iter().all(|statement| statement.kind() == "pass_statement")
+    let nothing = |statement: &Node| {
+        statement.kind() == "pass_statement"
+            || (statement.kind() == "expression_statement" && &source[statement.byte_range()] == "...")
+    };
+    !statements.is_empty() && statements.iter().all(nothing)
 }
 
 /// `catch {}`
@@ -69,10 +75,32 @@ pub fn catches_nothing(catch: Node, _source: &str) -> bool {
     catch.child_by_field_name("body").is_some_and(is_empty)
 }
 
-/// `{}`, or a block of nothing but comments
+/// `{}`, a block of nothing but comments, or of a `return` that gives nothing back
 fn is_empty(block: Node) -> bool {
     let mut cursor = block.walk();
-    block.named_children(&mut cursor).all(|child| child.kind() == "comment")
+    block.named_children(&mut cursor).all(|child| {
+        child.kind() == "comment" || (child.kind() == "return_statement" && child.named_child_count() == 0)
+    })
+}
+
+/// `if let Err(_) = write(path) {}`: the error matched and nothing done with it
+pub fn err_ignored(expression: Node, source: &str) -> bool {
+    let Some(condition) = expression.child_by_field_name("condition") else {
+        return false;
+    };
+    let matches_err = condition.kind() == "let_condition"
+        && condition
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| source[pattern.byte_range()].replace(' ', "") == "Err(_)");
+    let consequence = expression.child_by_field_name("consequence");
+    let alternative = expression.child_by_field_name("alternative");
+    let empty = consequence.is_some_and(|block| {
+        let mut cursor = block.walk();
+        block
+            .named_children(&mut cursor)
+            .all(|child| matches!(child.kind(), "line_comment" | "block_comment"))
+    });
+    matches_err && empty && alternative.is_none()
 }
 
 /// `promise.catch(() => {})`

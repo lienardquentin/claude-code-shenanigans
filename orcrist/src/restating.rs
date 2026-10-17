@@ -19,6 +19,11 @@ pub fn judge(node: Node, source: &str, language: Language, settings: &Settings) 
     if !language.is_comment(node) {
         return None;
     }
+    // A comment after code on its own line speaks of that line, not of the one below it
+    let comment_line_start = node.start_byte() - node.start_position().column;
+    if !source[comment_line_start..node.start_byte()].trim().is_empty() {
+        return None;
+    }
     let code = std::iter::successors(node.next_named_sibling(), |sibling| sibling.next_named_sibling())
         .find(|sibling| !language.is_comment(*sibling))?;
     let code_row = code.start_position().row;

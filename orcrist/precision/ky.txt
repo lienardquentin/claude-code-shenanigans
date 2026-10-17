@@ -3,11 +3,8 @@ source/core/Ky.ts:279 restating-comment: the comment says what line 280 already 
 source/core/Ky.ts:846 vague-name: data says nothing of what it is
 source/errors/NonError.ts:29 swallowed-error: the error is caught and nothing is done with it
 source/types/options.ts:116 vague-name: data says nothing of what it is
-source/utils/is-network-error.ts:9 restating-comment: the comment says what line 10 already says
 source/utils/merge.ts:238 vague-name: item says nothing of what it is
 source/utils/merge.ts:266 vague-name: item says nothing of what it is
-source/utils/options.ts:33 impossible-guard: the signature already says search is SearchParamsOption
-source/utils/options.ts:38 impossible-guard: the signature already says search is SearchParamsOption
 test/browser.ts:318 vague-name: data says nothing of what it is
 test/browser.ts:352 vague-name: data says nothing of what it is
 test/browser.ts:461 vague-name: data says nothing of what it is
@@ -47,8 +44,6 @@ test/hooks.ts:4033 vague-name: data says nothing of what it is
 test/hooks.ts:4072 vague-name: data says nothing of what it is
 test/hooks.ts:4115 vague-name: data says nothing of what it is
 test/hooks.ts:4154 vague-name: data says nothing of what it is
-test/hooks.ts:4192 restating-comment: the comment says what line 4193 already says
-test/hooks.ts:4194 restating-comment: the comment says what line 4195 already says
 test/hooks.ts:4213 vague-name: data says nothing of what it is
 test/hooks.ts:4248 vague-name: data says nothing of what it is
 test/hooks.ts:4296 vague-name: data says nothing of what it is
@@ -100,7 +95,6 @@ test/retry.ts:2347 duplicate-helper: fetch does what fetch in test/retry.ts:2370
 test/retry.ts:2370 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
 test/retry.ts:2400 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
 test/retry.ts:2469 duplicate-helper: fetch does what fetch in test/retry.ts:2347 already does
-test/retry.ts:2516 restating-comment: the comment says what line 2517 already says
 test/retry.ts:2641 duplicate-helper: customFetch does what customFetch in test/retry.ts:2669 already does
 test/retry.ts:2669 duplicate-helper: customFetch does what customFetch in test/retry.ts:2641 already does
 test/retry.ts:3197 duplicate-helper: customFetch does what customFetch in test/retry.ts:3501 already does
