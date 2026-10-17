@@ -78,9 +78,10 @@ A spare without a reason spares nothing and is a finding of its own.
 ## Configuring it
 
 A project tells orcrist what fits it in an `orcrist.toml`, looked for in the current folder and each folder above it up
-to the repository's root as git tells it; outside a repository, only in the current folder. With `--since`, it is the
-`orcrist.toml` that commit holds, so that a change cannot loosen the config that judges it; a new or changed config
-judges once it is committed. Without one, every rule judges everywhere by the defaults below. Globs are relative to
+to the repository's root as git tells it; outside a repository, only in the current folder. Without `--since`
+the search also stops at a folder holding its own `.git`; under it, only at the repository's root. With `--since`, it
+is the `orcrist.toml` that commit holds, so that a change cannot loosen the config that judges it; a new or changed
+config judges once it is committed. Without one, every rule judges everywhere by the defaults below. Globs are relative to
 the folder of the `orcrist.toml`: `*` does not cross a `/`, `**` crosses any number.
 
 ```toml

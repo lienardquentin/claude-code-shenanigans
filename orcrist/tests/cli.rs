@@ -1665,6 +1665,44 @@ fn since_a_commit_from_a_subfolder_the_configs_of_that_commit_are_found() {
 }
 
 #[test]
+fn since_a_commit_a_new_bare_git_folder_below_the_root_does_not_hide_the_committed_config() {
+    let folder = folder("config-since-bare-git");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("orcrist.toml", "[rules.vague-name]\noff = true\n"),
+            ("app/sub/load.ts", "export const load = () => 1\n"),
+        ],
+    );
+    git(&folder, &["add", "."]);
+    git(&folder, &["commit", "--quiet", "-m", "start"]);
+    fs::create_dir_all(folder.join("app/.git")).unwrap();
+    write(
+        &folder,
+        &[(
+            "app/sub/load.ts",
+            "export const load = () => 1\nexport const data = load()\n",
+        )],
+    );
+
+    let since = run(&folder.join("app/sub"), &["check", "--since", "HEAD"]);
+    let plain = run(&folder.join("app/sub"), &["check", "load.ts"]);
+
+    // Under --since only git's root bounds the search, so the root's committed config turns the rule off
+    assert_eq!(stdout(&since), "");
+    assert_eq!(
+        since.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&since.stderr)
+    );
+    // Without it the search still stops at app/.git, which holds no config: the defaults report the name
+    assert!(stdout(&plain).contains("vague-name"), "{}", stdout(&plain));
+    assert_eq!(plain.status.code(), Some(1));
+}
+
+#[test]
 fn since_a_commit_outside_a_repository_is_said_to_need_one() {
     let folder = folder("since-outside");
     write(&folder, &[("load.rs", "fn load() {}\n")]);
