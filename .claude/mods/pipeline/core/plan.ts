@@ -1,10 +1,9 @@
-import type { PlanDecision, IssuePlan, PlanQuestion, PlanRisk, RiskSeverity, PlanTask, PlanTaskState, PlanWeight } from '../../types'
-import { parseIssueRef } from '../../core/forge'
-import type { Issue, IssueRef, Repo } from '../../core/forge'
-import { fencedJson } from '../../core/answers'
-import { resolvedFrom } from '../../core/paths'
-import { WEIGHT_MEANS } from '../../core/run'
-export { isChanging } from '../flow'
+import type { PlanDecision, IssuePlan, PlanQuestion, PlanRisk, RiskSeverity, PlanTask, PlanTaskState, PlanWeight } from '../types'
+import { parseIssueRef } from './forge'
+import type { Issue, IssueRef, Repo } from './forge'
+import { fencedJson } from './answers'
+import { resolvedFrom } from './paths'
+import { WEIGHT_MEANS } from './run'
 
 // What the planner is handed of an issue at most: a longer body or thread is cut, and says so
 const MAX_BODY = 30_000
