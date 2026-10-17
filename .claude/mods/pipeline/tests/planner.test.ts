@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 import { issueApiArgv, parseIssue, parseRemote, refText } from '../core/forge'
-import { answered, answersOf, plannerPrompt, isPlanPath, marked, planPathOf, parsePlan, parseRef, planText, ready, tidyPlan, unprovenRisks, withUnproven } from '../hooks/planner/plan'
+import { answered, answersOf, plannerPrompt, isPlanPath, marked, planPathOf, parsePlan, parseRef, planText, ready, tidyPlan, unprovenRisks, withUnproven } from '../core/plan'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]

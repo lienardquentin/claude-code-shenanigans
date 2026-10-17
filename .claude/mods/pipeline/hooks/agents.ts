@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { BuilderName, SentAgent, AgentRole } from '../types'
 import { REVIEWERS, REVIEWER_EFFORT, REVIEWER_MODEL, reviewerSystem } from '../core/review'
-import { PLANNER_SYSTEM, isPlanPath } from './planner/plan'
+import { PLANNER_SYSTEM, isPlanPath } from '../core/plan'
 import { resolvedFrom } from '../core/paths'
 import { BUILDERS, isModSource, isOutside, builderSystem, reachesOut } from '../core/run'
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
