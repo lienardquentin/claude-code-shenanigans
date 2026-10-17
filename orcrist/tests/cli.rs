@@ -345,3 +345,70 @@ fn a_python_except_that_lets_ctrl_c_stop_quietly_is_left_alone() {
     assert_eq!(stdout(&output), "");
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn a_name_made_only_of_vague_words_is_found() {
+    let output = check(
+        "vague-rust",
+        "load.rs",
+        "fn process_data(info: &str) -> Config {\n    let tmp2 = parse(info);\n    let user_data = tmp2.users();\n    Config::new(user_data)\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.rs:1 vague-name: process_data says nothing of what it is\n\
+         load.rs:1 vague-name: info says nothing of what it is\n\
+         load.rs:2 vague-name: tmp2 says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_python_name_made_only_of_vague_words_is_found() {
+    let output = check(
+        "vague-python",
+        "load.py",
+        "def handle_data(info, path):\n    tmp = parse(info)\n    users = tmp.users()\n    return users\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.py:1 vague-name: handle_data says nothing of what it is\n\
+         load.py:1 vague-name: info says nothing of what it is\n\
+         load.py:2 vague-name: tmp says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_name_made_only_of_vague_words_is_found() {
+    let output = check(
+        "vague-typescript",
+        "load.ts",
+        "export function processData(info: string, path: string) {\n  const tmp = parse(info)\n  const doStuff = () => tmp.users()\n  return doStuff()\n}\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "load.ts:1 vague-name: processData says nothing of what it is\n\
+         load.ts:1 vague-name: info says nothing of what it is\n\
+         load.ts:2 vague-name: tmp says nothing of what it is\n\
+         load.ts:3 vague-name: doStuff says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_vague_verb_is_vague_only_as_a_function_name() {
+    let output = check(
+        "vague-verb",
+        "serve.py",
+        "def process(command):\n    handle = open_log()\n    process = subprocess.Popen(command, stdout=handle)\n    return process\n",
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "serve.py:1 vague-name: process says nothing of what it is\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}

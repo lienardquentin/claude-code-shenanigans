@@ -3,6 +3,8 @@ mod lang;
 mod restating;
 mod rules;
 mod swallowed;
+mod vague;
+mod words;
 
 use std::fs;
 use std::path::PathBuf;
