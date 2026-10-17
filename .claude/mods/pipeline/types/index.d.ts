@@ -351,7 +351,7 @@ export type TargetKind = 'cli' | 'service' | 'frontend'
 
 /** One thing the project builds, as `.claude/argonath` names it. */
 export type Target = {
-  /** Its name: for a CLI, the one anduril watches it under. */
+  /** Its name: for a CLI, the one the recorder watches it under. */
   label: string
   kind: TargetKind
   /** The source folders whose edits are edits of it, absolute. */
@@ -535,7 +535,7 @@ export type Judgement = {
  * - `unreached`: the change reached its folders, but no kept run answers otherwise: a refactor, or behaviour no kept
  *   run reaches, which only the reviewers are left to tell apart
  * - `unsettled`: a changed run is not pinned yet, or a test turned
- * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, anduril did not answer)
+ * - `unlooked`: the change reached its folders, but its handler could not look (no app, no kept request, the recorder did not answer)
  * - `unhandled`: the change reached its folders, and verify has no handler for its kind: nothing is proved of it
  * - `untouched`: the change did not reach its folders, and its handler could not look either
  */

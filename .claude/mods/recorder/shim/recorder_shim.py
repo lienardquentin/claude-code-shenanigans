@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runs a command-line tool and keeps a record of the run, for the anduril mod.
+"""Runs a command-line tool and keeps a record of the run, for the recorder.
 
 The tool is run as it would be without this: its arguments, working directory, environment and standard input are
 its own, and what it writes reaches whoever ran it, byte for byte. A stream that was a terminal is still one for the
@@ -10,7 +10,7 @@ so it meets the broken pipe it would have met.
 Once the tool has exited, one JSON file is written under <dir>/runs: what was run, how it ended, how long it took,
 what it consumed, and what it wrote to each stream: all of it, or its start and its end. This exits as the tool did.
 
-    anduril_shim.py --dir DIR --label NAME --binary PATH -- ARGS...
+    recorder_shim.py --dir DIR --label NAME --binary PATH -- ARGS...
 """
 
 import errno
@@ -36,14 +36,14 @@ DRAWING_ENV = ("NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "FORCE_COLOR", "TERM", 
 
 
 def fail(message, code=127):
-    sys.stderr.write("anduril: %s\n" % message)
+    sys.stderr.write("The recorder: %s\n" % message)
     sys.exit(code)
 
 
 def arguments(argv):
     """--dir, --label and --binary before `--`, the tool's own arguments after it."""
     if "--" not in argv:
-        fail("usage: anduril_shim.py --dir DIR --label NAME --binary PATH -- ARGS...", 2)
+        fail("usage: recorder_shim.py --dir DIR --label NAME --binary PATH -- ARGS...", 2)
     cut = argv.index("--")
     ours, theirs = argv[:cut], argv[cut + 1 :]
     named = dict(zip(ours[::2], ours[1::2]))
@@ -193,7 +193,7 @@ def main():
         "label": label,
         "argv": args,
         "cwd": os.getcwd(),
-        "by": os.environ.get("ANDURIL_BY", "person"),
+        "by": os.environ.get("RECORDER_BY", "person"),
         "startedAt": int(started_at * 1000),
         "durationMs": round(duration * 1000, 3),
         "exitCode": code if code >= 0 else 128 - code,

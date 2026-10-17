@@ -5,7 +5,7 @@ Personal Claude Code mods and experiments.
 ## Mods
 
 Claude sees nothing of a pane by itself, so every mod that opens one also serves it as a tool, `mcp__<mod>__pane`
-(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__renovate-desk__pane`, `mcp__anduril__pane`). It answers
+(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__renovate-desk__pane`, `mcp__recorder__pane`). It answers
 whether the pane is open, then its latest drawing as text: the tree you see, so your selection, page and filter are
 in it. Ask Claude about "the pane" and it can read it.
 
@@ -222,37 +222,37 @@ claude plugin validate .claude/mods/middle-earth
 claude plugin test .claude/mods/middle-earth
 ```
 
-### `anduril`
+### `recorder`
 
 Keeps a record of every run of the command-line tool being written, whoever ran it, and shows them in a pane. It
-lives in [`.claude/mods/anduril`](.claude/mods/anduril), and [`narsil`](narsil) is the tool it is shown on.
+lives in [`.claude/mods/recorder`](.claude/mods/recorder), and [`narsil`](narsil) is the tool it is shown on.
 
-- A project names what is watched in [`.claude/anduril`](.claude/anduril), a line each:
+- A project names what is watched in [`.claude/recorder`](.claude/recorder), a line each:
   `narsil=narsil/target/debug/narsil@narsil` is the name the tool is run by, the built binary a run of it runs, and
   the folder of its source.
-- For each tool the mod writes a launcher of that name in `.anduril/bin`, which hands the run to
-  [`shim/anduril_shim.py`](.claude/mods/anduril/shim/anduril_shim.py). A command of Claude's that names the tool
+- For each tool the mod writes a launcher of that name in `.recorder/bin`, which hands the run to
+  [`shim/recorder_shim.py`](.claude/mods/recorder/shim/recorder_shim.py). A command of Claude's that names the tool
   finds the launcher first on its PATH, and Claude is told to run the tool by its name. For the runs you make in a
-  terminal of your own, put the folder first on its PATH: `export PATH="$PWD/.anduril/bin:$PATH"`.
+  terminal of your own, put the folder first on its PATH: `export PATH="$PWD/.recorder/bin:$PATH"`.
 - The tool runs as it would without the shim: a stream that was a terminal is still one for it, of the same size, so
   its colours and its width are its own, and `tool | head` breaks its pipe as it would have.
 - A record is what was run and where, by whom, the exit code or the signal, the tool's own duration, its processor
   time and peak memory, whether each stream was a terminal, and what it wrote to stdout and to stderr, kept apart:
   all of it up to 256 kB, and past that its start and its end.
-  The last 500 are kept, as files under `.anduril/runs`; the folder ignores itself for git.
-- `/anduril` opens the pane: the runs newest first, `f` for the failed ones alone, a run pressed for what it wrote.
+  The last 500 are kept, as files under `.recorder/runs`; the folder ignores itself for git.
+- `/recorder` opens the pane: the runs newest first, `f` for the failed ones alone, a run pressed for what it wrote.
   It remarks on a run that sent colour down a pipe, failed without a word on stderr, or met a broken pipe.
-- Claude reads the same through `mcp__anduril__runs` (a list it can narrow by tool, failure or text) and
-  `mcp__anduril__run` (one run in full), so it sees what you ran and what it printed without being pasted it.
+- Claude reads the same through `mcp__recorder__runs` (a list it can narrow by tool, failure or text) and
+  `mcp__recorder__run` (one run in full), so it sees what you ran and what it printed without being pasted it.
 - **What changed between two builds.** The project's file also keeps runs to play again, a `$ narsil show 999` line
   each; `k` on an opened run in the pane keeps it. `d` plays them on the working tree, built afresh, and on HEAD, and
   shows the runs that ended otherwise or wrote something else, each stream as a diff: what the uncommitted edits
   changed in what the tool does. The field above it takes any other commit to compare with (a tag, a branch).
-  Claude has it as `mcp__anduril__diff`, which also compares two commits, or a branch with where it left another
+  Claude has it as `mcp__recorder__diff`, which also compares two commits, or a branch with where it left another
   (`mergeBase`), and is told to call it after changing the tool's source.
 - A comparison needs `narsil.build=…`, the command that builds the tool from the repo's root. A commit is checked
-  out in a git worktree of the tool's own, `.anduril/trees/narsil`, built there, and its binary kept by commit under
-  `.anduril/builds`, so each commit is built once. Both builds play the runs in order in a fresh copy of the tool's
+  out in a git worktree of the tool's own, `.recorder/trees/narsil`, built there, and its binary kept by commit under
+  `.recorder/builds`, so each commit is built once. Both builds play the runs in order in a fresh copy of the tool's
   source folder as the working tree has it, with an empty home and no terminal: they read the same files, and what
   a run writes there reaches nothing of yours. `narsil.mask=…` lines are regular expressions for what to leave out
   of a comparison, a time or a process id.
@@ -267,13 +267,13 @@ what was typed on stdin. The shim adds about 60 ms to a run, which the recorded 
 the other [Middle-earth](#middle-earth) mods, or alone from a clone:
 
 ```
-claude plugin marketplace add <path to this clone>/.claude/mods/anduril
-claude plugin install anduril@anduril-mods
+claude plugin marketplace add <path to this clone>/.claude/mods/recorder
+claude plugin install recorder@recorder-mods
 ```
 
-Then build `narsil` (`cargo build --manifest-path narsil/Cargo.toml`), open the pane with `/anduril`, and run
+Then build `narsil` (`cargo build --manifest-path narsil/Cargo.toml`), open the pane with `/recorder`, and run
 `narsil ls`. Tests:
 
 ```
-claude plugin test .claude/mods/anduril
+claude plugin test .claude/mods/recorder
 ```

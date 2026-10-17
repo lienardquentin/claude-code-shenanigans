@@ -1,4 +1,4 @@
-# What the anduril mod watches in this project: label=binary@root. The label is the name the tool is run by, the
+# What the recorder mod watches in this project: label=binary@root. The label is the name the tool is run by, the
 # binary the built file a run of it runs, and the root the source folder whose edits are edits of it.
 narsil=narsil/target/debug/narsil@narsil
 

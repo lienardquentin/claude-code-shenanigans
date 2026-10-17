@@ -36,7 +36,7 @@ describe("a task's commit", () => {
     ])
 
     expect(await commitTask(fake, asked)).toEqual({ kind: 'committed', sha: 'abcdef1234' })
-    expect(ran.find(line => line.startsWith('git add'))).toBe("git add -A -- . :(exclude).pipeline :(exclude).anduril :(exclude).elrond :(exclude).argonath :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate")
+    expect(ran.find(line => line.startsWith('git add'))).toBe("git add -A -- . :(exclude).pipeline :(exclude).recorder :(exclude).anduril :(exclude).elrond :(exclude).argonath :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate")
     expect(ran).toContain('git commit -m #12: Keep when a beacon is lit')
   })
 

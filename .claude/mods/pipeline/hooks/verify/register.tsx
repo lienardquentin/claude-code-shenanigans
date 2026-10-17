@@ -73,7 +73,7 @@ export const HOW_TO = [
   '    gondor.python=beacons',
   '    $ gondor GET /health',
   '',
-  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by anduril, a service\'s requests here. Then /verify.',
+  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by the recorder, a service\'s requests here. Then /verify.',
 ].join('\n')
 
 /**
@@ -116,7 +116,7 @@ async function homePlace($: $): Promise<Place> {
 const treeRadii = new Map<string, Radius[]>()
 
 // The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
-const ANDURIL = 'anduril'
+const RECORDER = 'recorder'
 // A handler builds and plays on two sides, and a proof runs the tests on each: as long as a host command may run
 const RUN_TIMEOUT_MS = 600_000
 
@@ -147,22 +147,22 @@ async function handled($: $, handler: Handler, job: unknown): Promise<{ exitCode
 }
 
 /**
- * What Andúril's diff says of a CLI's kept runs. Andúril is a plugin of its own, useful alone, and this is the one call
+ * What the recorder's diff says of a CLI's kept runs. The recorder is a plugin of its own, useful alone, and this is the one call
  * that crosses to it: through MCP, as a tool call would be put to the session's permission check, which a proof no one
  * is at the prompt for cannot answer.
  */
 async function keptRunsOf($: $, target: Target, against: string, place: Place): Promise<{ said: string } | { why: string }> {
   try {
-    const answered = await $.mcp.call(ANDURIL, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
+    const answered = await $.mcp.call(RECORDER, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
 
     return { said: answered.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n') }
   } catch (error) {
     const why = errorText(error)
 
-    // A session can run without Andúril loaded, though it is enabled (#48): no builder mends that, a restart does
-    if (/no connected MCP tool/.test(why)) return { why: 'Andúril is not loaded in this session (no tool of its is connected): restart Claude Code, and prove again.' }
+    // A session can run without the recorder loaded, though it is enabled (#48): no builder mends that, a restart does
+    if (/no connected MCP tool/.test(why)) return { why: 'The recorder is not loaded in this session (no tool of its is connected): restart Claude Code, and prove again.' }
 
-    return { why: `A CLI's radius is read from anduril's diff, which could not be called: ${why}` }
+    return { why: `A CLI's radius is read from the recorder's diff, which could not be called: ${why}` }
   }
 }
 

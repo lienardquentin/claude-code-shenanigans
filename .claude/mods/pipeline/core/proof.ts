@@ -43,7 +43,7 @@ const KINDS: readonly TargetKind[] = ['cli', 'service', 'frontend']
  * - `label.audit=command`: what audits its dependencies, run when the change touches a dependency manifest in its
  *   folders: the change may not newly fail it;
  * - `$ label …`: a service's request kept to be played, `$ gondor GET /health`, with a JSON body as one quoted word
- *   after its path, `$ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'`. A CLI's runs are anduril's to keep.
+ *   after its path, `$ gondor POST /beacons/eilenach/light '{"keeper": "Hirgon"}'`. A CLI's runs are the recorder's to keep.
  *
  * What does not read is left out, and a setting of a target the file does not name is dropped.
  */
@@ -345,7 +345,7 @@ export const parseServiceAnswer = (source: string): Changed | string | undefined
 }
 
 /**
- * What anduril's `diff` said, read back: the line that names the two builds, each kept run that changed with how,
+ * What the recorder's `diff` said, read back: the line that names the two builds, each kept run that changed with how,
  * and the ones that did not. `undefined` for an answer that is no comparison (no tool watched, a build that fails):
  * that answer is then the thing to say.
  */
@@ -465,7 +465,7 @@ export const stateOf = (tests: readonly TestResult[], isProved: boolean): RunSta
             ? 'loose'
             : 'marked'
 
-/** The radius of a change: the kept runs anduril said changed, each with the tests marked on it. */
+/** The radius of a change: the kept runs the recorder said changed, each with the tests marked on it. */
 export const radiusOf = (input: {
   label: string
   kind: TargetKind

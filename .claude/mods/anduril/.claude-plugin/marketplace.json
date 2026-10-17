@@ -1,5 +1,0 @@
-{
-  "name": "anduril-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "anduril", "source": "./" }]
-}

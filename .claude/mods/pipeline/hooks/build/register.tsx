@@ -865,7 +865,7 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
 
   const by = BUILDERS[out.builder].title
   const unproven = held.unproven ?? []
-  // What the mods keep in the tree (Andúril's builds, verify's trees) is none of the change
+  // What the mods keep in the tree (the recorder's builds, verify's trees) is none of the change
   const committed = await commitTask(shellIn($, held.tree), { tree: held.tree, taskId: task.id, message: commitMessage({ ...held, ref: issueRefOf(held) }, made, task, by, minor, unproven), gitRuns: held.gitRuns })
 
   // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
@@ -1018,7 +1018,7 @@ async function reproved($: $, held: Run, quest: Run, onto: string, commit: RunCo
 /** Clears a lane once it landed: its worktree removed, its branch deleted, and the lane forgotten. Says what could not be cleared. */
 async function clearLane($: $, held: Run): Promise<string> {
   const root = await rootOf($)
-  // What is left in it is what the mods kept there (Andúril's runs, verify's trees): its change is landed
+  // What is left in it is what the mods kept there (the recorder's runs, verify's trees): its change is landed
   const left = (await git($, ['status', '--porcelain', ...UNMODDED], held.tree)).out
   const removed = left === '' ? await removeTree($, root, held.tree) : { ok: false, out: `it holds changes that did not land (${left.split('\n')[0] ?? ''})` }
   const deleted = removed.ok ? await git($, ['branch', '-D', held.branch], root) : { ok: true, out: '' }

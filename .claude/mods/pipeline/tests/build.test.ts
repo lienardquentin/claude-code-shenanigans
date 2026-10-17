@@ -224,7 +224,7 @@ describe('the reviewers\' judgement', () => {
     const changed = ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py']
 
     expect(ownMinor([at('beacons/gondor/app.py:70'), at('app.py:3-9'), at(`${TREE}/beacons/tests/test_gondor.py:12`), at('beacons/gondor/')], TREE, changed)).toHaveLength(4)
-    expect(ownMinor([at('.anduril/'), at('beacons/gondor/db.py:4'), at('pp.py:70')], TREE, changed)).toEqual([])
+    expect(ownMinor([at('.recorder/'), at('beacons/gondor/db.py:4'), at('pp.py:70')], TREE, changed)).toEqual([])
     expect(ownMinor([{ where: '', line: '- Correctness reviewer: the commit message is long' }], TREE, [])).toEqual(['- Correctness reviewer: the commit message is long'])
   })
 
@@ -869,7 +869,7 @@ const settle = async ($: Engine, world: World) => {
           verdict === 'minor' && index === 0
             ? [{ severity: 'minor', where: 'app.py:70', text: 'lit could be named burning.' }]
             : verdict === 'stray' && index === 0
-              ? [{ severity: 'minor', where: '.anduril/', text: 'Untracked build artefacts should not be committed.' }]
+              ? [{ severity: 'minor', where: '.recorder/', text: 'Untracked build artefacts should not be committed.' }]
               : verdict === 'fail' && index === sat.length - 1
                 ? [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }]
                 : []
@@ -1001,7 +1001,7 @@ describe('fellowship', () => {
 
     expect(world.sent).toEqual([])
     expect(world.judged).toHaveLength(2)
-    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/- Correctness reviewer, \.anduril\/: Untracked build artefacts should not be committed\./)
+    expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/- Correctness reviewer, \.recorder\/: Untracked build artefacts should not be committed\./)
     expect(world.marked).toEqual(['1 doing', '1 done'])
   })
 
@@ -1556,8 +1556,8 @@ describe('an errand', () => {
     expect(world.reviewers[0]).toEqual(['reviewer-correctness', 'reviewer-security'])
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
     expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Service builder/)
-    // What the mods keep in the worktree (Andúril's builds, verify's trees) is none of the change
-    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).pipeline :(exclude).anduril :(exclude).elrond :(exclude).argonath :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
+    // What the mods keep in the worktree (the recorder's builds, verify's trees) is none of the change
+    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).pipeline :(exclude).recorder :(exclude).anduril :(exclude).elrond :(exclude).argonath :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
     expect(await call($, 'mcp__pipeline__run', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: built/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 

@@ -93,7 +93,7 @@ _Avoid_: Session usage, context usage, tokens left
 The pipeline mods (`.claude/mods`, the `pipeline` marketplace) take an issue, or a pull request's review, to committed
 and reviewed work. The `pipeline` plugin holds the parts of the workflow: the issues pane lists the issues,
 the planner plans, the build builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
-review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
+review, and the cleanup clears what is merged. The recorder and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
 One of the workflow's seven pieces inside the `pipeline` plugin (the issues pane, the planner, the build, tests first,
@@ -156,7 +156,7 @@ alone), an issue that is no errand, a review comment only the person can answer.
 _Avoid_: Refuse, give up, bail
 
 **Kept run**:
-A command-line run (`$` line of `.claude/anduril`) or a service request (`$` line of `.claude/argonath`) the project keeps,
+A command-line run (`$` line of `.claude/recorder`) or a service request (`$` line of `.claude/verify`) the project keeps,
 played on HEAD's build and the working tree's to see what a change altered.
 _Avoid_: Fixture, golden, snapshot
 

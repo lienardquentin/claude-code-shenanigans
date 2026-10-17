@@ -1,0 +1,12 @@
+{
+  "name": "recorder-mods",
+  "owner": {
+    "name": "quent"
+  },
+  "plugins": [
+    {
+      "name": "recorder",
+      "source": "./"
+    }
+  ]
+}

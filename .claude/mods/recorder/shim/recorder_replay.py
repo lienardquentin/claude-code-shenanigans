@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Plays a project's kept runs on two builds of a tool and says what differs, for the anduril mod.
+"""Plays a project's kept runs on two builds of a tool and says what differs, for the recorder.
 
 A build is the working tree's (`work`) or a commit's (any name git resolves: a tag, a branch, HEAD~3). The working
-tree is built where it is. A commit is checked out in a worktree of the tool's own, .anduril/trees/<label>, built
-there, and its binary kept under .anduril/builds/<label>/<sha>, so a commit is built once.
+tree is built where it is. A commit is checked out in a worktree of the tool's own, .recorder/trees/<label>, built
+there, and its binary kept under .recorder/builds/<label>/<sha>, so a commit is built once.
 
 Each build plays the kept runs in order, in a folder of its own that starts as a copy of the tool's source folder as
 the working tree has it (what git tracks, and what it neither tracks nor ignores): both builds read the same files,
@@ -85,13 +85,13 @@ def binary_of(job, side):
             raise Stop("it is not built: %s is not there" % job["binary"])
         return job["binary"]
 
-    kept = os.path.join(home, ".anduril", "builds", label, side["sha"], os.path.basename(job["binary"]))
+    kept = os.path.join(home, ".recorder", "builds", label, side["sha"], os.path.basename(job["binary"]))
     if os.path.isfile(kept):
         return kept
     if not job["build"]:
         raise Stop("a commit cannot be built: the project names no build command (%s.build=…)" % label)
 
-    tree = os.path.join(home, ".anduril", "trees", label)
+    tree = os.path.join(home, ".recorder", "trees", label)
     if os.path.isdir(tree):
         code, _, said = git(tree, "checkout", "--detach", "--force", "--quiet", side["sha"])
     else:
@@ -127,7 +127,7 @@ def sandbox(job, binary):
     """A fresh place to play in: the tool's source folder as the working tree has it, an empty home, an empty
     temporary folder, and the tool under its own name."""
     home = job["home"]
-    base = os.path.join(home, ".anduril", "replay")
+    base = os.path.join(home, ".recorder", "replay")
     shutil.rmtree(base, ignore_errors=True)
     root = os.path.join(base, "root")
     for name in ("root", "home", "tmp", ".bin"):
@@ -374,7 +374,7 @@ def main():
         except Stop as stop:
             side["error"] = str(stop)
             played.append(None)
-    shutil.rmtree(os.path.join(home, ".anduril", "replay"), ignore_errors=True)
+    shutil.rmtree(os.path.join(home, ".recorder", "replay"), ignore_errors=True)
 
     if played[0] is not None and played[1] is not None:
         before, after = played

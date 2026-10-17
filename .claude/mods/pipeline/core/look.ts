@@ -92,7 +92,7 @@ const cliChanged = async (machine: Machine, target: Target, against: string): Pr
   if ('why' in answered) return answered.why
 
   // What the recorder says in place of a comparison is why there is no radius
-  return parseDiffText(answered.said) ?? (answered.said !== '' ? answered.said : 'anduril answered nothing to read.')
+  return parseDiffText(answered.said) ?? (answered.said !== '' ? answered.said : 'the recorder answered nothing to read.')
 }
 
 /**

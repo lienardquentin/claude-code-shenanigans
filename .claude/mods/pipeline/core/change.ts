@@ -8,7 +8,7 @@ import type { Target } from './proof'
 
 // The folders the mods keep for themselves in a tree, and the ones they kept before they were renamed: a builder leaves
 // them alone, and a commit takes nothing of them
-export const MOD_FOLDERS = ['pipeline', 'anduril', 'elrond', 'argonath', 'fellowship', 'lothlorien', 'blackgate'] as const
+export const MOD_FOLDERS = ['pipeline', 'recorder', 'anduril', 'elrond', 'argonath', 'fellowship', 'lothlorien', 'blackgate'] as const
 
 /** The pathspec of a tree's own files, the mods' folders left out: what a commit stages, and what a change is looked for in. */
 export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder => `:(exclude).${folder}`)]

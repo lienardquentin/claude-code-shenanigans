@@ -10,8 +10,8 @@
       "source": "./pipeline"
     },
     {
-      "name": "anduril",
-      "source": "./anduril"
+      "name": "recorder",
+      "source": "./recorder"
     },
     {
       "name": "palantir",
