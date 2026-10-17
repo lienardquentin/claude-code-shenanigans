@@ -12,6 +12,7 @@ With [rustup](https://rustup.rs)'s toolchain, from this folder:
 ```
 cargo build
 cargo test
+sudo cargo test -- --ignored   # the cache folder's owner check, which needs root
 target/debug/orcrist check src/*.rs
 ```
 

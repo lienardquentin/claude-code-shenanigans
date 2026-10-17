@@ -1750,3 +1750,49 @@ fn since_a_commit_outside_a_repository_is_said_to_need_one() {
     );
     assert_eq!(since.status.code(), Some(2));
 }
+
+#[test]
+fn a_run_that_only_reads_kept_findings_leaves_the_cache_folder_untouched() {
+    let folder = folder("cache-untouched");
+    git(&folder, &["init", "--quiet"]);
+    write(
+        &folder,
+        &[
+            ("names.ts", SLUG_OF),
+            ("beacons.ts", &SLUG_OF.replace("slugOf", "beaconId")),
+        ],
+    );
+    let cache = folder.join(".git/orcrist-cache");
+
+    run(&folder, &["check", "beacons.ts"]);
+    assert!(!cache_entries(&folder).is_empty(), "the findings of names.ts were kept");
+    let kept = fs::metadata(&cache).unwrap().modified().unwrap();
+    let second = run(&folder, &["check", "beacons.ts"]);
+
+    assert_eq!(second.status.code(), Some(1));
+    assert_eq!(fs::metadata(&cache).unwrap().modified().unwrap(), kept);
+}
+
+#[test]
+#[ignore = "needs root: run with sudo cargo test -- --ignored"]
+fn a_cache_folder_another_user_owns_keeps_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    assert_eq!(stdout(&uid).trim(), "0", "this test runs as root");
+    let folder = folder("cache-foreign-owner");
+    git(&folder, &["init", "--quiet"]);
+    write(&folder, &[("names.ts", SLUG_OF), ("load.rs", "fn load() {}\n")]);
+    let cache = folder.join(".git/orcrist-cache");
+    fs::create_dir(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    std::os::unix::fs::chown(&cache, Some(65534), None).unwrap();
+    let before = fs::metadata(&cache).unwrap().modified().unwrap();
+
+    run(&folder, &["check", "load.rs"]);
+
+    assert!(
+        cache_entries(&folder).is_empty(),
+        "nothing is kept where another user owns"
+    );
+    assert_eq!(fs::metadata(&cache).unwrap().modified().unwrap(), before);
+}

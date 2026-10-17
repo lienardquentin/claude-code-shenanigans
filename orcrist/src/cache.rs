@@ -94,7 +94,7 @@ fn folder() -> Option<PathBuf> {
     let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok()?;
     let folder = Path::new(common.trim()).join("orcrist-cache");
     match fs::symlink_metadata(&folder) {
-        Ok(metadata) if metadata.is_dir() && private(&metadata) && owned(&folder, &metadata) => Some(folder),
+        Ok(metadata) if metadata.is_dir() && private(&metadata) && owned(&metadata) => Some(folder),
         // A link or a file where the folder should be, or a folder others may read, write in or own, is no cache this
         // run may trust: it keeps nothing rather than follow or share it
         Ok(_) => None,
@@ -110,24 +110,18 @@ fn private(metadata: &fs::Metadata) -> bool {
     return true;
 }
 
-/// Whether this run owns the folder: a file it makes there is its own, and has the folder's owner. A run as one user
-/// trusts nothing another user could have written, root's run in another's repository among them.
-fn owned(folder: &Path, metadata: &fs::Metadata) -> bool {
+/// Whether the folder's owner is the user this run acts as, its effective uid. A run as one user trusts nothing
+/// another user could have written, root's run in another's repository among them.
+fn owned(metadata: &fs::Metadata) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        // Named as a half-written entry, so that one left by a run cut short is let go with them
-        let probe = folder.join(format!("{:016x}.{}.writing", 0, std::process::id()));
-        let made = fs::File::options().write(true).create_new(true).open(&probe);
-        let same = made
-            .and_then(|file| file.metadata())
-            .is_ok_and(|made| made.uid() == metadata.uid());
-        fs::remove_file(&probe).ok(); // orcrist: spare swallowed-error: a probe left behind is pruned as a half entry
-        same
+        // SAFETY: geteuid takes no argument, touches no memory and cannot fail
+        metadata.uid() == unsafe { libc::geteuid() }
     }
     #[cfg(not(unix))]
     {
-        let _ = (folder, metadata);
+        let _ = metadata;
         true
     }
 }
