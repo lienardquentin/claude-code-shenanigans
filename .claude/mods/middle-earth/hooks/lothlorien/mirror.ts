@@ -1,4 +1,5 @@
 import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../../types'
+import { fencedJson } from '../flow'
 export { isChanging, resolvedFrom } from '../flow'
 
 /** What Galadriel gazes with: Opus, at medium effort. */
@@ -43,7 +44,7 @@ export const gazePrompt = (purpose: string): string =>
 
 /** What she answered, from the last json block of her answer; undefined when none reads. */
 export const parseGaze = (answer: string): { tests: LothlorienTest[]; red: string; unrun: LothlorienUnrun[]; untestable: string } | undefined => {
-  const fenced = [...answer.matchAll(/```(?:json)?\s*\n([\s\S]*?)\n?```/g)].map(found => found[1] ?? '').reverse()
+  const fenced = fencedJson(answer).reverse()
 
   for (const one of fenced) {
     try {

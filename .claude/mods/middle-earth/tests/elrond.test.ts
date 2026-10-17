@@ -167,6 +167,13 @@ describe('a plan', () => {
     ])
   })
 
+  test('is read past the code the planner quotes before it', () => {
+    const plan = parsePlan([...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], PLAN].join('\n'), about)
+
+    if (typeof plan === 'string') throw new Error(plan)
+    expect(plan.tasks).toHaveLength(2)
+  })
+
   test('keeps the person\'s answers, says them to Claude, and hands them to a revising council as decided', () => {
     const plan = parsePlan(PLAN, about)
 

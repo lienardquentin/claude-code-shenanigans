@@ -374,6 +374,8 @@ describe('the statues', () => {
       { severity: 'minor', where: '', text: 'Style.' },
     ])
     expect(parseFindings('Looks fine to me.')).toBeUndefined()
+    // The code a statue quotes before its verdict is passed over
+    expect(parseFindings([...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], FOUND([{ severity: 'blocking', where: 'a.py:1', text: 'Wrong.' }])].join('\n'))?.[0]?.text).toBe('Wrong.')
     // A statue that shouts its severity still blocks
     expect(parseFindings('```json\n{ "findings": [{ "severity": "BLOCKING", "where": "a.py:1", "text": "It drops the error." }] }\n```')?.[0]?.severity).toBe('blocking')
     // A severity the statue spelled its own way, or none, blocks: only one it calls minor lets the change pass

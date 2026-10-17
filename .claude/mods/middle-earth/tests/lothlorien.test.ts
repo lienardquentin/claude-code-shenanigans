@@ -29,6 +29,10 @@ describe('the Mirror', () => {
     expect(parseGaze('I wrote some tests.')).toBeUndefined()
   })
 
+  test('reads her json past the code she quotes before it, a fixture or a snippet', () => {
+    expect(parseGaze(['The fixture I could not write:', '', ...['```python', 'def light(keeper):', '    send(keeper)', '```', '', 'And in Rust:', '', '```rust', 'fn light() {}', '```', ''], SHOWN].join('\n'))).toMatchObject({ tests: [{ name: 'test_quenching_one_beacon' }] })
+  })
+
   test('reads a test that cannot run here apart from the red ones, with why', () => {
     const answer = JSON.stringify({ tests: [], red: '', unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }, { name: 'no file' }], untestable: '' })
 
