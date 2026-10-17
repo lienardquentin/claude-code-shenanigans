@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tree_sitter::{Parser, Tree};
+use tree_sitter::{Node, Parser, Tree};
 
 use crate::git::{self, git};
 use crate::lang::Language;
@@ -14,6 +14,37 @@ pub struct File {
     /// What the grammar reads of the file, line for line where it stands in it
     pub code: String,
     pub tree: Tree,
+}
+
+impl File {
+    /// The name of the function `node` defines, and the names of the parameters a call passes, a method's own receiver
+    /// left out.
+    pub fn function<'a>(&'a self, node: Node<'a>) -> Option<(&'a str, Vec<Node<'a>>)> {
+        let defines = matches!(
+            (self.language, node.kind()),
+            (Language::Rust, "function_item")
+                | (Language::Python, "function_definition")
+                | (
+                    Language::TypeScript | Language::Vue,
+                    "function_declaration" | "method_definition"
+                )
+        );
+        let name = node.child_by_field_name("name").filter(|_| defines)?;
+        let parameters = node.child_by_field_name("parameters")?;
+        let mut cursor = parameters.walk();
+        let names = parameters
+            .named_children(&mut cursor)
+            .filter_map(|parameter| match parameter.kind() {
+                "identifier" => Some(parameter),
+                "typed_parameter" => parameter.named_child(0),
+                "default_parameter" | "typed_default_parameter" => parameter.child_by_field_name("name"),
+                "parameter" | "required_parameter" | "optional_parameter" => parameter.child_by_field_name("pattern"),
+                _ => None,
+            })
+            .filter(|name| !matches!(&self.code[name.byte_range()], "self" | "cls"))
+            .collect();
+        Some((&self.code[name.byte_range()], names))
+    }
 }
 
 pub struct Project {

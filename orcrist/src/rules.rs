@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use crate::lang::{self, Language};
 use crate::project::{File, Project};
-use crate::{impossible, restating, single_use, swallowed, vague};
+use crate::{duplicate, impossible, restating, single_use, swallowed, vague};
 
 /// Lines are counted from 1, as an editor shows them.
 pub struct Finding {
@@ -16,11 +16,13 @@ pub struct Finding {
 /// What the rules that look across files know of the whole project, gathered once.
 pub struct Indexes {
     single_use: single_use::Index,
+    duplicate: duplicate::Index,
 }
 
 pub fn index(project: &Project) -> Indexes {
     Indexes {
         single_use: single_use::Index::build(project),
+        duplicate: duplicate::Index::build(project),
     }
 }
 
@@ -35,6 +37,7 @@ pub fn check(file: &File, indexes: &Indexes) -> Vec<Finding> {
         findings.extend(vague::judge(node, source, language));
         findings.extend(impossible::judge(node, source, language));
         findings.extend(single_use::judge(node, file, &indexes.single_use));
+        findings.extend(duplicate::judge(node, file, &indexes.duplicate));
         spares.extend(spare(node, source, language));
     });
     // A spare covers the finding on its own line and on the line below it

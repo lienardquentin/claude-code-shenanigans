@@ -1,4 +1,5 @@
 mod diff;
+mod duplicate;
 mod git;
 mod impossible;
 mod lang;

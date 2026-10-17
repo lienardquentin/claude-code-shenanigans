@@ -20,6 +20,7 @@ fn run(folder: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+// orcrist: spare duplicate-helper: narsil's tests are another crate, which these cannot share a helper with
 fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
@@ -545,4 +546,40 @@ fn a_parameter_every_caller_passes_the_same_value_for_is_found() {
          light.py:1 single-use-abstraction: every call passes 3 for retries\n"
     );
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_function_that_does_what_another_already_does_is_found() {
+    let folder = folder("duplicate");
+    git(&folder, &["init", "--quiet"]);
+    fs::write(
+        folder.join("names.ts"),
+        "export function slugOf(name: string): string {\n  const lowered = name.trim().toLowerCase()\n  const joined = lowered.split(' ').join('-')\n  return joined.replace(/[^a-z-]/g, '')\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("beacons.ts"),
+        "export function beaconId(title: string): string {\n  const small = title.trim().toLowerCase()\n  const dashed = small.split(' ').join('-')\n  return dashed.replace(/[^a-z-]/g, '')\n}\n\nexport function realmId(title: string): string {\n  const small = title.trim().toUpperCase()\n  const dashed = small.split(' ').join('_')\n  return dashed.replace(/[^A-Z_]/g, '')\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "beacons.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "beacons.ts:1 duplicate-helper: beaconId does what slugOf in names.ts:1 already does\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn small_functions_alike_by_chance_are_left_alone() {
+    let output = check(
+        "duplicate-small",
+        "beacon.rs",
+        "impl Beacon {\n    fn name(&self) -> &str {\n        &self.name\n    }\n\n    fn keeper(&self) -> &str {\n        &self.name\n    }\n}\n",
+    );
+
+    assert_eq!(stdout(&output), "");
+    assert_eq!(output.status.code(), Some(0));
 }

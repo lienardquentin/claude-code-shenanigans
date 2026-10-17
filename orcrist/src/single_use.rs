@@ -38,7 +38,7 @@ impl Index {
                         .or_default()
                         .push((file.path.clone(), line));
                 }
-                if let Some((name, _)) = function(node, file) {
+                if let Some((name, _)) = file.function(node) {
                     *index.definitions.entry(name.to_string()).or_default() += 1;
                 }
                 if let Some((name, arguments)) = call(node, file) {
@@ -64,7 +64,7 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
             ),
         });
     }
-    if let Some((name, parameters)) = function(node, file)
+    if let Some((name, parameters)) = file.function(node)
         && index.definitions.get(name) == Some(&1)
         && let Some(calls) = index.calls.get(name).filter(|calls| calls.len() >= 2)
     {
@@ -81,35 +81,6 @@ pub fn judge(node: Node, file: &File, index: &Index) -> Vec<Finding> {
         }
     }
     findings
-}
-
-/// The name of the function `node` defines, and the names of the parameters a call passes, a method's own receiver
-/// left out.
-fn function<'a>(node: Node<'a>, file: &'a File) -> Option<(&'a str, Vec<Node<'a>>)> {
-    let defines = matches!(
-        (file.language, node.kind()),
-        (Language::Rust, "function_item")
-            | (Language::Python, "function_definition")
-            | (
-                Language::TypeScript | Language::Vue,
-                "function_declaration" | "method_definition"
-            )
-    );
-    let name = node.child_by_field_name("name").filter(|_| defines)?;
-    let parameters = node.child_by_field_name("parameters")?;
-    let mut cursor = parameters.walk();
-    let names = parameters
-        .named_children(&mut cursor)
-        .filter_map(|parameter| match parameter.kind() {
-            "identifier" => Some(parameter),
-            "typed_parameter" => parameter.named_child(0),
-            "default_parameter" | "typed_default_parameter" => parameter.child_by_field_name("name"),
-            "parameter" | "required_parameter" | "optional_parameter" => parameter.child_by_field_name("pattern"),
-            _ => None,
-        })
-        .filter(|name| !matches!(&file.code[name.byte_range()], "self" | "cls"))
-        .collect();
-    Some((&file.code[name.byte_range()], names))
 }
 
 /// The name of the function `node` calls, and what it passes it: `light(a)`, `beacons.light(a)`, `chain::light(a)`.
