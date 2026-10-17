@@ -93,11 +93,11 @@ _Avoid_: Session usage, context usage, tokens left
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
 committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the Rings list the issues,
 Elrond plans, the Fellowship builds, Lothlórien writes tests first, the Argonath check and review, the Black Gate reads
-review, and Mount Doom cleans up. Andúril and the palantír, plugins of their own, watch what the code does.
+review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
 One of the workflow's seven pieces inside the `middle-earth` plugin (the Rings, Elrond, the Fellowship, Lothlórien, the
-Argonath, the Black Gate, Mount Doom), with its own folder, command and pane. Parts call one another as functions.
+Argonath, the Black Gate, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
 **Sent agent**:
@@ -184,10 +184,10 @@ The failing tests Galadriel writes for a plan's task that is not light, before i
 changed only with a reason the statues are shown.
 _Avoid_: Spec tests, red tests, TDD tests
 
-**Relic**:
-What a mod keeps of a quest (its branch, worktree, plan, tests first), which Mount Doom clears once its pull request is
-merged.
-_Avoid_: Leftovers, cache, artefact
+**Leftover**:
+What a part keeps of a run (its branch, worktree, plan, tests first), which the cleanup (`/cleanup`) clears once its
+pull request is merged.
+_Avoid_: Relic, cache, artefact
 
 **Core**:
 The workflow's code that never touches the engine (`.claude/mods/middle-earth/core`): it runs commands through a shell it

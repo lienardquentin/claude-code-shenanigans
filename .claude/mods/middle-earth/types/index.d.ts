@@ -609,23 +609,23 @@ export type BlackgateGate = {
   at: number
 }
 
-// --- Mount Doom: what is kept of merged work -----------------------------------------------------------------------------
+// --- Cleanup: what is kept of merged work --------------------------------------------------------------------------------
 
-/** A mod that keeps work of a pull request: what it remembers, Mount Doom has it forget. */
-export type MountdoomKeeper = 'fellowship' | 'blackgate'
+/** A part that keeps work of a pull request: what it remembers, the cleanup has it forget. */
+export type CleanupKeeper = 'build' | 'follow-up'
 
 /** One branch's work, as the mods that keep it remember it. */
-export type MountdoomRelic = {
-  /** The issue as Elrond writes it short, `github:owner/repo#12`; the pull request's own for a review or a gate alone. */
+export type Leftover = {
+  /** The issue as the planner writes it short, `github:owner/repo#12`; the pull request's own for a review or a gate alone. */
   ref: string
   branch: string
   base: string
-  /** The worktree the Fellowship built it in, absolute; empty when it kept none. */
+  /** The worktree the build ran in, absolute; empty when it kept none. */
   tree: string
   /** The pull request's URL: kept by a mod, or found on the forge by its branch; empty when none is known. */
   pr: string
-  keepers: MountdoomKeeper[]
-  /** Every quest the Fellowship keeps on the branch, by its ref: an errand and the review of its pull request share one. */
+  keepers: CleanupKeeper[]
+  /** Every run the build keeps on the branch, by its ref: an errand and the review of its pull request share one. */
   quests?: string[]
   /** Whether the forge says it is merged, when last looked. */
   isMerged: boolean
@@ -772,13 +772,13 @@ declare module 'claude-code' {
       /** The issue the pane opens, by its number; 0 for none. */
       ringsSelected: number
 
-      mountdoomRelics: MountdoomRelic[]
+      cleanupLeftovers: Leftover[]
       /** The pull requests the person was told are merged: each is told once. */
-      mountdoomTold: string[]
-      mountdoomNote: string
-      /** What /mountdoom asked the clock for: `look`, or `cast` and what to cast. */
-      mountdoomWanted: string
-      mountdoomWorking: string
+      cleanupTold: string[]
+      cleanupNote: string
+      /** What /cleanup asked the clock for: `look`, or `clean` and what to clean up. */
+      cleanupWanted: string
+      cleanupWorking: string
     }
   }
 }

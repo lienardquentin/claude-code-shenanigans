@@ -134,14 +134,14 @@ async function hand($: $, isAuto: boolean): Promise<string> {
   return `${got} The questions are yours to answer on ${held.pr.url}.`
 }
 
-/** The pull request the gate is open on, for Mount Doom, which watches for it to be merged. */
-export async function gateRelics($: $): Promise<{ ref: string; branch: string; base: string; pr: string; phase: string }[]> {
+/** The pull request the gate is open on, for the cleanup, which watches for it to be merged. */
+export async function gateLeftovers($: $): Promise<{ ref: string; branch: string; base: string; pr: string; phase: string }[]> {
   const held = await read($, gate)
 
   return held === null ? [] : [{ ref: `${held.pr.repo}#${held.pr.number}`, branch: held.pr.branch, base: held.pr.base, pr: held.pr.url, phase: held.phase }]
 }
 
-/** Closes the gate once its pull request is merged, which the forge is asked; one not merged is kept. For Mount Doom. */
+/** Closes the gate once its pull request is merged, which the forge is asked; one not merged is kept. For the cleanup. */
 export async function closeGate($: $, pr: string): Promise<{ forgotten: boolean; text: string }> {
   const held = await read($, gate)
 

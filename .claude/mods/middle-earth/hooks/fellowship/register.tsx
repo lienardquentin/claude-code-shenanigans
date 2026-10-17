@@ -245,8 +245,8 @@ async function mark($: $, held: FellowshipQuest, id: number, state: FellowshipTa
   await keep($, held.ref, was => ({ ...was, tasks: (was.tasks ?? []).map(task => (task.id === id ? { ...task, state, ...(note !== undefined ? { note } : {}) } : task)) }))
 }
 
-/** Every quest kept, here or across sessions: what Mount Doom watches. A lane is its quest's, and is none of them. */
-export async function questRelics($: $): Promise<{ ref: string; kind: FellowshipKind; branch: string; base: string; tree: string; pr: string; phase: string }[]> {
+/** Every quest kept, here or across sessions: what the cleanup watches. A lane is its quest's, and is none of them. */
+export async function questLeftovers($: $): Promise<{ ref: string; kind: FellowshipKind; branch: string; base: string; tree: string; pr: string; phase: string }[]> {
   const kept = Object.values(await read($, quests)).filter(held => held.lane === undefined)
 
   for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('quest:'))) {
@@ -258,9 +258,9 @@ export async function questRelics($: $): Promise<{ ref: string; kind: Fellowship
   return kept.map(({ ref, kind, branch, base, tree, pr, phase }) => ({ ref, kind: kind ?? 'plan', branch, base, tree: tree ?? '', pr, phase }))
 }
 
-/** Forgets a quest whose pull request is merged from its branch, here and across sessions. Its worktree is Mount Doom's to clear. */
+/** Forgets a quest whose pull request is merged from its branch, here and across sessions. Its worktree is the cleanup's to clear. */
 export async function forgetQuest($: $, ref: string, pr: string): Promise<{ forgotten: boolean; text: string }> {
-  const found = (await questRelics($)).find(one => one.ref === ref)
+  const found = (await questLeftovers($)).find(one => one.ref === ref)
 
   if (found === undefined) return { forgotten: false, text: `No quest on ${ref} is kept.` }
   if (!(await isMergedFrom($, pr, found.branch))) return { forgotten: false, text: `${pr} is not a merged pull request from ${found.branch}: the quest on ${ref} is kept.` }
@@ -1765,7 +1765,7 @@ export function registerFellowship(on: On): void {
         {all.length > 1 && (
           <Box flexDirection="column">
             {all.map(one => {
-              // A quest kept by a session from before errands and reviews has no kind: it is a plan's, as questRelics takes it
+              // A quest kept by a session from before errands and reviews has no kind: it is a plan's, as questLeftovers takes it
               const kind = `${one.lane !== undefined ? 'lane' : (one.kind ?? 'plan')}${one.isAuto ? ' · auto' : ''}`
 
               return (
