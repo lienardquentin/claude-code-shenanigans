@@ -73,7 +73,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
   // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
   // status says of them, read around each shell command and counted in `fingerprints`
-  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }) }
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), missing: [] as string[] }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -97,6 +97,10 @@ const machine = (on: On, given: Record<string, string> = {}) => {
 
     world.ran.push(e.argv.join(' '))
 
+    // A base git does not know: the merge base cannot be found, and the script says so and stops
+    if (e.argv[0] === 'sh' && (e.argv[2] ?? '').includes('git merge-base') && world.missing.includes(e.argv.at(-1) ?? '')) {
+      return { value: { exitCode: 1, stdout: '', stderr: `fatal: Not a valid object name ${e.argv.at(-1) ?? ''}`, isStdoutTruncated: false, isStderrTruncated: false } } as never
+    }
     if (e.argv[0] === 'sh' && (e.argv[2] ?? '').includes('git rev-parse HEAD')) stdout = world.whole
     else if (e.argv[0] === 'sh' && (e.argv[2] ?? '').includes('New files:')) stdout = world.change
     else if (script.endsWith('service.py')) {
@@ -367,11 +371,16 @@ describe('the statues', () => {
       { severity: 'minor', where: '', text: 'Style.' },
     ])
     expect(parseFindings('Looks fine to me.')).toBeUndefined()
+    // A statue that shouts its severity still blocks
+    expect(parseFindings('```json\n{ "findings": [{ "severity": "BLOCKING", "where": "a.py:1", "text": "It drops the error." }] }\n```')?.[0]?.severity).toBe('blocking')
   })
 
   test('run only commands that read', () => {
     for (const command of ['git add -A', 'rm -rf beacons', 'echo x > app.py', 'sed -i s/a/b/ app.py', 'npm install left-pad']) expect(isChanging(command)).toBe(true)
     for (const command of ['git diff HEAD', 'git log -3 2>&1', 'grep -n lit app.py', 'uv run pytest -q 2>/dev/null', 'ls beacons']) expect(isChanging(command)).toBe(false)
+    // Code run inline, a shell's inline script, git by its path, and find's actions change as much
+    for (const command of ["python3 -c \"open('x','w').write('y')\"", "node -e \"require('fs').rmSync('x')\"", "bash -c 'rm -rf beacons'", '/usr/bin/git commit -m x', 'find . -name "*.pyc" -delete', 'git fetch origin']) expect(isChanging(command)).toBe(true)
+    for (const command of ['cat docs/install.md', 'grep -rn "rm -rf" docs', 'git config --get remote.origin.url', 'python3 -m pytest -q', 'find . -name "*.py"']) expect(isChanging(command)).toBe(false)
   })
 })
 
@@ -958,6 +967,21 @@ describe('the statues, on a change', () => {
 
     expect(await call($, 'mcp__middle-earth__judgement', { convene: true })).toBe('There was no change to judge.')
     expect(spawned).toEqual([])
+  })
+
+  test('pass nothing git could not show them: a branch whose base git does not know is judged by none, each saying why', async ($, on) => {
+    const world = machine(on)
+    const { spawned } = statues(on)
+    world.missing = ['main']
+
+    const said = await call($, 'mcp__middle-earth__judgement', { convene: true, against: 'main' })
+
+    expect(spawned).toEqual([])
+    expect(said).toMatch(/has judged the change: silent[\s\S]*Isildur .*: silent, git could not show the change since main: fatal: Not a valid object name main/)
+    // Asked again, it is judged afresh, never taken from the judgement no statue gave
+    world.missing = []
+    await call($, 'mcp__middle-earth__judgement', { convene: true, against: 'main' })
+    expect(spawned.length).toBeGreaterThan(0)
   })
 
   test('judge a whole branch since where it left its base, whatever the proof of the change at hand', async ($, on) => {

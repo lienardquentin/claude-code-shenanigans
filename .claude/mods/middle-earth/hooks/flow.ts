@@ -18,19 +18,41 @@ const FORGE_TIMEOUT_MS = 120_000
 
 export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/**
+ * What a tool of the mod answers when its hook failed: the failure, said to Claude, rather than the call left unanswered
+ * as if no tool were there.
+ */
+export const toolFailed = (tool: string, error: { kind: string; message?: string }): { result: string } => ({
+  result: `${tool} failed: ${error.kind === 'timeout' ? 'it ran past its time' : 'it stumbled'}${error.message !== undefined && error.message !== '' ? ` (${error.message})` : ''}. Say so to the person; the pane may say more.`,
+})
+
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : [])
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 
+// Where a command word starts: the line's start, after an operator or a space, or a backtick
+const AT_WORD = '(^|[;&|(`]\\s*|\\s)'
+// git, run by its name or by its path (`/usr/bin/git`), and the options it takes before its verb
+const GIT = `${AT_WORD}(\\S*/)?git\\s+(-\\S+(\\s+[^-\\s]\\S*)?\\s+)*`
+
+/** The command and the shell scripts it runs inline (`sh -c '…'`, `bash -c "…"`), each read as a command of its own. */
+const scriptsOf = (command: string): string[] => [command, ...[...command.matchAll(/\b(?:ba|z|da)?sh\s+(?:-\S+\s+)*-c\s+(['"])([\s\S]*?)\1/g)].map(found => found[2] ?? '')]
+
 /**
  * Whether a shell command changes the tree or the machine: a git command that moves HEAD, the index or the refs, a
- * command that writes, moves or installs, a download, or a redirection into a file. Those who only read are held to
- * what this lets through.
+ * command that writes, moves or installs, a download, a redirection into a file, or code run inline by an interpreter
+ * (`python -c`, `node -e`), which can do any of these. It reads the command's words, so it is a guide an agent is held
+ * to, not a sandbox: a command built to hide what it does can pass it.
  */
 export const isChanging = (command: string): boolean =>
-  /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(add|commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch)\b/.test(command) ||
-  /(^|[;&|(]\s*|\s)(rm|mv|cp|touch|mkdir|chmod|chown|tee|truncate|dd|(npm|pnpm|yarn)\s+(install|i|add|remove|update)|pip3?\s+install|uv\s+(add|remove|sync|lock|pip)|cargo\s+(add|install|update)|sed\s+-i|perl\s+-i|curl|wget)\b/.test(command) ||
-  // A redirection writes a file; one into the void, or into another stream, does not
-  /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(command)
+  scriptsOf(command).some(
+    script =>
+      new RegExp(`${GIT}(add|commit|push|pull|fetch|checkout|switch|reset|rebase|merge|stash|restore|clean|rm|mv|apply|am|cherry-pick|revert|tag|branch|worktree|update-ref|gc|init|clone)\\b`).test(script) ||
+      new RegExp(`${AT_WORD}(rm|mv|cp|ln|touch|mkdir|chmod|chown|tee|truncate|dd|rsync|unzip|(npm|pnpm|yarn)\\s+(install|i|add|remove|update)|pip3?\\s+install|uv\\s+(add|remove|sync|lock|pip)|cargo\\s+(add|install|update)|sed\\s+-i|perl\\s+-i|curl|wget)\\b`).test(script) ||
+      new RegExp(`${AT_WORD}(python[\\d.]*|node|deno|bun|ruby|perl|php)\\s+(-\\S+\\s+)*-[ce]\\b`).test(script) ||
+      /(^|\s)find\s[^;&|]*\s-(delete|exec|execdir|ok)\b/.test(script) ||
+      // A redirection writes a file; one into the void, or into another stream, does not
+      /(^|[^<>=!0-9&])\d?>{1,2}\s*(?!&|\/dev\/null)\S/.test(script),
+  )
 
 /** A path as it lands from a folder: absolute, its `.` and `..` walked. */
 export const resolvedFrom = (cwd: string, path: string): string => {
@@ -46,14 +68,22 @@ export const resolvedFrom = (cwd: string, path: string): string => {
 
 /**
  * The project's folder: the repository's top, wherever the session's directory has wandered within it (a `cd` in
- * Claude's shell moves it), else the session's directory itself.
+ * Claude's shell moves it), else the session's directory itself. Inside a linked worktree (a quest's, a target's) it is
+ * still the main checkout, whose `.git` the worktree shares: never the worktree, or a quest set out from there would
+ * nest its own worktree inside it.
  */
 export async function rootOf($: $): Promise<string> {
   const cwd = (await $.session.cwd()).replace(/\/+$/, '')
   const top = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd }).catch(() => undefined)
   const found = top?.exitCode === 0 ? top.stdout.trim() : ''
 
-  return found !== '' ? found : cwd
+  if (found === '') return cwd
+
+  const common = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd }).catch(() => undefined)
+  const shared = common?.exitCode === 0 ? common.stdout.trim().replace(/\/+$/, '') : ''
+  const main = shared.endsWith('/.git') ? shared.slice(0, -'/.git'.length) : ''
+
+  return main !== '' && main !== found ? main : found
 }
 
 /**
@@ -71,44 +101,63 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
 }
 
 /**
- * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
- * merged from that branch: what a mod forgets after it, it forgets only once its work has landed.
+ * The forge a host or a remote is, as every part reads it: GitLab where its name says so, GitHub otherwise (github.com,
+ * or an Enterprise host).
  */
-/** Whether the forge says an open pull request can no longer merge into its base as it stands: it is in conflict. */
-export async function isConflictingAt($: $, url: string): Promise<boolean> {
-  if (!/^https?:\/\//.test(url)) return false
+export const forgeOfHost = (host: string): 'github' | 'gitlab' => (host.toLowerCase().includes('gitlab') ? 'gitlab' : 'github')
 
-  const isGithub = /\/\/github\.com\//.test(url)
-  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,mergeable'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
+/** The forge a pull request (a merge request on GitLab) is on, by its URL: its path says so where it can, else its host. */
+export const forgeOfUrl = (url: string): 'github' | 'gitlab' =>
+  /\/-\/merge_requests\/\d+/.test(url) ? 'gitlab' : /\/pull\/\d+/.test(url) ? 'github' : forgeOfHost(/^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1] ?? url)
 
-  if (ran === undefined || ran.exitCode !== 0) return false
+/** A pull request as the forge says it stands: merged or not, in conflict with its base, and the branch and commit it is of. */
+export type PullState = { isMerged: boolean; isConflicting: boolean; branch: string; head: string }
+
+/**
+ * Where a pull request stands, by its URL, as its forge's CLI says; or why that is not known (no URL, the CLI failed,
+ * its answer does not read), for the caller to say rather than take for "not merged".
+ */
+export async function pullStateOf($: $, url: string): Promise<PullState | string> {
+  if (!/^https?:\/\//.test(url)) return `${url === '' ? 'no pull request is known' : `${url} is no pull request's URL`}`
+
+  const isGithub = forgeOfUrl(url) === 'github'
+  const ran = await $.process
+    .run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,mergeable,headRefName,headRefOid'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 })
+    .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+
+  if (ran.exitCode !== 0) return `${isGithub ? 'gh' : 'glab'} could not read ${url}: ${(ran.stderr || ran.stdout).trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}`
 
   try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; mergeable?: unknown; has_conflicts?: unknown }
+    const held = JSON.parse(ran.stdout) as { state?: unknown; mergeable?: unknown; has_conflicts?: unknown; headRefName?: unknown; source_branch?: unknown; headRefOid?: unknown; sha?: unknown }
 
-    // GitHub answers UNKNOWN while it works the answer out: that is no conflict yet
-    return isGithub ? held.state === 'OPEN' && held.mergeable === 'CONFLICTING' : held.state === 'opened' && held.has_conflicts === true
+    return {
+      isMerged: held.state === 'MERGED' || held.state === 'merged',
+      // GitHub answers UNKNOWN while it works the answer out: that is no conflict yet
+      isConflicting: isGithub ? held.state === 'OPEN' && held.mergeable === 'CONFLICTING' : held.state === 'opened' && held.has_conflicts === true,
+      branch: text(isGithub ? held.headRefName : held.source_branch),
+      head: text(isGithub ? held.headRefOid : held.sha),
+    }
   } catch {
-    return false
+    return `${isGithub ? 'gh' : 'glab'} answered nothing that reads for ${url}: ${ran.stdout.trim().slice(0, 120)}`
   }
 }
 
+/** Whether the forge says an open pull request can no longer merge into its base as it stands: it is in conflict. */
+export async function isConflictingAt($: $, url: string): Promise<boolean> {
+  const state = await pullStateOf($, url)
+
+  return typeof state !== 'string' && state.isConflicting
+}
+
+/**
+ * Whether the forge says a pull request (a merge request on GitLab) is merged, by its URL, and, when a branch is named,
+ * merged from that branch: what a mod forgets after it, it forgets only once its work has landed. A forge that could
+ * not be asked says no, so nothing is forgotten on a guess.
+ */
 export async function isMergedFrom($: $, url: string, branch?: string): Promise<boolean> {
-  if (!/^https?:\/\//.test(url)) return false
+  const state = await pullStateOf($, url)
 
-  const isGithub = /\/\/github\.com\//.test(url)
-  const ran = await $.process.run(isGithub ? ['gh', 'pr', 'view', url, '--json', 'state,headRefName'] : ['glab', 'mr', 'view', url, '--output', 'json'], { timeoutMs: 60_000 }).catch(() => undefined)
-
-  if (ran === undefined || ran.exitCode !== 0) return false
-
-  try {
-    const held = JSON.parse(ran.stdout) as { state?: unknown; headRefName?: unknown; source_branch?: unknown }
-    const from = isGithub ? held.headRefName : held.source_branch
-
-    return (held.state === 'MERGED' || held.state === 'merged') && (branch === undefined || from === branch)
-  } catch {
-    return false
-  }
+  return typeof state !== 'string' && state.isMerged && (branch === undefined || state.branch === branch)
 }
 
 /** A turn's end, as each part reads it: whose turn (no agent for the session's own), its answer, and how it ended. */
@@ -188,7 +237,8 @@ export const parseJudgement = (answer: unknown): Judged => {
 }
 
 /** A command a builder is not to run: its mod commits, and the branch is the mod's to keep. */
-export const isForbiddenGit = (command: string): boolean => /(^|[;&|(]\s*|\s)git\s+(-\S+(\s+[^-\s]\S*)?\s+)*(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull)\b/.test(command)
+export const isForbiddenGit = (command: string): boolean =>
+  scriptsOf(command).some(script => new RegExp(`${GIT}(commit|push|checkout|switch|reset|rebase|merge|stash|restore|clean|branch|tag|cherry-pick|revert|am|pull|update-ref|worktree)\\b`).test(script))
 
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 

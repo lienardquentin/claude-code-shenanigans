@@ -1,4 +1,5 @@
 import type { ElrondDecision, ElrondForge, ElrondPlan, ElrondQuestion, ElrondRef, ElrondRisk, ElrondSeverity, ElrondTask, ElrondTaskState, ElrondWeight } from '../../types'
+import { forgeOfHost, resolvedFrom } from '../flow'
 export { isChanging } from '../flow'
 
 /** The project's own repository, as its git remote names it: where a bare `#12` lives. */
@@ -22,8 +23,6 @@ const MAX_COMMENT = 4_000
 export const HOW_TO =
   'Name an issue: /elrond https://github.com/owner/repo/issues/12, /elrond https://gitlab.com/group/project/-/issues/12, /elrond owner/repo#12, /elrond gl:group/project#12, or /elrond #12 for this repository\'s own.'
 
-const forgeOfServer = (server: string): ElrondForge => (server.includes('gitlab') ? 'gitlab' : 'github')
-
 /** The repository a git remote URL names: `git@host:path.git`, `https://host/path.git`, `ssh://git@host:2222/path.git`. */
 export const parseRemote = (url: string): Origin | undefined => {
   const text = url.trim()
@@ -36,7 +35,7 @@ export const parseRemote = (url: string): Origin | undefined => {
   const server = found[1] ?? ''
   const repo = found[2] ?? ''
 
-  return repo.includes('/') ? { forge: forgeOfServer(server), server, repo } : undefined
+  return repo.includes('/') ? { forge: forgeOfHost(server) as ElrondForge, server, repo } : undefined
 }
 
 /**
@@ -90,16 +89,7 @@ export const PLANS_DIR = '.elrond/plans'
 export const planPathOf = (cwd: string, ref: string): string => `${cwd}/${PLANS_DIR}/${ref.replace(/[^A-Za-z0-9._-]+/g, '-')}.json`
 
 /** Whether a path the council writes to lies in the plans folder, `..` and all spelled out. */
-export const isPlanPath = (cwd: string, path: string): boolean => {
-  const parts: string[] = []
-
-  for (const part of (path.startsWith('/') ? path : `${cwd}/${path}`).split('/')) {
-    if (part === '..') parts.pop()
-    else if (part !== '' && part !== '.') parts.push(part)
-  }
-
-  return `/${parts.join('/')}`.startsWith(`${cwd}/${PLANS_DIR}/`)
-}
+export const isPlanPath = (cwd: string, path: string): boolean => resolvedFrom(cwd, path).startsWith(`${cwd}/${PLANS_DIR}/`)
 
 /** An issue written short, the key its plan is kept under: `github:owner/repo#12`, the host added when it is not the forge's own. */
 export const refText = ({ forge, server, repo, number }: ElrondRef): string =>

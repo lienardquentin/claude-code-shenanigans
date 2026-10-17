@@ -7,7 +7,7 @@ import type { Shown } from './mirror'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { errorText, rootOf } from '../flow'
+import { errorText, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
 import { GALADRIEL, GALADRIEL_SWIFT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
@@ -335,14 +335,14 @@ export function registerLothlorien(on: On): void {
     const given = e as unknown as { purpose?: unknown; weight?: unknown }
 
     return { result: await gaze($, String(given.purpose ?? ''), 'tool', await placeOf($, e.agentId), '', given.weight === 'light' || given.weight === 'standard' ? given.weight : 'heavy') }
-  })
+  }).catch((_$, _e, next) => toolFailed('gaze', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__mirror' }, async ($, e) => {
     const place = await placeOf($, e.agentId)
     const held = await visionIn($, place)
 
     return { result: held === null ? HOW_TO : visionText(held, await isLocked($, place, held), await tampered($, place, held)) }
-  })
+  }).catch((_$, _e, next) => toolFailed('mirror', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__amend' }, async ($, e) => {
     const given = e as unknown as { file?: unknown; why?: unknown }
@@ -352,7 +352,7 @@ export function registerLothlorien(on: On): void {
     const place = sent.isHome && file.startsWith('/') ? await placeOfPath($, file) : sent
 
     return { result: await amend($, place, file, String(given.why ?? ''), await whoIs($, e.agentId)) }
-  })
+  }).catch((_$, _e, next) => toolFailed('amend', next.error))
 
   on('command.run', { command: 'mirror' }, async ($, e) => {
     await $.ui.open({ id: PANE, title: TITLE })

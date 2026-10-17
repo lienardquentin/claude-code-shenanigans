@@ -9,6 +9,7 @@ import { dealt, judgementShape, judgementText, parseFindings, seated, statueProm
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
+import { errorText, rootOf, toolFailed } from '../flow'
 import type { Section, Target, TurnEnded } from '../flow'
 import { askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Changed, Review } from './proof'
@@ -78,13 +79,16 @@ const reviewed = atom({ plugin: 'middle-earth', key: 'argonathReviewed' } as con
 const judgement = atom({ plugin: 'middle-earth', key: 'argonathJudgement' } as const, null as ArgonathJudgement | null)
 const treeJudgements = atom({ plugin: 'middle-earth', key: 'argonathTreeJudgements' } as const, {} as Record<string, ArgonathJudgement>)
 
-/** The folder the session started in: a `cd` Claude runs does not move the project from under the mod. */
+/**
+ * The project's folder as every part reads it, the main checkout's top, taken once: a `cd` Claude runs later does not
+ * move the project from under the mod.
+ */
 async function homeOf($: $): Promise<string> {
   const held = await read($, home)
 
   if (held !== '') return held
 
-  const cwd = tidy(await $.session.cwd())
+  const cwd = tidy(await rootOf($))
 
   await update($, home, () => cwd)
 
@@ -341,7 +345,9 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
   const wanted = (asked.required ?? []).map(({ file, name }) => `${file}:${name}`).sort().join(',')
   // A proof takes minutes: one asked again of the same change, as a member's last and its mod's next are, is not made twice
-  const key = asked.isProving ? `${await wholeFingerprint($, 'HEAD', place)}|${asked.against}|${chosen.map(({ label }) => label).join(',')}|${wanted}` : ''
+  const fingerprint = asked.isProving ? await wholeFingerprint($, 'HEAD', place) : ''
+  // A change git could not read is proved afresh each time: its proof is no other change's
+  const key = asked.isProving && !fingerprint.startsWith(UNREADABLE) ? `${fingerprint}|${asked.against}|${chosen.map(({ label }) => label).join(',')}|${wanted}` : ''
   const last = lastProofs.get(cwd)
 
   if (key !== '' && last?.key === key) {
@@ -466,20 +472,27 @@ async function owe($: $): Promise<void> {
   reviewDue = due === (await read($, reviewed)) ? '' : due
 }
 
-/** The whole change as one fingerprint: HEAD, the diff since `against` left it, and the new files by name and content. */
-async function wholeFingerprint($: $, against = 'HEAD', place?: Place): Promise<string> {
-  const ran = await $.process.run(['sh', '-c', CHANGE_SCRIPT, 'sh', against], { cwd: place?.tree ?? (await homeOf($)) }).catch(() => undefined)
+// What a fingerprint of a change git could not read starts with: it matches no change that was read, so no proof or
+// judgement made of one is ever taken for another's
+const UNREADABLE = 'unreadable:'
 
-  return fingerprintOf(ran?.stdout ?? '')
+/**
+ * The whole change as one fingerprint: HEAD, the diff since `against` left it, and the new files by name and content.
+ * One git could not read is `unreadable:` and why, the same each time it fails alike, so a judgement of it is not stale.
+ */
+async function wholeFingerprint($: $, against = 'HEAD', place?: Place): Promise<string> {
+  const ran = await $.process.run(['sh', '-c', CHANGE_SCRIPT, 'sh', against], { cwd: place?.tree ?? (await homeOf($)) }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+
+  return ran.exitCode === 0 ? fingerprintOf(ran.stdout) : `${UNREADABLE}${ran.stderr.trim().split('\n').slice(-1)[0] ?? ''}`
 }
 
-/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name. */
-async function changeText($: $, against = 'HEAD', place?: Place): Promise<string> {
+/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name; or why git could not say it. */
+async function changeText($: $, against = 'HEAD', place?: Place): Promise<{ text: string } | { error: string }> {
   const ran = await $.process
     .run(['sh', '-c', 'b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard', 'sh', against], { cwd: place?.tree ?? (await homeOf($)) })
-    .catch(() => undefined)
+    .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
-  return ran?.stdout ?? ''
+  return ran.exitCode === 0 ? { text: ran.stdout } : { error: `git could not show the change since ${against}: ${ran.stderr.trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}` }
 }
 
 /**
@@ -525,7 +538,20 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   if (place.isHome) await update($, reviewed, () => due)
 
-  const change = await changeText($, against, place)
+  const shown = await changeText($, against, place)
+  const chosen = dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))
+
+  // A change git could not show is judged by no statue, and so passes none: each seat is silent, saying why
+  if ('error' in shown) {
+    const unjudged: ArgonathJudgement = { fingerprint: due, at: Date.now(), by, against, seats: chosen.map(seat => ({ statue: seat.name, title: seat.title, reviews: seat.reviews, agentId: '', state: 'silent', findings: [], why: shown.error })) }
+
+    await setJudgement($, place, unjudged)
+    await rise($, unjudged)
+
+    return unjudged
+  }
+
+  const change = shown.text
 
   // Nothing to judge: no statue is sent on it
   if (isNoChange(change)) {
@@ -542,7 +568,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
   const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
 
-  for (const seat of dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))) {
+  for (const seat of chosen) {
     // A statue judging a quest's change reads it in the quest's worktree
     const started = await spawnIn($, { subagentType: typeOf(seat.name), description: `${seat.title} judges the change`, prompt: statuePrompt(seat.reviews, change, about, brief, rules), ...(alias !== undefined ? { model: alias } : {}), ...(place.isHome ? {} : { cwd: place.tree }) })
       .catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
@@ -607,7 +633,9 @@ async function review($: $): Promise<void> {
   // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
   if ((await wholeFingerprint($)) !== due) return void (reviewDue = '')
   // And a change committed whole leaves nothing to judge
-  if (isNoChange(await changeText($))) return void (reviewDue = '')
+  const shown = await changeText($)
+
+  if ('text' in shown && isNoChange(shown.text)) return void (reviewDue = '')
 
   // The statues are sent from a hook alone, where they are held: from the clock, Claude is asked to call for them
   if (!(await inFrame($))) return askToPump($, 'every changed run of the change is pinned, and the statues wait to review it.')
@@ -873,7 +901,7 @@ export function registerArgonath(on: On): void {
     return next(e)
   })
 
-  on('tool.call', { tool: 'mcp__middle-earth__radius' }, async ($, e) => ({ result: foundText(await look($, { ...askedOf(e, false), place: await placeOf($, e.agentId) })) }))
+  on('tool.call', { tool: 'mcp__middle-earth__radius' }, async ($, e) => ({ result: foundText(await look($, { ...askedOf(e, false), place: await placeOf($, e.agentId) })) })).catch((_$, _e, next) => toolFailed('radius', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__prove' }, async ($, e) => {
     const place = await placeOf($, e.agentId)
@@ -881,7 +909,7 @@ export function registerArgonath(on: On): void {
     const looked = await look($, { ...askedOf(e, true), isOwing: e.agentId === undefined, place })
 
     return { result: foundText(looked) }
-  })
+  }).catch((_$, _e, next) => toolFailed('prove', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__judgement' }, async ($, e) => {
     const given = e as unknown as { convene?: unknown; about?: unknown; statues?: unknown; against?: unknown; model?: unknown }
@@ -900,7 +928,7 @@ export function registerArgonath(on: On): void {
     if ('open' in got) return { result: `A changed run of ${got.open.join(', ')} is not pinned: the statues judge only a settled change. Prove it first.` }
 
     return { result: got.held === null ? 'The statues have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
-  })
+  }).catch((_$, _e, next) => toolFailed('judgement', next.error))
 
   on('command.run', { command: 'argonath' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })

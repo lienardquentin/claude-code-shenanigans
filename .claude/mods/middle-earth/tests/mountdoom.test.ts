@@ -55,6 +55,13 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     state: 'OPEN',
     // Whether the forge can merge the open pull request into its base as it stands
     mergeable: 'MERGEABLE',
+    // The commit the forge says the pull request was of, and the local branch's tip
+    head: 'c0ffee1',
+    tip: 'c0ffee1',
+    // Whether the local tip is a commit before the merged one
+    isBehindHead: false,
+    // What the forge's CLI says when it cannot be asked; nothing when it can
+    forgeDown: '',
     toasts: [] as string[],
     clock: mock.clock(on, { now: 1_800_000_000_000 }),
   }
@@ -71,7 +78,9 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     const answer = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: exitCode === 0 ? '' : 'no', isStdoutTruncated: false, isStderrTruncated: false } }) as never
 
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
-    if (line.startsWith('gh pr view')) return answer(JSON.stringify({ state: world.state, headRefName: world.mergedFrom, mergeable: world.mergeable }))
+    if (line.startsWith('gh pr view')) return world.forgeDown !== '' ? answer(world.forgeDown, 1) : answer(JSON.stringify({ state: world.state, headRefName: world.mergedFrom, mergeable: world.mergeable, headRefOid: world.head }))
+    if (line === `git rev-parse --verify --quiet refs/heads/${BRANCH}`) return answer(`${world.tip}\n`)
+    if (line.startsWith('git merge-base --is-ancestor')) return answer('', world.isBehindHead ? 0 : 1)
     if (line.startsWith('gh pr list')) return answer('[]')
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${world.branch}\n`)
@@ -241,6 +250,37 @@ describe('mountdoom', () => {
     await $.session.start({} as never)
 
     expect(await casting($, world)).toMatch(/forgotten by fellowship\.$/)
+  })
+
+  test('keeps a merged branch that holds commits past the one the forge merged, and says so', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    world.tip = 'beef002'
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(new RegExp(`${BRANCH} kept: it holds commits past c0ffee1, the one merged`))
+    expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
+  })
+
+  test('deletes a merged branch whose tip is a commit before the one the forge merged', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    world.tip = 'abc0003'
+    world.isBehindHead = true
+    await $.session.start({} as never)
+
+    expect(await casting($, world)).toMatch(new RegExp(`${BRANCH} deleted`))
+  })
+
+  test('says when the forge cannot be asked, casts nothing, and never takes it for not merged', async ($, on) => {
+    const world = machine(on)
+    world.state = 'MERGED'
+    world.forgeDown = 'gh: authentication required'
+    await $.session.start({} as never)
+
+    expect(await call($, 'mcp__middle-earth__relics')).toMatch(/the forge could not say whether it is merged: gh could not read https:.*\/pull\/40/)
+    expect(await casting($, world)).toMatch(/^Nothing kept is merged yet\./)
+    expect(world.ran.some(line => line.startsWith('git branch -D'))).toBe(false)
   })
 
   test('leaves a checked-out branch with uncommitted changes as it is', async ($, on) => {

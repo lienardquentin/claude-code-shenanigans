@@ -511,6 +511,11 @@ export type BlackgateComment = {
   url: string
   /** Its thread (a GitHub review thread, a GitLab discussion), which can be answered and resolved; none for a review's own words. */
   thread?: string
+  /**
+   * Whether its author is outside the repository (no owner, member or collaborator on GitHub, no developer on GitLab):
+   * such a comment is a question for the person, never a change the Fellowship builds.
+   */
+  isOutside?: boolean
   weight: BlackgateWeight
   /** Whether it asks for a change, which the Fellowship builds, or asks a question only the person can answer. */
   kind: 'change' | 'question'
@@ -523,6 +528,8 @@ export type BlackgatePr = {
   repo: string
   number: number
   url: string
+  /** Whether its branch lives in a fork, which the Fellowship cannot push to. */
+  isFork?: boolean
   title: string
   /** Its own branch, where the answers are committed, and the one it goes onto. */
   branch: string
@@ -566,6 +573,10 @@ export type MountdoomRelic = {
   isMerged: boolean
   /** Whether the forge says its pull request, still open, is in conflict with its base, when last looked. */
   isConflicting?: boolean
+  /** Why the forge could not say where its pull request stands, when last looked; absent when it said. */
+  unknown?: string
+  /** The commit the forge says the pull request was of, when last looked: a local branch past it holds work the merge did not take. */
+  head?: string
 }
 
 // --- The plugin as a whole --------------------------------------------------------------------------------------------

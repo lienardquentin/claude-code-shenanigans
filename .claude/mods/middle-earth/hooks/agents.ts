@@ -11,7 +11,10 @@ import type { Trees } from './kit/trees'
 
 // Every agent the mod sends, in one place: the types it registers, the record of each one sent, and the one guard that
 // holds each to what its part allows. None of them has a permission mode of its own: each works under the session's,
-// held by this guard, which refuses when it cannot look.
+// held by this guard. The guard knows an agent by the record, else by the type the session lists it as: one it can
+// place by neither (the record lost it and the list could not be read) is held to nothing more than the session's own
+// mode, so each agent is recorded as it is sent. Its rules read a command's words: a fence for agents that mean well,
+// not a sandbox.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
 
 type $ = EngineInterface
@@ -324,5 +327,5 @@ export const guardRefusalNow = (e: unknown): string | undefined => {
 export function registerOffers(on: On): void {
   // Every agent type of the mod answers in a shape its part reads: Claude reaches them through the mod's tools, never
   // through the Agent tool
-  for (const name of [COUNCIL, GALADRIEL, GALADRIEL_SWIFT, ...Object.keys(MEMBERS), ...STATUES.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false }))
+  for (const name of [COUNCIL, GALADRIEL, GALADRIEL_SWIFT, ...Object.keys(MEMBERS), ...STATUES.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 }

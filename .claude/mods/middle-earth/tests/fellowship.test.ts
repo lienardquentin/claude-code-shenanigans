@@ -229,6 +229,8 @@ describe('a member', () => {
   test('commits nothing, moves no branch, stays in its worktree, and leaves the mods\' folders alone', () => {
     for (const command of ['git commit -am x', 'cd a && git push', 'git -C . checkout main', 'git stash']) expect(isForbiddenGit(command)).toBe(true)
     for (const command of ['git status', 'git diff HEAD', 'pytest -k commit', 'echo git']) expect(isForbiddenGit(command)).toBe(false)
+    // Run by its path, or inside a shell's inline script, it is the same git
+    for (const command of ['/usr/bin/git commit -m x', "bash -c 'git commit -m x'", 'sh -c "cd x && git push"', 'git update-ref refs/heads/main HEAD']) expect(isForbiddenGit(command)).toBe(true)
     expect(isModPath(TREE, `${TREE}/.elrond/plans/x.json`)).toBe(true)
     expect(isModPath(TREE, `${TREE}/beacons/gondor/app.py`)).toBe(false)
     expect(isOutside(TREE, `${CWD}/beacons/gondor/app.py`)).toBe(true)
@@ -241,6 +243,9 @@ describe('a member', () => {
     // A shell command reaches the person's checkout by naming it: Gimli once built an errand there with cd
     for (const command of [`cd ${CWD}/narsil && cargo test`, `cd ${CWD}`, `sed -n 1,9p '${CWD}/narsil/src/main.rs'`, `cargo test --manifest-path ${CWD}/narsil/Cargo.toml`]) expect(reachesOut(CWD, TREE, command)).toBe(true)
     for (const command of [`cd ${TREE}/narsil && cargo test`, 'cd narsil && cargo test', `ls ${CWD}-old/narsil`, `git -C ${TREE} diff`]) expect(reachesOut(CWD, TREE, command)).toBe(false)
+    // A relative path or a cd climbs out as well, and a cd to the home folder leaves it
+    for (const command of ['cd ../../.. && cargo test', 'cat ../../../narsil/src/main.rs', 'cd narsil; cd ../../../..', 'cd', 'cd ~/proj']) expect(reachesOut(CWD, TREE, command)).toBe(true)
+    for (const command of ['cd narsil && cat ../Cargo.toml', 'git log main..HEAD', 'ls beacons/../narsil']) expect(reachesOut(CWD, TREE, command)).toBe(false)
     // A fix to a mod is not the quest's, unless the task is about the mod: it would ride into its pull request
     const task = { files: ['beacons/gondor/app.py'] }
 
@@ -315,7 +320,7 @@ const SHOWN = ['I wrote one test.', '', '```json', JSON.stringify({ tests: [{ fi
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
 /** The pull request the Black Gate reads for a review: one comment asks for a change, the other a question its member hands back. */
-const thread = (id: string, author: string, path: string, line: number | null, body: string) => ({ id, isResolved: false, isOutdated: false, path, line, comments: { nodes: [{ author: { login: author }, body, url: `https://github.com/x/pull/13#${id}` }] } })
+const thread = (id: string, author: string, path: string, line: number | null, body: string) => ({ id, isResolved: false, isOutdated: false, path, line, comments: { nodes: [{ author: { login: author }, authorAssociation: 'MEMBER', body, url: `https://github.com/x/pull/13#${id}` }] } })
 const GITHUB = JSON.stringify({
   data: {
     repository: {
@@ -1300,6 +1305,23 @@ describe('a review handed over by the Black Gate', () => {
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git worktree remove') || line.startsWith('git branch -D'))).toBe(false)
+  })
+})
+
+describe('a quest named in a command', () => {
+  test('is found by its whole number, never by the end of another\'s, and two a number names alike name none', async ($, on) => {
+    const world = machine(on)
+    const kept = (ref: string, branch: string) => ({ kind: 'errand', ref, url: '', title: ref, branch, base: 'main', tree: `${CWD}/.fellowship/trees/${branch}`, tasks: [], isAuto: true, phase: 'stuck', march: null, proof: '', proofLine: '', verdictLine: '', vision: null, commits: [], pr: '', at: 1 })
+    world.plan = null
+    for (const [ref, branch] of [['github:o/r#12', 'fellowship/12-a'], ['github:o/r#2', 'fellowship/2-b'], ['github:a/x#5', 'fellowship/5-c'], ['github:b/y#5', 'fellowship/5-d']]) world.store[`quest:${ref}`] = kept(ref ?? '', branch ?? '')
+    await start($, world)
+
+    const halt = async (named: string) => String((await $.command.run({ command: 'fellowship', args: `halt ${named}` } as never)).text)
+
+    expect(await halt('2')).toMatch(/^The quest on github:o\/r#2 stops/)
+    expect(await halt('#12')).toMatch(/^The quest on github:o\/r#12 stops/)
+    expect(await halt('5')).toBe('No quest on 5 is under way.')
+    expect(await halt('fellowship/5-d')).toMatch(/^The quest on github:b\/y#5 stops/)
   })
 })
 

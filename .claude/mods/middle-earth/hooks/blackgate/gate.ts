@@ -1,4 +1,5 @@
 import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../../types'
+import { forgeOfHost } from '../flow'
 
 export const HOW_TO = "No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /blackgate march hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
@@ -11,7 +12,7 @@ export const parseRemote = (url: string): { forge: 'github' | 'gitlab'; repo: st
 
   if (found === null) return undefined
 
-  return { forge: (found[1] ?? '').includes('github') ? 'github' : 'gitlab', repo: found[2] ?? '' }
+  return { forge: forgeOfHost(found[1] ?? ''), repo: found[2] ?? '' }
 }
 
 /**
@@ -44,9 +45,9 @@ export const parsePrRef = (input: string, origin?: { forge: 'github' | 'gitlab';
 const GITHUB_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      url title headRefName baseRefName
-      reviewThreads(first: 100) { nodes { id isResolved isOutdated path line comments(first: 30) { nodes { author { login } body url } } } }
-      reviews(first: 50) { nodes { id author { login } body state url } }
+      url title headRefName baseRefName isCrossRepository
+      reviewThreads(first: 100) { totalCount nodes { id isResolved isOutdated path line comments(first: 30) { totalCount nodes { author { login } authorAssociation body url } } } }
+      reviews(first: 50) { totalCount nodes { id author { login } authorAssociation body state url } }
     }
   }
 }`
@@ -64,7 +65,30 @@ export const readArgv = (forge: 'github' | 'gitlab', repo: string, number: numbe
   return [
     ['glab', 'api', `projects/${project}/merge_requests/${number}`],
     ['glab', 'api', `projects/${project}/merge_requests/${number}/discussions?per_page=100`],
+    ['glab', 'api', `projects/${project}/members/all?per_page=100`],
   ]
+}
+
+// How many of each the forge is asked for at most: a pull request holding more is read in part, and says so
+const MAX_THREADS = 100
+const MAX_NOTES = 30
+const MAX_REVIEWS = 50
+
+// Who a GitHub comment is trusted from: one who can push to the repository. Anyone else's is the person's to weigh
+const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR']
+// The least GitLab access that can push: Developer
+const GITLAB_DEVELOPER = 30
+
+/** A thread's notes as one body: its first, then each reply after `--- <author>:`, those from outside left out and counted. */
+const threadBody = (notes: readonly { author: string; body: string; isOutside: boolean }[]): string => {
+  const [first, ...replies] = notes
+  const outside = replies.filter(one => one.isOutside).length
+
+  return [
+    first?.body ?? '',
+    ...replies.filter(one => !one.isOutside).map(one => `--- ${one.author}:\n${one.body}`),
+    ...(outside > 0 ? [`--- (${outside} ${outside === 1 ? 'reply' : 'replies'} from outside the repository left out)`] : []),
+  ].join('\n\n')
 }
 
 type Unweighed = Omit<BlackgateComment, 'weight' | 'kind'>
@@ -72,15 +96,24 @@ type Unweighed = Omit<BlackgateComment, 'weight' | 'kind'>
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
 /** What GitHub answered: the pull request, and each open thread and review's own words as a comment. */
-export const parseGithub = (answer: string, repo: string, number: number): { pr: BlackgatePr; comments: Unweighed[] } | string => {
+export const parseGithub = (answer: string, repo: string, number: number): { pr: BlackgatePr; comments: Unweighed[]; unread: string[] } | string => {
   try {
     const held = JSON.parse(answer) as { data?: { repository?: { pullRequest?: Record<string, unknown> | null } }; errors?: { message?: string }[] }
     const pull = held.data?.repository?.pullRequest
 
     if (pull === undefined || pull === null) return held.errors?.[0]?.message ?? `No pull request #${number} in ${repo}.`
 
-    const threads = ((pull.reviewThreads as { nodes?: unknown[] } | undefined)?.nodes ?? []) as { id?: unknown; isResolved?: unknown; path?: unknown; line?: unknown; comments?: { nodes?: { author?: { login?: unknown }; body?: unknown; url?: unknown }[] } }[]
-    const reviews = ((pull.reviews as { nodes?: unknown[] } | undefined)?.nodes ?? []) as { id?: unknown; author?: { login?: unknown }; body?: unknown; state?: unknown; url?: unknown }[]
+    type Note = { author?: { login?: unknown }; authorAssociation?: unknown; body?: unknown; url?: unknown }
+    const threads = ((pull.reviewThreads as { nodes?: unknown[] } | undefined)?.nodes ?? []) as { id?: unknown; isResolved?: unknown; path?: unknown; line?: unknown; comments?: { totalCount?: unknown; nodes?: Note[] } }[]
+    const reviews = ((pull.reviews as { nodes?: unknown[] } | undefined)?.nodes ?? []) as (Note & { id?: unknown; state?: unknown })[]
+    const isOutside = (note: Note | undefined) => !TRUSTED_ASSOCIATIONS.includes(text(note?.authorAssociation))
+    const total = (of: unknown) => (typeof (of as { totalCount?: unknown } | undefined)?.totalCount === 'number' ? ((of as { totalCount: number }).totalCount) : 0)
+    const longThreads = threads.filter(thread => total(thread.comments) > MAX_NOTES).length
+    const unread = [
+      ...(total(pull.reviewThreads) > MAX_THREADS ? [`${total(pull.reviewThreads) - MAX_THREADS} review threads past the first ${MAX_THREADS} were not read`] : []),
+      ...(total(pull.reviews) > MAX_REVIEWS ? [`${total(pull.reviews) - MAX_REVIEWS} reviews past the first ${MAX_REVIEWS} were not read`] : []),
+      ...(longThreads > 0 ? [`${longThreads} ${longThreads === 1 ? 'thread holds' : 'threads hold'} more than ${MAX_NOTES} comments, read only to its ${MAX_NOTES}th`] : []),
+    ]
 
     const comments: Unweighed[] = [
       ...threads
@@ -93,28 +126,40 @@ export const parseGithub = (answer: string, repo: string, number: number): { pr:
             author: text(notes[0]?.author?.login),
             path: text(thread.path),
             line: typeof thread.line === 'number' ? thread.line : 0,
-            body: notes.map((note, at) => (at === 0 ? text(note.body) : `--- ${text(note.author?.login)}:\n${text(note.body)}`)).join('\n\n'),
+            body: threadBody(notes.map(note => ({ author: text(note.author?.login), body: text(note.body), isOutside: isOutside(note) }))),
             url: text(notes[0]?.url),
             thread: text(thread.id),
+            isOutside: isOutside(notes[0]),
           }
         }),
       // A review's own words, when it asked for changes or said something: an approval's are not a request
       ...reviews
         .filter(review => text(review.body) !== '' && review.state !== 'APPROVED' && review.state !== 'DISMISSED')
-        .map(review => ({ id: text(review.id), author: text(review.author?.login), path: '', line: 0, body: text(review.body), url: text(review.url) })),
+        .map(review => ({ id: text(review.id), author: text(review.author?.login), path: '', line: 0, body: text(review.body), url: text(review.url), isOutside: isOutside(review) })),
     ]
 
-    return { pr: { forge: 'github', repo, number, url: text(pull.url), title: text(pull.title), branch: text(pull.headRefName), base: text(pull.baseRefName) }, comments }
+    return { pr: { forge: 'github', repo, number, url: text(pull.url), title: text(pull.title), branch: text(pull.headRefName), base: text(pull.baseRefName), isFork: pull.isCrossRepository === true }, comments, unread }
   } catch {
     return `GitHub answered nothing that reads: ${answer.trim().slice(0, 200)}`
   }
 }
 
-/** What GitLab answered: the merge request, and each open discussion as a comment. */
-export const parseGitlab = (request: string, discussions: string, repo: string, number: number): { pr: BlackgatePr; comments: Unweighed[] } | string => {
+/**
+ * What GitLab answered: the merge request, and each open discussion as a comment. `members` is the project's members
+ * as GitLab lists them; where they could not be read, every author is taken as outside the repository.
+ */
+export const parseGitlab = (request: string, discussions: string, repo: string, number: number, members = ''): { pr: BlackgatePr; comments: Unweighed[]; unread: string[] } | string => {
   try {
     const mr = JSON.parse(request) as Record<string, unknown>
-    const held = JSON.parse(discussions) as { id?: unknown; notes?: { author?: { username?: unknown }; body?: unknown; system?: unknown; resolvable?: unknown; resolved?: unknown; position?: { new_path?: unknown; new_line?: unknown } }[] }[]
+    const held = JSON.parse(discussions) as { id?: unknown; notes?: { id?: unknown; author?: { username?: unknown }; body?: unknown; system?: unknown; resolvable?: unknown; resolved?: unknown; position?: { new_path?: unknown; new_line?: unknown } }[] }[]
+    const pushers = (() => {
+      try {
+        return (JSON.parse(members) as { username?: unknown; access_level?: unknown }[]).filter(one => typeof one.access_level === 'number' && one.access_level >= GITLAB_DEVELOPER).map(one => text(one.username))
+      } catch {
+        return []
+      }
+    })()
+    const isOutside = (author: unknown) => !pushers.includes(text(author))
 
     if (typeof mr.iid !== 'number') return `No merge request !${number} in ${repo}.`
 
@@ -126,12 +171,15 @@ export const parseGitlab = (request: string, discussions: string, repo: string, 
         author: text(notes[0]?.author?.username),
         path: text(notes[0]?.position?.new_path),
         line: typeof notes[0]?.position?.new_line === 'number' ? notes[0].position.new_line : 0,
-        body: notes.map((note, at) => (at === 0 ? text(note.body) : `--- ${text(note.author?.username)}:\n${text(note.body)}`)).join('\n\n'),
-        url: `${text(mr.web_url)}#note_${id}`,
+        body: threadBody(notes.map(note => ({ author: text(note.author?.username), body: text(note.body), isOutside: isOutside(note.author?.username) }))),
+        // A link names a note, not its discussion
+        url: `${text(mr.web_url)}#note_${notes[0]?.id !== undefined ? String(notes[0].id) : id}`,
         thread: id,
+        isOutside: isOutside(notes[0]?.author?.username),
       }))
+    const isFork = typeof mr.source_project_id === 'number' && typeof mr.target_project_id === 'number' && mr.source_project_id !== mr.target_project_id
 
-    return { pr: { forge: 'gitlab', repo, number, url: text(mr.web_url), title: text(mr.title), branch: text(mr.source_branch), base: text(mr.target_branch) }, comments }
+    return { pr: { forge: 'gitlab', repo, number, url: text(mr.web_url), title: text(mr.title), branch: text(mr.source_branch), base: text(mr.target_branch), isFork }, comments, unread: held.length >= MAX_THREADS ? [`discussions past the first ${MAX_THREADS} were not read`] : [] }
   } catch {
     return `GitLab answered nothing that reads: ${request.trim().slice(0, 200)}`
   }
@@ -154,7 +202,7 @@ export const weighPrompt = (comments: readonly Unweighed[]): string =>
     'Answer with one json block and nothing else: [{ "id": "<the id>", "weight": "light" | "standard" | "heavy", "kind": "change" | "question" | "settled" }]',
   ].join('\n')
 
-/** What the Mouth of Sauron answered, by comment id; a comment it did not weigh is standard and asks for a change. */
+/** What the Mouth of Sauron answered, by comment id; a comment it did not weigh is not in it, and its caller takes it as a question. */
 export const parseWeights = (answer: string): Map<string, { weight: BlackgateWeight; kind: 'change' | 'question' | 'settled' }> => {
   const weighed = new Map<string, { weight: BlackgateWeight; kind: 'change' | 'question' | 'settled' }>()
   const found = /\[[\s\S]*\]/.exec(answer)
@@ -198,7 +246,7 @@ export const handedOf = (gate: BlackgateGate): { ref: string; url: string; title
 
 /** One comment in a line. */
 export const commentLine = (comment: BlackgateComment): string =>
-  `${comment.kind === 'question' ? '?' : '○'} [${comment.kind === 'question' ? 'question' : comment.weight}] ${comment.author}${comment.path !== '' ? ` on ${comment.path}:${comment.line}` : ''}: ${firstLine(comment.body)}`
+  `${comment.kind === 'question' ? '?' : '○'} [${comment.kind === 'question' ? 'question' : comment.weight}${comment.isOutside === true ? ', from outside the repository' : ''}] ${comment.author}${comment.path !== '' ? ` on ${comment.path}:${comment.line}` : ''}: ${firstLine(comment.body)}`
 
 /** The gate in full, for Claude. */
 export const gateText = (gate: BlackgateGate): string => {

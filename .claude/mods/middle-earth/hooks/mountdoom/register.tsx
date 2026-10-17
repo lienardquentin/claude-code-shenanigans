@@ -5,7 +5,7 @@ import type { MountdoomRelic } from '../../types'
 import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText } from './doom'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
-import { UNMODDED, errorText, isConflictingAt, isMergedFrom, rootOf } from '../flow'
+import { UNMODDED, errorText, forgeOfHost, pullStateOf, rootOf, toolFailed } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questRelics } from '../fellowship/register'
@@ -68,7 +68,7 @@ async function watch($: $): Promise<MountdoomRelic[]> {
   ]
 
   const origin = (await git($, ['remote', 'get-url', 'origin'])).out
-  const forge = origin.includes('github') ? 'github' : 'gitlab'
+  const forge = forgeOfHost(origin)
   const found = gathered(answers)
 
   for (const relic of found) {
@@ -79,9 +79,20 @@ async function watch($: $): Promise<MountdoomRelic[]> {
       relic.pr = listed.ok ? foundUrl(listed.out) : ''
     }
 
-    relic.isMerged = await isMergedFrom($, relic.pr, relic.branch)
+    if (relic.pr === '') continue
+
+    const state = await pullStateOf($, relic.pr)
+
+    // A forge that could not be asked is said so, never taken for "not merged"
+    if (typeof state === 'string') {
+      relic.unknown = state
+      continue
+    }
+
+    relic.isMerged = state.isMerged && state.branch === relic.branch
+    relic.head = state.head
     // A pull request still open that fell into conflict with its base waits on the person, though nothing says so
-    relic.isConflicting = !relic.isMerged && relic.pr !== '' && (await isConflictingAt($, relic.pr))
+    relic.isConflicting = !relic.isMerged && state.isConflicting
   }
 
   await update($, relics, () => found)
@@ -112,7 +123,10 @@ async function watch($: $): Promise<MountdoomRelic[]> {
  * made to forget it. Each forgets only once the forge says it is merged; a remote branch is the forge's to remove.
  */
 async function burn($: $, relic: MountdoomRelic): Promise<string> {
-  if (!(await isMergedFrom($, relic.pr, relic.branch))) return `${relic.ref || relic.branch}: ${relic.pr || 'no pull request'} is not merged from ${relic.branch}, and nothing is cast.`
+  const state = await pullStateOf($, relic.pr)
+
+  if (typeof state === 'string') return `${relic.ref || relic.branch}: the forge could not say whether it is merged (${state}), and nothing is cast.`
+  if (!state.isMerged || state.branch !== relic.branch) return `${relic.ref || relic.branch}: ${relic.pr || 'no pull request'} is not merged from ${relic.branch}, and nothing is cast.`
 
   const said: string[] = []
   const root = await rootOf($)
@@ -158,10 +172,21 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
     if (pulled.ok) said.push(`${relic.base} brought up to date`)
   }
 
-  if ((await git($, ['rev-parse', '--verify', '--quiet', `refs/heads/${relic.branch}`])).ok) {
-    const deleted = await git($, ['branch', '-D', relic.branch])
+  const tip = await git($, ['rev-parse', '--verify', '--quiet', `refs/heads/${relic.branch}`])
 
-    said.push(deleted.ok ? `${relic.branch} deleted` : `${relic.branch} could not be deleted: ${deleted.out}`)
+  if (tip.ok) {
+    // A squash or a rebase merge leaves the branch unmerged in git's eyes, so it is deleted by force: only once its tip
+    // is the commit the forge merged, or one before it. Work committed past it is the person's, and the branch is kept
+    const isLanded = state.head !== '' && (tip.out === state.head || (await git($, ['merge-base', '--is-ancestor', tip.out, state.head])).ok)
+    const deleted = isLanded ? await git($, ['branch', '-D', relic.branch]) : undefined
+
+    said.push(
+      deleted === undefined
+        ? `${relic.branch} kept: it holds ${state.head === '' ? 'commits the forge named no merged commit for' : `commits past ${state.head.slice(0, 7)}, the one merged`}, so delete it yourself once you are sure`
+        : deleted.ok
+          ? `${relic.branch} deleted`
+          : `${relic.branch} could not be deleted: ${deleted.out}`,
+    )
   }
 
   const forgotten: string[] = []
@@ -243,7 +268,7 @@ export async function startMountdoom($: $): Promise<void> {
 }
 
 export function registerMountdoom(on: On): void {
-  on('tool.call', { tool: 'mcp__middle-earth__relics' }, async $ => ({ result: relicsText(await watch($)) }))
+  on('tool.call', { tool: 'mcp__middle-earth__relics' }, async $ => ({ result: relicsText(await watch($)) })).catch((_$, _e, next) => toolFailed('relics', next.error))
 
   // Casting deletes branches and has every mod forget: no tool offers it to Claude, and the person casts
   on('command.run', { command: 'mountdoom' }, async ($, e) => {

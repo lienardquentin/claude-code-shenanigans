@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { MiddleEarthAgent } from '../types'
 import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
-import { rootOf } from './flow'
+import { errorText, rootOf, toolFailed } from './flow'
 import { argonathView, endedArgonath, pumpArgonath, registerArgonath, sectionOfArgonath, startArgonath } from './argonath/register'
 import { blackgateView, registerBlackgate, startBlackgate } from './blackgate/register'
 import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
@@ -54,15 +54,33 @@ async function lost($: EngineInterface, agentId: string): Promise<MiddleEarthAge
   return agent
 }
 
+// The last failure each part was found in: said once, and again only when it fails otherwise, so a part that keeps
+// failing alike is not said at every turn
+const stumbles = new Map<string, string>()
+
+/** What a part's failure comes to: a toast that says it, once while it fails alike. It answers nothing in the part's place. */
+function stumbled($: EngineInterface, part: string): (error: unknown) => undefined {
+  return error => {
+    const why = errorText(error)
+
+    if (stumbles.get(part) !== why) {
+      stumbles.set(part, why)
+      $.ui.toast(`Middle-earth: ${part} stumbled: ${why.split('\n')[0] ?? why}`)
+    }
+
+    return undefined
+  }
+}
+
 /**
  * Does what the parts were asked to do that may send an agent, in the hook that calls it: Elrond's council a press
  * asked for, the Fellowship's quests, the statues the session's own change is owed.
  */
 async function pump($: EngineInterface): Promise<void> {
   pumped()
-  await pumpElrond($).catch(() => undefined)
-  await pumpFellowship($).catch(() => undefined)
-  await pumpArgonath($).catch(() => undefined)
+  await pumpElrond($).catch(stumbled($, 'Elrond'))
+  await pumpFellowship($).catch(stumbled($, 'the Fellowship'))
+  await pumpArgonath($).catch(stumbled($, 'the Argonath'))
 }
 
 export const register: Register = on => {
@@ -70,7 +88,7 @@ export const register: Register = on => {
     // The record of the agents sent before a reload, then their types: a reload loads the module afresh
     await recall($)
     await registerAgents($)
-    await carryStores($).catch(() => undefined)
+    await carryStores($).catch(stumbled($, 'the stores'))
     // A host that registers no tools still starts the session
     await $.tool.register(PANE_TOOL).catch(() => undefined)
     await $.tool.register(FRAME_TOOL).catch(() => undefined)
@@ -84,7 +102,7 @@ export const register: Register = on => {
     await startMountdoom($)
     await startRings($)
     // A plugin of the marketplace that lags its folder is said, to the person and to Claude
-    await startLag($).catch(() => undefined)
+    await startLag($).catch(stumbled($, 'the lag check'))
 
     // A reload loads the module afresh: a pane drawn by the copy before it is drawn again, so its buttons press this one
     $.ui.invalidate('ui.render')
@@ -94,10 +112,10 @@ export const register: Register = on => {
 
   // A turn has ended, the session's or an agent's: each part reads what is its own of it, one part's stumble none other's
   on('turn.complete', async ($, e, next) => {
-    await endedElrond($, e).catch(() => undefined)
-    await endedLothlorien($, e).catch(() => undefined)
-    await endedArgonath($, e).catch(() => undefined)
-    await endedFellowship($, e).catch(() => undefined)
+    await endedElrond($, e).catch(stumbled($, 'Elrond'))
+    await endedLothlorien($, e).catch(stumbled($, 'Lothlórien'))
+    await endedArgonath($, e).catch(stumbled($, 'the Argonath'))
+    await endedFellowship($, e).catch(stumbled($, 'the Fellowship'))
 
     return next(e)
   })
@@ -107,7 +125,7 @@ export const register: Register = on => {
   // own turn sends only the statues its change is owed: a quest's proof takes minutes, not kept from the person
   for (const reason of [/./, /[^]/]) {
     on('turn.complete', { reason }, async ($, e, next) => {
-      await (e.agentId === undefined ? pumpArgonath($) : pump($)).catch(() => undefined)
+      await (e.agentId === undefined ? pumpArgonath($) : pump($)).catch(stumbled($, 'the turn\'s end'))
 
       return next(e)
     }).catch((_$, e, next) => next(e))
@@ -117,10 +135,10 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     const added = [
-      await sectionOfElrond($).catch(() => undefined),
-      await sectionOfFellowship($).catch(() => undefined),
-      await sectionOfLothlorien($).catch(() => undefined),
-      await sectionOfArgonath($).catch(() => undefined),
+      await sectionOfElrond($).catch(stumbled($, 'Elrond')),
+      await sectionOfFellowship($).catch(stumbled($, 'the Fellowship')),
+      await sectionOfLothlorien($).catch(stumbled($, 'Lothlórien')),
+      await sectionOfArgonath($).catch(stumbled($, 'the Argonath')),
       sectionOfLag(),
     ].filter(one => one !== undefined)
 
@@ -161,19 +179,19 @@ export const register: Register = on => {
   registerRings(on)
 
   // Answered only from a hook: the clock calls it unanswered
-  on('tool.call', { tool: 'mcp__middle-earth__frame' }, () => ({ result: FRAMED }))
+  on('tool.call', { tool: 'mcp__middle-earth__frame' }, () => ({ result: FRAMED })).catch((_$, _e, next) => toolFailed('frame', next.error))
 
   // Claude was asked to: what waited outside a hook is done here
   on('tool.call', { tool: 'mcp__middle-earth__pump' }, async $ => {
     await pump($)
 
     return { result: 'Done: the panes say how it went.' }
-  })
+  }).catch((_$, _e, next) => toolFailed('pump', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__pane' }, async ($, e) => {
     const named = String((e as unknown as { pane?: unknown }).pane ?? '')
     const view = named in PANES ? PANES[named as keyof typeof PANES] : undefined
 
     return view === undefined ? { result: `There is no pane named ${named}: ${Object.keys(PANES).join(', ')}.` } : view.answer(() => $.ui.panes())
-  })
+  }).catch((_$, _e, next) => toolFailed('pane', next.error))
 }

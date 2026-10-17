@@ -1,5 +1,5 @@
 import type { FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
-import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, issueOf, requestArgv, resolvedFrom } from '../flow'
+import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, forgeOfUrl, issueOf, requestArgv, resolvedFrom } from '../flow'
 import type { Target } from '../flow'
 import { QUEST_TREES } from '../kit/trees'
 
@@ -290,8 +290,10 @@ export const isOutside = (tree: string, path: string): boolean => {
 }
 
 /**
- * Whether a shell command names the person's checkout outside the quest's worktree: a `cd` there, or a file of it
- * named whole. Each place the checkout's path is named must go on into the worktree.
+ * Whether a shell command leaves the quest's worktree: it names the person's checkout outside it, a file of it named
+ * whole, or walks out by a relative path (`cd ../..`, `cat ../../src/app.py`) or to the home folder (`cd`, `cd ~`). The
+ * `cd`s of the command are followed in turn, from the worktree, as its words read; a command built to hide where it
+ * goes can pass this, which is a fence for a builder that means well, not a sandbox.
  */
 export const reachesOut = (root: string, tree: string, command: string): boolean => {
   if (root === '' || root === tree) return false
@@ -303,6 +305,24 @@ export const reachesOut = (root: string, tree: string, command: string): boolean
     // Another folder that only begins like the checkout, such as /work/project-old, is not it
     if (next !== '' && !/[/\s'";&|)]/.test(next)) continue
     if (!(named.startsWith(tree) && /^($|[/\s'";&|)])/.test(named.slice(tree.length)))) return true
+  }
+
+  let here = tree
+
+  for (const part of command.split(/&&|\|\||[;&|()\n]/)) {
+    const words = part.trim().split(/\s+/).map(word => word.replace(/^['"]|['"]$/g, '')).filter(word => word !== '')
+
+    if (words[0] === 'cd' || words[0] === 'pushd') {
+      const to = words.slice(1).find(word => !word.startsWith('-'))
+
+      if (to === undefined || to.startsWith('~') || to.startsWith('$')) return true
+      here = resolvedFrom(here, to)
+      if (isOutside(tree, here)) return true
+      continue
+    }
+
+    // A relative path that climbs out of where the command stands
+    if (words.some(word => /(^|\/)\.\.(\/|$)/.test(word) && !/^[a-z+]+:\/\//i.test(word) && isOutside(tree, resolvedFrom(here, word.replace(/^[^=]*=/, ''))))) return true
   }
 
   return false
@@ -515,7 +535,7 @@ export const prBody = (quest: Pick<FellowshipQuest, 'kind' | 'ref' | 'commits'>,
   ].join('\n')
 
 /** The forge a review's pull request is on, by its URL. */
-export const forgeOf = (url: string): 'github' | 'gitlab' => (/\/\/github\.com\//.test(url) ? 'github' : 'gitlab')
+export const forgeOf = forgeOfUrl
 
 /**
  * The forge's CLI that answers a review thread with a reply, and the one that resolves it: a GitHub review thread by

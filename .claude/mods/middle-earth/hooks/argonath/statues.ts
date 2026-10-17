@@ -102,7 +102,7 @@ export const parseFindings = (answer: string): ArgonathFinding[] | undefined => 
 
       return held.findings
         .map(raw => raw as Record<string, unknown>)
-        .map(raw => ({ severity: raw.severity === 'blocking' ? ('blocking' as const) : ('minor' as const), where: text(raw.where), text: text(raw.text) }))
+        .map(raw => ({ severity: typeof raw.severity === 'string' && raw.severity.trim().toLowerCase() === 'blocking' ? ('blocking' as const) : ('minor' as const), where: text(raw.where), text: text(raw.text) }))
         .filter(finding => finding.text !== '')
     } catch {
       // the one before

@@ -5,7 +5,7 @@ import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskSt
 import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
 import type { Issue, Origin } from './council'
 import { badge } from '../kit/badge'
-import { isMergedFrom, rootOf } from '../flow'
+import { isMergedFrom, rootOf, toolFailed } from '../flow'
 import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
@@ -430,9 +430,9 @@ export function registerElrond(on: On): void {
     const done = await convene($, typeof given.issue === 'string' ? given.issue : '', 'tool', given.again === true)
 
     return { result: done.plan === undefined ? done.text : `${done.text}\n\n${planText(done.plan)}` }
-  })
+  }).catch((_$, _e, next) => toolFailed('convene', next.error))
 
-  on('tool.call', { tool: 'mcp__middle-earth__issue' }, async ($, e) => ({ result: JSON.stringify(await readIssue($, String((e as unknown as { issue?: unknown }).issue ?? ''))) }))
+  on('tool.call', { tool: 'mcp__middle-earth__issue' }, async ($, e) => ({ result: JSON.stringify(await readIssue($, String((e as unknown as { issue?: unknown }).issue ?? ''))) })).catch((_$, _e, next) => toolFailed('issue', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__plan' }, async ($, e) => {
     const given = e as unknown as { ref?: unknown }
@@ -440,14 +440,14 @@ export function registerElrond(on: On): void {
     const sitting = await read($, council)
 
     return { result: held !== null ? planText(held) : sitting !== null ? `The council still sits on ${sitting.ref}: no plan yet.` : `No plan is in force. ${HOW_TO}` }
-  })
+  }).catch((_$, _e, next) => toolFailed('plan', next.error))
 
   on('tool.call', { tool: 'mcp__middle-earth__task' }, async ($, e) => {
     const given = e as unknown as { id?: unknown; state?: unknown; ref?: unknown }
     const state = given.state === 'todo' || given.state === 'doing' || given.state === 'done' ? given.state : undefined
 
     return { result: state === undefined ? 'state is one of todo, doing, done.' : await markTask($, Number(given.id), state, typeof given.ref === 'string' ? given.ref : '') }
-  })
+  }).catch((_$, _e, next) => toolFailed('task', next.error))
 
   on('command.run', { command: 'elrond' }, async ($, e) => {
     const isAgain = /(^|\s)--again(\s|$)/.test(e.args)
