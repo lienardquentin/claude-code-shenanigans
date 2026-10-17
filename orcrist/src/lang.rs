@@ -10,28 +10,35 @@ pub enum Language {
     Rust,
     Python,
     TypeScript,
+    /// TypeScript or JavaScript in a file that may hold JSX: `.tsx`, `.jsx`, `.js`, `.mjs`, `.cjs`
+    Jsx,
     /// A Vue component, whose `<script>` is TypeScript
     Vue,
 }
 
 impl Language {
     /// The pathspecs git is given to list the files of every language orcrist reads.
-    pub const PATHSPECS: [&str; 4] = ["*.rs", "*.py", "*.ts", "*.vue"];
+    pub const PATHSPECS: [&str; 11] = [
+        "*.rs", "*.py", "*.ts", "*.mts", "*.cts", "*.tsx", "*.js", "*.mjs", "*.cjs", "*.jsx", "*.vue",
+    ];
 
     pub fn of(path: &Path) -> Option<Language> {
         match path.extension()?.to_str()? {
             "rs" => Some(Language::Rust),
             "py" => Some(Language::Python),
-            "ts" => Some(Language::TypeScript),
+            "ts" | "mts" | "cts" => Some(Language::TypeScript),
+            // JavaScript is read as TypeScript without annotations, and may hold JSX as a `.tsx` does
+            "tsx" | "js" | "mjs" | "cjs" | "jsx" => Some(Language::Jsx),
             "vue" => Some(Language::Vue),
             _ => None,
         }
     }
 
-    /// The language the code of a file is written in, where names are shared: a Vue component's is TypeScript.
+    /// The language the code of a file is written in, where names are shared: a Vue component's, a `.tsx`'s and
+    /// JavaScript's are TypeScript.
     pub fn code_language(self) -> Language {
         match self {
-            Language::Vue => Language::TypeScript,
+            Language::Jsx | Language::Vue => Language::TypeScript,
             language => language,
         }
     }
@@ -41,13 +48,14 @@ impl Language {
             Language::Rust => tree_sitter_rust::LANGUAGE.into(),
             Language::Python => tree_sitter_python::LANGUAGE.into(),
             Language::TypeScript | Language::Vue => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            Language::Jsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         }
     }
 
     pub fn is_comment(self, node: Node) -> bool {
         match self {
             Language::Rust => matches!(node.kind(), "line_comment" | "block_comment"),
-            Language::Python | Language::TypeScript | Language::Vue => node.kind() == "comment",
+            Language::Python | Language::TypeScript | Language::Jsx | Language::Vue => node.kind() == "comment",
         }
     }
 
@@ -109,14 +117,16 @@ pub fn declared(name: Node, language: Language) -> Option<Declared> {
         (Language::Python, "parameters") => true,
         // `info: str`, the name its first child
         (Language::Python, "typed_parameter") => name.prev_sibling().is_none(),
-        (Language::TypeScript | Language::Vue, "function_declaration" | "method_definition") => {
+        (Language::TypeScript | Language::Jsx | Language::Vue, "function_declaration" | "method_definition") => {
             return is("name").then_some(Declared::Function);
         }
-        (Language::TypeScript | Language::Vue, "variable_declarator") if value_is_function() => {
+        (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") if value_is_function() => {
             return is("name").then_some(Declared::Function);
         }
-        (Language::TypeScript | Language::Vue, "variable_declarator") => is("name"),
-        (Language::TypeScript | Language::Vue, "required_parameter" | "optional_parameter") => is("pattern"),
+        (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") => is("name"),
+        (Language::TypeScript | Language::Jsx | Language::Vue, "required_parameter" | "optional_parameter") => {
+            is("pattern")
+        }
         _ => false,
     };
     declares.then_some(Declared::Value)
