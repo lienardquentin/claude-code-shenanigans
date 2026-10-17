@@ -18,7 +18,8 @@ pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
     if !language.is_comment(node) {
         return None;
     }
-    let code = node.next_named_sibling()?;
+    let code = std::iter::successors(node.next_named_sibling(), |sibling| sibling.next_named_sibling())
+        .find(|sibling| !language.is_comment(*sibling))?;
     let code_row = code.start_position().row;
     let comment = lang::comment_text(&source[node.byte_range()]);
     let code_line = source.lines().nth(code_row)?;

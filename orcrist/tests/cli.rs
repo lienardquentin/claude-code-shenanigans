@@ -548,6 +548,24 @@ fn a_function_that_does_what_another_already_does_is_found() {
     assert_eq!(output.status.code(), Some(1));
 }
 
+// sting: orcrist check fixtures/arrows.ts
+#[test]
+fn functions_held_by_constants_are_compared_and_a_comment_is_not_held_against_the_next() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/arrows.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/arrows.ts:5 duplicate-helper: slugOf does what beaconId in fixtures/arrows.ts:11 already does\n\
+         fixtures/arrows.ts:11 duplicate-helper: beaconId does what slugOf in fixtures/arrows.ts:5 already does\n\
+         fixtures/arrows.ts:17 single-use-abstraction: every call passes 'Hirgon' for keeper\n\
+         fixtures/arrows.ts:22 duplicate-helper: keeperOf does what wardenOf in fixtures/arrows.ts:28 already does\n\
+         fixtures/arrows.ts:28 duplicate-helper: wardenOf does what keeperOf in fixtures/arrows.ts:22 already does\n\
+         fixtures/arrows.ts:34 duplicate-helper: towerOf does what realmOf in fixtures/arrows.ts:40 already does\n\
+         fixtures/arrows.ts:40 duplicate-helper: realmOf does what towerOf in fixtures/arrows.ts:34 already does\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
 #[test]
 fn small_functions_alike_by_chance_are_left_alone() {
     let output = check(
