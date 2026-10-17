@@ -1011,6 +1011,15 @@ describe('tests written before the change', () => {
     expect(proofAnswer([{ label: 'gondor', kind: 'service', found: proved(radiusWith('gondor', []), proof, ['test_burned_for']), isTouched: true }]).verdict).toBe('unsettled')
   })
 
+  test('skipped by their runner stand as skipped, not passing', () => {
+    const output = ['test owner_check ... ignored, needs root', 'test mtime_untouched ... ok'].join('\n')
+    const proof = parseProof(JSON.stringify({ ...PROOF, to: { ...PROOF.to, output } }))!
+    const found = proved(radiusWith('orcrist', []), proof, ['owner_check', 'mtime_untouched'])
+
+    expect(found.required).toMatchObject([{ name: 'owner_check', to: 'skip' }, { name: 'mtime_untouched', to: 'pass' }])
+    expect(proofAnswer([{ label: 'orcrist', kind: 'cli', found, isTouched: true }])).toMatchObject({ verdict: 'unsettled', line: 'a test written before the change does not pass yet: owner_check' })
+  })
+
   test('of another target than theirs are not asked of this one', () => {
     const [narsil] = parseProject(PROJECT, CWD)
 

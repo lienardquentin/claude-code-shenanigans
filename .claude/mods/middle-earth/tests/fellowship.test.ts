@@ -239,6 +239,15 @@ describe('a member', () => {
     expect(judged).not.toContain('<proof>')
   })
 
+  test("is sent with Galadriel's tests to make pass, and those that cannot run here apart, owed no passing", () => {
+    const made = plan()
+    const vision = { taskId: 1, tests: [{ file: 'orcrist/tests/cli.rs', name: 'mtime_untouched' }], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'owner_check', why: 'needs root' }], red: 'mtime changed' }
+    const prompt = companionPrompt(QUEST, made, made.tasks[0]!, 'frodo', undefined, vision)
+
+    expect(prompt).toMatch(/Make them pass\.[\s\S]*- orcrist\/tests\/cli\.rs: mtime_untouched/)
+    expect(prompt).toMatch(/cannot run here: locked as hers are, and owed no passing\.[\s\S]*\n- orcrist\/tests\/cli\.rs: owner_check, needs root/)
+  })
+
   test("is sent with the project's standards to build to, and with none when the project names none", () => {
     const made = plan()
 

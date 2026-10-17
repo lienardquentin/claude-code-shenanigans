@@ -176,18 +176,18 @@ async function behold($: $, place: Place, held: LothlorienVision, answer: string
   const made: LothlorienVision =
     said === undefined
       ? clouded(ended === 'answer' ? 'she gave no answer that reads' : ended === 'aborted' ? 'she was interrupted' : ended === 'refusal' ? 'she refused' : 'an API error ended her gaze')
-      : said.tests.length === 0
+      : said.tests.length === 0 && said.unrun.length === 0
         ? said.untestable !== ''
           ? { ...held, state: 'empty', why: said.untestable }
           : clouded('she named no test, and no reason there is none')
         : blocks.length === 0
           ? clouded('she named tests, but no test file holds anything new')
-          : said.red === ''
+          : said.tests.length > 0 && said.red === ''
             ? clouded('she did not show her tests red')
-            : { ...held, state: 'shown', tests: said.tests, red: said.red, blocks }
+            : { ...held, state: 'shown', tests: said.tests, unrun: said.unrun, red: said.red, blocks }
 
   await setVision($, place, () => made)
-  $.ui.toast(`Lothlórien: ${made.state === 'shown' ? `${made.tests.length} red ${made.tests.length === 1 ? 'test' : 'tests'} show what is to come` : made.state === 'empty' ? 'nothing to test' : `the Mirror is clouded: ${made.why}`}`)
+  $.ui.toast(`Lothlórien: ${made.state === 'shown' ? `${made.tests.length} red ${made.tests.length === 1 ? 'test' : 'tests'} show what is to come${(made.unrun ?? []).length > 0 ? `, ${(made.unrun ?? []).length} more cannot run here` : ''}` : made.state === 'empty' ? 'nothing to test' : `the Mirror is clouded: ${made.why}`}`)
 
   if (made.by === 'command') await $.prompt.submit({ text: visionText(made, await isLocked($, place, made)) }).catch(() => undefined)
 }
@@ -418,6 +418,14 @@ export function registerLothlorien(on: On): void {
                     <Text key={`${test.file}:${test.name}`} color="error">{`  ✗ ${test.name}`}</Text>
                   ))}
               </Box>
+            ))}
+          </Box>
+        )}
+        {(held.unrun ?? []).length > 0 && (
+          <Box flexDirection="column">
+            <Text color="warning">Written, but they cannot run here: owed no passing</Text>
+            {(held.unrun ?? []).map(test => (
+              <Text key={`unrun-${test.file}:${test.name}`} dimColor>{`  ○ ${test.name}: ${test.why}`}</Text>
             ))}
           </Box>
         )}
