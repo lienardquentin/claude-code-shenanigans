@@ -113,7 +113,7 @@ async function open($: $, input: string): Promise<string> {
   // A comment the Mouth of Sauron did not weigh is the person's to read, never built on a guess; one from outside the
   // repository is the person's to weigh, whatever it asks
   const all = parsed.comments.map(one => {
-    const got = weighed.get(one.id) ?? { weight: 'standard' as const, kind: 'question' as const }
+    const got = weighed.get(one.id) ?? { weight: 'standard' as const, isUnweighed: true, kind: 'question' as const }
 
     return { ...one, ...got, kind: one.isOutside === true && got.kind === 'change' ? ('question' as const) : got.kind }
   })

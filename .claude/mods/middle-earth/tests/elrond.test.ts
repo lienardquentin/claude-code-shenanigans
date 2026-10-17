@@ -189,6 +189,15 @@ describe('a plan', () => {
     expect(tidyPlan({ ...plan, questions: ['Old?'] as never }).questions).toEqual([{ text: 'Old?', options: [], answer: '' }])
   })
 
+  test('marks a task the planner gave no weight that reads, and keeps the mark once the plan is kept', () => {
+    const plan = parsePlan('{"tasks":[{"id":1,"title":"a","weight":"docs"},{"id":2,"title":"b","weight":"standard"},{"id":3,"title":"c","weight":"moderate"},{"id":4,"title":"d"}]}', about)
+
+    if (typeof plan === 'string') throw new Error(plan)
+    expect(plan.tasks.map(task => [task.weight, task.isUnweighed === true])).toEqual([['light', false], ['standard', false], ['standard', true], ['standard', true]])
+    // Kept, the standard it was given reads as a weight: the mark still says no one chose it
+    expect(tidyPlan(JSON.parse(JSON.stringify(plan))).tasks.map(task => task.isUnweighed === true)).toEqual([false, false, true, true])
+  })
+
   test('is numbered afresh where its ids repeat, and is none without tasks', () => {
     const plan = parsePlan('{"tasks":[{"id":1,"title":"a","dependsOn":[1]},{"id":1,"title":"b"}]}', about)
 

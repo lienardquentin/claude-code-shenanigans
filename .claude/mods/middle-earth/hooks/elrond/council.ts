@@ -346,6 +346,13 @@ const weightOf = (value: unknown): ElrondWeight => {
   return LIGHT_WORDS.test(said) ? 'light' : HEAVY_WORDS.test(said) ? 'heavy' : 'standard'
 }
 
+/** Whether the planner named no weight that reads, so that `weightOf` answers a standard no one chose. */
+const isUnweighed = (value: unknown): boolean => {
+  const said = typeof value === 'string' ? value.trim().toLowerCase() : ''
+
+  return said !== 'standard' && !LIGHT_WORDS.test(said) && !HEAVY_WORDS.test(said)
+}
+
 /** The plan in what the planner handed over (an object, or its JSON as text), numbered afresh where its ids are missing or repeat; why there is none when there is none. */
 export const planOf = (value: unknown, about: About): ElrondPlan | string => {
   let given = value
@@ -377,6 +384,7 @@ export const planOf = (value: unknown, about: About): ElrondPlan | string => {
       dependsOn: isNumbered ? list(task.dependsOn).map(Number).filter(dep => ids.includes(dep) && dep !== id) : [],
       acceptance: text(task.acceptance).trim(),
       weight: weightOf(task.weight),
+      ...(isUnweighed(task.weight) ? { isUnweighed: true } : {}),
       state: 'todo',
     }
   })
@@ -468,7 +476,8 @@ export const parsePlan = (answer: string, about: About): ElrondPlan | string => 
 /** A plan kept before questions had answers (each a bare string) reads as one that has them. */
 export const tidyPlan = (held: ElrondPlan): ElrondPlan => ({
   ...held,
-  tasks: held.tasks.map(task => ({ ...task, weight: weightOf(task.weight) })),
+  // Once kept, a task no one weighed holds `standard` like one weighed so: its mark is what still tells them apart
+  tasks: held.tasks.map(task => ({ ...task, weight: weightOf(task.weight), ...(task.isUnweighed === true || isUnweighed(task.weight) ? { isUnweighed: true } : {}) })),
   questions: questionsOf(held.questions),
   decided: Array.isArray(held.decided) ? held.decided : [],
   risks: risksOf(held.risks, held.tasks.map(task => task.id)),

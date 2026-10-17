@@ -109,6 +109,7 @@ const taskOf = (task: Record<string, unknown>): FellowshipTask => ({
   dependsOn: numbers(task.dependsOn),
   acceptance: text(task.acceptance),
   weight: weightOf(task.weight),
+  ...(task.isUnweighed === true || (task.weight !== 'light' && task.weight !== 'standard' && task.weight !== 'heavy') ? { isUnweighed: true } : {}),
   state: task.state === 'doing' || task.state === 'done' || task.state === 'asked' ? task.state : 'todo',
   ...(typeof task.brief === 'string' ? { brief: task.brief } : {}),
   ...(typeof task.author === 'string' ? { author: task.author } : {}),
@@ -437,8 +438,8 @@ export const companionPrompt = (quest: QuestOf, plan: FellowshipPlan, task: Fell
       : []),
   ].join('\n')
 
-/** What a task was weighed as before it was built, for the statues to weigh its change's size against. */
-const weighedAs = (task: FellowshipTask): string => `Weighed as ${task.weight} before it was built: ${WEIGHT_MEANS[task.weight]}.`
+/** What a task was weighed as before it was built, for the statues to weigh its change's size against: nothing when no one weighed it. */
+const weighedAs = (task: FellowshipTask): string[] => (task.isUnweighed === true ? [] : [`Weighed as ${task.weight} before it was built: ${WEIGHT_MEANS[task.weight]}.`])
 
 /** What a task's change is meant to do, for the statues to judge it against. */
 export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: FellowshipTask, amendments: readonly { file: string; why: string; by: string }[] = []): string => {
@@ -449,13 +450,13 @@ export const purposeOf = (quest: QuestOf, plan: FellowshipPlan, task: Fellowship
       `The answer to one review comment on ${quest.ref.replace(/^review:/, '')}, "${quest.title}": what it asks, and nothing else of the pull request.`,
       `The comment, by ${task.author ?? 'a reviewer'}${task.where !== undefined && task.where !== '' ? ` on ${task.where}` : ''}:`,
       (task.brief ?? '').slice(0, 3_000),
-      weighedAs(task),
+      ...weighedAs(task),
     ].join('\n')
   }
 
   return [
     `Task ${task.id} of the plan for ${plan.ref}, "${plan.title}": ${task.title}.`,
-    weighedAs(task),
+    ...weighedAs(task),
     ...(task.why !== '' ? [`Why: ${task.why}`] : []),
     ...(task.steps.length > 0 ? ['Steps:', ...task.steps.map((step, index) => `  ${index + 1}) ${step}`)] : []),
     ...(task.acceptance !== '' ? [`Done when: ${task.acceptance}`] : []),
