@@ -9,8 +9,12 @@ pub fn judge(guard: Node, source: &str, language: Language) -> Option<Finding> {
     let (name, annotation) = match (language, guard.kind()) {
         (Language::Python, "call") => python_isinstance(guard, source)?,
         (Language::Python, "comparison_operator") => python_none_check(guard, source)?,
-        (Language::TypeScript | Language::Vue, "binary_expression") => typescript_comparison(guard, source)?,
-        (Language::TypeScript | Language::Vue, "member_expression") => typescript_optional_chain(guard, source)?,
+        (Language::TypeScript | Language::Jsx | Language::Vue, "binary_expression") => {
+            typescript_comparison(guard, source)?
+        }
+        (Language::TypeScript | Language::Jsx | Language::Vue, "member_expression") => {
+            typescript_optional_chain(guard, source)?
+        }
         _ => return None,
     };
     Some(Finding {

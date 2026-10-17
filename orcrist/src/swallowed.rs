@@ -16,12 +16,14 @@ pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
         (Language::Python, "except_clause") if only_passes(node, source) => {
             "the error is caught and nothing is done with it"
         }
-        (Language::TypeScript | Language::Vue, "catch_clause")
+        (Language::TypeScript | Language::Jsx | Language::Vue, "catch_clause")
             if node.child_by_field_name("body").is_some_and(is_empty) =>
         {
             "the error is caught and nothing is done with it"
         }
-        (Language::TypeScript | Language::Vue, "call_expression") if catches_with_nothing(node, source) => {
+        (Language::TypeScript | Language::Jsx | Language::Vue, "call_expression")
+            if catches_with_nothing(node, source) =>
+        {
             "the error is caught and nothing is done with it"
         }
         _ => return None,

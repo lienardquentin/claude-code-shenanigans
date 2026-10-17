@@ -126,6 +126,62 @@ fn since_a_commit_a_file_whose_name_git_quotes_is_judged() {
 }
 
 #[test]
+fn since_a_commit_what_orcrist_cannot_read_is_named_and_jsx_is_read() {
+    let folder = folder("since-unread");
+    git(&folder, &["init", "--quiet"]);
+    fs::write(folder.join("old.md"), "# Beacons\n").unwrap();
+    fs::write(folder.join("README.md"), "# Beacons\n").unwrap();
+    git(&folder, &["add", "old.md", "README.md"]);
+    git(&folder, &["commit", "--quiet", "-m", "start"]);
+    fs::remove_file(folder.join("old.md")).unwrap();
+    fs::write(folder.join("README.md"), "# Beacons\n\nLit in order.\n").unwrap();
+    fs::write(folder.join("Makefile"), "all:\n").unwrap();
+    fs::write(
+        folder.join("Beacon.tsx"),
+        "// light the beacon\nconst beacon = lightBeacon()\nexport const Beacon = () => <p>{beacon}</p>\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "--since", "HEAD"]);
+
+    assert_eq!(
+        stdout(&output),
+        "Beacon.tsx:1 restating-comment: the comment says what line 2 already says\n"
+    );
+    assert_eq!(
+        String::from_utf8(output.stderr.clone()).unwrap(),
+        "orcrist: left unjudged, of no language orcrist reads: 1 .md, 1 Makefile\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_project_file_that_is_not_text_is_left_out_and_the_judged_file_is_still_judged() {
+    let folder = folder("not-text");
+    git(&folder, &["init", "--quiet"]);
+    fs::write(folder.join("bundle.js"), b"var a = '\xff\xfe';\n").unwrap();
+    fs::write(
+        folder.join("load.rs"),
+        "fn load() {\n    // read the config file\n    let config = read_config_file();\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "load.rs"]);
+
+    assert_eq!(
+        stdout(&output),
+        "load.rs:2 restating-comment: the comment says what line 3 already says\n"
+    );
+    assert!(
+        String::from_utf8(output.stderr.clone())
+            .unwrap()
+            .starts_with("orcrist: left out of the project: cannot read bundle.js: "),
+        "{output:?}"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
 fn since_is_only_ever_a_commit_to_git() {
     let folder = folder("since-option");
     git(&folder, &["init", "--quiet"]);
@@ -310,6 +366,40 @@ fn the_script_of_a_vue_component_is_judged_where_it_stands() {
     assert_eq!(
         stdout(&output),
         "Load.vue:7 restating-comment: the comment says what line 8 already says\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/Beacons.tsx
+#[test]
+fn a_tsx_component_is_judged_as_typescript() {
+    let output = run(
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+        &["check", "fixtures/Beacons.tsx"],
+    );
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/Beacons.tsx:1 restating-comment: the comment says what line 2 already says\n\
+         fixtures/Beacons.tsx:7 swallowed-error: the error is caught and nothing is done with it\n\
+         fixtures/Beacons.tsx:11 vague-name: processData says nothing of what it is\n\
+         fixtures/Beacons.tsx:11 vague-name: info says nothing of what it is\n\
+         fixtures/Beacons.tsx:12 impossible-guard: the signature already says info is string\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+// sting: orcrist check fixtures/light.js
+#[test]
+fn javascript_is_judged_as_typescript_without_annotations() {
+    let output = run(Path::new(env!("CARGO_MANIFEST_DIR")), &["check", "fixtures/light.js"]);
+
+    assert_eq!(
+        stdout(&output),
+        "fixtures/light.js:1 restating-comment: the comment says what line 2 already says\n\
+         fixtures/light.js:4 vague-name: handle says nothing of what it is\n\
+         fixtures/light.js:4 vague-name: data says nothing of what it is\n\
+         fixtures/light.js:5 swallowed-error: the error is caught and nothing is done with it\n"
     );
     assert_eq!(output.status.code(), Some(1));
 }

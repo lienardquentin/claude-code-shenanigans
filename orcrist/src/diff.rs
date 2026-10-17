@@ -43,6 +43,32 @@ pub fn added_lines(since: &str) -> Result<BTreeMap<PathBuf, Added>, String> {
     Ok(added)
 }
 
+/// Each file the working tree changed since `since` or does not track yet, relative to the current folder, that is of no
+/// language orcrist reads: what `added_lines` leaves out. A deleted file is no longer there to read and is not one.
+pub fn unread(since: &str) -> Result<Vec<PathBuf>, String> {
+    let changed = git(&[
+        "diff",
+        "--name-only",
+        "--diff-filter=d",
+        "-z",
+        "--relative",
+        "--end-of-options",
+        since,
+        "--",
+    ])?;
+    let untracked = git(&["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let mut unread: Vec<PathBuf> = changed
+        .split('\0')
+        .chain(untracked.split('\0'))
+        .filter(|file| !file.is_empty())
+        .map(PathBuf::from)
+        .filter(|file| Language::of(file).is_none())
+        .collect();
+    unread.sort();
+    unread.dedup();
+    Ok(unread)
+}
+
 fn parse(diff: &str) -> BTreeMap<PathBuf, BTreeSet<usize>> {
     let mut added: BTreeMap<PathBuf, BTreeSet<usize>> = BTreeMap::new();
     let mut file = None;

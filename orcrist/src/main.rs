@@ -11,6 +11,7 @@ mod swallowed;
 mod vague;
 mod words;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -42,8 +43,16 @@ enum Command {
 fn main() -> ExitCode {
     let Command::Check { files, since } = Cli::parse().command;
     let targets: Vec<(PathBuf, diff::Added)> = match since {
-        Some(since) => match diff::added_lines(&since) {
-            Ok(added) => added.into_iter().collect(),
+        Some(since) => match diff::added_lines(&since).and_then(|added| Ok((added, diff::unread(&since)?))) {
+            Ok((added, unread)) => {
+                if !unread.is_empty() {
+                    eprintln!(
+                        "orcrist: left unjudged, of no language orcrist reads: {}",
+                        kinds(&unread)
+                    );
+                }
+                added.into_iter().collect()
+            }
             Err(error) => {
                 eprintln!("orcrist: {error}");
                 return ExitCode::from(2);
@@ -87,4 +96,25 @@ fn main() -> ExitCode {
         }
     }
     if found { ExitCode::from(1) } else { ExitCode::SUCCESS }
+}
+
+/// How many of `files` there are of each extension, as in `2 .md, 1 .json, 1 Makefile`: a file without one by its name.
+fn kinds(files: &[PathBuf]) -> String {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for file in files {
+        let kind = match file.extension() {
+            Some(extension) => format!(".{}", extension.to_string_lossy()),
+            None => file
+                .file_name()
+                .expect("git lists files, never a path ending in ..")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        *counts.entry(kind).or_default() += 1;
+    }
+    counts
+        .iter()
+        .map(|(kind, count)| format!("{count} {kind}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

@@ -96,7 +96,7 @@ fn call<'a>(node: Node, file: &'a File) -> Option<(&'a str, Vec<Option<String>>)
             "char_literal",
         ],
         (Language::Python, "call") => &["integer", "float", "string", "true", "false", "none"],
-        (Language::TypeScript | Language::Vue, "call_expression") => {
+        (Language::TypeScript | Language::Jsx | Language::Vue, "call_expression") => {
             &["number", "string", "true", "false", "null", "undefined"]
         }
         _ => return None,
@@ -128,7 +128,10 @@ fn interface<'a>(node: Node, file: &'a File) -> Option<&'a str> {
     let declares = match (file.language, node.kind()) {
         (Language::Rust, "trait_item") => true,
         (Language::Python, "class_definition") => supertypes(node, file).any(|supertype| supertype == "ABC"),
-        (Language::TypeScript | Language::Vue, "interface_declaration" | "abstract_class_declaration") => true,
+        (
+            Language::TypeScript | Language::Jsx | Language::Vue,
+            "interface_declaration" | "abstract_class_declaration",
+        ) => true,
         _ => false,
     };
     let name = node.child_by_field_name("name").filter(|_| declares)?;
@@ -145,7 +148,7 @@ fn implemented<'a>(node: Node, file: &'a File) -> Vec<&'a str> {
             .into_iter()
             .collect(),
         (Language::Python, "class_definition")
-        | (Language::TypeScript | Language::Vue, "class_declaration" | "abstract_class_declaration") => {
+        | (Language::TypeScript | Language::Jsx | Language::Vue, "class_declaration" | "abstract_class_declaration") => {
             supertypes(node, file).collect()
         }
         _ => Vec::new(),

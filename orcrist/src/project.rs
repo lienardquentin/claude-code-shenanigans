@@ -23,8 +23,10 @@ impl File {
         let function = match (self.language, node.kind()) {
             (Language::Rust, "function_item")
             | (Language::Python, "function_definition")
-            | (Language::TypeScript | Language::Vue, "function_declaration" | "method_definition") => node,
-            (Language::TypeScript | Language::Vue, "variable_declarator") => node
+            | (Language::TypeScript | Language::Jsx | Language::Vue, "function_declaration" | "method_definition") => {
+                node
+            }
+            (Language::TypeScript | Language::Jsx | Language::Vue, "variable_declarator") => node
                 .child_by_field_name("value")
                 .filter(|value| matches!(value.kind(), "arrow_function" | "function_expression"))?,
             _ => return None,
@@ -73,15 +75,20 @@ pub struct Project {
 
 impl Project {
     /// The files judged, and in a git repository every other file of a language orcrist reads below the current
-    /// folder, tracked or not yet, that the working tree holds.
+    /// folder, tracked or not yet, that the working tree holds. One of those others that cannot be read, a bundle that
+    /// is not UTF-8, is left out with a word on stderr: it is no file the person asked to be judged.
     pub fn load(judged: &[PathBuf]) -> Result<Project, String> {
-        let mut paths: Vec<PathBuf> = judged.iter().map(|path| normal(path)).collect();
+        let judged: Vec<PathBuf> = judged.iter().map(|path| normal(path)).collect();
+        let mut files = judged.iter().cloned().map(parse).collect::<Result<Vec<_>, _>>()?;
         for path in repository_files()? {
-            if !paths.contains(&path) && path.exists() {
-                paths.push(path);
+            if judged.contains(&path) || !path.exists() {
+                continue;
+            }
+            match parse(path) {
+                Ok(file) => files.push(file),
+                Err(error) => eprintln!("orcrist: left out of the project: {error}"),
             }
         }
-        let files = paths.into_iter().map(parse).collect::<Result<_, _>>()?;
         Ok(Project { files })
     }
 
