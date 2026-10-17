@@ -134,3 +134,24 @@ export const applyAfresh = async (lane: Shell, onto: string, sha: string): Promi
 
   return { kind: 'conflicts', files }
 }
+
+/**
+ * Why a quest's branch may not leave the machine: what it adds over the branch it is pushed onto (`onto`'s on origin
+ * where it is fetched, else the local base; a review's own branch on origin, which it cannot do without) holds what
+ * looks like a secret, or could not be read. Nothing when it may.
+ */
+export const leakOf = async (shell: Shell, quest: { kind: string; branch: string; base: string }): Promise<string | undefined> => {
+  const onto = `origin/${quest.kind === 'review' ? quest.branch : quest.base}`
+  const isFetched = (await git(shell, ['rev-parse', '--verify', '--quiet', `refs/remotes/${onto}`])).ok
+  const from = isFetched ? onto : quest.kind === 'review' ? '' : quest.base
+
+  if (from === '') return `${onto} is not known here, so what ${quest.branch} adds cannot be read for secrets: fetch it, then push again.`
+
+  const added = await git(shell, ['diff', '--no-color', '--no-ext-diff', `${from}...HEAD`])
+
+  if (!added.ok) return `What ${quest.branch} adds over ${from} could not be read for secrets: ${added.out}`
+
+  const leaked = secretsIn(added.out)
+
+  return leaked.length === 0 ? undefined : `${quest.branch} adds what looks like a secret (${leaked.join('; ')}), so it does not leave the machine: take it out of the branch's history, then push again.`
+}

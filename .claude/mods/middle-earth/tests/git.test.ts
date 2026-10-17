@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { applyAfresh, commitTask, landLane } from '../core/git'
+import { applyAfresh, commitTask, landLane, leakOf } from '../core/git'
 import type { Ran, Shell } from '../core/forge'
 
 const TREE = '/proj/.fellowship/trees/fellowship-12-x'
@@ -142,5 +142,27 @@ describe('a change applied afresh on what landed', () => {
   test('applies after all where the rebase stopped on something else, and says why where nothing conflicts but it failed', async () => {
     expect(await applyAfresh(shell([]).fake, 'tip789', 'lane123')).toEqual({ kind: 'applies' })
     expect(await applyAfresh(shell([['git reset -q --hard', failed('fatal: bad object tip789')]]).fake, 'tip789', 'lane123')).toEqual({ kind: 'failed', why: 'fatal: bad object tip789' })
+  })
+})
+
+describe('a branch about to leave the machine', () => {
+  const quest = { kind: 'plan', branch: 'fellowship/12-x', base: 'main' }
+
+  test("is read for secrets in what it adds over origin's base, else the local one", async () => {
+    const fetched = shell([['git diff', ok('+++ b/a.py\n+print(1)')]])
+
+    expect(await leakOf(fetched.fake, quest)).toBeUndefined()
+    expect(fetched.ran.at(-1)).toBe('git diff --no-color --no-ext-diff origin/main...HEAD')
+
+    const local = shell([['git rev-parse --verify', failed('')], ['git diff', ok('')]])
+
+    await leakOf(local.fake, quest)
+    expect(local.ran.at(-1)).toBe('git diff --no-color --no-ext-diff main...HEAD')
+  })
+
+  test("stays where what it adds holds a secret, could not be read, or a review's branch is not on origin", async () => {
+    expect(await leakOf(shell([['git diff', ok('+++ b/s.py\n+K = "AKIAABCDEFGHIJKLMNOP"')]]).fake, quest)).toBe('fellowship/12-x adds what looks like a secret (s.py: an AWS access key), so it does not leave the machine: take it out of the branch\'s history, then push again.')
+    expect(await leakOf(shell([['git diff', failed('fatal: bad revision')]]).fake, quest)).toBe('What fellowship/12-x adds over origin/main could not be read for secrets: fatal: bad revision')
+    expect(await leakOf(shell([['git rev-parse --verify', failed('')]]).fake, { ...quest, kind: 'review' })).toBe('origin/fellowship/12-x is not known here, so what fellowship/12-x adds cannot be read for secrets: fetch it, then push again.')
   })
 })
