@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import { MOD_FOLDERS } from '../core/change'
 import { forgeOf, pullStateAt } from '../core/forge'
 import type { Forge, ForgeKind, NewRequest, PullState, Ran, Shell } from '../core/forge'
+import { errorText } from '../core/kit'
 import { resolvedFrom } from '../core/paths'
 import { RUN_TREES } from './kit/trees'
 
@@ -15,23 +16,7 @@ type $ = EngineInterface
 // How long the forge is given to take a push
 const FORGE_TIMEOUT_MS = 120_000
 
-export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-/**
- * Work done one at a time, each after the one before has ended, however that one ended: where what parts do beside one
- * another reads and writes the same thing.
- */
-export const inTurn = (): (<T>(work: () => Promise<T>) => Promise<T>) => {
-  let last: Promise<unknown> = Promise.resolve()
-
-  return work => {
-    const done = last.then(work)
-
-    last = done.catch(() => undefined)
-
-    return done
-  }
-}
+export { errorText, inTurn } from '../core/kit'
 
 /**
  * What a tool of the mod answers when its hook failed: the failure, said to Claude, rather than the call left unanswered

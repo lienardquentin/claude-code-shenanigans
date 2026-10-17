@@ -1,4 +1,4 @@
-import type { RunPhase } from '../../types'
+import type { RunPhase } from '../types'
 
 // Where a run can go from where it stands: the build's whole course, in one table. A run is kept only as it
 // moves along it, so a step that would take it elsewhere (a commit of a change no reviewer judged, a pull request opened
