@@ -47,7 +47,7 @@ const side = (ref: string, output: string) => ({ ref, sha: ref === 'work' ? '' :
 const machine = (answers: Partial<Record<Handler, Ran>> = {}, kept = CLI_DIFF) => {
   const world = { jobs: [] as { handler: Handler; job: Record<string, unknown> }[], said: [] as string[], kept: [] as Radius[], ran: [] as string[] }
   const files: Record<string, string> = {
-    [`${TREE}/narsil/tests/cli.rs`]: ['// sting: narsil show 999', 'fn show_says_what_is_missing() {}'].join('\n'),
+    [`${TREE}/narsil/tests/cli.rs`]: ['// pins: narsil show 999', 'fn show_says_what_is_missing() {}'].join('\n'),
   }
   const fake: Machine = {
     shell: {

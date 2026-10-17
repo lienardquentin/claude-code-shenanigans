@@ -60,7 +60,7 @@ const SERVICE = {
   ],
 }
 
-const TESTS = ['# sting: gondor GET /health', 'def test_health_counts_what_burns(client):', '    assert client.get("/health").json()["lit"] == 0'].join('\n')
+const TESTS = ['# pins: gondor GET /health', 'def test_health_counts_what_burns(client):', '    assert client.get("/health").json()["lit"] == 0'].join('\n')
 
 const pytest = (ended: Record<string, boolean>) => Object.entries(ended).map(([name, isOk]) => `beacons/tests/test_gondor.py::${name} ${isOk ? 'PASSED' : 'FAILED'}`).join('\n')
 

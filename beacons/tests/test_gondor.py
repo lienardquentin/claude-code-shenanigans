@@ -27,7 +27,7 @@ def client():
         yield gondor_client
 
 
-# sting: gondor GET /health
+# pins: gondor GET /health
 def test_health(client):
     assert client.get("/health").json() == {"realm": "gondor", "stands": True, "lit": 0}
 
@@ -47,7 +47,7 @@ def test_lighting_a_beacon_names_the_next_and_shows_in_the_list(client):
     assert {b["beacon"] for b in client.get("/beacons").json() if b["lit"]} == {"amon-din"}
 
 
-# sting: gondor GET /beacons/amon-din
+# pins: gondor GET /beacons/amon-din
 def test_one_beacon_answers_its_own_state_lit_or_not(client):
     assert client.get("/beacons/amon-din").json() == {"beacon": "amon-din", "lit": False}
 
@@ -80,7 +80,7 @@ def test_asking_after_one_beacon_with_the_archives_shut_is_a_503(client, monkeyp
     assert answer.json() == {"detail": "the archives are shut, and none can say what burns"}
 
 
-# sting: gondor POST /beacons/amon-din/quench
+# pins: gondor POST /beacons/amon-din/quench
 def test_quenching_one_beacon_puts_out_only_that_one(client):
     client.post("/beacons/amon-din/light")
     client.post("/beacons/eilenach/light")
@@ -92,7 +92,7 @@ def test_quenching_one_beacon_puts_out_only_that_one(client):
     assert {b["beacon"] for b in client.get("/beacons").json() if b["lit"]} == {"eilenach"}
 
 
-# sting: gondor GET /beacons
+# pins: gondor GET /beacons
 def test_a_quenched_beacon_shows_dark_in_the_chain(client):
     client.post("/beacons/amon-din/light")
     client.post("/beacons/amon-din/quench")
@@ -111,7 +111,7 @@ def test_health_counts_a_single_quench_at_once(client):
     assert client.get("/health").json()["lit"] == 1
 
 
-# sting: gondor POST /beacons/quench
+# pins: gondor POST /beacons/quench
 def test_quenching_all_leaves_out_a_beacon_already_quenched(client):
     client.post("/beacons/amon-din/light")
     client.post("/beacons/eilenach/light")
@@ -120,7 +120,7 @@ def test_quenching_all_leaves_out_a_beacon_already_quenched(client):
     assert client.post("/beacons/quench").json() == {"quenched": 1}
 
 
-# sting: gondor POST /beacons/amon-din/quench
+# pins: gondor POST /beacons/amon-din/quench
 def test_quenching_a_dark_beacon_is_a_409(client):
     answer = client.post("/beacons/amon-din/quench")
 
@@ -128,7 +128,7 @@ def test_quenching_a_dark_beacon_is_a_409(client):
     assert "does not burn" in answer.json()["detail"]
 
 
-# sting: gondor POST /beacons/mount-doom/quench
+# pins: gondor POST /beacons/mount-doom/quench
 def test_quenching_an_unknown_beacon_is_a_404(client):
     answer = client.post("/beacons/mount-doom/quench")
 
