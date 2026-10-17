@@ -41,10 +41,11 @@ import type { Retry } from '../../core/quest'
 import { canMove, restingPhase } from './phases'
 import { forgeOfUrl } from '../../core/forge'
 import type { Ran } from '../../core/forge'
-import { UNMODDED } from '../../core/change'
+import { UNMODDED, secretsIn } from '../../core/change'
+import { applyAfresh, commitTask, gitRunsOf, landLane } from '../../core/git'
 import { afterFailedTry, afterProof, afterVerdict, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt } from '../../core/quest'
 import type { Judged, Why } from '../../core/quest'
-import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, push, rootOf, run, secretsIn, sendBack, toolFailed, treePathOf } from '../flow'
+import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, push, rootOf, run, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -348,33 +349,6 @@ async function followBase($: $, held: FellowshipQuest): Promise<string | undefin
   return `${held.branch} cannot take in ${upstream}: it conflicts in ${conflicted.join(', ') || 'the tree'}. Merge it in ${held.tree} by hand, then go on.`
 }
 
-// The config by which a git command runs code of the repository's: its hooks, its filters, what it includes, what it
-// watches the tree with. A builder's change can set none of it (the config is outside its worktree, `git config` is
-// refused it), so a commit made after it changed was not the person's to make
-const GIT_RUNS = '^(core\\.(hookspath|fsmonitor|sshcommand|attributesfile)|include(if)?\\..*|filter\\..*|diff\\..*\\.(command|textconv))$'
-
-/** What git's config says of the code a git command run in a folder would run. */
-async function gitRunsIn($: $, tree: string): Promise<string> {
-  // None of it set is no error: git answers 1, and nothing
-  return (await git($, ['config', '--show-origin', '--get-regexp', GIT_RUNS], tree)).out
-}
-
-/**
- * Why the mod may not commit in a quest's worktree: git's config of the code a commit runs changed since the quest set
- * out, or the change touches the hooks the commit would run; nothing when it may. A builder's code is run by the mod's
- * own commit, outside the guard, only through these.
- */
-async function commitRefusal($: $, held: FellowshipQuest): Promise<string | undefined> {
-  const runs = await gitRunsIn($, held.tree)
-
-  if (held.gitRuns !== undefined && runs !== held.gitRuns) return `git's config of what a commit runs (hooks, filters, includes) changed in ${held.tree} since the quest set out, so its commit is not made: look at \`git config --show-origin --get-regexp '${GIT_RUNS}'\` there, and once it is as it should be, put the task before the Argonath again.`
-
-  const hooks = (await git($, ['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], held.tree)).out
-  const touched = hooks.startsWith(`${held.tree}/`) ? (await git($, ['status', '--porcelain', '--', hooks], held.tree)).out : ''
-
-  return touched === '' ? undefined : `The change touches the git hooks its own commit would run (${hooks}), so it is not committed by the mod: look at them, and commit it by hand if they are as they should be.`
-}
-
 /** What a quest is set out on: what it is, and the branch it is built on. */
 type Spec ={ kind: FellowshipKind; ref: string; url: string; title: string; branch: string; base?: string; isAuto: boolean; tasks?: FellowshipTask[]; pr?: string }
 
@@ -430,7 +404,7 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
     gazed: resumed?.gazed,
     commits: resumed?.commits ?? [],
     pr: resumed?.pr ?? spec.pr ?? '',
-    gitRuns: resumed?.gitRuns ?? (await gitRunsIn($, placed.tree)),
+    gitRuns: resumed?.gitRuns ?? (await gitRunsOf(shellIn($, placed.tree))),
     at: resumed?.at ?? Date.now(),
   }
 
@@ -632,7 +606,7 @@ async function openLane($: $, held: FellowshipQuest, made: FellowshipPlan, task:
     vision: null,
     commits: [],
     pr: '',
-    gitRuns: await gitRunsIn($, placed.tree),
+    gitRuns: await gitRunsOf(shellIn($, placed.tree)),
     lane: { of: held.ref, taskId: task.id },
     at: Date.now(),
   }
@@ -897,11 +871,10 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
   const by = MEMBERS[out.member].title
   const unproven = held.unproven ?? []
   // What the mods keep in the tree (Andúril's builds, the Argonath's trees) is none of the change
-  const dirty = await git($, ['status', '--porcelain', ...UNMODDED], held.tree)
-  let sha = ''
+  const committed = await commitTask(shellIn($, held.tree), { tree: held.tree, taskId: task.id, message: commitMessage({ ...held, ref: issueRefOf(held) }, made, task, by, minor, unproven), gitRuns: held.gitRuns })
 
   // An errand is the whole issue in one change: none at all means it was built somewhere else, or not at all
-  if (dirty.out === '' && held.kind === 'errand') {
+  if (committed.kind === 'clean' && held.kind === 'errand') {
     const why = `${by} left no change in ${held.tree} for ${ref}: it is not done. Look at what it says it built, then send it again.`
 
     await stop($, held, why)
@@ -909,41 +882,14 @@ async function commitNow($: $, ref: string, minor: readonly string[]): Promise<s
     return why
   }
 
-  // A task that needed no change is done with no commit
-  if (dirty.out !== '') {
-    const refused = await commitRefusal($, held)
+  if (committed.kind === 'refused') {
+    await stop($, held, committed.why)
 
-    if (refused !== undefined) {
-      await stop($, held, refused)
-
-      return refused
-    }
-
-    const added = await git($, ['add', '-A', ...UNMODDED], held.tree)
-    // What is staged is read for secrets before it is committed: a secret in a commit outlives the commit
-    const staged = added.ok ? await git($, ['diff', '--cached', '--no-color', '--no-ext-diff'], held.tree) : added
-    const leaked = staged.ok ? secretsIn(staged.out) : []
-
-    if (staged.ok && leaked.length > 0) {
-      await git($, ['reset', '-q'], held.tree)
-
-      const why = `Task ${task.id}'s change adds what looks like a secret (${leaked.join('; ')}), so it is not committed: take it out of ${held.tree}, then put the task before the Argonath again.`
-
-      await stop($, held, why)
-
-      return why
-    }
-
-    const done = staged.ok ? await git($, ['commit', '-m', commitMessage({ ...held, ref: issueRefOf(held) }, made, task, by, minor, unproven)], held.tree) : staged
-
-    if (!done.ok) {
-      await stop($, held, `Task ${task.id} could not be committed: ${done.out}`)
-
-      return `Task ${task.id} could not be committed: ${done.out}`
-    }
-
-    sha = (await git($, ['rev-parse', 'HEAD'], held.tree)).out
+    return committed.why
   }
+
+  // A task that needed no change is done with no commit
+  const sha = committed.kind === 'committed' ? committed.sha : ''
 
   // A lane's commit is its quest's once it lands on the quest's branch
   if (held.lane !== undefined) return land($, ref, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: held.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) })
@@ -987,54 +933,17 @@ async function landNow($: $, ref: string, commit: FellowshipCommit): Promise<str
     return why
   }
 
-  const tip = await git($, ['rev-parse', `refs/heads/${quest.branch}`], held.tree)
-  const onto = tip.out
-  const base = commit.sha === '' ? tip : await git($, ['merge-base', 'HEAD', onto], held.tree)
+  const landing = await landLane(shellIn($, held.tree), shellIn($, quest.tree), { taskId: commit.taskId, sha: commit.sha, branch: quest.branch, laneTree: held.tree, questTree: quest.tree })
 
-  if (!tip.ok || !base.ok) {
-    const why = `Task ${commit.taskId} cannot land: git could not say where ${quest.branch} stands against the lane (${(tip.ok ? base : tip).out || 'it said nothing'}).`
+  if (landing.kind === 'stop') {
+    await stop($, held, landing.why)
 
-    await stop($, held, why)
-
-    return why
+    return landing.why
   }
+  if (landing.kind === 'conflicts') return conflicted($, held, quest, landing.onto, commit)
+  if (landing.kind === 'rebased') return reproved($, held, quest, landing.onto, commit)
 
-  const from = base.out
-
-  if (from !== onto) {
-    const rebased = await git($, ['rebase', onto], held.tree)
-
-    if (!rebased.ok) return conflicted($, held, quest, onto, commit)
-
-    // The change stands uncommitted on what landed, as it is proved, and is committed again once the proof settles
-    const reset = await git($, ['reset', '-q', '--soft', 'HEAD~1'], held.tree)
-
-    if (!reset.ok) {
-      const why = `Task ${commit.taskId} was taken onto ${quest.branch}, but could not be uncommitted there to be proved again: ${reset.out}. Its change is the last commit in ${held.tree}.`
-
-      await stop($, held, why)
-
-      return why
-    }
-
-    return reproved($, held, quest, onto, commit)
-  }
-
-  let landed = commit
-
-  if (commit.sha !== '') {
-    const merged = await git($, ['merge', '--ff-only', commit.sha], quest.tree)
-
-    if (!merged.ok) {
-      const why = `Task ${commit.taskId} could not land on ${quest.branch} in ${quest.tree}: ${merged.out}. Once that worktree is clean, put the task before the Argonath again.`
-
-      await stop($, held, why)
-
-      return why
-    }
-
-    landed = { ...commit, sha: (await git($, ['rev-parse', 'HEAD'], quest.tree)).out }
-  }
+  const landed = { ...commit, sha: landing.sha }
 
   await mark($, quest, commit.taskId, 'done')
 
@@ -1057,17 +966,7 @@ async function landNow($: $, ref: string, commit: FellowshipCommit): Promise<str
  */
 async function conflicted($: $, held: FellowshipQuest, quest: FellowshipQuest, onto: string, commit: FellowshipCommit): Promise<string> {
   const sha = commit.sha
-
-  await git($, ['rebase', '--abort'], held.tree)
-
-  const reset = await git($, ['reset', '-q', '--hard', onto], held.tree)
-  // The change applied with no commit: git stops on what conflicts, marked in the files, which is what is resolved
-  const picked = reset.ok ? await git($, ['cherry-pick', '--no-commit', sha], held.tree) : reset
-  const files = (await git($, ['diff', '--name-only', '--diff-filter=U'], held.tree)).out.split('\n').filter(line => line !== '')
-
-  await git($, ['cherry-pick', '--quit'], held.tree)
-  await git($, ['reset', '-q'], held.tree)
-
+  const applied = await applyAfresh(shellIn($, held.tree), onto, sha)
   const out = held.march
 
   if (out === null) return 'There is nothing to land.'
@@ -1076,16 +975,17 @@ async function conflicted($: $, held: FellowshipQuest, quest: FellowshipQuest, o
 
   if (after === null) return 'There is nothing to land.'
 
-  // The rebase stopped on something else, and the change applies on what landed after all
-  if (reset.ok && picked.ok) return reproved($, held, quest, onto, commit)
+  if (applied.kind === 'applies') return reproved($, held, quest, onto, commit)
 
-  if (!reset.ok || files.length === 0) {
-    const why = `Task ${out.taskId} could not be taken onto ${quest.branch}, which moved while it was built: ${(reset.ok ? picked : reset).out}. Its change is ${sha.slice(0, 7)}: apply it in ${held.tree} by hand, then put it before the Argonath.`
+  if (applied.kind === 'failed') {
+    const why = `Task ${out.taskId} could not be taken onto ${quest.branch}, which moved while it was built: ${applied.why}. Its change is ${sha.slice(0, 7)}: apply it in ${held.tree} by hand, then put it before the Argonath.`
 
     await stop($, after, why)
 
     return why
   }
+
+  const files = applied.files
 
   if (await sendBack($, out.agentId, typeOf(out.member), conflictPrompt(quest.branch, files))) {
     await keep($, held.ref, was => ({ ...was, phase: 'marching', march: was.march === null ? null : { ...was.march, isResumed: true } }))
@@ -1142,7 +1042,7 @@ async function resubmit($: $, ref: string): Promise<string> {
   if (held.march === null || held.phase !== 'stuck') return `There is nothing to put before the Argonath: the quest on ${ref} is ${held.phase}.`
 
   // The person puts it there having looked: git's config as it now stands is theirs
-  const gitRuns = await gitRunsIn($, held.tree)
+  const gitRuns = await gitRunsOf(shellIn($, held.tree))
 
   await keep($, ref, was => ({ ...was, phase: 'proving', gitRuns, march: was.march === null ? null : { ...was.march, isPutBefore: true } }))
   await want($, ref, 'prove')

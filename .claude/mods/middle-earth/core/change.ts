@@ -79,3 +79,34 @@ export const testsDiffOf = async (shell: Shell, target: Pick<Target, 'tests'>): 
 
   return ran.exitCode === 0 ? ran.stdout : ''
 }
+
+// Secrets as their issuers spell them: each a name, and a pattern no test fixture or prose matches by chance
+const SECRETS: readonly [string, RegExp][] = [
+  ['a private key', /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY(?: BLOCK)?-----/],
+  ['an AWS access key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  ['a GitHub token', /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})\b/],
+  ['a GitLab token', /\bglpat-[A-Za-z0-9_-]{20,}\b/],
+  ['a Slack token', /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/],
+  ['an Anthropic key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/],
+  ['an OpenAI key', /\bsk-(?:proj-)?[A-Za-z0-9]{32,}\b/],
+  ['a Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/],
+  ['a Stripe live key', /\b[sr]k_live_[0-9A-Za-z]{20,}\b/],
+  // One for a host on a network: a local database's or a compose service's (`postgres://postgres:postgres@db`) is a fixture
+  ['a password in a URL', /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:[^\s@/'"$]{6,}@(?!localhost\b|127\.|0\.0\.0\.0\b)[\w-]+\.[\w.-]+/i],
+]
+
+/**
+ * The secrets a diff adds: each added line that holds one, as `file: what`. A diff that takes one out, or a line that
+ * names one in a variable, adds none.
+ */
+export const secretsIn = (diff: string): string[] => {
+  const found: string[] = []
+  let file = ''
+
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++ ')) file = line.slice(4).replace(/^b\//, '')
+    else if (line.startsWith('+')) for (const [what, pattern] of SECRETS) if (pattern.test(line)) found.push(`${file}: ${what}`)
+  }
+
+  return [...new Set(found)]
+}
