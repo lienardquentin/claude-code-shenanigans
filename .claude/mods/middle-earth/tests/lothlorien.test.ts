@@ -185,9 +185,13 @@ describe('lothlorien', () => {
     expect(await edit($, 'gimli-1', FILE, before, weakened)).toMatchObject({ result: 'done' })
     expect(await call($, 'mcp__middle-earth__mirror')).toContain('Changed since, and why:\n- beacons/tests/test_gondor.py, by middle-earth:gimli: The issue asks for 409 here, not 404.')
 
+    // A test of hers that cannot run here is owed no passing, and stays locked: the file is not unlocked for it
+    expect(await call($, 'mcp__middle-earth__amend', { file: FILE, test: 'test_quenching_one_beacon', why: 'It needs a second host to quench from.', agentId: 'gimli-1' })).toMatch(/cannot run here: it stays locked/)
+    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 0 tests, red, and 1 that cannot run here, locked[\s\S]*cannot run here, and are owed no passing:\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon, It needs a second host to quench from\. \(said by middle-earth:gimli\)/)
+
     // Committed: HEAD has moved past them, and they are anyone's to change
     world.head = 'bbb222'
-    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 1 test, red, committed since\./)
+    expect(await call($, 'mcp__middle-earth__mirror')).toMatch(/^The Mirror shows what is to come: 0 tests, red, and 1 that cannot run here, committed since\./)
   })
 
   test('shows nothing for a purpose with no behaviour, and is clouded when she shows no red', async ($, on) => {

@@ -148,19 +148,31 @@ export const tamperedWith = (blocks: readonly LothlorienBlock[], amendments: rea
     .map(({ file, text }) => ({ file, lines: missingFrom(lockedIn(blocks, file), text) }))
     .filter(one => one.lines.length > 0)
 
+/**
+ * The vision once a test she showed red is found to be one that cannot run here: moved to `unrun`, with why and who
+ * said so, and owed no passing. Why it cannot be, in a sentence, when the test is none of her red ones.
+ */
+export const released = (vision: LothlorienVision, name: string, why: string, by: string): LothlorienVision | string => {
+  const test = vision.tests.find(one => one.name === name || one.name.endsWith(`::${name}`))
+
+  if (test === undefined) return `${name} is none of Galadriel's red tests: ${vision.tests.map(one => one.name).join(', ') || 'she showed none'}.`
+
+  return { ...vision, tests: vision.tests.filter(one => one !== test), unrun: [...(vision.unrun ?? []), { ...test, why: why.trim(), by }] }
+}
+
 /** The vision in full, for Claude. */
 export const visionText = (vision: LothlorienVision, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
   [
     vision.state === 'gazing'
       ? 'Galadriel gazes into the Mirror: the tests are being written.'
       : vision.state === 'shown'
-        ? `The Mirror shows what is to come: ${vision.tests.length} ${vision.tests.length === 1 ? 'test' : 'tests'}, red${isLocked ? ', locked until they are committed' : ', committed since'}.`
+        ? `The Mirror shows what is to come: ${vision.tests.length} ${vision.tests.length === 1 ? 'test' : 'tests'}, red${(vision.unrun ?? []).length > 0 ? `, and ${(vision.unrun ?? []).length} that cannot run here` : ''}${isLocked ? ', locked until they are committed' : ', committed since'}.`
         : vision.state === 'empty'
           ? `The Mirror shows nothing to test: ${vision.why}`
           : `The Mirror is clouded: ${vision.why}`,
     ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
     ...(vision.red !== '' ? ['', 'How they failed:', vision.red] : []),
-    ...((vision.unrun ?? []).length > 0 ? ['', 'Written too, but they cannot run here, and are owed no passing:', ...(vision.unrun ?? []).map(test => `- ${test.file}: ${test.name}, ${test.why}`)] : []),
+    ...((vision.unrun ?? []).length > 0 ? ['', 'Written too, but they cannot run here, and are owed no passing:', ...(vision.unrun ?? []).map(test => `- ${test.file}: ${test.name}, ${test.why}${test.by !== undefined ? ` (said by ${test.by})` : ''}`)] : []),
     ...(vision.amendments.length > 0 ? ['', 'Changed since, and why:', ...vision.amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
     ...(tampered.length > 0 ? ['', 'Taken out of her tests with no reason given (an edit the lock did not see):', ...tampered.map(one => `- ${one.file}: ${one.lines.slice(0, 3).map(line => `\`${line.trim()}\``).join(', ')}`)] : []),
     ...(isLocked && vision.state === 'shown' ? ['', 'Make them pass without changing them. A test that is wrong is changed only after mcp__middle-earth__amend says which file and why: the reason goes to whoever judges the change.'] : []),
