@@ -10,30 +10,24 @@ import { dealt, judgementShape, judgementText, parseFindings, seated, statueProm
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
-import { rootOf, toolFailed } from '../flow'
+import { errorText, rootOf, shellIn, toolFailed } from '../flow'
 import type { Section, Target, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
-import type { Review } from './proof'
-import { UNREADABLE, affectedIn, changeText, changesOf, cliChanged, gateIn, marksIn, proveIn, serviceJob, serviceLive, servicePlayed, sizeIn, testsDiffIn, wholeFingerprint } from './handlers'
-import type { Found, Place } from './handlers'
+import type { Review } from '../../core/proof'
+import { UNREADABLE, changeText, changesIn, fingerprintOf, sizeOf } from '../../core/change'
+import { lookAt } from '../../core/look'
+import type { Handler, Machine } from '../../core/look'
 import {
   HOME,
-  HOW_TO,
   MARK,
   PROJECT_FILE,
-  isNarrowable,
-  isProd,
   isQuiet,
-  isTested,
-  markedTests,
-  narrowed,
   owed,
   parseProject,
   parseReviews,
   parseStandards,
   proved,
   radiusLine,
-  radiusOf,
   radiusText,
   targetsOf,
   tidy,
@@ -41,11 +35,7 @@ import {
   standingByTarget,
   proofAnswer,
   proofBrief,
-  gateOf,
-  manifestsOf,
-  weakenedOf,
-  requiredOf,
-} from './proof'
+} from '../../core/proof'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -68,6 +58,21 @@ const reviewed = atom({ plugin: 'middle-earth', key: 'argonathReviewed' } as con
 const judgement = atom({ plugin: 'middle-earth', key: 'argonathJudgement' } as const, null as ArgonathJudgement | null)
 const treeJudgements = atom({ plugin: 'middle-earth', key: 'argonathTreeJudgements' } as const, {} as Record<string, ArgonathJudgement>)
 
+/** How to have targets known, said where none are. */
+export const HOW_TO = [
+  `Argonath knows no target here. Name each thing the project builds in ${PROJECT_FILE}, a line each:`,
+  '',
+  '    narsil=cli@narsil',
+  '    narsil.tests=narsil/tests',
+  '    narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli',
+  '',
+  '    gondor=service:gondor.app:app@beacons/gondor',
+  '    gondor.python=beacons',
+  '    $ gondor GET /health',
+  '',
+  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by anduril, a service\'s requests here. Then /argonath.',
+].join('\n')
+
 /**
  * The project's folder as every part reads it, the main checkout's top, taken once: a `cd` Claude runs later does not
  * move the project from under the mod.
@@ -85,6 +90,12 @@ async function homeOf($: $): Promise<string> {
 }
 
 
+/**
+ * Where a look, a proof or a judgement is made: the project's own folder, whose radius the pane and the band show, or
+ * a quest's worktree, whose answers go to the one who asked alone.
+ */
+type Place = { tree: string; isHome: boolean }
+
 /** The place a call is about: a quest's worktree a part names or the calling agent was sent to work in, else the project's. */
 async function placeOf($: $, agentId?: string, named?: unknown): Promise<Place> {
   const cwd = await homeOf($)
@@ -100,6 +111,58 @@ async function homePlace($: $): Promise<Place> {
 
 // The last radius of each target in a quest's worktree, by its folder: the pane shows only the project's own
 const treeRadii = new Map<string, ArgonathRadius[]>()
+
+// The mod whose diff plays a CLI's kept runs on two builds: a CLI's radius is read from what it says
+const ANDURIL = 'anduril'
+// A handler builds and plays on two sides, and a proof runs the tests on each: as long as a host command may run
+const RUN_TIMEOUT_MS = 600_000
+
+/**
+ * What a look runs and reads in a place, through the engine. Each radius it makes is kept at once: the project's in
+ * the pane's state, a quest's worktree's apart, in the order the place's targets are named.
+ */
+function machineIn($: $, place: Place, list: readonly ArgonathTarget[]): Machine {
+  return {
+    shell: shellIn($, place.tree),
+    read: path => $.fs.read(path).catch(() => undefined),
+    handle: (handler, job) => handled($, handler, job),
+    keptRuns: (target, against) => keptRunsOf($, target, against, place),
+    now: () => $.clock.now(),
+    say: async doing => void (await update($, working, () => doing)),
+    keep: async kept => {
+      const placed = (held: readonly ArgonathRadius[]) => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label)))
+
+      if (place.isHome) await update($, radii, placed)
+      else treeRadii.set(place.tree, placed(treeRadii.get(place.tree) ?? []))
+    },
+  }
+}
+
+/** Runs one of the mod's handler scripts with its job on stdin: how it ended, and why on stderr when it could not be started. */
+async function handled($: $, handler: Handler, job: unknown): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return $.process.run(['python3', `${tidy($.plugin.root)}/handlers/${handler}.py`], { stdin: JSON.stringify(job), timeoutMs: RUN_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
+}
+
+/**
+ * What Andúril's diff says of a CLI's kept runs. Andúril is a plugin of its own, useful alone, and this is the one call
+ * that crosses to it: through MCP, as a tool call would be put to the session's permission check, which a proof no one
+ * is at the prompt for cannot answer.
+ */
+async function keptRunsOf($: $, target: ArgonathTarget, against: string, place: Place): Promise<{ said: string } | { why: string }> {
+  try {
+    const answered = await $.mcp.call(ANDURIL, 'diff', { target: target.label, from: against, to: 'work', ...(place.isHome ? {} : { tree: place.tree }) })
+
+    return { said: answered.content.map(block => ('text' in block && typeof block.text === 'string' ? block.text : '')).join('\n') }
+  } catch (error) {
+    const why = errorText(error)
+
+    // A session can run without Andúril loaded, though it is enabled (#48): no builder mends that, a restart does
+    if (/no connected MCP tool/.test(why)) return { why: 'Andúril is not loaded in this session (no tool of its is connected): restart Claude Code, and prove again.' }
+
+    return { why: `A CLI's radius is read from anduril's diff, which could not be called: ${why}` }
+  }
+}
+
 
 async function radiiIn($: $, place: Place): Promise<ArgonathRadius[]> {
   return (place.isHome ? read($, radii) : (treeRadii.get(place.tree) ?? []))
@@ -214,37 +277,6 @@ async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathT
   }))
 }
 
-/**
- * A service's handler: its kept requests are played in-process on both builds, standing alone; then, where the
- * project says where it is deployed and it is running, on both builds again against its real dependencies.
- */
-async function serviceChanged($: $, target: ArgonathTarget, against: string, place: Place): Promise<Found | string> {
-  if (target.app === '') return `${target.label} names no app: say it as service:module:app, gondor=service:gondor.app:app@beacons/gondor.`
-  if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}: $ ${target.label} GET /health`
-
-  // A quest's worktree plays against the project's warm database, which the project's folder names
-  const job = serviceJob(target, against, place, place.isHome ? undefined : await homeOf($))
-  const fast = await servicePlayed($, job)
-
-  if (typeof fast === 'string' || target.live === null) return fast
-
-  // A context that names prod is never touched: the handler, which refuses it too, is not even started
-  if (isProd(target.live.workload)) return { ...fast, live: `Live: not played, the context of ${target.live.workload} names prod, and Argonath reads nothing from it and runs nothing in it` }
-
-  await update($, working, () => `Playing what ${target.label} keeps on both builds against its real dependencies, on ${target.live?.workload ?? ''}…`)
-
-  return serviceLive($, job, target.live, fast)
-}
-
-/** What changed in what one target does, by the handler of its kind. */
-function changedIn($: $, target: ArgonathTarget, against: string, place: Place): Promise<Found | string> {
-  return target.kind === 'cli'
-    ? cliChanged($, target, against, place)
-    : target.kind === 'service'
-      ? serviceChanged($, target, against, place)
-      : Promise.resolve({ summary: `${target.label} is a frontend: Argonath compares no kept run of it, so what changed in what it does is not known, and its tests and checks alone are run`, changed: [], unchanged: [] })
-}
-
 // `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
 // `required`: tests written before the change (Galadriel's), each `{ file, name }`, that are to pass on the working tree
 // `place`: the project's folder when left out
@@ -271,7 +303,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
   const chosen = list.filter(({ label }) => (asked.target === undefined || label === asked.target) && (only === undefined || only.includes(label)))
   const wanted = (asked.required ?? []).map(({ file, name }) => `${file}:${name}`).sort().join(',')
   // A proof takes minutes: one asked again of the same change, as a member's last and its mod's next are, is not made twice
-  const fingerprint = asked.isProving ? await wholeFingerprint($, place.tree) : ''
+  const fingerprint = asked.isProving ? await fingerprintOf(shellIn($, place.tree)) : ''
   // A change git could not read is proved afresh each time: its proof is no other change's
   const key = asked.isProving && !fingerprint.startsWith(UNREADABLE) ? `${fingerprint}|${asked.against}|${chosen.map(({ label }) => label).join(',')}|${wanted}` : ''
   const last = lastProofs.get(cwd)
@@ -282,90 +314,21 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
     return last.looked
   }
 
-  const found: Looked[] = []
   // The checkouts a handler or a proof makes are no part of the repo: the folder says so itself, before any is made
   const ignore = `${cwd}/${HOME}/.gitignore`
   if (!(await $.fs.exists(ignore).catch(() => false))) await $.fs.write(ignore, '*\n').catch(() => undefined)
 
   // What each target's folders hold against HEAD, read once: a target the change did not reach is not played at all
-  const changes = asked.against === 'HEAD' ? await changesOf($, place, list) : new Map<string, string>()
-
-  try {
-    for (const target of chosen) {
-      const required = requiredOf(target, cwd, asked.required ?? [])
-      const isUntouched = changes.has(target.label) && changes.get(target.label) === ''
-      let changed: Found | string
-
-      if (isUntouched) changed = { summary: `${target.label}: the change does not reach its folders`, changed: [], unchanged: [] }
-      else {
-        await update($, working, () => `Playing what ${target.label} keeps on the working tree and on ${asked.against}…`)
-        changed = await changedIn($, target, asked.against, place).catch((error: unknown) => `${target.label} could not be looked at: ${error instanceof Error ? error.message : String(error)}`)
-      }
-
-      if (typeof changed === 'string') {
-        found.push({ target, found: changed })
-        continue
-      }
-
-      let made: ArgonathRadius = { ...radiusOf({ label: target.label, kind: target.kind, at: await $.clock.now(), diff: changed, marks: isUntouched ? [] : await marksIn($, cwd, target) }), live: changed.live ?? '', ...(target.kind === 'frontend' && !isUntouched ? { isUnhandled: true } : {}) }
-
-      // A proof runs only the tests marked on what changed, and those required: with none, there is nothing to run
-      if (asked.isProving && (markedTests(made).length > 0 || required.length > 0)) {
-        if (!isTested(target)) made = { ...made, unproved: `${target.label} names no tests to prove: ${target.label}.tests and ${target.label}.test in ${PROJECT_FILE}.` }
-        // A command that cannot be narrowed would run tests out of scope: it is not run at all
-        else if (!isNarrowable(target.test)) made = { ...made, unproved: `${target.label}.test in ${PROJECT_FILE} has no {tests} for the tests to run, so none is run: every test it holds would be, the ones out of scope with them. Name them as its runner takes them, -k "{tests: or }" for pytest, -- --exact {tests} for cargo.` }
-        else {
-          await update($, working, () => `Running the tests of ${target.label} on ${asked.against}'s source and on the working tree…`)
-
-          const done = await proveIn($, target, made, asked.against, required, place)
-
-          made = typeof done === 'string' ? { ...made, unproved: done } : done
-        }
-      }
-
-      // What the change can break beyond its own runs: the target's own tests, when it reached the target
-      if (asked.isProving && target.affected !== '' && !isUntouched) {
-        await update($, working, () => `Running what a change of ${target.label} can break…`)
-
-        const broken = await affectedIn($, target, asked.against, place)
-
-        made = { ...made, regressions: broken.regressions, preexisting: broken.preexisting, unproved: [made.unproved, broken.unproved].filter(said => said !== '').join('\n') }
-      }
-
-      // Its checks, when it reached the target, and the audit of its dependencies when it touched their manifests; and
-      // what it does to the target's tests, wherever they are
-      if (asked.isProving) {
-        const manifests = manifestsOf(changes.get(target.label) ?? '')
-        const checks = target.checks.map((command, index) => ({ name: target.checks.length === 1 ? `${target.label}.check` : `${target.label}.check #${index + 1}`, command }))
-        const audits = target.audit !== '' && manifests.length > 0 ? [{ name: `${target.label}.audit`, command: target.audit }] : []
-        const gates = isUntouched ? [] : [...checks, ...audits]
-        const found: ReturnType<typeof gateOf>[] = []
-
-        for (const gate of gates) {
-          await update($, working, () => `Running ${gate.name} on the working tree…`)
-          found.push(await gateIn($, target, gate, asked.against, place))
-        }
-
-        made = {
-          ...made,
-          gates: found.map(one => one.broken).filter(said => said !== ''),
-          gatesBefore: found.map(one => one.before).filter(said => said !== ''),
-          unproved: [made.unproved, ...found.map(one => one.unproved)].filter(said => said !== '').join('\n'),
-          weakened: weakenedOf(await testsDiffIn($, target, place)),
-          manifests,
-        }
-      }
-
-      const kept = made
-      const placed = (held: readonly ArgonathRadius[]) => list.flatMap(({ label }) => (label === kept.label ? [kept] : held.filter(one => one.label === label)))
-
-      if (place.isHome) await update($, radii, placed)
-      else treeRadii.set(cwd, placed(treeRadii.get(cwd) ?? []))
-      found.push({ target, found: kept })
-    }
-  } finally {
-    await update($, working, () => '')
-  }
+  const changes = asked.against === 'HEAD' ? await changesIn(shellIn($, cwd), cwd, list) : new Map<string, string>()
+  const found = await lookAt(machineIn($, place, list), {
+    chosen,
+    against: asked.against,
+    isProving: asked.isProving,
+    required: asked.required ?? [],
+    tree: cwd,
+    ...(place.isHome ? {} : { project: await homeOf($) }),
+    changes,
+  })
 
   if (place.isHome) {
     await update($, touched, held => held.filter(label => !chosen.some(target => target.label === label)))
@@ -375,7 +338,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
 
   // Kept only when the tree did not move while it was made: a proof of a change it no longer is answers nothing
   if (key !== '') {
-    if (key.startsWith(`${await wholeFingerprint($, place.tree)}|`)) lastProofs.set(cwd, { key, looked: found })
+    if (key.startsWith(`${await fingerprintOf(shellIn($, place.tree))}|`)) lastProofs.set(cwd, { key, looked: found })
     else lastProofs.delete(cwd)
   }
   if (asked.isProving && isOwing) await owe($)
@@ -385,7 +348,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
 
 /** A proof as a part reads it: whether it settles the change, and each target's state, with the proof as it reads. */
 async function proofShape($: $, looked: readonly Looked[], place: Place) {
-  const changes = await changesOf($, place, await targetsIn($, place, true))
+  const changes = await changesIn(shellIn($, place.tree), place.tree, await targetsIn($, place, true))
   const entries = looked.map(({ target, found }) => ({ label: target?.label ?? '', kind: target?.kind ?? ('' as const), found, isTouched: target === undefined || (changes.get(target.label) ?? '') !== '' }))
 
   return { ...proofAnswer(entries.filter(one => one.label !== '')), ...(entries.some(one => one.label === '') ? { verdict: 'unlooked', line: looked.map(one => one.found).filter((one): one is string => typeof one === 'string').join(' ') } : {}), text: foundText(looked) }
@@ -417,7 +380,7 @@ let reviewDue = ''
 async function owe($: $): Promise<void> {
   if (reviews.length === 0 || unsettled(await read($, radii)).length > 0) return
 
-  const due = await wholeFingerprint($, await homeOf($))
+  const due = await fingerprintOf(shellIn($, await homeOf($)))
 
   reviewDue = due === (await read($, reviewed)) ? '' : due
 }
@@ -444,7 +407,7 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
   if (against !== 'HEAD') return ''
 
   const fresh = (await radiiIn($, place)).filter(one => !one.isStale)
-  const changes = await changesOf($, place, await targetsIn($, place, true))
+  const changes = await changesIn(shellIn($, place.tree), place.tree, await targetsIn($, place, true))
   // A frontend's runs are compared by none: the statues are told so where the change reached it, not that none changed
   const unreached = fresh.filter(one => one.isUnhandled !== true && one.seams.length === 0 && one.turned.length === 0 && (changes.get(one.label) ?? '') !== '').map(one => one.label)
 
@@ -458,7 +421,7 @@ async function briefOf($: $, against: string, place: Place): Promise<string> {
  */
 async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: readonly string[], against = 'HEAD', model?: string, at?: Place, ref?: string): Promise<ArgonathJudgement> {
   const place = at ?? (await homePlace($))
-  const due = await wholeFingerprint($, place.tree, against)
+  const due = await fingerprintOf(shellIn($, place.tree), against)
   const held = await judgementIn($, place)
 
   if (place.isHome) reviewDue = ''
@@ -467,7 +430,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
 
   if (place.isHome) await update($, reviewed, () => due)
 
-  const shown = await changeText($, place.tree, against)
+  const shown = await changeText(shellIn($, place.tree), against)
   const chosen = dealt(reviews).filter(one => only === undefined || only.length === 0 || only.includes(one.name))
 
   // A change git could not show is judged by no statue, and so passes none: each seat is silent, saying why
@@ -494,7 +457,7 @@ async function convene($: $, by: ArgonathJudgement['by'], about = '', only?: rea
   const seats: ArgonathSeat[] = []
   const brief = await briefOf($, against, place)
   const rules = await standardsText($)
-  const size = await sizeIn($, place.tree, against)
+  const size = await sizeOf(shellIn($, place.tree), against)
   // A spawn takes the model only as its family's alias: claude-sonnet-5-5 is sent as sonnet
   const alias = model === undefined ? undefined : (/opus|sonnet|haiku|fable/.exec(model)?.[0] ?? model)
 
@@ -571,9 +534,9 @@ async function review($: $): Promise<void> {
 
   if (due === '' || due === (await read($, reviewed))) return void (reviewDue = '')
   // The change may have moved on since its proof (a commit, a later edit): what stands now is owed its own proof first
-  if ((await wholeFingerprint($, await homeOf($))) !== due) return void (reviewDue = '')
+  if ((await fingerprintOf(shellIn($, await homeOf($)))) !== due) return void (reviewDue = '')
   // And a change committed whole leaves nothing to judge
-  const shown = await changeText($, await homeOf($))
+  const shown = await changeText(shellIn($, await homeOf($)))
 
   if ('text' in shown && isNoChange(shown.text)) return void (reviewDue = '')
 
@@ -730,7 +693,7 @@ async function judgementOf($: $, asked: Convening, place: Place): Promise<{ held
 
   const held = await judgementIn($, place)
 
-  return { held, isStale: held !== null && held.fingerprint !== (await wholeFingerprint($, place.tree, held.against ?? 'HEAD')) }
+  return { held, isStale: held !== null && held.fingerprint !== (await fingerprintOf(shellIn($, place.tree), held.against ?? 'HEAD')) }
 }
 
 /** The statues' judgement of the change in a quest's worktree, for the Fellowship: sent on it first when asked. */
