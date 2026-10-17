@@ -199,7 +199,7 @@ The workflow mods are one marketplace, `pipeline`, kept in
   review, to committed and reviewed work. Its parts each have a folder under `hooks/`, and their logic, which never
   touches the engine, is under `core/`: the issues pane lists the issues (`/issues`), the planner plans (`/planner`),
   the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
-  and reviews each change (`/verify`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
+  and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
   merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
 - `recorder` and `runtime`, each useful alone, watch what the code does. Verify reads the recorder's diff for a
   command-line tool.

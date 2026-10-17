@@ -192,7 +192,7 @@ async function allJudgements($: $): Promise<{ place: Place; held: Judgement }[]>
 }
 
 // What the pane last drew, for the model to read
-export const verifyView = paneView({ id: PANE, title: TITLE, command: '/verify' })
+export const verifyView = paneView({ id: PANE, title: TITLE, command: '/checks' })
 const view = verifyView
 
 // An agent sent to work in a run's worktree is looked at there
@@ -687,7 +687,7 @@ export async function judgementFor($: $, tree: string, asked: ReviewAsk = {}): P
 
 /** Verify at the session's start: its command, its tools, the project's targets, the band's glow, and the clock that looks at what a turn edited. */
 export async function startVerify($: $): Promise<void> {
-  await $.command.register({ name: 'verify', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
+  await $.command.register({ name: 'checks', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
 
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
@@ -793,7 +793,7 @@ export function registerVerify(on: On): void {
     return { result: got.held === null ? 'The reviewers have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
   }).catch((_$, _e, next) => toolFailed('review', next.error))
 
-  on('command.run', { command: 'verify' }, async $ => {
+  on('command.run', { command: 'checks' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     const list = await setUp($)
