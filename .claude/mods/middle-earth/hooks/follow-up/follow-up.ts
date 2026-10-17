@@ -1,14 +1,14 @@
-import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../../types'
+import type { FollowUpComment, FollowUp, FollowUpPr, CommentWeight } from '../../types'
 import { WEIGHT_MEANS } from '../../core/quest'
 
-export const HOW_TO = "No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /blackgate march hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
+export const HOW_TO = "No review follow-up is open. /follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /follow-up answer hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
-/** What weighs the comments: the Mouth of Sauron speaks the terms, in a sentence each. */
+/** What weighs the comments, a sentence each. */
 export const WEIGHER_MODEL = 'claude-haiku-5-5'
 
-type Unweighed = Omit<BlackgateComment, 'weight' | 'kind'>
+type Unweighed = Omit<FollowUpComment, 'weight' | 'kind'>
 
-// How long a comment's line is said where it is cut short: in the gate's own line for Claude, and in a pane of a
+// How long a comment's line is said where it is cut short: in the follow-up's own line for Claude, and in a pane of a
 // comment from outside the repository, which reaches Claude through it as no one's data
 const SHORT_CHARS = 60
 
@@ -17,9 +17,9 @@ const cutShort = (line: string): string => (line.length > SHORT_CHARS ? `${line.
 
 /**
  * What a pane says of a comment: its first lines when its author is of the repository; else, or where nothing says
- * (a gate kept before authors were marked), its first line cut short.
+ * (a follow-up kept before authors were marked), its first line cut short.
  */
-export const commentShown = (comment: Pick<BlackgateComment, 'body' | 'said' | 'isOutside'>, lines: number): string => {
+export const commentShown = (comment: Pick<FollowUpComment, 'body' | 'said' | 'isOutside'>, lines: number): string => {
   const says = commentSays(comment, comment.isOutside === false ? lines : 1)
 
   return comment.isOutside === false ? says : cutShort(says)
@@ -27,10 +27,10 @@ export const commentShown = (comment: Pick<BlackgateComment, 'body' | 'said' | '
 
 /**
  * What a comment says, in its first lines: a thread's first comment as the forge gave it apart from its replies, which
- * are counted, never read out of its text, as its author could type what looks like one. A gate kept before the first
+ * are counted, never read out of its text, as its author could type what looks like one. A follow-up kept before the first
  * comment was kept apart has its body alone, cut at the first mark of a reply, so none is said as its author's.
  */
-export const commentSays = (comment: Pick<BlackgateComment, 'body' | 'said'>, lines: number): string =>
+export const commentSays = (comment: Pick<FollowUpComment, 'body' | 'said'>, lines: number): string =>
   (comment.said ?? comment.body.split(/\n--- (?:\S+:|\(.*left out\))\n?/)[0] ?? '')
     .split('\n')
     .map(line => line.trim())
@@ -38,7 +38,7 @@ export const commentSays = (comment: Pick<BlackgateComment, 'body' | 'said'>, li
     .slice(0, lines)
     .join(' ')
 
-/** The Mouth of Sauron's charge: weigh each comment, as data. */
+/** The weigher's charge: weigh each comment, as data. */
 export const weighPrompt = (comments: readonly Unweighed[]): string =>
   [
     'Weigh each review comment below by what answering it asks of whoever builds the answer, and say whether it asks for a change or asks something only the author of the change can answer.',
@@ -55,9 +55,9 @@ export const weighPrompt = (comments: readonly Unweighed[]): string =>
     'Answer with one json block and nothing else: [{ "id": "<the id>", "weight": "light" | "standard" | "heavy", "kind": "change" | "question" | "settled" }]',
   ].join('\n')
 
-/** What the Mouth of Sauron answered, by comment id; a comment it did not weigh is not in it, and its caller takes it as a question. */
-export const parseWeights = (answer: string): Map<string, { weight: BlackgateWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }> => {
-  const weighed = new Map<string, { weight: BlackgateWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }>()
+/** What the weigher answered, by comment id; a comment it did not weigh is not in it, and its caller takes it as a question. */
+export const parseWeights = (answer: string): Map<string, { weight: CommentWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }> => {
+  const weighed = new Map<string, { weight: CommentWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }>()
   const found = /\[[\s\S]*\]/.exec(answer)
 
   try {
@@ -77,37 +77,37 @@ export const parseWeights = (answer: string): Map<string, { weight: BlackgateWei
 
 const firstLine = (body: string): string => cutShort(body.split('\n').find(one => one.trim() !== '' && !one.startsWith('---'))?.trim() ?? 'a review comment')
 
-/** The ref a gate's quest is known by in the Fellowship. */
-export const reviewRef = (pr: BlackgatePr): string => `review:${pr.repo}#${pr.number}`
+/** The ref a follow-up's quest is known by in the Fellowship. */
+export const reviewRef = (pr: FollowUpPr): string => `review:${pr.repo}#${pr.number}`
 
 /**
  * What the Fellowship is handed: the pull request, and each comment that asks for a change as the task of answering
  * it, its body fenced as data by the member that builds it.
  */
-export const handedOf = (gate: BlackgateGate): { ref: string; url: string; title: string; branch: string; base: string; comments: Record<string, unknown>[] } => ({
-  ref: reviewRef(gate.pr),
-  url: gate.pr.url,
-  title: gate.pr.title,
-  branch: gate.pr.branch,
-  base: gate.pr.base,
-  comments: gate.comments
+export const handedOf = (followUp: FollowUp): { ref: string; url: string; title: string; branch: string; base: string; comments: Record<string, unknown>[] } => ({
+  ref: reviewRef(followUp.pr),
+  url: followUp.pr.url,
+  title: followUp.pr.title,
+  branch: followUp.pr.branch,
+  base: followUp.pr.base,
+  comments: followUp.comments
     .filter(one => one.kind === 'change')
     .map(one => ({ title: firstLine(one.body), brief: one.body, author: one.author, where: one.path === '' ? '' : `${one.path}:${one.line}`, url: one.url, weight: one.weight, ...(one.isUnweighed === true ? { isUnweighed: true } : {}), files: one.path === '' ? [] : [one.path], ...(one.thread !== undefined && one.thread !== '' ? { thread: one.thread } : {}) })),
 })
 
 /** One comment in a line. */
-export const commentLine = (comment: BlackgateComment): string =>
+export const commentLine = (comment: FollowUpComment): string =>
   `${comment.kind === 'question' ? '?' : '○'} [${comment.kind === 'question' ? 'question' : comment.weight}${comment.isOutside === true ? ', from outside the repository' : ''}] ${comment.author}${comment.path !== '' ? ` on ${comment.path}:${comment.line}` : ''}: ${firstLine(comment.body)}`
 
-/** The gate in full, for Claude. */
-export const gateText = (gate: BlackgateGate): string => {
-  const changes = gate.comments.filter(one => one.kind === 'change').length
-  const questions = gate.comments.length - changes
+/** The follow-up in full, for Claude. */
+export const followUpText = (followUp: FollowUp): string => {
+  const changes = followUp.comments.filter(one => one.kind === 'change').length
+  const questions = followUp.comments.length - changes
 
   return [
-    `The Black Gate is open on ${gate.pr.repo}#${gate.pr.number}, "${gate.pr.title}" (${gate.pr.branch} onto ${gate.pr.base}): ${gate.phase}.`,
-    `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change${gate.phase === 'handed' ? `, handed to the Fellowship as ${reviewRef(gate.pr)}: mcp__middle-earth__quest says how each stands` : ''}; ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person to answer.`,
+    `The review follow-up is open on ${followUp.pr.repo}#${followUp.pr.number}, "${followUp.pr.title}" (${followUp.pr.branch} onto ${followUp.pr.base}): ${followUp.phase}.`,
+    `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change${followUp.phase === 'handed' ? `, handed to the Fellowship as ${reviewRef(followUp.pr)}: mcp__middle-earth__quest says how each stands` : ''}; ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person to answer.`,
     '',
-    ...gate.comments.map(commentLine),
+    ...followUp.comments.map(commentLine),
   ].join('\n')
 }

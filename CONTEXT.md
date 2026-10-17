@@ -92,12 +92,12 @@ _Avoid_: Session usage, context usage, tokens left
 
 The Middle-earth mods (`.claude/mods`, the `middle-earth` marketplace) take an issue, or a pull request's review, to
 committed and reviewed work. The `middle-earth` plugin holds the parts of the workflow: the issues pane lists the issues,
-Elrond plans, the Fellowship builds, Lothlórien writes tests first, the Argonath check and review, the Black Gate reads
+Elrond plans, the Fellowship builds, Lothlórien writes tests first, the Argonath check and review, the review follow-up reads
 review, and the cleanup clears what is merged. Andúril and the palantír, plugins of their own, watch what the code does.
 
 **Part**:
 One of the workflow's seven pieces inside the `middle-earth` plugin (the issues pane, Elrond, the Fellowship, Lothlórien, the
-Argonath, the Black Gate, the cleanup), with its own folder, command and pane. Parts call one another as functions.
+Argonath, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
 **Sent agent**:
@@ -125,7 +125,7 @@ A quest on an issue small enough for one change, built with no plan; its builder
 _Avoid_: Quick fix, small quest
 
 **Review quest**:
-A quest the Black Gate hands over: the review comments of an open pull request that ask for a change, each a task
+A quest the review follow-up (`/follow-up`) hands over: the review comments of an open pull request that ask for a change, each a task
 answered on the pull request's own branch, and pushed there, never opened as a new pull request.
 _Avoid_: Gate run, review run
 

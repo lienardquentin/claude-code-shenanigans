@@ -82,7 +82,7 @@ const JUDGED = {
 // An issue as Elrond reads it, for an errand
 const ISSUE = { ref: 'github:lienardquentin/claude-code-shenanigans#21', url: 'https://github.com/lienardquentin/claude-code-shenanigans/issues/21', title: 'Quench answers 404 for an unknown beacon', body: 'It answers 500 today.', comments: [{ author: 'faramir', body: 'Seen on amon-din too.' }] }
 
-// What the Black Gate hands over of a pull request's review comments
+// What the review follow-up hands over of a pull request's review comments
 const REVIEW = {
   ref: 'lienardquentin/claude-code-shenanigans#13',
   url: 'https://github.com/lienardquentin/claude-code-shenanigans/pull/13',
@@ -457,7 +457,7 @@ const SHOWN = ['I wrote one test.', '', '```json', JSON.stringify({ tests: [{ fi
 /** A statue's answer: its account, then its findings as the json block it ends with. */
 const FOUND = (findings: Record<string, string>[]) => ['I ran the review on the change.', '', '```json', JSON.stringify({ findings }), '```'].join('\n')
 
-/** The pull request the Black Gate reads for a review: one comment asks for a change, the other a question its member hands back. */
+/** The pull request the review follow-up reads for a review: one comment asks for a change, the other a question its member hands back. */
 const thread = (id: string, author: string, path: string, line: number | null, body: string) => ({ id, isResolved: false, isOutdated: false, path, line, comments: { nodes: [{ author: { login: author }, authorAssociation: 'MEMBER', body, url: `https://github.com/x/pull/13#${id}` }] } })
 const GITHUB = JSON.stringify({
   data: {
@@ -732,7 +732,7 @@ const machine = (on: On) => {
 
     return answer('')
   })
-  // The Mouth of Sauron, which weighs a review's comments
+  // The weigher, which weighs a review's comments
   on('model.complete', () => ({ value: { isAnswered: true, text: WEIGHTS, usage: { input_tokens: 1, output_tokens: 1 } } }) as never)
   on('session.send', (_, e) => {
     // A plugin's address arrives as it gave it
@@ -1689,12 +1689,12 @@ describe('an errand', () => {
   })
 })
 
-describe('a review handed over by the Black Gate', () => {
-  /** Opens the gate on the pull request, and hands its comments over. */
+describe('a review handed over by the review follow-up', () => {
+  /** Opens a follow-up on the pull request, and hands its comments over. */
   const handOver = async ($: Engine) => {
-    expect(await call($, 'mcp__middle-earth__open', { pr: '#13' })).toMatch(/The Black Gate opens on .*#13/)
+    expect(await call($, 'mcp__middle-earth__open_review', { pr: '#13' })).toMatch(/The review follow-up opens on .*#13/)
 
-    return call($, 'mcp__middle-earth__march')
+    return call($, 'mcp__middle-earth__answer_review')
   }
 
   test('answers each comment on the pull request\'s branch, leaves a question to the person, and pushes once told', async ($, on) => {

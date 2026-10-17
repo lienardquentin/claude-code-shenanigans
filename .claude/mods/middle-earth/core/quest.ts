@@ -120,7 +120,7 @@ export const memberFor = (plan: Plan, task: Task, attempt: number, targets: read
 }
 
 export const HOW_TO =
-  'No quest is under way. Plan an issue with /elrond <issue>, answer its questions and decide its risks, then /fellowship sets out on it (/fellowship --auto goes on by itself). A small issue goes straight to /fellowship errand <issue>; an open pull request\'s review comments, to /blackgate.'
+  'No quest is under way. Plan an issue with /elrond <issue>, answer its questions and decide its risks, then /fellowship sets out on it (/fellowship --auto goes on by itself). A small issue goes straight to /fellowship errand <issue>; an open pull request\'s review comments, to /follow-up.'
 
 export const MARK: Record<TaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
 
@@ -220,7 +220,7 @@ export const errandTask = (issue: { title?: string; body?: string; comments?: { 
     .join('\n\n'),
 })
 
-/** The review comments the Black Gate handed over, as tasks: each a change to make, in turn, on the pull request's branch. */
+/** The review comments the review follow-up handed over, as tasks: each a change to make, in turn, on the pull request's branch. */
 export const reviewTasks = (given: unknown): Task[] =>
   (Array.isArray(given) ? (given as Record<string, unknown>[]) : [])
     .map((one, at) => ({ ...taskOf({ ...one, id: at + 1, dependsOn: [], steps: [], state: 'todo' }), acceptance: text(one.acceptance) || 'What the comment asks for is done, and nothing else of the pull request.' }))

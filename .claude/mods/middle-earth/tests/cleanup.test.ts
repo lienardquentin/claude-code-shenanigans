@@ -15,7 +15,7 @@ const TREE = `${CWD}/.fellowship/trees/fellowship-34-gondor-quench-a-single-beac
 const REVIEW_REF = 'review:lienardquentin/claude-code-shenanigans#40'
 
 describe('the leftovers', () => {
-  test('are one a branch: a quest and the gate open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
+  test('are one a branch: a run and the follow-up open on its pull request are one, kept by the issue\'s ref, with its worktree', () => {
     const leftovers = gathered([
       { keeper: 'follow-up', kept: [{ ref: 'lienardquentin/claude-code-shenanigans#40', branch: BRANCH, base: 'main', pr: PR }] },
       { keeper: 'build', kept: [{ ref: REF, branch: BRANCH, base: 'main', tree: TREE, pr: '' }, { ref: 'github:o/r#35', branch: 'fellowship/35-x', base: 'main', tree: '', pr: '' }] },
