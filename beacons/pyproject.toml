@@ -12,7 +12,16 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=8",
+    "ruff>=0.17.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# kafka-python ships no type hints
+[[tool.mypy.overrides]]
+module = ["kafka", "kafka.*"]
+ignore_missing_imports = true

@@ -4,7 +4,7 @@ import json
 import logging
 import sys
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # The id of the request being answered, carried to Rohan so one errand reads as one story across both logs
 request_id: ContextVar[str] = ContextVar("request_id", default="")
@@ -13,7 +13,7 @@ request_id: ContextVar[str] = ContextVar("request_id", default="")
 class JsonLines(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         line = {
-            "time": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds"),
+            "time": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds"),
             "level": record.levelname.lower(),
             "msg": record.getMessage(),
         }

@@ -3,7 +3,7 @@
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kafka import KafkaProducer
 from kafka.errors import KafkaError
@@ -69,7 +69,7 @@ def send(beacon: str, watch_next: str) -> None:
 
         return
 
-    tidings = {"beacon": beacon, "watch_next": watch_next, "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
+    tidings = {"beacon": beacon, "watch_next": watch_next, "at": datetime.now(UTC).isoformat(timespec="milliseconds")}
 
     try:
         sent = herald.send(TOPIC, key=beacon.encode(), value=json.dumps(tidings).encode(), headers=[("rid", rid.encode())])

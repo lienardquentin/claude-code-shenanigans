@@ -41,6 +41,9 @@ gondor.tests=beacons/tests
 gondor.test=uv run --quiet --project beacons pytest -v -p no:cacheprovider beacons/tests -k "{tests: or }"
 # What a change of Gondor can break: the beacons' tests, failures named in pytest's summary
 gondor.affected=uv run --quiet --project beacons pytest -q -rfE -p no:cacheprovider beacons/tests
+# Its lints and types, which a change may not newly fail, run as narsil's are: mypy reads its settings from the beacons'
+# pyproject, which it does not find from the project's folder by itself
+gondor.check=uv run --quiet --project beacons ruff check beacons/gondor && uv run --quiet --project beacons mypy --config-file beacons/pyproject.toml beacons/gondor
 
 # Live: where Gondor is deployed. While it runs there, both builds are played again here against its real Postgres and
 # Rohan, reached by port-forward, with the deployed workload's own variables (a secret read from its secret). A context
@@ -78,3 +81,5 @@ $ gondor POST /muster
 anor=frontend@beacons/anor
 anor.tests=beacons/anor/tests
 anor.affected=npm --prefix beacons/anor test --silent -- --reporter=verbose
+# No check yet: its types are vue-tsc's to check (nuxi typecheck), which it does not hold, and Nuxt asks for Node 22.21
+# or later where this machine has 20
