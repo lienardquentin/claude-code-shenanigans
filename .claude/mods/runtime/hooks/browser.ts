@@ -50,7 +50,7 @@ export type Asked = {
 
 /**
  * What the asking came to. Each page of a watched app hands its renders and its elements over as the JSON lines
- * palantir counts renders and keeps pages by, so that what the browser says is read as what a log says; what the
+ * The runtime mod counts renders and keeps pages by, so that what the browser says is read as what a log says; what the
  * person did on it, what it asked for and how it loaded likewise, and what its console holds of errors and
  * warnings as lines of the app's own, which are counted as its errors are. A page
  * the person is looking at is taken last: where two tabs show one app, the page kept is that one.
@@ -87,11 +87,11 @@ export const readAsked = (ran: Printed, attachments: readonly Attachment[], port
     raws[label] = [
       ...(raws[label] ?? []),
       ...objects(page.said).map(consoleLine),
-      ...objects(page.renders).map(render => JSON.stringify({ ...render, palantir: 'render' })),
-      ...objects(page.actions).map(action => JSON.stringify({ ...action, palantir: 'action' })),
-      ...objects(page.requests).map(request => JSON.stringify({ ...request, palantir: 'request' })),
-      ...(typeof page.vitals === 'object' && page.vitals !== null ? [JSON.stringify({ ...page.vitals, palantir: 'vitals' })] : []),
-      JSON.stringify({ ...dom, palantir: 'dom' }),
+      ...objects(page.renders).map(render => JSON.stringify({ ...render, runtime: 'render' })),
+      ...objects(page.actions).map(action => JSON.stringify({ ...action, runtime: 'action' })),
+      ...objects(page.requests).map(request => JSON.stringify({ ...request, runtime: 'request' })),
+      ...(typeof page.vitals === 'object' && page.vitals !== null ? [JSON.stringify({ ...page.vitals, runtime: 'vitals' })] : []),
+      JSON.stringify({ ...dom, runtime: 'dom' }),
     ]
   }
 

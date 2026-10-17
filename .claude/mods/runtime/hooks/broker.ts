@@ -39,7 +39,7 @@ export const KINDS: { kind: AttachmentKind; one: string; many: string }[] = [
   { kind: 'database', one: 'database', many: 'databases' },
 ]
 
-const UNREAD = "A Kafka broker, told by its image, and not read: palantir asks a broker through Redpanda's own rpk, which this image does not hold. Its log is read as any other."
+const UNREAD = "A Kafka broker, told by its image, and not read: The runtime mod asks a broker through Redpanda's own rpk, which this image does not hold. Its log is read as any other."
 
 /** Every topic with its partitions' offsets, and every consumer group with where it stands: run inside the broker. */
 export const TOPICS_ARGV = ['rpk', 'topic', 'describe', '-r', '.*', '-p', '--format', 'json'] as const
@@ -124,7 +124,7 @@ export const settleBroker = (was: Broker | undefined, read: { topics: Topic[]; g
 
   const said = groups
     .filter(group => group.members === 0 && (before.get(group.name)?.members ?? 0) > 0)
-    .map(({ name, lag }) => `palantir: ${label}: the group ${name} has no member left${lag > 0 ? `, ${lag} record${lag === 1 ? '' : 's'} wait${lag === 1 ? 's' : ''}` : ''}`)
+    .map(({ name, lag }) => `runtime: ${label}: the group ${name} has no member left${lag > 0 ? `, ${lag} record${lag === 1 ? '' : 's'} wait${lag === 1 ? 's' : ''}` : ''}`)
 
   return { broker: { ...was, kind: 'redpanda', at: now, note: '', topics: read.topics, groups }, said }
 }
@@ -173,7 +173,7 @@ export const brokerLine = (broker: Broker | undefined, now: number): string => {
   return [
     `  a ${KIND_NAME[broker.kind]} broker: ${broker.topics.length} topic${broker.topics.length === 1 ? '' : 's'}, ${broker.groups.length} consumer group${broker.groups.length === 1 ? '' : 's'}`,
     behind.length === 0 ? 'none behind' : `behind: ${behind.map(group => `${group.name} by ${group.lag}${stuckFor(group, now) > 0 ? ' and taking nothing' : ''}`).join(', ')}`,
-    'mcp__palantir__broker says more',
+    'mcp__runtime__broker says more',
   ].join('; ')
 }
 
@@ -201,7 +201,7 @@ const describeBroker = (label: string, broker: Broker, now: number): string => {
 }
 
 export const NO_BROKER =
-  "No watched app is a broker palantir reads. A Redpanda container, compose service or Kubernetes workload is told by its image and asked through its own rpk, with nothing to set: watch it like any other app, in the compose file or as a line of .claude/palantir."
+  "No watched app is a broker the runtime mod reads. A Redpanda container, compose service or Kubernetes workload is told by its image and asked through its own rpk, with nothing to set: watch it like any other app, in the compose file or as a line of .claude/runtime."
 
 type Known = Record<string, Facts>
 
@@ -211,7 +211,7 @@ export const brokerText = (attachments: readonly Attachment[], known: Known, ask
   const brokers = attachments.flatMap(({ label }) => (known[label]?.broker === undefined || (target !== '' && label !== target) ? [] : [{ label, broker: known[label].broker }]))
 
   if (brokers.length > 0) return brokers.map(({ label, broker }) => describeBroker(label, broker, now)).join('\n')
-  if (target !== '' && attachments.some(({ label }) => label === target)) return `${target} is not a broker palantir reads. ${NO_BROKER}`
+  if (target !== '' && attachments.some(({ label }) => label === target)) return `${target} is not a broker the runtime mod reads. ${NO_BROKER}`
 
   return NO_BROKER
 }
@@ -272,7 +272,7 @@ export const peekText = (label: string, topic: string, peeked: readonly Peeked[]
  */
 export const askBrokerPrompt = (brokers: readonly { label: string; broker: Broker }[], question: string): string =>
   [
-    `About ${brokers.length === 1 ? 'the broker' : 'the brokers'} palantir watches (${brokers
+    `About ${brokers.length === 1 ? 'the broker' : 'the brokers'} the runtime mod watches (${brokers
       .map(
         ({ label, broker }) =>
           `${label}: ${KIND_NAME[broker.kind]}, ${broker.topics.length === 0 ? 'no topic' : `topics ${broker.topics.map(({ name }) => name).join(', ')}`}, ${broker.groups.length === 0 ? 'no consumer group' : `consumer groups ${broker.groups.map(({ name }) => name).join(', ')}`}`,
@@ -281,7 +281,7 @@ export const askBrokerPrompt = (brokers: readonly { label: string; broker: Broke
     '',
     question.trim(),
     '',
-    `Answer it by asking ${brokers.length === 1 ? 'it' : 'them'} with mcp__palantir__broker${brokers.length === 1 ? ` (target ${brokers[0]?.label ?? ''})` : ''}: alone it says the topics, the consumer groups and how far behind each is; with \`topic\` it reads the last records of that topic too, up to 20 from each partition with \`limit\`, and \`grep\` keeps those that hold a text. Say what you read along with the answer. If it cannot be answered by reading, say so: no record is to be written and no group moved.`,
+    `Answer it by asking ${brokers.length === 1 ? 'it' : 'them'} with mcp__runtime__broker${brokers.length === 1 ? ` (target ${brokers[0]?.label ?? ''})` : ''}: alone it says the topics, the consumer groups and how far behind each is; with \`topic\` it reads the last records of that topic too, up to 20 from each partition with \`limit\`, and \`grep\` keeps those that hold a text. Say what you read along with the answer. If it cannot be answered by reading, say so: no record is to be written and no group moved.`,
   ].join('\n')
 
 /** What is handed to Claude when the person asks why a consumer group does not keep up: the groups behind, as they stand. */
@@ -289,10 +289,10 @@ export const diagnoseGroupsPrompt = (label: string, broker: Broker, now: number)
   const behind = broker.groups.filter(group => group.lag > 0 || (group.members === 0 && group.partitions.length > 0))
 
   return [
-    `Find why ${behind.length === 1 ? 'this consumer group' : 'these consumer groups'} of the broker ${label}, which palantir watches, ${behind.length === 1 ? 'does' : 'do'} not keep up:`,
+    `Find why ${behind.length === 1 ? 'this consumer group' : 'these consumer groups'} of the broker ${label}, which the runtime mod watches, ${behind.length === 1 ? 'does' : 'do'} not keep up:`,
     '',
     ...behind.map(group => `  ${group.name} (reads ${topicsOf(group).join(', ') || 'no topic'}): ${group.state}, ${group.members} member${group.members === 1 ? '' : 's'}, ${group.lag} behind; ${standing(group, broker, now)}`),
     '',
-    `mcp__palantir__broker (target ${label}) says the lag partition by partition, and with \`topic\` reads the last records of a topic: the record a group is stuck on is the one after the offset it has marked. mcp__palantir__logs says what the app that consumes wrote, and mcp__palantir__status whether it runs. Fix the cause in the consumer's code where it is there; say so where it is not (a consumer that is down, a record that cannot be read). No record is to be written and no group moved.`,
+    `mcp__runtime__broker (target ${label}) says the lag partition by partition, and with \`topic\` reads the last records of a topic: the record a group is stuck on is the one after the offset it has marked. mcp__runtime__logs says what the app that consumes wrote, and mcp__runtime__status whether it runs. Fix the cause in the consumer's code where it is there; say so where it is not (a consumer that is down, a record that cannot be read). No record is to be written and no group moved.`,
   ].join('\n')
 }

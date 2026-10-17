@@ -190,36 +190,37 @@ claude plugin install renovate-desk@renovate-desk-mods
 
 Then open the pane with `/renovate`.
 
-### Middle-earth
+### Pipeline
 
-The Lord of the Rings mods are one marketplace, `middle-earth`, kept in
+The workflow mods are one marketplace, `pipeline`, kept in
 [`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json), of three plugins:
 
-- `middle-earth` ([`.claude/mods/middle-earth`](.claude/mods/middle-earth)) takes an issue, or a pull request's
-  review, to committed and reviewed work. Its parts each have a folder under `hooks/`: Elrond plans (`/elrond`), the
-  Fellowship builds (`/fellowship`), Lothlórien writes tests first (`/mirror`), the Argonath prove and judge each
-  change (`/argonath`), the Black Gate reads review (`/blackgate`) and Mount Doom clears what is merged
-  (`/mountdoom`). Its tools are `mcp__middle-earth__*`; `mcp__middle-earth__pane` reads any of its panes by name.
-- `anduril` and `palantir`, each useful alone, watch what the code does. The Argonath reads Andúril's diff for a
+- `pipeline` ([`.claude/mods/pipeline`](.claude/mods/pipeline)) takes a GitHub or GitLab issue, or a pull request's
+  review, to committed and reviewed work. Its parts each have a folder under `hooks/`, and their logic, which never
+  touches the engine, is under `core/`: the issues pane lists the issues (`/issues`), the planner plans (`/planner`),
+  the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
+  and reviews each change (`/verify`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
+  merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
+- `recorder` and `runtime`, each useful alone, watch what the code does. Verify reads the recorder's diff for a
   command-line tool.
 
 Install them from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods
-for mod in middle-earth anduril palantir; do
-  claude plugin install "$mod@middle-earth"
+for mod in pipeline recorder runtime; do
+  claude plugin install "$mod@pipeline"
 done
 ```
 
-The parts were six plugins of their own until [ADR 0005](docs/adr/0005-the-workflow-mods-are-one-plugin.md). A plugin's
-kept state belongs to its id, so on its first start `middle-earth` carries the plans and quests the old `elrond` and
-`fellowship` plugins kept into its own store. Uninstall the six old ones
-(`elrond`, `fellowship`, `lothlorien`, `argonath`, `blackgate`, `mountdoom`) once it is installed.
+The plugins were named for The Lord of the Rings until #104 (`middle-earth`, `anduril`, `palantir`). A plugin's kept
+state belongs to its id, so on its first start `pipeline` carries the plans and runs the old `middle-earth` plugin kept
+into its own store, and each mod still reads a project's file under its old name (`.claude/argonath`,
+`.claude/anduril`, `.claude/palantir`) until it is moved. Uninstall the old ones once the new ones are installed.
 
 ```
-claude plugin validate .claude/mods/middle-earth
-claude plugin test .claude/mods/middle-earth
+claude plugin validate .claude/mods/pipeline
+claude plugin test .claude/mods/pipeline
 ```
 
 ### `recorder`
@@ -264,7 +265,7 @@ lives in [`.claude/mods/recorder`](.claude/mods/recorder), and [`narsil`](narsil
 
 It needs `python3`, and `git` for a comparison, on a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
 what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it with
-the other [Middle-earth](#middle-earth) mods, or alone from a clone:
+the other [pipeline](#pipeline) mods, or alone from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/recorder

@@ -1,6 +1,6 @@
 {{- $realm := dict "root" . "realm" "redpanda" -}}
 # The broker Gondor's tidings go through: one node, which keeps nothing when its pod goes. Reached inside the
-# cluster alone; its own `rpk` is what palantir asks for the topics and the consumer groups.
+# cluster alone; its own `rpk` is what the runtime mod asks for the topics and the consumer groups.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

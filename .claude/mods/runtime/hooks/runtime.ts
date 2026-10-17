@@ -2,7 +2,7 @@ import type { Attachment, EnvVar, Health, RuntimeId } from '../types'
 import { redactVar } from './lines'
 
 // Every runtime's command lines and its reading of what they print live here: no `docker` and no `kubectl` is
-// written outside this module. palantir only reads: nothing here restarts or changes what it watches, and the one
+// written outside this module. The runtime mod only reads: nothing here restarts or changes what it watches, and the one
 // thing run inside it is a broker's own command line, asked what the broker holds.
 
 export const RUNTIME_NAME: Record<RuntimeId, string> = {

@@ -1,7 +1,7 @@
 /** Where an attachment runs, which is the command line it is read through (none for `local`: a file is read). */
 export type RuntimeId = 'local' | 'docker' | 'compose' | 'kubernetes'
 
-/** One thing palantir watches: a frontend, a backend, a broker. A session holds several. */
+/** One thing the runtime mod watches: a frontend, a backend, a broker. A session holds several. */
 export type Attachment = {
   /** The name the person gave it, unique in the session: what the pane, the tools and the filter call it. */
   label: string
@@ -17,7 +17,7 @@ export type Attachment = {
 /** One variable of an app's environment, its value with the secrets taken out. */
 export type EnvVar = {
   name: string
-  /** Empty when the value is set where palantir does not look: a secret, a config map. */
+  /** Empty when the value is set where the runtime mod does not look: a secret, a config map. */
   value: string
   /** Where it is set: `container`, `compose`, `api/.env`, `secret db/password`. */
   from: string
@@ -166,7 +166,7 @@ export type Database = {
   bytes: number
   /** How many sessions it lets in at once. */
   max: number
-  /** Its clients' sessions on that database, palantir's own left out. */
+  /** Its clients' sessions on that database, the runtime mod's own left out. */
   sessions: DbSession[]
   tables: DbTable[]
 }
@@ -190,7 +190,7 @@ export type Rows = {
  */
 export type Kind = 'app' | 'broker' | 'database'
 
-/** What palantir knows of an attachment besides what it wrote. */
+/** What the runtime mod knows of an attachment besides what it wrote. */
 export type Facts = {
   /** What it is; none until its status has been read, and it is shown among the apps till then. */
   kind?: Kind
@@ -202,7 +202,7 @@ export type Facts = {
   usage: Usage
   /** What it holds, when it is a broker; none for anything else. */
   broker?: Broker
-  /** What it holds, when it is a database palantir reads; none for anything else. */
+  /** What it holds, when it is a database the runtime mod reads; none for anything else. */
   database?: Database
 }
 
@@ -364,7 +364,7 @@ export type Cursor = {
   offset: number
 }
 
-/** What palantir holds of one attachment. */
+/** What the runtime mod holds of one attachment. */
 export type Watch = {
   cursor: Cursor
   lines: Line[]
@@ -498,7 +498,7 @@ export type Shown = 'logs' | 'errors' | 'env' | 'renders' | 'tests' | 'broker' |
 
 declare module 'claude-code' {
   interface PluginState {
-    palantir: {
+    runtime: {
       attachments: Attachment[]
       /** Whether the compose file, the project's file and the option have been read in this session. */
       isDiscovered: boolean

@@ -69,7 +69,7 @@ export const around = ({ label, signature }: Pick<Kind, 'label' | 'signature'>, 
 /** What is handed to Claude when the person asks for an error to be looked into: the error, how often, and what led to it. */
 export const diagnosePrompt = (kind: Kind, watch: Watch, lines: readonly Labelled[]): string =>
   [
-    `Find why the running ${kind.label}, which palantir watches, writes this error, and fix the cause in the code, not around it:`,
+    `Find why the running ${kind.label}, which the runtime mod watches, writes this error, and fix the cause in the code, not around it:`,
     '',
     `  ${kind.signature.sample}`,
     '',
@@ -77,7 +77,7 @@ export const diagnosePrompt = (kind: Kind, watch: Watch, lines: readonly Labelle
     `Written ${kind.signature.count} time${kind.signature.count === 1 ? '' : 's'}, first at ${clockTime(firstOf(kind.signature))}, last at ${clockTime(kind.signature.lastAt)}${kind.isNew && watch.edits > 0 ? `; it first showed after the edit to ${watch.editedPath}` : ''}.`,
     ...(lines.length === 0 ? [] : ['', 'The last time, with what led to it across the watched apps:', ...lines.flatMap(({ label, line }) => describeWhole(label, line).map(text => `  ${text}`))]),
     '',
-    `mcp__palantir__logs reads more (\`request\` follows one request id across the apps, \`grep\` searches). Once it is fixed and ${kind.label} has reloaded, mcp__palantir__errors_since_edit says whether it still writes it. If the cause is not in the code (a service that is down, a setting), say so and change nothing.`,
+    `mcp__runtime__logs reads more (\`request\` follows one request id across the apps, \`grep\` searches). Once it is fixed and ${kind.label} has reloaded, mcp__runtime__errors_since_edit says whether it still writes it. If the cause is not in the code (a service that is down, a setting), say so and change nothing.`,
   ].join('\n')
 
 export type Untold = { label: string; path: string; signatures: Signature[] }
@@ -98,13 +98,13 @@ const MAX_TOLD_TRACE = 8
 /** What Claude reads of them, unasked: each app's new errors since its edit, a few of each, and where to read more. */
 export const untoldText = (untold: readonly Untold[]): string =>
   [
-    'palantir, which watches the running apps, saw errors that first showed after an edit of this session:',
+    'The runtime mod, which watches the running apps, saw errors that first showed after an edit of this session:',
     ...untold.flatMap(({ label, path, signatures }) => [
       `${label}, since the edit to ${path}: ${signatures.length} new kind${signatures.length === 1 ? '' : 's'} of error`,
       ...signatures.slice(0, MAX_TOLD).flatMap(({ count, sample, lastAt, trace }) => [`  ${clockTime(lastAt)} x${count} ${sample.slice(0, 300)}`, ...traceLines(trace?.slice(-MAX_TOLD_TRACE))]),
       ...(signatures.length > MAX_TOLD ? [`  and ${signatures.length - MAX_TOLD} more`] : []),
     ]),
-    'The edit may be what brought them. mcp__palantir__errors_since_edit reads them afresh, and mcp__palantir__logs what was written around them.',
+    'The edit may be what brought them. mcp__runtime__errors_since_edit reads them afresh, and mcp__runtime__logs what was written around them.',
   ].join('\n')
 
 /** What is submitted to Claude when it guards the edits and no turn runs: the same, with what is asked of it. */

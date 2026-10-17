@@ -14,8 +14,8 @@
       "source": "./recorder"
     },
     {
-      "name": "palantir",
-      "source": "./palantir"
+      "name": "runtime",
+      "source": "./runtime"
     }
   ]
 }

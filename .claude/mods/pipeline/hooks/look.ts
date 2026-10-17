@@ -12,7 +12,7 @@ export const shortRef = (ref: string): string => {
 }
 
 /**
- * A button's label with the key that presses it, as the palantír's say it: a Button that is not plain draws no hotkey,
+ * A button's label with the key that presses it, as the runtime mod's say it: a Button that is not plain draws no hotkey,
  * and a pane has no other place to say it.
  */
 export const keyed = (hotkey: string, text: string): string => `${hotkey} ${text}`

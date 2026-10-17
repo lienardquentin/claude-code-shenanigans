@@ -56,8 +56,8 @@ claude mcp add --scope user my-chrome -- npx -y chrome-devtools-mcp@latest --bro
 3. Once the tunnel listens, a tab opens on `http://localhost:3000`.
 4. Start the app and `claude` in that shell. The tools of `my-chrome` work on the tabs of that Chrome window.
 
-The `palantir` mod reads through the same port, with no MCP server between: why the app's components render and how
-its page stands ([how](../.claude/mods/palantir/browser/README.md)).
+The `runtime` mod reads through the same port, with no MCP server between: why the app's components render and how
+its page stands ([how](../.claude/mods/runtime/browser/README.md)).
 
 The tunnel lasts as long as the ssh session. Closing it cuts Claude off from the browser; the Chrome window stays.
 

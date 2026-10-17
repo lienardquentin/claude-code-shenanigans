@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Attachment, Baseline, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, History, Plans, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
-import { composeAttachments, DIRTY_ARGV, editedBetween, HEAD_ARGV, merged, movedArgv, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import { composeAttachments, DIRTY_ARGV, editedBetween, HEAD_ARGV, merged, movedArgv, OLD_PROJECT_FILE, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
 import type { Dirty } from './attach'
 import { askBrokerPrompt, brokerKind, diagnoseGroupsPrompt, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
 import { answerLimit, answerRowsText, askPrompt, diagnoseSessionsPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
@@ -54,8 +54,8 @@ import type { Row } from './trace'
 import { endArgv, firstLine, kept, marked, markedNow, settle, TAIL, takeFile, takePrinted } from './watch'
 import type { Taken } from './watch'
 
-const PANE = 'palantir'
-const TITLE = 'palantir'
+const PANE = 'runtime'
+const TITLE = 'runtime'
 const READ_TIMEOUT_MS = 8_000
 // What the apps consume is asked of the machine less often than what they wrote: the asking is itself not free
 const USAGE_EVERY_MS = 15_000
@@ -64,39 +64,39 @@ const PANE_TRACE = 14
 // A browser that did not answer is asked again by the timer this far apart, and at once by whoever asks
 const BROWSER_AGAIN_MS = 30_000
 
-const attachments = atom({ plugin: 'palantir', key: 'attachments' } as const, [] as Attachment[])
-const isDiscovered = atom({ plugin: 'palantir', key: 'isDiscovered' } as const, false)
-const watches = atom({ plugin: 'palantir', key: 'watches' } as const, {} as Record<string, Watch>)
-const only = atom({ plugin: 'palantir', key: 'only' } as const, '')
-const isErrorsOnly = atom({ plugin: 'palantir', key: 'isErrorsOnly' } as const, false)
-const checkedAt = atom({ plugin: 'palantir', key: 'checkedAt' } as const, 0)
-const facts = atom({ plugin: 'palantir', key: 'facts' } as const, {} as Record<string, Facts>)
-const shownView = atom({ plugin: 'palantir', key: 'shown' } as const, 'logs' as Shown)
-const opened = atom({ plugin: 'palantir', key: 'opened' } as const, [] as string[])
-const rendersAs = atom({ plugin: 'palantir', key: 'rendersAs' } as const, 'tree' as RendersAs)
-const browser = atom({ plugin: 'palantir', key: 'browser' } as const, EMPTY_BROWSER as Browser)
-const home = atom({ plugin: 'palantir', key: 'home' } as const, '')
-const scenarios = atom({ plugin: 'palantir', key: 'scenarios' } as const, [] as Scenario[])
-const suites = atom({ plugin: 'palantir', key: 'suites' } as const, [] as Suite[])
-const testsAs = atom({ plugin: 'palantir', key: 'testsAs' } as const, 'e2e' as TestsAs)
+const attachments = atom({ plugin: 'runtime', key: 'attachments' } as const, [] as Attachment[])
+const isDiscovered = atom({ plugin: 'runtime', key: 'isDiscovered' } as const, false)
+const watches = atom({ plugin: 'runtime', key: 'watches' } as const, {} as Record<string, Watch>)
+const only = atom({ plugin: 'runtime', key: 'only' } as const, '')
+const isErrorsOnly = atom({ plugin: 'runtime', key: 'isErrorsOnly' } as const, false)
+const checkedAt = atom({ plugin: 'runtime', key: 'checkedAt' } as const, 0)
+const facts = atom({ plugin: 'runtime', key: 'facts' } as const, {} as Record<string, Facts>)
+const shownView = atom({ plugin: 'runtime', key: 'shown' } as const, 'logs' as Shown)
+const opened = atom({ plugin: 'runtime', key: 'opened' } as const, [] as string[])
+const rendersAs = atom({ plugin: 'runtime', key: 'rendersAs' } as const, 'tree' as RendersAs)
+const browser = atom({ plugin: 'runtime', key: 'browser' } as const, EMPTY_BROWSER as Browser)
+const home = atom({ plugin: 'runtime', key: 'home' } as const, '')
+const scenarios = atom({ plugin: 'runtime', key: 'scenarios' } as const, [] as Scenario[])
+const suites = atom({ plugin: 'runtime', key: 'suites' } as const, [] as Suite[])
+const testsAs = atom({ plugin: 'runtime', key: 'testsAs' } as const, 'e2e' as TestsAs)
 const EMPTY_PEEK: Peek = { label: '', topic: '', at: 0, note: '', records: [] }
-const peek = atom({ plugin: 'palantir', key: 'peek' } as const, EMPTY_PEEK)
+const peek = atom({ plugin: 'runtime', key: 'peek' } as const, EMPTY_PEEK)
 // How many of a topic's last records the pane reads from each partition
 const PANE_PEEK = 10
 const EMPTY_ROWS: Rows = { label: '', table: '', at: 0, note: '', rows: [] }
-const rowsShown = atom({ plugin: 'palantir', key: 'rows' } as const, EMPTY_ROWS)
+const rowsShown = atom({ plugin: 'runtime', key: 'rows' } as const, EMPTY_ROWS)
 // How many of a table's last rows the pane reads
 const PANE_ROWS = 10
-const history = atom({ plugin: 'palantir', key: 'history' } as const, {} as Record<string, History>)
-const since = atom({ plugin: 'palantir', key: 'since' } as const, 'edit' as Baseline)
-const openError = atom({ plugin: 'palantir', key: 'openError' } as const, '')
-const grepped = atom({ plugin: 'palantir', key: 'grep' } as const, '')
-const traced = atom({ plugin: 'palantir', key: 'traced' } as const, '')
-const pausedAt = atom({ plugin: 'palantir', key: 'pausedAt' } as const, 0)
-const isNoisy = atom({ plugin: 'palantir', key: 'isNoisy' } as const, false)
-const isHelped = atom({ plugin: 'palantir', key: 'isHelped' } as const, false)
+const history = atom({ plugin: 'runtime', key: 'history' } as const, {} as Record<string, History>)
+const since = atom({ plugin: 'runtime', key: 'since' } as const, 'edit' as Baseline)
+const openError = atom({ plugin: 'runtime', key: 'openError' } as const, '')
+const grepped = atom({ plugin: 'runtime', key: 'grep' } as const, '')
+const traced = atom({ plugin: 'runtime', key: 'traced' } as const, '')
+const pausedAt = atom({ plugin: 'runtime', key: 'pausedAt' } as const, 0)
+const isNoisy = atom({ plugin: 'runtime', key: 'isNoisy' } as const, false)
+const isHelped = atom({ plugin: 'runtime', key: 'isHelped' } as const, false)
 // Empty until the person says either way in the pane: the option decides till then
-const guarding = atom({ plugin: 'palantir', key: 'guarding' } as const, '' as '' | 'on' | 'off')
+const guarding = atom({ plugin: 'runtime', key: 'guarding' } as const, '' as '' | 'on' | 'off')
 
 /**
  * The project the shell stands in: the nearest folder, from the session's own up, that holds the project's file;
@@ -110,6 +110,7 @@ const projectOf = async ($: EngineInterface): Promise<string> => {
     const folder = parts.slice(0, depth).join('/')
 
     if (await $.fs.exists(`${folder}/${PROJECT_FILE}`).catch(() => false)) return folder
+    if (await $.fs.exists(`${folder}/${OLD_PROJECT_FILE}`).catch(() => false)) return folder
   }
 
   return cwd
@@ -133,7 +134,7 @@ const homeOf = async ($: EngineInterface): Promise<string> => {
 }
 
 // What the pane last drew, for the model to read: it sees nothing of a pane otherwise
-const view = paneView({ id: PANE, title: TITLE, command: '/palantir' })
+const view = paneView({ id: PANE, title: TITLE, command: '/runtime' })
 
 const LEVEL_COLOR = { info: 'suggestion', warn: 'warning', error: 'error' } as const
 
@@ -172,14 +173,14 @@ const TOOLS = [
       type: 'object',
       properties: {
         target: TARGET,
-        since: { type: 'string', enum: ['edit', 'mark', 'start', 'all'], description: 'What the errors are new since: the last edit (the default), the mark set with mcp__palantir__mark, or the last time the app started over (a restart, a rollout). "all" says every kind of error held, whatever it is new since: what is wrong with what runs, before any edit.' },
+        since: { type: 'string', enum: ['edit', 'mark', 'start', 'all'], description: 'What the errors are new since: the last edit (the default), the mark set with mcp__runtime__mark, or the last time the app started over (a restart, a rollout). "all" says every kind of error held, whatever it is new since: what is wrong with what runs, before any edit.' },
       },
     },
   },
   {
     name: 'mark',
     description:
-      'Sets a mark on every watched app now: mcp__palantir__errors_since_edit with since "mark" then says the errors that first show after it. Call it before doing something that is no edit and may break what runs: a deploy, a migration, a restart, a scenario done by hand.',
+      'Sets a mark on every watched app now: mcp__runtime__errors_since_edit with since "mark" then says the errors that first show after it. Call it before doing something that is no edit and may break what runs: a deploy, a migration, a restart, a scenario done by hand.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -286,7 +287,7 @@ const TOOLS = [
   {
     name: 'e2e_plan',
     description:
-      "Writes the end-to-end checklist of a watched frontend: scenarios a person goes through on its page, each run later in the browser by a subagent that sees nothing of this conversation. Call it when asked to plan end-to-end scenarios, after reading the app's routes and pages. Write each step as one thing done, naming what is clicked or filled by the words the page shows, with the values to type. Replaces the checklist unless `add` is true. Runs nothing: mcp__palantir__e2e_run does.",
+      "Writes the end-to-end checklist of a watched frontend: scenarios a person goes through on its page, each run later in the browser by a subagent that sees nothing of this conversation. Call it when asked to plan end-to-end scenarios, after reading the app's routes and pages. Write each step as one thing done, naming what is clicked or filled by the words the page shows, with the values to type. Replaces the checklist unless `add` is true. Runs nothing: mcp__runtime__e2e_run does.",
     inputSchema: {
       type: 'object',
       required: ['scenarios'],
@@ -311,7 +312,7 @@ const TOOLS = [
   {
     name: 'e2e_run',
     description:
-      'Runs scenarios of the end-to-end checklist, each on the page of the debug Chrome by a Haiku subagent, one after another. Answers at once with the run under way; mcp__palantir__e2e says what came of it. Call it after mcp__palantir__e2e_plan when asked to run the scenarios, and after a change to the frontend to check it still does what it did.',
+      'Runs scenarios of the end-to-end checklist, each on the page of the debug Chrome by a Haiku subagent, one after another. Answers at once with the run under way; mcp__runtime__e2e says what came of it. Call it after mcp__runtime__e2e_plan when asked to run the scenarios, and after a change to the frontend to check it still does what it did.',
     inputSchema: {
       type: 'object',
       properties: { ids: { type: 'array', items: { type: 'string' }, description: 'The numbers of the scenarios to run; left out, all of them.' } },
@@ -344,7 +345,7 @@ const TOOLS = [
   {
     name: 'unit',
     description:
-      'The unit test suites of the palantir pane as they stand: each with its command, whether it passed when the person last ran it, how many tests passed and which failed, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.',
+      'The unit test suites of the runtime pane as they stand: each with its command, whether it passed when the person last ran it, how many tests passed and which failed, and the end of what a failing one printed. Call it when the person speaks of the unit tests of the pane, or of a suite that fails there.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'The number of one suite, to read every test it ran and what it printed even if it passed; left out, all of them.' } },
@@ -393,7 +394,8 @@ const discover = ($: EngineInterface, asked: unknown): Promise<Attachment[]> =>
       const composeFiles = await Promise.all(COMPOSE_FILES.map(file => $.fs.exists(`${cwd}/${file}`).catch(() => false)))
       // Docker is asked only in a project that has a compose file
       const project = composeFiles.some(Boolean) ? await $.process.run(COMPOSE_CONFIG_ARGV, { timeoutMs: 15_000 }).catch(() => undefined) : undefined
-      const listed = await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => '')
+      const isOld = !(await $.fs.exists(`${cwd}/${PROJECT_FILE}`).catch(() => false)) && (await $.fs.exists(`${cwd}/${OLD_PROJECT_FILE}`).catch(() => false))
+      const listed = await $.fs.read(`${cwd}/${isOld ? OLD_PROJECT_FILE : PROJECT_FILE}`).catch(() => '')
 
       return merged(
         project?.exitCode === 0 ? composeAttachments(project.stdout, cwd) : [],
@@ -917,7 +919,7 @@ let looking: Promise<unknown> = Promise.resolve()
 const MAX_LOOKED = 400
 
 const WATCHED_NOTE = (labels: readonly string[]): string =>
-  `palantir watches the running ${labels.join(', ')}, which this file is part of. Once it has reloaded, mcp__palantir__errors_since_edit says whether an edit broke it, and mcp__palantir__logs shows what it writes. For a frontend open in the debug Chrome, mcp__palantir__renders_since_edit says what the edit did to its renders, and mcp__palantir__network to its requests and its load.`
+  `The runtime mod watches the running ${labels.join(', ')}, which this file is part of. Once it has reloaded, mcp__runtime__errors_since_edit says whether an edit broke it, and mcp__runtime__logs shows what it writes. For a frontend open in the debug Chrome, mcp__runtime__renders_since_edit says what the edit did to its renders, and mcp__runtime__network to its requests and its load.`
 
 /**
  * Counts against the attachments the edits nobody announced: a file written by a shell command, a checkout or the
@@ -1108,7 +1110,7 @@ const runSuites = async ($: EngineInterface, ids: readonly string[]): Promise<vo
 
   await keepPlans($)
 
-  if (held.length > 0) $.ui.toast(`palantir unit tests: ${tally(held).label}`)
+  if (held.length > 0) $.ui.toast(`runtime unit tests: ${tally(held).label}`)
 }
 
 export const register: Register = (on, options) => {
@@ -1121,12 +1123,12 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'palantir', description: 'Open the pane that watches the running app: its logs, its state, its new errors, what it consumes, its environment, what a broker or a database among them holds, why its components render, what is done on its page and what the page asks for, and the end-to-end scenarios run on it, and the unit tests of the project' })
+    await $.command.register({ name: 'runtime', description: 'Open the pane that watches the running app: its logs, its state, its new errors, what it consumes, its environment, what a broker or a database among them holds, why its components render, what is done on its page and what the page asks for, and the end-to-end scenarios run on it, and the unit tests of the project' })
 
     // A host that registers no tools still starts the session
     for (const tool of [view.tool, ...TOOLS]) await $.tool.register(tool).catch(() => undefined)
 
-    // The agent type a scenario is run by, which only palantir starts
+    // The agent type a scenario is run by, which only the runtime mod starts
     await $.agent.register(AGENT).catch(() => undefined)
 
     // Taken now, before any command has moved the shell
@@ -1137,15 +1139,15 @@ export const register: Register = (on, options) => {
   })
 
   // The pane as text, for the model
-  on('tool.call', { tool: 'mcp__palantir__pane' }, $ => view.answer(() => $.ui.panes()))
+  on('tool.call', { tool: 'mcp__runtime__pane' }, $ => view.answer(() => $.ui.panes()))
 
-  on('tool.call', { tool: 'mcp__palantir__status' }, async $ => {
+  on('tool.call', { tool: 'mcp__runtime__status' }, async $ => {
     const { list, held, known, seen } = await current($, asked, { usage: true, env: false, broker: true, browser: asked.port })
 
     return { result: statusText(list, held, known, asked.port === 0 ? undefined : seen, await $.clock.now()) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__broker' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__broker' }, async ($, e) => {
     const { list, known } = await current($, asked, { usage: false, env: false, broker: true })
     const { target, topic, limit, grep } = e as unknown as { target?: unknown; topic?: unknown; limit?: unknown; grep?: unknown }
     const text = brokerText(list, known, { target }, await $.clock.now())
@@ -1175,7 +1177,7 @@ export const register: Register = (on, options) => {
     return { result: [text, ...peeks].join('\n\n') }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__database' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__database' }, async ($, e) => {
     const { list, known } = await current($, asked, { usage: false, env: false, broker: true })
     const { target, table, limit, grep, sql: written } = e as unknown as { target?: unknown; table?: unknown; limit?: unknown; grep?: unknown; sql?: unknown }
     const text = databaseText(list, known, { target })
@@ -1219,52 +1221,52 @@ export const register: Register = (on, options) => {
     return { result: [text, ...reads].join('\n\n') }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__resources' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__resources' }, async ($, e) => {
     const { list, known } = await current($, asked, { usage: true, env: false })
 
     return { result: usageText(list, known, e as unknown as { target?: unknown }) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__env' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__env' }, async ($, e) => {
     const { list, known } = await current($, asked, { usage: false, env: true })
 
     return { result: envText(list, known, e as unknown as { target?: unknown; grep?: unknown }) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__renders' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__renders' }, async ($, e) => {
     const { list, held, seen } = await current($, asked, { usage: false, env: false, browser: asked.port })
 
     return { result: rendersText(list, held, e as unknown as { target?: unknown; component?: unknown }, asked.port === 0 ? undefined : seen, await homeOf($)) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__renders_since_edit' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__renders_since_edit' }, async ($, e) => {
     const { list, held } = await ofBrowser($, asked)
 
     return { result: rendersSinceText(list, held, e as unknown as { target?: unknown }, await $.clock.now()) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__interactions' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__interactions' }, async ($, e) => {
     const { list, held, seen } = await ofBrowser($, asked)
 
     return { result: actionsText(list, held, e as unknown as { target?: unknown; limit?: unknown }, asked.port === 0 ? undefined : seen) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__network' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__network' }, async ($, e) => {
     const { list, held, seen } = await ofBrowser($, asked)
 
     return { result: networkText(list, held, e as unknown as { target?: unknown; grep?: unknown }, asked.port === 0 ? undefined : seen) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__dom' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__dom' }, async ($, e) => {
     const { list, held, seen } = await ofBrowser($, asked)
 
     return { result: domText(list, held, e as unknown as { target?: unknown; grep?: unknown }, asked.port === 0 ? undefined : seen, await homeOf($)) }
   })
 
-  // A scenario is started by palantir alone, which is what keeps its place in the checklist
-  on('agent.offer', { agent: 'palantir:e2e' }, () => ({ isOffered: false }))
+  // A scenario is started by the runtime mod alone, which is what keeps its place in the checklist
+  on('agent.offer', { agent: 'runtime:e2e' }, () => ({ isOffered: false }))
 
-  on('tool.call', { tool: 'mcp__palantir__e2e_plan' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__e2e_plan' }, async ($, e) => {
     const list = await ensure($, asked.attachments)
     const seen = await read($, browser)
     // The apps a tab shows first: a scenario that names no app is of a frontend
@@ -1291,10 +1293,10 @@ export const register: Register = (on, options) => {
 
     await keepPlans($)
 
-    return { result: [...refused.map(line => `Left out: ${line}.`), e2eText(held), '', 'Nothing has run. mcp__palantir__e2e_run runs them, each on the page by a subagent of its own; the person can too, from the Tests view of the pane.'].join('\n') }
+    return { result: [...refused.map(line => `Left out: ${line}.`), e2eText(held), '', 'Nothing has run. mcp__runtime__e2e_run runs them, each on the page by a subagent of its own; the person can too, from the Tests view of the pane.'].join('\n') }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__e2e_run' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__e2e_run' }, async ($, e) => {
     const ids = ((e as unknown as { ids?: unknown }).ids instanceof Array ? ((e as unknown as { ids: unknown[] }).ids) : []).map(String)
     const before = await read($, scenarios)
     const unknown = ids.filter(id => !before.some(scenario => scenario.id === id))
@@ -1308,11 +1310,11 @@ export const register: Register = (on, options) => {
       result:
         waiting === 0
           ? e2eText(held)
-          : `${waiting} scenario${waiting === 1 ? ' is' : 's are'} under way, each run on the page by a subagent of its own, one after another. Nothing is to be done meanwhile: mcp__palantir__e2e says what came of them once they have answered.`,
+          : `${waiting} scenario${waiting === 1 ? ' is' : 's are'} under way, each run on the page by a subagent of its own, one after another. Nothing is to be done meanwhile: mcp__runtime__e2e says what came of them once they have answered.`,
     }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__unit_plan' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__unit_plan' }, async ($, e) => {
     const list = await ensure($, asked.attachments)
     const plan = plannedSuites(e as unknown as { suites?: unknown }, list.map(({ label }) => label))
 
@@ -1325,9 +1327,9 @@ export const register: Register = (on, options) => {
     return { result: [...plan.refused.map(line => `Left out: ${line}.`), unitText(plan.suites), '', 'Nothing has run: the person runs them from the Tests view of the pane.'].join('\n') }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__unit' }, async ($, e) => ({ result: unitText(await read($, suites), e as unknown as { id?: unknown }) }))
+  on('tool.call', { tool: 'mcp__runtime__unit' }, async ($, e) => ({ result: unitText(await read($, suites), e as unknown as { id?: unknown }) }))
 
-  on('tool.call', { tool: 'mcp__palantir__e2e_stop' }, async $ => {
+  on('tool.call', { tool: 'mcp__runtime__e2e_stop' }, async $ => {
     const held = await inTurn(() => update($, scenarios, stopped))
 
     await keepPlans($)
@@ -1335,7 +1337,7 @@ export const register: Register = (on, options) => {
     return { result: e2eText(held) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__e2e' }, async ($, e) => ({ result: e2eText(await read($, scenarios), e as unknown as { id?: unknown }) }))
+  on('tool.call', { tool: 'mcp__runtime__e2e' }, async ($, e) => ({ result: e2eText(await read($, scenarios), e as unknown as { id?: unknown }) }))
 
   // A subagent's answer is its turn's end: the scenario it ran is settled on it, and the next one started
   on('turn.complete', async ($, e, next) => {
@@ -1365,18 +1367,18 @@ export const register: Register = (on, options) => {
     await keepPlans($).catch(() => undefined)
 
     // Said once, when the last of a run has answered
-    if (held !== undefined && held.length > 0 && !isUnderWay(held)) $.ui.toast(`palantir e2e: ${tally(held).label}`)
+    if (held !== undefined && held.length > 0 && !isUnderWay(held)) $.ui.toast(`runtime e2e: ${tally(held).label}`)
 
     return next(e)
   })
 
-  on('tool.call', { tool: 'mcp__palantir__logs' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__logs' }, async ($, e) => {
     const { list, held } = await current($, asked)
 
     return { result: logsText(list, held, e as unknown as LogsAsk) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__errors_since_edit' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__runtime__errors_since_edit' }, async ($, e) => {
     const { list, held } = await current($, asked)
 
     // What it reads here it need not be handed again
@@ -1385,13 +1387,13 @@ export const register: Register = (on, options) => {
     return { result: errorsText(list, held, e as unknown as { target?: unknown; since?: unknown }) }
   })
 
-  on('tool.call', { tool: 'mcp__palantir__mark' }, async $ => {
+  on('tool.call', { tool: 'mcp__runtime__mark' }, async $ => {
     const { list } = await current($, asked)
     const now = await $.clock.now()
 
     await inTurn(() => update($, watches, held => markedNow(held, list.map(({ label }) => label), now)))
 
-    return { result: list.length === 0 ? HOW_TO_ATTACH : `A mark is set on ${list.map(({ label }) => label).join(', ')} at ${clockTime(now)}. mcp__palantir__errors_since_edit with since "mark" says the errors that first show from now on.` }
+    return { result: list.length === 0 ? HOW_TO_ATTACH : `A mark is set on ${list.map(({ label }) => label).join(', ')} at ${clockTime(now)}. mcp__runtime__errors_since_edit with since "mark" says the errors that first show from now on.` }
   })
 
   // While a turn of the main conversation runs, what is new is read beside a tool's result; between two, with the next prompt
@@ -1405,7 +1407,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const answer = await next(e)
 
-    if (answer.result === undefined || String(e.tool).startsWith('mcp__palantir__')) return answer
+    if (answer.result === undefined || String(e.tool).startsWith('mcp__runtime__')) return answer
 
     const news = await handOver($).catch(() => undefined)
 
@@ -1459,7 +1461,7 @@ export const register: Register = (on, options) => {
     return firsts.length === 0 ? answer : { ...answer, context: [...(answer.context ?? []), WATCHED_NOTE(firsts)] }
   })
 
-  on('command.run', { command: 'palantir' }, async $ => {
+  on('command.run', { command: 'runtime' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     const list = await refresh($, asked)
@@ -1469,7 +1471,7 @@ export const register: Register = (on, options) => {
     const held = await read($, watches)
     const down = list.filter(({ label }) => held[label]?.health.state === 'down').map(({ label }) => label)
 
-    return { text: `palantir watches ${list.map(({ label }) => label).join(', ')}.${down.length > 0 ? ` Down: ${down.join(', ')}.` : ''}` }
+    return { text: `The runtime mod watches ${list.map(({ label }) => label).join(', ')}.${down.length > 0 ? ` Down: ${down.join(', ')}.` : ''}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -1842,7 +1844,7 @@ export const register: Register = (on, options) => {
             .map(({ label, name, value, from }): TableCell[] => [...(isByApp ? [label] : []), name, value === '***' ? { text: value, tone: 'warning' } : value, from]),
           empty: 'No variable.',
         }),
-        ...(variables.length > room ? [tonedText({ text: `and ${variables.length - room} more: show one app, or ask mcp__palantir__env`, tone: 'neutral' })] : []),
+        ...(variables.length > room ? [tonedText({ text: `and ${variables.length - room} more: show one app, or ask mcp__runtime__env`, tone: 'neutral' })] : []),
         ...notes.map(note => tonedText({ text: note, tone: 'neutral', wrap: true })),
       ]
     }
@@ -1941,7 +1943,7 @@ export const register: Register = (on, options) => {
               </Button>
             </Box>
           )),
-        ...help('Lag is how many messages wait to be read. At is the partition and the offset. mcp__palantir__broker says the lag partition by partition, and searches the last messages of a topic. A question typed after Ask Claude is handed to Claude, which answers it by reading the broker through that tool.'),
+        ...help('Lag is how many messages wait to be read. At is the partition and the offset. mcp__runtime__broker says the lag partition by partition, and searches the last messages of a topic. A question typed after Ask Claude is handed to Claude, which answers it by reading the broker through that tool.'),
       ]
     }
 
@@ -2024,7 +2026,7 @@ export const register: Register = (on, options) => {
               </Button>
             </Box>
           )),
-        ...help('Rows is what the database last counted, near the truth. Dead is the rows whose room is not taken back yet. Scans is how often a table was read whole. A question typed after Ask Claude is handed to Claude, which answers it by reading the database through mcp__palantir__database.'),
+        ...help('Rows is what the database last counted, near the truth. Dead is the rows whose room is not taken back yet. Scans is how often a table was read whole. A question typed after Ask Claude is handed to Claude, which answers it by reading the database through mcp__runtime__database.'),
       ]
     }
 
@@ -2125,7 +2127,7 @@ export const register: Register = (on, options) => {
           ]),
           empty: 'No request.',
         }),
-        ...(asks.length > room ? [tonedText({ text: `and ${asks.length - room} more: ask mcp__palantir__network`, tone: 'neutral' })] : []),
+        ...(asks.length > room ? [tonedText({ text: `and ${asks.length - room} more: ask mcp__runtime__network`, tone: 'neutral' })] : []),
         ...source(true),
       ]
     }
@@ -2361,7 +2363,7 @@ export const register: Register = (on, options) => {
 
                 await inTurn(() => update($, watches, was => markedNow(was, list.map(({ label }) => label), now)))
                 await update($, since, () => 'mark' as Baseline)
-                $.ui.toast(`palantir: mark set at ${clockTime(now)}`)
+                $.ui.toast(`runtime: mark set at ${clockTime(now)}`)
               }}
             >
               {actionLabel({ text: keyed('m', 'Mark now') })}

@@ -1,8 +1,8 @@
-// What palantir runs in a tab of the debug Chrome, each time it reads: a function, called with the apps it watches.
+// What the runtime mod runs in a tab of the debug Chrome, each time it reads: a function, called with the apps it watches.
 // It says which of them the page is, why the page's components rendered again since the last time, what the person
 // did on it and what the page asked for since then, how it loaded, and the page's elements as they stand. The app
-// holds none of this: the first call leaves two listeners in the page, under `window.__palantir__` (the renders,
-// where Vue names them) and `window.__palantir_page__` (the rest, on any page), and every call empties what they
+// holds none of this: the first call leaves two listeners in the page, under `window.__runtime__` (the renders,
+// where Vue names them) and `window.__runtime_page__` (the rest, on any page), and every call empties what they
 // counted. A page that is none of the apps is left alone.
 //
 // Why a component rendered is said as a chain: the state that changed, the computed values and the props that
@@ -14,11 +14,11 @@
 // What a field of a form holds is never said, nor a value that goes by a secret's name.
 (watched => {
   const VERSION = 5
-  const KEY = '__palantir__'
+  const KEY = '__runtime__'
   const PAGE_VERSION = 2
-  const PAGE_KEY = '__palantir_page__'
+  const PAGE_KEY = '__runtime_page__'
   // Up to where the page's console was last read: kept in the page, so that a page loaded again is read from its start
-  const HEARD_KEY = '__palantir_heard__'
+  const HEARD_KEY = '__runtime_heard__'
 
   const MAX_ACTIONS = 30
   const MAX_REQUESTS = 60

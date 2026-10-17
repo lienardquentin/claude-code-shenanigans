@@ -1,0 +1,5 @@
+{
+  "name": "runtime-mods",
+  "owner": { "name": "quent" },
+  "plugins": [{ "name": "runtime", "source": "./" }]
+}
