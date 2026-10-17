@@ -459,6 +459,13 @@ describe('anduril', () => {
     expect(world.replay.jobs[1]).toMatchObject({ home: tree, binary: `${tree}/narsil/target/debug/narsil`, build: 'cargo build --manifest-path narsil/Cargo.toml' })
     world.replay.jobs.splice(1, 1)
 
+    // A branch that takes a kept run out of its file is played on it still, and on a run it keeps besides: the change
+    // a worktree's diff proves cannot shrink what proves it
+    world.files[`${tree}/.claude/anduril`] = `${WATCHED}$ narsil ls\n$ narsil ls --format json\n`
+    await $.tool.call({ tool: 'mcp__anduril__diff', agentId: 'gimli-1' } as never)
+    expect(world.replay.jobs[1]).toMatchObject({ corpus: ['narsil show 999', 'narsil ls', 'narsil ls --format json'] })
+    world.replay.jobs.splice(1, 1)
+
     // A mod names the worktree outright; a folder that is no quest's is never played
     await call($, 'mcp__anduril__diff', { tree })
     await call($, 'mcp__anduril__diff', { tree: '/etc' })

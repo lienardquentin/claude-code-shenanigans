@@ -615,6 +615,13 @@ describe('argonath', () => {
     expect(String(world.jobs.prove.at(-1)?.test)).not.toContain('evil')
     expect(world.jobs.prove.at(-1)).toMatchObject({ home: tree, tests: [`${tree}/beacons/tests`] })
 
+    // A branch that takes a kept request out of its file is played on it still, and on a request it keeps besides: the
+    // change cannot shrink what proves it
+    world.files[`${tree}/.claude/argonath`] = `${PROJECT.replace(/^\$ gondor POST \/beacons\/amon-din\/light\n/m, '')}\n$ gondor GET /beacons\n`
+    world.whole = 'def457\n'
+    await call($, 'mcp__middle-earth__prove', { target: 'gondor', agentId: 'gimli-1' })
+    expect(world.jobs.service.at(-1)).toMatchObject({ home: tree, requests: ['gondor GET /health', 'gondor POST /beacons/amon-din/light', 'gondor GET /beacons'] })
+
     // The project's own folder was neither looked at nor judged, and an agent spawned in a folder that is no quest's
     // is looked at in the project's
     expect(await call($, 'mcp__middle-earth__judgement')).toMatch(/have judged no change yet/)

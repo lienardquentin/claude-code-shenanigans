@@ -82,12 +82,18 @@ const moved = (home: string, tree: string, path: string): string => (path === ti
 
 /**
  * What a quest's worktree is played by: the tools, their builds and binaries as the project's own file says them (a
- * command run on the machine is never read from a branch), moved into the worktree; the runs to play, its own.
+ * command run on the machine is never read from a branch), moved into the worktree; the runs to play, the project's
+ * own, then those the branch keeps besides. A run the branch takes out of its file is played still: the change it
+ * proves cannot shrink what proves it.
  */
-export const projectInTree = (home: { text: string; cwd: string }, tree: { text: string; cwd: string }): { targets: AndurilTarget[]; corpus: string[] } => ({
-  targets: parseProject(home.text, home.cwd).targets.map(target => ({ ...target, binary: moved(home.cwd, tree.cwd, target.binary), roots: target.roots.map(root => moved(home.cwd, tree.cwd, root)) })),
-  corpus: parseProject(tree.text, tree.cwd).corpus,
-})
+export const projectInTree = (home: { text: string; cwd: string }, tree: { text: string; cwd: string }): { targets: AndurilTarget[]; corpus: string[] } => {
+  const kept = parseProject(home.text, home.cwd).corpus
+
+  return {
+    targets: parseProject(home.text, home.cwd).targets.map(target => ({ ...target, binary: moved(home.cwd, tree.cwd, target.binary), roots: target.roots.map(root => moved(home.cwd, tree.cwd, root)) })),
+    corpus: [...kept, ...parseProject(tree.text, tree.cwd).corpus.filter(line => !kept.includes(line))],
+  }
+}
 
 /** The kept runs that are runs of one tool. */
 export const corpusOf = (corpus: readonly string[], label: string): string[] => corpus.filter(line => line.split(/\s+/)[0] === label)

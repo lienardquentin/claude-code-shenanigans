@@ -214,14 +214,19 @@ async function setUp($: $): Promise<ArgonathTarget[]> {
 /**
  * The targets of a place, their folders in that place. The project's own are read afresh, or, `isKnown`, as last read.
  * A quest's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
- * (its tests, its database, its live stage) is never read from a branch. The requests it plays are its own file's.
+ * (its tests, its database, its live stage) is never read from a branch. The requests it plays are the project's own,
+ * then those its own file keeps besides: a request the branch takes out is played still, as the change it proves
+ * cannot shrink what proves it.
  */
 async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathTarget[]> {
   if (place.isHome) return isKnown ? read($, targets) : setUp($)
 
   const own = parseProject(await $.fs.read(`${place.tree}/${PROJECT_FILE}`).catch(() => ''), place.tree)
 
-  return parseProject(await $.fs.read(`${await homeOf($)}/${PROJECT_FILE}`).catch(() => ''), place.tree).map(target => ({ ...target, requests: own.find(one => one.label === target.label)?.requests ?? target.requests }))
+  return parseProject(await $.fs.read(`${await homeOf($)}/${PROJECT_FILE}`).catch(() => ''), place.tree).map(target => ({
+    ...target,
+    requests: [...target.requests, ...(own.find(one => one.label === target.label)?.requests ?? []).filter(line => !target.requests.includes(line))],
+  }))
 }
 
 /** Every mark in the files a target names as tests: what git tracks there, and what it neither tracks nor ignores. */
