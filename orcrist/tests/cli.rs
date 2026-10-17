@@ -457,3 +457,92 @@ fn a_guard_on_a_parameter_the_function_assigns_to_is_left_alone() {
     assert_eq!(stdout(&output), "");
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn a_trait_with_one_implementation_in_the_project_is_found() {
+    let folder = folder("one-implementation");
+    fs::write(
+        folder.join("store.rs"),
+        "pub trait Store {\n    fn save(&self, text: &str);\n}\n\npub trait Clock {\n    fn now(&self) -> u64;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("disk.rs"),
+        "pub struct Disk;\n\nimpl Store for Disk {\n    fn save(&self, text: &str) {}\n}\n\nimpl crate::store::Clock for Disk {\n    fn now(&self) -> u64 { 0 }\n}\n\nimpl Clock for Wall {\n    fn now(&self) -> u64 { 1 }\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "store.rs", "disk.rs"]);
+
+    assert_eq!(
+        stdout(&output),
+        "store.rs:1 single-use-abstraction: Store has one implementation, in disk.rs:3; the code could use it directly\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_python_abstract_class_with_one_subclass_is_found() {
+    let folder = folder("one-subclass");
+    fs::write(
+        folder.join("store.py"),
+        "class Store(ABC):\n    @abstractmethod\n    def save(self, text: str) -> None: ...\n\n\nclass Disk(Store):\n    def save(self, text: str) -> None:\n        write(text)\n\n\nclass Clock(abc.ABC):\n    pass\n\n\nclass Wall(Clock):\n    pass\n\n\nclass Sun(Clock):\n    pass\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "store.py"]);
+
+    assert_eq!(
+        stdout(&output),
+        "store.py:1 single-use-abstraction: Store has one implementation, in store.py:6; the code could use it directly\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_typescript_interface_with_one_class_implementing_it_is_found() {
+    let folder = folder("one-implementing-class");
+    fs::write(
+        folder.join("store.ts"),
+        "export interface Store {\n  save(text: string): void\n}\n\nexport interface Beacon {\n  name: string\n}\n\nexport abstract class Clock {\n  abstract now(): number\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("disk.ts"),
+        "export class Disk implements Store {\n  save(text: string) {}\n}\n\nexport class Wall extends Clock {\n  now() { return 0 }\n}\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "store.ts", "disk.ts"]);
+
+    assert_eq!(
+        stdout(&output),
+        "store.ts:1 single-use-abstraction: Store has one implementation, in disk.ts:1; the code could use it directly\n\
+         store.ts:9 single-use-abstraction: Clock has one implementation, in disk.ts:5; the code could use it directly\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_parameter_every_caller_passes_the_same_value_for_is_found() {
+    let folder = folder("constant-parameter");
+    fs::write(
+        folder.join("light.py"),
+        "def light(beacon, keeper, retries):\n    send(beacon, keeper, retries)\n\n\ndef quench(beacon):\n    send(beacon)\n",
+    )
+    .unwrap();
+    fs::write(
+        folder.join("chain.py"),
+        "def chain():\n    light(\"amon-din\", \"Hirgon\", 3)\n    light(\"eilenach\", \"Hirgon\", 3)\n    quench(\"amon-din\")\n",
+    )
+    .unwrap();
+
+    let output = run(&folder, &["check", "light.py", "chain.py"]);
+
+    assert_eq!(
+        stdout(&output),
+        "light.py:1 single-use-abstraction: every call passes \"Hirgon\" for keeper\n\
+         light.py:1 single-use-abstraction: every call passes 3 for retries\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}

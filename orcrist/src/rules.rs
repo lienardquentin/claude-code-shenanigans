@@ -1,9 +1,10 @@
-//! Every rule run over one source, parsed once.
+//! Every rule run over one file of the project.
 
-use tree_sitter::{Node, Parser};
+use tree_sitter::Node;
 
 use crate::lang::{self, Language};
-use crate::{impossible, restating, swallowed, vague};
+use crate::project::{File, Project};
+use crate::{impossible, restating, single_use, swallowed, vague};
 
 /// Lines are counted from 1, as an editor shows them.
 pub struct Finding {
@@ -12,24 +13,28 @@ pub struct Finding {
     pub message: String,
 }
 
-/// The findings in `source`, in the order of their lines.
-pub fn check(source: &str, language: Language) -> Vec<Finding> {
-    let code = language.code(source);
-    let source = code.as_ref();
-    let mut parser = Parser::new();
-    parser
-        .set_language(&language.grammar())
-        .expect("every grammar matches tree-sitter's version");
-    let tree = parser
-        .parse(source, None)
-        .expect("a parser with a language set always parses");
+/// What the rules that look across files know of the whole project, gathered once.
+pub struct Indexes {
+    single_use: single_use::Index,
+}
+
+pub fn index(project: &Project) -> Indexes {
+    Indexes {
+        single_use: single_use::Index::build(project),
+    }
+}
+
+/// The findings in `file`, in the order of their lines.
+pub fn check(file: &File, indexes: &Indexes) -> Vec<Finding> {
+    let (source, language) = (file.code.as_str(), file.language);
     let mut findings = Vec::new();
     let mut spares = Vec::new();
-    visit(tree.root_node(), &mut |node| {
+    visit(file.tree.root_node(), &mut |node| {
         findings.extend(restating::judge(node, source, language));
         findings.extend(swallowed::judge(node, source, language));
         findings.extend(vague::judge(node, source, language));
         findings.extend(impossible::judge(node, source, language));
+        findings.extend(single_use::judge(node, file, &indexes.single_use));
         spares.extend(spare(node, source, language));
     });
     // A spare covers the finding on its own line and on the line below it
@@ -71,7 +76,7 @@ fn spare<'a>(node: Node, source: &'a str, language: Language) -> Option<Spare<'a
     })
 }
 
-fn visit(node: Node, on_node: &mut impl FnMut(Node)) {
+pub fn visit<'a>(node: Node<'a>, on_node: &mut impl FnMut(Node<'a>)) {
     on_node(node);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

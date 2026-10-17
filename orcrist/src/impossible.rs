@@ -105,9 +105,9 @@ fn typescript_comparison<'a>(comparison: Node, source: &'a str) -> Option<(&'a s
 
 /// `text?.length`, where the signature says `text: string`
 fn typescript_optional_chain<'a>(member: Node, source: &'a str) -> Option<(&'a str, &'a str)> {
-    let object = member
+    let receiver = member
         .child_by_field_name("object")
-        .filter(|object| object.kind() == "identifier")?;
+        .filter(|receiver| receiver.kind() == "identifier")?;
     let mut cursor = member.walk();
     if !member
         .children(&mut cursor)
@@ -115,7 +115,7 @@ fn typescript_optional_chain<'a>(member: Node, source: &'a str) -> Option<(&'a s
     {
         return None;
     }
-    let name = &source[object.byte_range()];
+    let name = &source[receiver.byte_range()];
     typescript_annotation(member, name, source).map(|annotation| (name, annotation))
 }
 

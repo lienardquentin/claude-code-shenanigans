@@ -1,10 +1,9 @@
 //! The lines a change added, as git tells them.
 
+use crate::git::git;
+use crate::lang::Language;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::process::Command;
-
-use crate::lang::Language;
 
 /// The lines of a file a change added, None when it added the whole file.
 pub type Added = Option<BTreeSet<usize>>;
@@ -42,21 +41,6 @@ pub fn added_lines(since: &str) -> Result<BTreeMap<PathBuf, Added>, String> {
             .map(|file| (PathBuf::from(file), None)),
     );
     Ok(added)
-}
-
-fn git(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(args)
-        .output()
-        .map_err(|error| format!("cannot run git: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn parse(diff: &str) -> BTreeMap<PathBuf, BTreeSet<usize>> {

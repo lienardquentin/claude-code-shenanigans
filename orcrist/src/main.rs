@@ -1,19 +1,22 @@
 mod diff;
+mod git;
 mod impossible;
 mod lang;
+mod project;
 mod restating;
 mod rules;
+mod single_use;
 mod swallowed;
 mod vague;
 mod words;
 
-use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
 use lang::Language;
+use project::Project;
 
 /// Finds what an AI leaves behind in code: comments that restate it, guards for what cannot happen, vague names.
 #[derive(Parser)]
@@ -47,29 +50,34 @@ fn main() -> ExitCode {
         },
         None => files.into_iter().map(|file| (file, None)).collect(),
     };
-    let mut found = false;
-    for (file, lines) in targets {
-        let Some(language) = Language::of(&file) else {
-            eprintln!(
-                "orcrist: no language orcrist reads has the extension of {}",
-                file.display()
-            );
+    let judged: Vec<PathBuf> = targets.iter().map(|(file, _)| file.clone()).collect();
+    if let Some(file) = judged.iter().find(|file| Language::of(file).is_none()) {
+        eprintln!(
+            "orcrist: no language orcrist reads has the extension of {}",
+            file.display()
+        );
+        return ExitCode::from(2);
+    }
+    let project = match Project::load(&judged) {
+        Ok(project) => project,
+        Err(error) => {
+            eprintln!("orcrist: {error}");
             return ExitCode::from(2);
-        };
-        let source = match fs::read_to_string(&file) {
-            Ok(source) => source,
-            Err(error) => {
-                eprintln!("orcrist: cannot read {}: {error}", file.display());
-                return ExitCode::from(2);
-            }
-        };
-        for finding in rules::check(&source, language) {
+        }
+    };
+    let indexes = rules::index(&project);
+    let mut found = false;
+    for (path, lines) in targets {
+        let file = project
+            .file(&path)
+            .expect("every file judged is loaded into the project");
+        for finding in rules::check(file, &indexes) {
             if lines.as_ref().is_some_and(|lines| !lines.contains(&finding.line)) {
                 continue;
             }
             println!(
                 "{}:{} {}: {}",
-                file.display(),
+                path.display(),
                 finding.line,
                 finding.rule,
                 finding.message
