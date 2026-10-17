@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { foundUrl, gathered } from '../hooks/mountdoom/doom'
+import { firstUrl } from '../core/forge'
+import { gathered } from '../hooks/mountdoom/doom'
 
 type Engine = Parameters<TestBody>[0]
 type On = Parameters<TestBody>[1]
@@ -28,9 +29,9 @@ describe('the relics', () => {
   })
 
   test('find a merged pull request by its branch on either forge', () => {
-    expect(foundUrl(JSON.stringify([{ url: PR }]))).toBe(PR)
-    expect(foundUrl(JSON.stringify([{ web_url: 'https://gitlab.com/g/p/-/merge_requests/3' }]))).toBe('https://gitlab.com/g/p/-/merge_requests/3')
-    expect(foundUrl('[]')).toBe('')
+    expect(firstUrl(JSON.stringify([{ url: PR }]))).toBe(PR)
+    expect(firstUrl(JSON.stringify([{ web_url: 'https://gitlab.com/g/p/-/merge_requests/3' }]))).toBe('https://gitlab.com/g/p/-/merge_requests/3')
+    expect(firstUrl('[]')).toBe('')
   })
 })
 

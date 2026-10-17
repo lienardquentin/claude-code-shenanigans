@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskState, MiddleEarthAgent } from '../../types'
-import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, trustArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
-import type { Issue, Origin, Trust } from './council'
+import type { ElrondCouncil, ElrondPlan, ElrondSeverity, ElrondTaskState, MiddleEarthAgent } from '../../types'
+import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, decidedOf, reopened, withDecided, withUnproven, beginText, councilPrompt, marked, parsePlan, parseRef, planText, ready, tally, taskText, tidyPlan } from './council'
+import { parseRemote, refText } from '../../core/forge'
+import type { Issue, IssueRef, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
-import { gitlabPushers, inTurn, isMergedFrom, rootOf, toolFailed } from '../flow'
+import { forgeIn, inTurn, isMergedFrom, rootOf, toolFailed } from '../flow'
 import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
@@ -19,8 +20,6 @@ type On = Parameters<Register>[0]
 const PANE = 'elrond'
 const TITLE = 'Elrond'
 const AGENT_TYPE = typeOf(COUNCIL)
-// How long the forge is given to answer
-const FETCH_TIMEOUT_MS = 60_000
 // Where a plan is kept across sessions, by its issue
 const STORE_KEY = (ref: string) => `plan:${ref}`
 
@@ -122,54 +121,15 @@ const TOOLS = [
 ] as const
 
 /** The project's own repository, from its origin remote: what a bare `#12` names. */
-async function originOf($: $): Promise<Origin | undefined> {
+async function originOf($: $): Promise<Repo | undefined> {
   const ran = await $.process.run(['git', 'remote', 'get-url', 'origin'], { cwd: await rootOf($) }).catch(() => undefined)
 
   return ran?.exitCode === 0 ? parseRemote(ran.stdout) : undefined
 }
 
-const lastLine = (said: string): string => said.trim().split('\n').filter(line => line.trim() !== '').slice(-1)[0] ?? ''
-
-/** A forge's command, run: what it answered, or why it could not be run. */
-async function asked($: $, argv: readonly string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return $.process.run([...argv], { timeoutMs: FETCH_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
-}
-
-/**
- * Who is trusted on an issue, as the forge says: its author's association on GitHub (a comment's comes with it), the
- * people who can push on GitLab. Where the forge cannot say, nothing is trusted, so the issue reads as from outside.
- */
-async function trustOf($: $, ref: ElrondRef, origin: Origin | undefined): Promise<Trust> {
-  const cli = await asked($, trustArgv(ref))
-
-  if (ref.forge === 'github') return cli.exitCode === 0 ? { association: cli.stdout.trim() } : {}
-
-  const members = cli.exitCode === 0 ? cli : await asked($, apiArgv(ref, origin).members)
-
-  return { pushers: members.exitCode === 0 ? gitlabPushers(members.stdout) : [] }
-}
-
 /** The issue, through the forge's CLI, else its REST API; why neither could read it, when neither could. */
-async function fetchIssue($: $, ref: ElrondRef, origin: Origin | undefined): Promise<Issue | string> {
-  const argv = cliArgv(ref)
-  const cli = await asked($, argv)
-  const trust = await trustOf($, ref, origin)
-  const viaCli = cli.exitCode === 0 ? parseIssue(cli.stdout, '', trust) : undefined
-
-  if (viaCli !== undefined) return viaCli
-
-  const api = apiArgv(ref, origin)
-  const got = await asked($, api.issue)
-
-  if (got.exitCode === 0) {
-    const thread = await asked($, api.comments)
-    // GitHub's API says each author's association itself; GitLab's is told by the members
-    const viaApi = parseIssue(got.stdout, thread.exitCode === 0 ? thread.stdout : '', ref.forge === 'github' ? {} : trust)
-
-    if (viaApi !== undefined) return viaApi
-  }
-
-  return `${refText(ref)} could not be read. ${argv[0]} said: ${lastLine(cli.stderr) || `it exited with ${cli.exitCode}`}; the API said: ${lastLine(got.stderr) || `curl exited with ${got.exitCode}`}.`
+async function fetchIssue($: $, ref: IssueRef, origin: Repo | undefined): Promise<Issue | string> {
+  return forgeIn($, ref.forge).readIssue(ref, origin)
 }
 
 /** The plan in force, read the way this build spells it: one kept before questions had answers reads as one that has them. */

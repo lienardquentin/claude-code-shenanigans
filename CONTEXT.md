@@ -188,3 +188,13 @@ _Avoid_: Spec tests, red tests, TDD tests
 What a mod keeps of a quest (its branch, worktree, plan, tests first), which Mount Doom clears once its pull request is
 merged.
 _Avoid_: Leftovers, cache, artefact
+
+**Core**:
+The workflow's code that never touches the engine (`.claude/mods/middle-earth/core`): it runs commands through a shell it
+is handed, so the mod and a runner outside Claude Code can share it. Written in plain names.
+_Avoid_: Engine, kernel, lib
+
+**Forge**:
+The core's one way to a repository's host: GitHub through `gh`, GitLab through `glab`. No part builds a forge's command
+itself.
+_Avoid_: Host (for the forge), provider, remote

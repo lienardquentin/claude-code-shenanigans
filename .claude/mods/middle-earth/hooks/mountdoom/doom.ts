@@ -38,21 +38,6 @@ export const gathered = (answers: readonly { keeper: MountdoomKeeper; kept: read
   return relics
 }
 
-/** The forge's CLI that finds a merged pull request by the branch it came from. */
-export const findArgv = (forge: 'github' | 'gitlab', branch: string): string[] =>
-  forge === 'github' ? ['gh', 'pr', 'list', '--head', branch, '--state', 'merged', '--json', 'url', '--limit', '1'] : ['glab', 'mr', 'list', '--source-branch', branch, '--merged', '--output', 'json']
-
-/** The URL of the merged pull request the forge found, if any. */
-export const foundUrl = (answer: string): string => {
-  try {
-    const held = JSON.parse(answer) as { url?: unknown; web_url?: unknown }[]
-
-    return String(held[0]?.url ?? held[0]?.web_url ?? '')
-  } catch {
-    return ''
-  }
-}
-
 /** Whether a ref is an issue as Elrond writes it, which a plan is kept by. */
 export const isIssueRef = (ref: string): boolean => /^(github|gitlab):.+#\d+$/.test(ref)
 
