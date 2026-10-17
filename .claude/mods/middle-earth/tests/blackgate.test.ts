@@ -119,6 +119,20 @@ describe('the gate', () => {
     expect(weighed.has('T9')).toBe(false)
   })
 
+  test('marks a comment whose weight does not read as weighed by no one, and hands that on', () => {
+    const weighed = parseWeights('[{ "id": "T1", "weight": "enormous", "kind": "change" }]')
+
+    expect(weighed.get('T1')).toEqual({ weight: 'standard', isUnweighed: true, kind: 'change' })
+
+    const read = parseGithub(GITHUB, REPO, 40)
+
+    if (typeof read !== 'object') throw new Error(read)
+
+    const held: BlackgateGate = { pr: read.pr, comments: [{ ...read.comments[0]!, weight: 'standard', isUnweighed: true, kind: 'change' }], phase: 'ready', at: 0 }
+
+    expect(handedOf(held).comments[0]).toMatchObject({ weight: 'standard', isUnweighed: true })
+  })
+
   test('hands the Fellowship each comment that asks for a change, with who wrote it, where, and its weight; never a question', () => {
     const read = parseGithub(GITHUB, REPO, 40)
 

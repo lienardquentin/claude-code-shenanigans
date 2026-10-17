@@ -15,7 +15,7 @@ export const SWIFT_STATUE_MODEL = 'claude-sonnet-5-5'
 
 /** What a task of each weight is, as the council weighs it and the statues weigh a change's size against it. */
 export const WEIGHT_MEANS = {
-  light: 'docs, config, a rename or a test to adjust',
+  light: 'docs, config, a rename, a typo or a test to adjust',
   standard: "one module's change and the test that proves it",
   heavy: 'a change that crosses targets, reworks a design, or touches code that is risky to change',
 } as const

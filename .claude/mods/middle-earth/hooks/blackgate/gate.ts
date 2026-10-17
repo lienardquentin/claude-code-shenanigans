@@ -1,5 +1,5 @@
 import type { BlackgateComment, BlackgateGate, BlackgatePr, BlackgateWeight } from '../../types'
-import { TRUSTED_ASSOCIATIONS, forgeOfHost, gitlabPushers } from '../flow'
+import { TRUSTED_ASSOCIATIONS, WEIGHT_MEANS, forgeOfHost, gitlabPushers } from '../flow'
 
 export const HOW_TO = "No gate is open. /blackgate <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /blackgate march hands those that ask for a change to the Fellowship, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
@@ -178,9 +178,9 @@ export const parseGitlab = (request: string, discussions: string, repo: string, 
 export const weighPrompt = (comments: readonly Unweighed[]): string =>
   [
     'Weigh each review comment below by what answering it asks of whoever builds the answer, and say whether it asks for a change or asks something only the author of the change can answer.',
-    '- light: a rename, a typo, a comment or docs line, a small test fix.',
-    '- standard: a change to one module and the test that proves it.',
-    '- heavy: a change across modules, a rework of a design, or code risky to touch.',
+    `- light: ${WEIGHT_MEANS.light}.`,
+    `- standard: ${WEIGHT_MEANS.standard}.`,
+    `- heavy: ${WEIGHT_MEANS.heavy}.`,
     '- kind is "question" when the comment asks why, asks for a decision, or disagrees in a way no change can settle; "change" when it asks for a change; "settled" when nothing is left to do of it.',
     '- A comment may carry its thread\'s replies, each after a line "--- <author>:". Weigh the thread as it stands at its last reply: a question someone answers by deciding for the change ("yes", "do it") asks for that change; one answered against it ("no", "leave it") is settled. A comment its author takes back is settled.',
     '- A review\'s own words that only introduce or sum up its inline comments, asking nothing of their own, are settled.',
@@ -192,15 +192,17 @@ export const weighPrompt = (comments: readonly Unweighed[]): string =>
   ].join('\n')
 
 /** What the Mouth of Sauron answered, by comment id; a comment it did not weigh is not in it, and its caller takes it as a question. */
-export const parseWeights = (answer: string): Map<string, { weight: BlackgateWeight; kind: 'change' | 'question' | 'settled' }> => {
-  const weighed = new Map<string, { weight: BlackgateWeight; kind: 'change' | 'question' | 'settled' }>()
+export const parseWeights = (answer: string): Map<string, { weight: BlackgateWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }> => {
+  const weighed = new Map<string, { weight: BlackgateWeight; isUnweighed?: boolean; kind: 'change' | 'question' | 'settled' }>()
   const found = /\[[\s\S]*\]/.exec(answer)
 
   try {
     for (const one of JSON.parse(found?.[0] ?? '[]') as { id?: unknown; weight?: unknown; kind?: unknown }[]) {
       if (typeof one.id !== 'string') continue
 
-      weighed.set(one.id, { weight: one.weight === 'light' || one.weight === 'heavy' ? one.weight : 'standard', kind: one.kind === 'question' || one.kind === 'settled' ? one.kind : 'change' })
+      const isRead = one.weight === 'light' || one.weight === 'standard' || one.weight === 'heavy'
+
+      weighed.set(one.id, { weight: isRead ? one.weight : 'standard', ...(isRead ? {} : { isUnweighed: true }), kind: one.kind === 'question' || one.kind === 'settled' ? one.kind : 'change' })
     }
   } catch {
     // weighed as it stands
@@ -230,7 +232,7 @@ export const handedOf = (gate: BlackgateGate): { ref: string; url: string; title
   base: gate.pr.base,
   comments: gate.comments
     .filter(one => one.kind === 'change')
-    .map(one => ({ title: firstLine(one.body), brief: one.body, author: one.author, where: one.path === '' ? '' : `${one.path}:${one.line}`, url: one.url, weight: one.weight, files: one.path === '' ? [] : [one.path], ...(one.thread !== undefined && one.thread !== '' ? { thread: one.thread } : {}) })),
+    .map(one => ({ title: firstLine(one.body), brief: one.body, author: one.author, where: one.path === '' ? '' : `${one.path}:${one.line}`, url: one.url, weight: one.weight, ...(one.isUnweighed === true ? { isUnweighed: true } : {}), files: one.path === '' ? [] : [one.path], ...(one.thread !== undefined && one.thread !== '' ? { thread: one.thread } : {}) })),
 })
 
 /** One comment in a line. */

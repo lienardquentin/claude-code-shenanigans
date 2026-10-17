@@ -310,6 +310,15 @@ describe('a member', () => {
       expect(text).not.toContain('Open?')
     }
   })
+
+  test('tells the statues the weight a task was given, and none for a task no one weighed', () => {
+    const made = parsePlan(JSON.stringify({ ...PLAN, tasks: [PLAN.tasks[0], { ...PLAN.tasks[1], isUnweighed: true }, { ...PLAN.tasks[1], id: 3, weight: undefined }] })) as FellowshipPlan
+
+    expect(purposeOf(QUEST, made, made.tasks[0]!)).toContain('\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust.\n')
+    expect(made.tasks.map(task => task.isUnweighed === true)).toEqual([false, true, true])
+    expect(purposeOf(QUEST, made, made.tasks[1]!)).not.toContain('Weighed as')
+    expect(purposeOf(QUEST, made, made.tasks[2]!)).not.toContain('Weighed as')
+  })
 })
 
 describe('a review handed over', () => {
@@ -805,7 +814,7 @@ describe('fellowship', () => {
     expect(world.judged.map(one => one.subagent_type)).toEqual(['middle-earth:isildur', 'middle-earth:anarion'])
     expect(world.judged[0]).toMatchObject({ cwd: TREE })
     expect(world.judged[1]).toMatchObject({ cwd: TREE })
-    expect(aboutOf(world.judged[0])).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.\nWeighed as light before it was built: docs, config, a rename or a test to adjust\.\nWhy:[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
+    expect(aboutOf(world.judged[0])).toMatch(/^Task 1 of the plan for github:.*#12, "Beacons answer how long they have burned": Keep when a beacon is lit\.\nWeighed as light before it was built: docs, config, a rename, a typo or a test to adjust\.\nWhy:[\s\S]*Done when: lit_at is set on light\nDecided by the person: [^\n]*\n- Is an unlit beacon 0 or null\? → null\nLeft to later tasks, and so not owed by this change:\n- 2\. Answer the seconds burned$/)
 
     // A pass with a minor finding sends the member back once to tidy it, and commits nothing yet
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(false)

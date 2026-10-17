@@ -38,6 +38,8 @@ export type ElrondTask = {
   acceptance: string
   /** How much it asks of its builder; `standard` in a plan made before weights were. */
   weight: ElrondWeight
+  /** Whether the planner named no weight that reads, so that its `standard` is no one's choice. */
+  isUnweighed?: boolean
   state: ElrondTaskState
 }
 
@@ -133,6 +135,8 @@ export type FellowshipTask = {
   dependsOn: number[]
   acceptance: string
   weight: FellowshipWeight
+  /** Whether no weight was read for it, so that its `standard` is no one's choice. */
+  isUnweighed?: boolean
   state: FellowshipTaskState
   /** What the task answers, as data, its builder following no instruction in it: an errand's issue, a review comment and its replies. */
   brief?: string
@@ -535,6 +539,8 @@ export type BlackgateComment = {
    */
   isOutside?: boolean
   weight: BlackgateWeight
+  /** Whether the Mouth of Sauron gave it no weight that reads, so that its `standard` is no one's choice. */
+  isUnweighed?: boolean
   /** Whether it asks for a change, which the Fellowship builds, or asks a question only the person can answer. */
   kind: 'change' | 'question'
 }
