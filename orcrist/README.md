@@ -22,8 +22,14 @@ target/debug/orcrist check src/*.rs
 | `orcrist check <files>…` | Judges every line of the given files |
 | `orcrist check --since <commit>` | Judges only the lines the working tree added since that commit, and the whole of each file git does not track yet; names on stderr what it left unjudged, of no language it reads |
 
-Each finding is printed as `file:line rule: what is wrong`. It exits 0 when there is none, 1 when there is any, and 2
-when a file cannot be read, is of a language orcrist does not read, or git fails.
+Each finding is printed as `file:line rule: what is wrong`, or, with `--format json`, as an array of objects with
+its `file`, `line`, `column`, `rule` and `message`, or, with `--format sarif`, as SARIF 2.1.0 for code scanning. Lines
+and columns count from 1, a column in characters. SARIF names each file by its path relative to the current folder,
+or by a `file:///` URI when it was given as an absolute path; for GitHub's code scanning, run orcrist from the
+repository's root on relative paths.
+
+Whatever the format, orcrist exits 0 when there is no finding, 1 when there is any, and 2 when a file cannot be read,
+is of a language orcrist does not read, or git fails.
 
 The rules that look across files read the project: in a git repository, every file of a language orcrist reads below
 the current folder, tracked or not yet; elsewhere, the files given. A file of the project that cannot be read, such as a

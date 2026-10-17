@@ -9,21 +9,11 @@ use std::path::{Component, Path, PathBuf};
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
+use crate::rules::RULES;
 use crate::{duplicate, git, restating, single_use};
 
 /// The name of the file orcrist looks for, in the current folder and each folder above it up to the repository's root.
 pub const FILE_NAME: &str = "orcrist.toml";
-
-/// Every rule a finding can come from, as the config and the findings name them.
-pub const RULES: [&str; 7] = [
-    "restating-comment",
-    "swallowed-error",
-    "vague-name",
-    "impossible-guard",
-    "single-use-abstraction",
-    "duplicate-helper",
-    "unexplained-spare",
-];
 
 /// The thresholds and words the rules judge by: their defaults, with what the config sets or adds.
 pub struct Settings {
@@ -120,8 +110,9 @@ impl Config {
             ..Config::default()
         };
         for (rule, written) in written.rules {
-            if !RULES.contains(&rule.as_str()) {
-                return Err(format!("no rule is named {rule}; the rules are {}", RULES.join(", ")));
+            if !RULES.iter().any(|(name, _)| *name == rule) {
+                let names: Vec<&str> = RULES.iter().map(|(name, _)| *name).collect();
+                return Err(format!("no rule is named {rule}; the rules are {}", names.join(", ")));
             }
             let settings = &mut config.settings;
             let lowercase = |words: Vec<String>| words.into_iter().map(|word| word.to_lowercase()).collect();

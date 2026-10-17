@@ -12,11 +12,12 @@ pub fn judge(guard: Node, source: &str, language: Language) -> Option<Finding> {
         .iter()
         .filter(|(kind, _)| *kind == guard.kind())
         .find_map(|(_, rules_out)| rules_out(guard, source))?;
-    Some(Finding {
-        line: guard.start_position().row + 1,
-        rule: "impossible-guard",
-        message: format!("the signature already says {name} is {annotation}"),
-    })
+    Some(Finding::at(
+        guard,
+        source,
+        "impossible-guard",
+        format!("the signature already says {name} is {annotation}"),
+    ))
 }
 
 /// `isinstance(path, str)` where the signature says `path: str`

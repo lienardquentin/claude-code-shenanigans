@@ -11,11 +11,12 @@ pub fn judge(node: Node, source: &str, language: Language) -> Option<Finding> {
         .swallowed
         .iter()
         .find(|swallowed| swallowed.kind == node.kind() && (swallowed.drops)(node, source))?;
-    Some(Finding {
-        line: node.start_position().row + 1,
-        rule: "swallowed-error",
-        message: swallowed.message.to_string(),
-    })
+    Some(Finding::at(
+        node,
+        source,
+        "swallowed-error",
+        swallowed.message.to_string(),
+    ))
 }
 
 /// `write(path).ok();`

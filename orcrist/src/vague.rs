@@ -23,11 +23,8 @@ pub fn judge(name: Node, source: &str, language: Language, settings: &Settings) 
     }
     let declared = declared(name, language)?;
     let text = &source[name.byte_range()];
-    vague(text, declared, settings).then(|| Finding {
-        line: name.start_position().row + 1,
-        rule: "vague-name",
-        message: format!("{text} says nothing of what it is"),
-    })
+    vague(text, declared, settings)
+        .then(|| Finding::at(name, source, "vague-name", format!("{text} says nothing of what it is")))
 }
 
 fn vague(name: &str, declared: Declared, settings: &Settings) -> bool {
