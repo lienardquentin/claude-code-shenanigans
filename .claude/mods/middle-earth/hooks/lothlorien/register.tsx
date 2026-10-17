@@ -142,7 +142,7 @@ async function gaze($: $, purpose: string, by: LothlorienVision['by'], place: Pl
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) return `Galadriel could not be sent: ${started.deny}`
-  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'galadriel', root: await rootOf($), tree: place.tree })
+  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'galadriel', root: await rootOf($), tree: place.tree, ...(ref !== '' ? { ref } : {}) })
 
   await setVision($, place, (): LothlorienVision => ({ purpose: purpose.trim(), ...(ref !== '' ? { ref } : {}), by, agentId: started.agentId ?? '', state: 'gazing', head, tests: [], red: '', why: '', blocks: [], amendments: [], at: Date.now(), ...(place.isHome ? {} : { tree: place.tree }) }))
   await update($, note, () => '')

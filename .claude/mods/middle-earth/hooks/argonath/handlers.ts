@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { ArgonathRadius, ArgonathTarget } from '../../types'
-import { errorText } from '../flow'
+import { UNMODDED_WORDS, errorText } from '../flow'
 import type { Changed } from './proof'
 import { CHANGE_SCRIPT, UNTRACKED, affectedOf, changesByTarget, gateOf, gated, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, sizeText, tidy, withLive } from './proof'
 
@@ -113,10 +113,10 @@ export async function wholeFingerprint($: $, tree: string, against = 'HEAD'): Pr
   return ran.exitCode === 0 ? `git:${ran.stdout.trim()}` : `${UNREADABLE}${ran.stderr.trim().split('\n').slice(-1)[0] ?? ''}`
 }
 
-/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name; or why git could not say it. */
+/** The change as the statues are handed it: the diff since `against` left HEAD, then the new files by name, the mods' folders left out; or why git could not say it. */
 export async function changeText($: $, tree: string, against = 'HEAD'): Promise<{ text: string } | { error: string }> {
   const ran = await $.process
-    .run(['sh', '-c', 'b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff; echo; echo "New files:"; git ls-files -o --exclude-standard', 'sh', against], { cwd: tree })
+    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --no-color --no-ext-diff ${UNMODDED_WORDS}; echo; echo "New files:"; git ls-files -o --exclude-standard ${UNMODDED_WORDS}`, 'sh', against], { cwd: tree })
     .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return ran.exitCode === 0 ? { text: ran.stdout } : { error: `git could not show the change since ${against}: ${ran.stderr.trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}` }
@@ -129,7 +129,7 @@ export async function changeText($: $, tree: string, against = 'HEAD'): Promise<
  */
 export async function sizeIn($: $, tree: string, against = 'HEAD'): Promise<string> {
   const ran = await $.process
-    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --numstat -z --no-ext-diff || exit 1; printf '%s\\0' '${UNTRACKED}'; git ls-files -o --exclude-standard -z | xargs -0 -r -n1 sh -c 'git diff --no-index --numstat -z -- /dev/null "$1" 2>/dev/null; true' sh`, 'sh', against], { cwd: tree })
+    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --numstat -z --no-ext-diff ${UNMODDED_WORDS} || exit 1; printf '%s\\0' '${UNTRACKED}'; git ls-files -o --exclude-standard -z ${UNMODDED_WORDS} | xargs -0 -r -n1 sh -c 'git diff --no-index --numstat -z -- /dev/null "$1" 2>/dev/null; true' sh`, 'sh', against], { cwd: tree })
     .catch(() => undefined)
 
   return ran?.exitCode === 0 ? sizeText(ran.stdout) : ''

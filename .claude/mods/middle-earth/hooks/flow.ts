@@ -59,6 +59,22 @@ export const fencedJson = (answer: string): string[] => {
 export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
+ * Work done one at a time, each after the one before has ended, however that one ended: where what parts do beside one
+ * another reads and writes the same thing.
+ */
+export const inTurn = (): (<T>(work: () => Promise<T>) => Promise<T>) => {
+  let last: Promise<unknown> = Promise.resolve()
+
+  return work => {
+    const done = last.then(work)
+
+    last = done.catch(() => undefined)
+
+    return done
+  }
+}
+
+/**
  * What a tool of the mod answers when its hook failed: the failure, said to Claude, rather than the call left unanswered
  * as if no tool were there.
  */
@@ -183,6 +199,22 @@ export async function git($: $, args: readonly string[], cwd?: string): Promise<
 }
 
 /**
+ * Removes a worktree, with what the mods left there: the worktrees they keep inside it (the Argonath's, Andúril's) go
+ * first, as git removes none around them. What git said of the worktree itself.
+ */
+export async function removeTree($: $, root: string, tree: string): Promise<{ ok: boolean; out: string }> {
+  const nested = (await git($, ['worktree', 'list', '--porcelain'], root)).out
+    .split('\n')
+    .filter(line => line.startsWith('worktree '))
+    .map(line => line.slice('worktree '.length))
+    .filter(path => path.startsWith(`${tree}/`))
+
+  for (const path of nested) await git($, ['worktree', 'remove', '--force', path], root)
+
+  return git($, ['worktree', 'remove', '--force', tree], root)
+}
+
+/**
  * The forge a host or a remote is, as every part reads it: GitLab where its name says so, GitHub otherwise (github.com,
  * or an Enterprise host).
  */
@@ -302,21 +334,30 @@ export const proofVerdict = (answer: unknown): ProofVerdict => {
   return { isSettled: held.verdict === 'settled', isUnlooked: held.verdict === 'unlooked', line: text(held.line) || held.verdict, unhandled: strings(held.unhandled), unreached: strings(held.unreached), text: text(held.text) || JSON.stringify(held) }
 }
 
-/** The statues' judgement as a part reads it: the verdict, their findings a line each, and the verdict in a line. */
-export type Judged = { verdict: string; blocking: string[]; minor: string[]; line: string }
+/** The statues' judgement as a part reads it: the verdict, their findings a line each, where each minor one is, and the verdict in a line. */
+export type Judged = { verdict: string; blocking: string[]; minor: string[]; minorAt: { where: string; line: string }[]; line: string }
 
 /** The statues' judgement as Argonath answers it to a part. */
 export const parseJudgement = (answer: unknown): Judged => {
   const held = heldOf(answer)
 
-  if (typeof held === 'string') return { verdict: 'unreadable', blocking: [], minor: [], line: `the Argonath answered no judgement: ${held.trim().slice(0, 200)}` }
+  if (typeof held === 'string') return { verdict: 'unreadable', blocking: [], minor: [], minorAt: [], line: `the Argonath answered no judgement: ${held.trim().slice(0, 200)}` }
 
   const verdict = typeof held.verdict === 'string' ? held.verdict : 'unreadable'
   const seats = (Array.isArray(held.seats) ? held.seats : []) as { title?: unknown; state?: unknown; why?: unknown; findings?: { severity?: unknown; where?: unknown; text?: unknown }[] }[]
-  const lines = (severity: string) =>
-    seats.flatMap(seat => (Array.isArray(seat.findings) ? seat.findings : []).filter(one => one.severity === severity).map(one => `- ${String(seat.title ?? '')}${typeof one.where === 'string' && one.where !== '' ? `, ${one.where}` : ''}: ${String(one.text ?? '')}`))
-  const blocking = lines('blocking')
-  const minor = lines('minor')
+  const found = (severity: string) =>
+    seats.flatMap(seat =>
+      (Array.isArray(seat.findings) ? seat.findings : [])
+        .filter(one => one.severity === severity)
+        .map(one => {
+          const where = typeof one.where === 'string' ? one.where : ''
+
+          return { where, line: `- ${String(seat.title ?? '')}${where !== '' ? `, ${where}` : ''}: ${String(one.text ?? '')}` }
+        }),
+    )
+  const blocking = found('blocking').map(one => one.line)
+  const minorAt = found('minor')
+  const minor = minorAt.map(one => one.line)
   const silent = seats.filter(seat => seat.state === 'silent').map(seat => `${String(seat.title ?? '')} ${String(seat.why ?? 'could not judge')}`)
   const many = (count: number, one: string) => `${count} ${one}${count === 1 ? '' : 's'}`
   const line =
@@ -330,7 +371,7 @@ export const parseJudgement = (answer: unknown): Judged => {
             ? 'judging'
             : verdict
 
-  return { verdict, blocking, minor, line }
+  return { verdict, blocking, minor, minorAt, line }
 }
 
 // Secrets as their issuers spell them: each a name, and a pattern no test fixture or prose matches by chance
@@ -378,13 +419,16 @@ export const isForbiddenGit = (command: string): boolean =>
 const withinOf = (root: string, path: string): string => (path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path.replace(/^\.\//, ''))
 
 // The folders the mods keep for themselves in a tree: a builder leaves them alone, and a commit takes nothing of them
-const MOD_FOLDERS = ['elrond', 'argonath', 'anduril', 'fellowship', 'lothlorien', 'blackgate'] as const
+export const MOD_FOLDERS = ['elrond', 'argonath', 'anduril', 'fellowship', 'lothlorien', 'blackgate'] as const
 
 /** A path in the folders the mods keep for themselves, which a builder leaves alone. */
 export const isModPath = (root: string, path: string): boolean => new RegExp(`^\\.(${MOD_FOLDERS.join('|')})(/|$)`).test(withinOf(root, path))
 
 /** The pathspec of a tree's own files, the mods' folders left out: what a commit stages, and what a change is looked for in. */
 export const UNMODDED: readonly string[] = ['--', '.', ...MOD_FOLDERS.map(folder => `:(exclude).${folder}`)]
+
+/** `UNMODDED` as a shell script spells it: what the statues are shown, and what a change is known by, is what a commit takes. */
+export const UNMODDED_WORDS = UNMODDED.map(one => `'${one}'`).join(' ')
 
 /** The issue a ref is of, from Elrond's short spelling: `github:owner/repo#12`, `gitlab:git.corp.io/g/p#3`. */
 export const issueOf = (ref: string): { forge: 'github' | 'gitlab'; server: string; repo: string; number: number } | undefined => {

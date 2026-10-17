@@ -6,7 +6,7 @@ import { HOW_TO, findArgv, foundUrl, gathered, isIssueRef, relicLine, relicsText
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
-import { UNMODDED, errorText, forgeOfHost, pullStateOf, rootOf, toolFailed } from '../flow'
+import { UNMODDED, errorText, forgeOfHost, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeGate, gateRelics } from '../blackgate/register'
 import { forgetPlan } from '../elrond/register'
 import { forgetQuest, questRelics } from '../fellowship/register'
@@ -142,16 +142,7 @@ async function burn($: $, relic: MountdoomRelic): Promise<string> {
     // What the mods keep there (Andúril's builds, the Argonath's trees) is none of the quest's work
     if ((await run($, ['git', '-C', relic.tree, 'status', '--porcelain', ...UNMODDED])).out !== '') return `${relic.tree} holds uncommitted changes: commit, stash or drop them there, and cast again.`
 
-    // The worktrees the mods keep inside it go first, then it, with what they left there
-    const nested = (await git($, ['worktree', 'list', '--porcelain'])).out
-      .split('\n')
-      .filter(line => line.startsWith('worktree '))
-      .map(line => line.slice('worktree '.length))
-      .filter(path => path.startsWith(`${relic.tree}/`))
-
-    for (const path of nested) await git($, ['worktree', 'remove', '--force', path])
-
-    const removed = await git($, ['worktree', 'remove', '--force', relic.tree])
+    const removed = await removeTree($, root, relic.tree)
 
     said.push(removed.ok ? 'its worktree removed' : `its worktree could not be removed: ${removed.out}`)
   }

@@ -1,4 +1,5 @@
-import type { FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
+import type { MiddleEarthSpend } from '../../types'
+import type { FellowshipCommit, FellowshipKind, FellowshipMember, FellowshipPlan, FellowshipQuest, FellowshipTask, FellowshipTaskState, FellowshipVision, FellowshipWeight } from '../../types'
 import { COMMIT_TRAILER, PR_TRAILER, SWIFT_STATUE_MODEL, WEIGHT_MEANS, forgeOfUrl, issueOf, requestArgv, resolvedFrom } from '../flow'
 import type { Target } from '../flow'
 import { QUEST_TREES } from '../kit/trees'
@@ -229,6 +230,54 @@ export const decisionsOf = (plan: FellowshipPlan): { text: string; answer: strin
 /** Whether a task is behind the quest: built, or handed back to the person. */
 const isSettled = (task: FellowshipTask): boolean => task.state === 'done' || task.state === 'asked'
 
+/** How many of a plan's tasks are built at once, each beside the others in a lane of its own. */
+export const LANES = 3
+
+/** The ref a lane of a quest is kept by: the quest's, and its task's id. */
+export const laneRefOf = (ref: string, taskId: number): string => `${ref}~${taskId}`
+
+/** The branch a lane builds on, off its quest's. */
+export const laneBranchOf = (branch: string, taskId: number): string => `${branch}--task-${taskId}`
+
+/** The issue a quest works for: a lane's is its quest's. */
+export const issueRefOf = (quest: Pick<FellowshipQuest, 'ref' | 'lane'>): string => quest.lane?.of ?? quest.ref
+
+/** The tasks a plan could send now: not behind it, every dependency done, and none already out in a lane. */
+export const readyTasks = (plan: FellowshipPlan, out: readonly number[]): FellowshipTask[] => {
+  const isDone = (id: number) => plan.tasks.find(one => one.id === id)?.state === 'done'
+
+  return plan.tasks.filter(task => !isSettled(task) && !out.includes(task.id) && task.dependsOn.every(isDone))
+}
+
+/**
+ * The ready tasks to send beside those out, in the plan's order, up to `LANES` out at once: each names its files, and
+ * none of them is a file another task out or taken names, as two changes of one file would not land on each other. A
+ * task that names no file could touch any, and is sent alone.
+ */
+export const besideOf = (ready: readonly FellowshipTask[], out: readonly FellowshipTask[]): FellowshipTask[] => {
+  const taken: FellowshipTask[] = []
+  const files = new Set(out.flatMap(task => task.files))
+
+  if (out.some(task => task.files.length === 0)) return []
+
+  for (const task of ready) {
+    if (out.length + taken.length >= LANES) break
+    if (task.files.length === 0 || task.files.some(file => files.has(file))) continue
+
+    taken.push(task)
+    for (const file of task.files) files.add(file)
+  }
+
+  return taken
+}
+
+/** What a lane's member is sent back with when its change no longer lands on its quest's branch as it stands. */
+export const conflictPrompt = (branch: string, files: readonly string[]): string =>
+  [
+    `Your change passed its review, but ${branch} moved while you built it: another task landed there first, and your change conflicts with it. Your working tree is now ${branch} as it stands, with your change applied on it, and git's conflict markers where the two meet.`,
+    `Resolve each conflict${files.length > 0 ? ` (${files.join(', ')})` : ''} so that both changes hold, keeping what the other task built. Change nothing else, prove it again, and end your turn with your account as before.`,
+  ].join('\n')
+
 /** The task to send a member on: one already begun first, else the first whose every dependency is done. */
 export const nextTask = (plan: FellowshipPlan): FellowshipTask | undefined => {
   const isDone = (id: number) => plan.tasks.find(one => one.id === id)?.state === 'done'
@@ -273,6 +322,13 @@ const isWeighty = (plan: FellowshipPlan, task: FellowshipTask): boolean => task.
 /** The model the statues judge a task's change with: their own on a heavy task, a lighter one on any other. */
 export const statueModelFor = (plan: FellowshipPlan, task: FellowshipTask): string | undefined => (isWeighty(plan, task) ? undefined : SWIFT_STATUE_MODEL)
 
+/**
+ * The model the statues judge a plan's whole branch with: their own when a task of it is heavy, or a change of it went
+ * unproven, as each such task was judged; a lighter one on any other.
+ */
+export const wardModelFor = (plan: FellowshipPlan, commits: readonly Pick<FellowshipCommit, 'unproven'>[]): string | undefined =>
+  plan.tasks.some(task => isWeighty(plan, task)) || commits.some(one => (one.unproven ?? []).length > 0) ? undefined : SWIFT_STATUE_MODEL
+
 /** What a plan's whole branch is meant to do, for both statues to judge it against before it sails. */
 export const wardPurpose = (plan: FellowshipPlan): string =>
   [
@@ -290,6 +346,20 @@ const withinOf = (root: string, path: string): string => (path.startsWith(`${roo
  */
 export const isModSource = (root: string, path: string, task: Pick<FellowshipTask, 'files'> | undefined): boolean =>
   /^\.claude\/mods(\/|$)/.test(withinOf(root, path)) && !(task?.files ?? []).some(file => /^\.claude\/mods\//.test(file.replace(/^\.\//, '')))
+
+/**
+ * The minor findings a member is sent back to tidy: those about a file its change wrote, named from the tree's root or
+ * by its tail (`app.py:70` for `beacons/gondor/app.py`), and those that name no place. One about a file the change left
+ * alone is no member's to tidy.
+ */
+export const ownMinor = (found: readonly { where: string; line: string }[], tree: string, changed: readonly string[]): string[] =>
+  found
+    .filter(({ where }) => {
+      const path = withinOf(tree, where.trim().replace(/:\d.*$/, '')).replace(/\/+$/, '')
+
+      return path === '' || changed.some(file => file === path || file.endsWith(`/${path}`) || file.startsWith(`${path}/`))
+    })
+    .map(one => one.line)
 
 /** Whether a path is outside the folder a member works in, the quest's worktree, once resolved from it. */
 export const isOutside = (tree: string, path: string): boolean => {
@@ -583,8 +653,16 @@ const KIND_LINE: Record<FellowshipKind, string> = { plan: 'plan', errand: 'erran
 export const questLine = (quest: FellowshipQuest, plan: FellowshipPlan | null): string =>
   `${quest.ref} (${KIND_LINE[quest.kind]}), "${quest.title}"${plan === null ? '' : ` (${tally(plan)})`}: ${quest.phase}${quest.isAuto ? ', going on by itself' : ''}, on ${quest.branch} from ${quest.base}`
 
-/** The quest in full, for Claude. */
-export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null): string =>
+/**
+ * The turns of the record counted to a quest: those of every agent sent for its issue (the council that planned it, an
+ * earlier quest on it), and those of agents sent with no issue named into its worktree (the statues). An agent in the
+ * project's own folder that names no issue is no quest's.
+ */
+export const spentOn = (quest: Pick<FellowshipQuest, 'ref' | 'tree'>, root: string, turns: readonly MiddleEarthSpend[]): MiddleEarthSpend[] =>
+  turns.filter(one => one.ref === quest.ref || (one.ref === undefined && quest.tree !== root && one.tree === quest.tree))
+
+/** The quest in full, for Claude, and what its agents cost where any was counted to it. */
+export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null, cost = ''): string =>
   [
     `The Fellowship's quest on ${questLine(quest, plan)}.`,
     `It is built in ${quest.tree}.`,
@@ -604,4 +682,5 @@ export const questText = (quest: FellowshipQuest, plan: FellowshipPlan | null): 
           ),
         ]),
     ...(quest.pr !== '' ? ['', `Pull request: ${quest.pr}`] : []),
+    ...(cost !== '' ? ['', cost] : []),
   ].join('\n')

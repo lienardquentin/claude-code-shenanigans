@@ -139,6 +139,12 @@ The git worktree a quest is built in, under `.fellowship/trees/`; the person's o
 quest. A review whose branch is already checked out somewhere is built there instead.
 _Avoid_: Sandbox, clone, workspace
 
+**Lane**:
+One task of a plan's quest built beside its others, in a worktree and on a branch of its own off the quest's, when the
+tasks ready share no file (three at most). Once passed, it lands on the quest's branch: rebased onto what landed before
+it and proved again, or sent back to its builder where the two conflict.
+_Avoid_: Ticket worktree, parallel task, sub-quest
+
 **Builder**:
 The subagent that builds one task in the quest worktree (a member of the Fellowship, chosen by the task's weight and
 target, a rung up on each try, Gandalf last).

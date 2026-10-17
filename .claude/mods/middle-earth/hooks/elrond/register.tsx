@@ -5,7 +5,7 @@ import type { ElrondCouncil, ElrondPlan, ElrondRef, ElrondSeverity, ElrondTaskSt
 import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, planOf, planPathOf, answered, answersOf, apiArgv, trustArgv, decidedOf, reopened, withDecided, withUnproven, beginText, cliArgv, councilPrompt, marked, parseIssue, parsePlan, parseRef, parseRemote, planText, ready, refText, tally, taskText, tidyPlan } from './council'
 import type { Issue, Origin, Trust } from './council'
 import { badge } from '../kit/badge'
-import { gitlabPushers, isMergedFrom, rootOf, toolFailed } from '../flow'
+import { gitlabPushers, inTurn, isMergedFrom, rootOf, toolFailed } from '../flow'
 import { targetsKnown } from '../argonath/register'
 import type { Section, TurnEnded } from '../flow'
 import { paneView } from '../kit/pane-text'
@@ -252,7 +252,7 @@ async function convene($: $, input: string, by: ElrondCouncil['by'], isAgain: bo
 
   const started = await spawnIn($, { subagentType: AGENT_TYPE, description: `Plan ${key}`, prompt: councilPrompt(key, issue, decided, planPath, { accepted, covered }) }).catch((error: unknown) => ({ deny: error instanceof Error ? error.message : String(error), agentId: undefined }))
 
-  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'council', root: cwd, tree: cwd, files: [planPath] })
+  if (started.agentId !== undefined && started.agentId !== '') await remember($, started.agentId, { role: 'council', root: cwd, tree: cwd, files: [planPath], ref: key })
 
   if (started.deny !== undefined) {
     const why = `The council could not be convened on ${key}: ${started.deny}`
@@ -346,8 +346,15 @@ async function keepPlan($: $, made: ElrondPlan): Promise<void> {
   else await $.store.set(STORE_KEY(made.ref), made).catch(() => undefined)
 }
 
+// One mark at a time: a quest's lanes mark their tasks beside one another, each writing the plan as it read it
+const oneMark = inTurn()
+
 /** Marks a task of a plan, the one in force when none is named, keeps it, and says where the quest stands. */
-export async function markTask($: $, id: number, state: ElrondTaskState, ref = ''): Promise<string> {
+export function markTask($: $, id: number, state: ElrondTaskState, ref = ''): Promise<string> {
+  return oneMark(() => markNow($, id, state, ref))
+}
+
+async function markNow($: $, id: number, state: ElrondTaskState, ref: string): Promise<string> {
   const held = await planFor($, ref)
 
   if (held === null) return ref === '' ? 'No plan is in force: convene the council on an issue first.' : `No plan of ${ref} is kept.`
@@ -422,7 +429,7 @@ export async function councilFound($: $, agentId: string): Promise<MiddleEarthAg
 
   const root = await rootOf($)
 
-  return { role: 'council', root, tree: root, ...(sitting.planPath !== undefined ? { files: [sitting.planPath] } : {}) }
+  return { role: 'council', root, tree: root, ...(sitting.planPath !== undefined ? { files: [sitting.planPath] } : {}), ref: sitting.ref }
 }
 
 /** Elrond at the session's start: its command, its tools, and the clock that convenes what a press asked for. */

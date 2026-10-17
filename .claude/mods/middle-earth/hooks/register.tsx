@@ -6,7 +6,7 @@ import { errorText, rootOf, toolFailed } from './flow'
 import { argonathView, endedArgonath, pumpArgonath, registerArgonath, sectionOfArgonath, startArgonath } from './argonath/register'
 import { blackgateView, registerBlackgate, startBlackgate } from './blackgate/register'
 import { councilFound, elrondView, endedElrond, pumpElrond, registerElrond, sectionOfElrond, startElrond } from './elrond/register'
-import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, startFellowship } from './fellowship/register'
+import { endedFellowship, fellowshipView, memberFound, pumpFellowship, registerFellowship, sectionOfFellowship, spentFellowship, startFellowship } from './fellowship/register'
 import { endedLothlorien, galadrielFound, lockRefusal, lothlorienView, registerLothlorien, sectionOfLothlorien, startLothlorien } from './lothlorien/register'
 import { mountdoomView, registerMountdoom, startMountdoom } from './mountdoom/register'
 import { registerRings, ringsView, startRings } from './rings/register'
@@ -112,6 +112,11 @@ export const register: Register = on => {
 
   // A turn has ended, the session's or an agent's: each part reads what is its own of it, one part's stumble none other's
   on('turn.complete', async ($, e, next) => {
+    // What a turn of an agent the mod sent cost is counted, whichever part sent it
+    const agent = agentOf(e.agentId)
+
+    if (agent !== undefined && agent.role !== 'other') await spentFellowship($, agent, e).catch(stumbled($, 'the spend record'))
+
     await endedElrond($, e).catch(stumbled($, 'Elrond'))
     await endedLothlorien($, e).catch(stumbled($, 'Lothlórien'))
     await endedArgonath($, e).catch(stumbled($, 'the Argonath'))
