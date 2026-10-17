@@ -66,6 +66,8 @@ const TOOLS = [
 ] as const
 
 const STATE_TONE: Record<TestsFirstState, Tone> = { gazing: 'info', shown: 'success', empty: 'neutral', clouded: 'danger' }
+// What the pane calls each state
+const STATE_LABEL: Record<TestsFirstState, string> = { gazing: 'writing', shown: 'written', empty: 'nothing to test', clouded: 'unreadable' }
 
 /** The folder a vision is of: the project's, or a run's worktree. */
 type Place = { tree: string; isHome: boolean }
@@ -394,7 +396,7 @@ export function registerTestsFirst(on: On): void {
     if (shown === undefined) {
       return view.keep(
         <Box flexDirection="column" gap={1}>
-          {badge({ label: 'still', tone: 'neutral' })}
+          {badge({ label: 'idle', tone: 'neutral' })}
           <Text dimColor>{HOW_TO}</Text>
         </Box>,
         e.props.bodyColumns,
@@ -412,13 +414,13 @@ export function registerTestsFirst(on: On): void {
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
           <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-            {badge({ label: held.state, tone: STATE_TONE[held.state] })}
+            {badge({ label: STATE_LABEL[held.state], tone: STATE_TONE[held.state] })}
             {held.state === 'shown' && badge({ label: locked ? 'locked' : 'committed', tone: locked ? 'warning' : 'success' })}
             {held.tests.length > 0 && <Text color="error">{`${held.tests.length} red ${held.tests.length === 1 ? 'test' : 'tests'}`}</Text>}
             <Text dimColor>{clockOf(held.at)}</Text>
           </Box>
           {!place.isHome && <Text dimColor>{`In the run's worktree ${place.tree.split('/').slice(-1)[0] ?? ''}${held.ref !== undefined ? `, for ${shortRef(held.ref)}` : ''}`}</Text>}
-          {elsewhere > 0 && <Text dimColor>{`${elsewhere} more ${elsewhere === 1 ? 'vision' : 'visions'} in other runs' worktrees`}</Text>}
+          {elsewhere > 0 && <Text dimColor>{`tests written first in ${elsewhere} more of the runs' worktrees`}</Text>}
         </Box>
         {problem !== '' && <Text color="warning">{problem}</Text>}
         <Text>{held.purpose.split('\n')[0] ?? ''}</Text>

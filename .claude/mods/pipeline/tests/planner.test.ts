@@ -174,7 +174,7 @@ describe('a plan', () => {
     expect(plan.tasks).toHaveLength(2)
   })
 
-  test('keeps the person\'s answers, says them to Claude, and hands them to a revising council as decided', () => {
+  test('keeps the person\'s answers, says them to Claude, and hands them to a revising planner as decided', () => {
     const plan = parsePlan(PLAN, about)
 
     if (typeof plan === 'string') throw new Error(plan)
@@ -322,7 +322,7 @@ describe('planner', () => {
     expect(await call($, 'mcp__pipeline__make_plan', { issue: '#13' })).toMatch(/already on .*#12/)
   })
 
-  test('lays the plan the council answers, and no other agent\'s, and wakes the Claude that convened it with it', async ($, on) => {
+  test('lays the plan the planner answers, and no other agent\'s, and wakes the Claude that convened it with it', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })
 
@@ -355,7 +355,7 @@ describe('planner', () => {
     expect(await call($, 'mcp__pipeline__plan')).toMatch(/^Plan for github:lienardquentin\/claude-code-shenanigans#12[\s\S]*○ 1\. Keep when a beacon is lit \[todo, light\][\s\S]*○ 2\. Answer the seconds burned \[todo, heavy\] \(after 1\)/)
   })
 
-  test('lands the plan the council writes to its file, and hands it a line of its own', async ($, on) => {
+  test('lands the plan the planner writes to its file, and hands it a line of its own', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })
 
@@ -369,7 +369,7 @@ describe('planner', () => {
     expect(await call($, 'mcp__pipeline__plan')).toMatch(/\(0\/2 done\)[\s\S]*Is an unlit beacon 0 or null/)
   })
 
-  test('gives the council Write for its plan file, no other way to change a file, and the session\'s own permission mode', async ($, on) => {
+  test('gives the planner Write for its plan file, no other way to change a file, and the session\'s own permission mode', async ($, on) => {
     const world = machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
@@ -381,7 +381,7 @@ describe('planner', () => {
     expect(spec).not.toHaveProperty('permissionMode')
   })
 
-  test('holds the council to its plan file: any other write is refused, and another agent\'s is none of its business', async ($, on) => {
+  test('holds the planner to its plan file: any other write is refused, and another agent\'s is none of its business', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })
 
@@ -393,7 +393,7 @@ describe('planner', () => {
     expect(world.files['/proj/notes.md']).toBe('y')
   })
 
-  test('lets the council run only shell commands that read, whatever the person\'s rules allow', async ($, on) => {
+  test('lets the planner run only shell commands that read, whatever the person\'s rules allow', async ($, on) => {
     machine(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ran' }) as never)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })
@@ -405,7 +405,7 @@ describe('planner', () => {
     expect(await by('someone-else', 'rm -rf build')).toMatchObject({ result: 'ran' })
   })
 
-  test('reads the plan from a council\'s answer when its file holds none, and says why there is no plan when the council answers none', async ($, on) => {
+  test('reads the plan from a planner\'s answer when its file holds none, and says why there is no plan when the planner answers none', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })
     await ends($, 'planner-1', 'I could not find the code.')

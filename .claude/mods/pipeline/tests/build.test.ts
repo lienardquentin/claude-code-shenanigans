@@ -119,7 +119,7 @@ describe('the plan the planner answers', () => {
 })
 
 describe('the issue, its branch and its worktree', () => {
-  test('are read from Elrond\'s short spelling, self-hosted or not', () => {
+  test('are read from the planner\'s short spelling, self-hosted or not', () => {
     expect(refOf('github:o/r#12')).toEqual({ forge: 'github', server: 'github.com', repo: 'o/r', number: 12 })
     expect(refOf('gitlab:git.corp.io/g/sub/p#3')).toEqual({ forge: 'gitlab', server: 'git.corp.io', repo: 'g/sub/p', number: 3 })
     expect(branchOf(plan())).toBe(BRANCH)
@@ -886,7 +886,7 @@ const gitIn = (world: World, cwd: string) => world.at.filter(one => one.cwd === 
 /** What the reviewers were told the change is for. */
 const aboutOf = (sent: Record<string, unknown> | undefined) => /<purpose>\n([\s\S]*?)\n<\/purpose>/.exec(String(sent?.prompt ?? ''))?.[1] ?? ''
 
-describe('fellowship', () => {
+describe('build', () => {
   test('starts on a settled plan in a worktree of its own, on a branch of its own, and sends a hobbit there on a light first task', async ($, on) => {
     const world = machine(on)
     await start($, world)
@@ -931,7 +931,7 @@ describe('fellowship', () => {
     expect(registered[0]?.disallowedTools).toContain('mcp__pipeline__review')
   })
 
-  test('does not start on a plan the council left open, and starts whatever the person\'s checkout holds', async ($, on) => {
+  test('does not start on a plan the planner left open, and starts whatever the person\'s checkout holds', async ($, on) => {
     const world = machine(on)
     world.plan = { ...PLAN, questions: [{ text: 'Q', options: [], answer: '' }] }
     await start($, world)
@@ -1314,7 +1314,7 @@ describe('fellowship', () => {
     expect(aboutOf(world.judged[0])).toContain('- beacons/tests/test_gondor.py, by pipeline:builder-service: test_burned_for cannot run here, and is owed no passing: It needs root to chown the folder.')
   })
 
-  test('skips the Mirror for a light task, and builds a task it shows nothing for as it is', async ($, on) => {
+  test('skips the tests written first for a light task, and builds a task it shows nothing for as it is', async ($, on) => {
     const world = machine(on)
     world.mirror = ['empty']
     await start($, world)
@@ -1336,7 +1336,7 @@ describe('fellowship', () => {
     expect(String(world.jobs.prove[0]?.test)).not.toContain('test_burned_for')
   })
 
-  test('stops for the person when the Mirror is clouded, and gazes anew when the task is sent again', async ($, on) => {
+  test('stops for the person when the tests written first cannot be read, and has them written anew when the task is sent again', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
     world.mirror = ['clouded']
@@ -1602,7 +1602,7 @@ describe('an errand', () => {
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(true)
   })
 
-  test('is handed back when it is no errand, for the council to plan', async ($, on) => {
+  test('is handed back when it is no errand, for the planner to plan', async ($, on) => {
     const world = machine(on)
     world.plan = null
     await start($, world)
