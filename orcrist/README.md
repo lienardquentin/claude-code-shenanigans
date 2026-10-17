@@ -40,8 +40,8 @@ key made of the file's content, the settings that shape it and the orcrist binar
 only the files that changed, and what no run used for a week is let go. On Django, 560,000 lines, judging one file
 takes half a second with it kept, where it took four without. Deleting the folder costs one slower run. What is kept
 includes the literals each call passes, which may be secrets written into the code: the folder is its owner's
-alone, inside `.git`, which git neither tracks nor pushes. Orcrist keeps nothing where `orcrist-cache` is a link or a
-file, and lets go only of what it wrote there.
+alone, inside `.git`, which git neither tracks nor pushes. Orcrist keeps nothing where `orcrist-cache` is a link, a
+file, or a folder others may read or write in, and lets go only of what it wrote there.
 
 | Language | Files |
 | --- | --- |

@@ -94,10 +94,40 @@ fn folder() -> Option<PathBuf> {
     let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]).ok()?;
     let folder = Path::new(common.trim()).join("orcrist-cache");
     match fs::symlink_metadata(&folder) {
-        Ok(metadata) if metadata.is_dir() => Some(folder),
+        Ok(metadata) if metadata.is_dir() && private(&metadata) && owned(&folder, &metadata) => Some(folder),
         // A link or a file where the folder should be is no cache orcrist made: it keeps nothing rather than follow it
         Ok(_) => None,
         Err(_) => make_private_folder(&folder).ok().map(|()| folder),
+    }
+}
+
+/// Whether no one but its owner may read or write in the folder; on a system without such modes, whether it is one.
+fn private(metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    return std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o077 == 0;
+    #[cfg(not(unix))]
+    return metadata.is_dir();
+}
+
+/// Whether this run owns the folder: a file it makes there is its own, and has the folder's owner. A run as one user
+/// trusts nothing another user could have written, root's run in another's repository among them.
+fn owned(folder: &Path, metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // Named as a half-written entry, so that one left by a run cut short is let go with them
+        let probe = folder.join(format!("{:016x}.{}.writing", 0, std::process::id()));
+        let made = fs::File::options().write(true).create_new(true).open(&probe);
+        let same = made
+            .and_then(|file| file.metadata())
+            .is_ok_and(|made| made.uid() == metadata.uid());
+        fs::remove_file(&probe).ok(); // orcrist: spare swallowed-error: a probe left behind is pruned as a half entry
+        same
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (folder, metadata);
+        true
     }
 }
 
@@ -142,7 +172,11 @@ fn write(path: &Path, found: &Found) {
         return;
     };
     let writing = path.with_extension(format!("{}.writing", std::process::id()));
-    let Ok(mut file) = fs::File::options().write(true).create_new(true).open(&writing) else {
+    let mut options = fs::File::options();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let Ok(mut file) = options.open(&writing) else {
         return;
     };
     if file.write_all(text.as_bytes()).is_err() || fs::rename(&writing, path).is_err() {

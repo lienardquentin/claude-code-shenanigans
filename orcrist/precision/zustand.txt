@@ -1,8 +1,6 @@
 src/middleware/devtools.ts:204 swallowed-error: the error is caught and nothing is done with it
-src/middleware/devtools.ts:220 impossible-guard: the signature already says nameOrAction is Action
+src/middleware/persist.ts:38 swallowed-error: the error is caught and nothing is done with it
 src/vanilla/shallow.ts:1 vague-name: obj says nothing of what it is
-src/vanilla/shallow.ts:54 impossible-guard: the signature already says valueA is T
-src/vanilla/shallow.ts:56 impossible-guard: the signature already says valueB is T
 tests/basic.test.tsx:103 vague-name: item says nothing of what it is
 tests/basic.test.tsx:336 duplicate-helper: constructor does what constructor in tests/basic.test.tsx:386 already does
 tests/basic.test.tsx:343 duplicate-helper: render does what render in tests/basic.test.tsx:393 already does
