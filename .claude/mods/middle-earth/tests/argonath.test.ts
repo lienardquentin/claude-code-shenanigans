@@ -74,7 +74,7 @@ const machine = (on: On, given: Record<string, string> = {}) => {
   const files: Record<string, string> = { [`${CWD}/.claude/argonath`]: PROJECT, [`${CWD}/beacons/tests/test_gondor.py`]: TESTS, ...given }
   // `fingerprint` is the diff git shows of the targets' folders (each of the three changed), `standing` what its
   // status says of them, read around each shell command and counted in `fingerprints`
-  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', size: `1\t0\tbeacons/gondor/app.py\n${UNTRACKED}\n`, cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), gates: {} as Record<string, string>, missing: [] as string[] }
+  const world = { files, ran: [] as string[], fingerprint: 'diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    lit = 0\ndiff --git a/narsil/src/main.rs b/narsil/src/main.rs\n+fn main() {}\ndiff --git a/beacons/anor/app.vue b/beacons/anor/app.vue\n+<p/>\n', standing: '', fingerprints: 0, whole: 'abc123\n', change: 'diff --git a/beacons/gondor/app.py\n+    lit = 0\n', size: `1\t0\tbeacons/gondor/app.py\0${UNTRACKED}\0`, cli: CLI_DIFF, service: JSON.stringify(SERVICE), proof: JSON.stringify(PROOF), asked: [] as Record<string, unknown>[], isAndurilGone: false, jobs: { service: [] as Record<string, unknown>[], prove: [] as Record<string, unknown>[], live: [] as Record<string, unknown>[], affected: [] as Record<string, unknown>[] }, affected: JSON.stringify({ label: 'gondor', to: { error: '', exitCode: 0, output: '3 passed' }, from: null }), gates: {} as Record<string, string>, missing: [] as string[] }
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
 
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -1177,16 +1177,17 @@ describe('the gates of a change', () => {
   })
 
   test("say how big a change is: its lines, its files and the new ones, where it adds most, its lock files left out", () => {
-    const numstat = ['12\t3\tbeacons/gondor/app.py', '274\t1\tbeacons/uv.lock', '-\t-\tbeacons/anor/public/flame.png', '0\t7\tnarsil/src/show.rs'].join('\n')
-    const wc = ['  120 beacons/gondor/archive/store.py', '   40 beacons/gondor/archive/__init__.py', '  160 total'].join('\n')
+    // As git's --numstat -z spells them: a rename names where it came from and where it went
+    const numstat = ['12\t3\tbeacons/gondor/app.py', '274\t1\tbeacons/uv.lock', '-\t-\tbeacons/anor/public/flame.png', '0\t7\tnarsil/src/show.rs', '5\t1\t', 'narsil/src/old.rs', 'narsil/src/new name.rs']
+    // Each new file against nothing, a binary of no line, a link of the one line where it points
+    const fresh = ['120\t0\t', '/dev/null', 'beacons/gondor/archive/store.py', '-\t-\t', '/dev/null', 'beacons/anor/public/map.bin', '1\t0\t', '/dev/null', 'beacons/gondor/latest']
+    const nul = (tokens: string[]) => tokens.map(one => `${one}\0`).join('')
 
-    expect(sizeText(`${numstat}\n${UNTRACKED}\n${wc}\n`)).toBe(
-      'The change adds 172 lines and takes out 10, across 5 files, 2 of them new. Where it adds most: beacons/gondor/archive/store.py +120 (new), beacons/gondor/archive/__init__.py +40 (new), beacons/gondor/app.py +12. Lock files are not counted.',
+    expect(sizeText(`${nul(numstat)}${UNTRACKED}\0${nul(fresh)}`)).toBe(
+      'The change adds 138 lines and takes out 11, across 7 files, 3 of them new. Where it adds most: beacons/gondor/archive/store.py +120 (new), beacons/gondor/app.py +12, narsil/src/new name.rs +5, beacons/gondor/latest +1 (new). Lock files are not counted.',
     )
-    // One new file alone: wc counts no total
-    expect(sizeText(`${UNTRACKED}\n   9 narsil/src/flame.rs\n`)).toBe('The change adds 9 lines and takes out 0, across 1 file, 1 of them new. Where it adds most: narsil/src/flame.rs +9 (new).')
-    expect(sizeText(`0\t4\tnarsil/src/show.rs\n${UNTRACKED}\n`)).toBe('The change adds 0 lines and takes out 4, across 1 file.')
-    expect(sizeText(`1\t0\tbeacons/uv.lock\n${UNTRACKED}\n`)).toBe('')
+    expect(sizeText(`${nul(['0\t4\tnarsil/src/show.rs'])}${UNTRACKED}\0`)).toBe('The change adds 0 lines and takes out 4, across 1 file.')
+    expect(sizeText(`${nul(['1\t0\tbeacons/uv.lock'])}${UNTRACKED}\0`)).toBe('')
   })
 })
 

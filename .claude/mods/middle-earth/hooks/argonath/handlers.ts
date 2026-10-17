@@ -122,10 +122,14 @@ export async function changeText($: $, tree: string, against = 'HEAD'): Promise<
   return ran.exitCode === 0 ? { text: ran.stdout } : { error: `git could not show the change since ${against}: ${ran.stderr.trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}` }
 }
 
-/** How big the change is, in a sentence for the statues: nothing when git could not count it, as a size is only a note. */
+/**
+ * How big the change is, in a sentence for the statues: nothing when git could not count it, as a size is only a note.
+ * Each new file is counted as git would diff it (a link by where it points, a binary by no line), and one git cannot
+ * diff (a nested repository) is left out of the count.
+ */
 export async function sizeIn($: $, tree: string, against = 'HEAD'): Promise<string> {
   const ran = await $.process
-    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --numstat --no-ext-diff; echo '${UNTRACKED}'; git ls-files -o --exclude-standard -z | xargs -0 -r wc -l --`, 'sh', against], { cwd: tree })
+    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --numstat -z --no-ext-diff || exit 1; printf '%s\\0' '${UNTRACKED}'; git ls-files -o --exclude-standard -z | xargs -0 -r -n1 sh -c 'git diff --no-index --numstat -z -- /dev/null "$1" 2>/dev/null; true' sh`, 'sh', against], { cwd: tree })
     .catch(() => undefined)
 
   return ran?.exitCode === 0 ? sizeText(ran.stdout) : ''
