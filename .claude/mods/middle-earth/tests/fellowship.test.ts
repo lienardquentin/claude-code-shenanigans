@@ -4,6 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 import { refusalOf } from '../hooks/agents'
 import { branchOf, closingLine, commitMessage, companionPrompt, errandTask, handBackOf, isForbiddenGit, isModPath, isModSource, isOutside, issueOf, memberFor, nextTask, parseJudgement, parsePlan, parseWorktrees, prArgv, proofVerdict, purposeOf, reachesOut, reviewTasks, treePathOf, triesOf, unsettledOf } from '../hooks/fellowship/quest'
 import type { QuestOf } from '../hooks/fellowship/quest'
+import { canMove, restingPhase } from '../hooks/fellowship/phases'
 import type { FellowshipPlan, FellowshipQuest } from '../types'
 import { MEMBERS } from '../hooks/fellowship/quest'
 import type { Target } from '../hooks/fellowship/quest'
@@ -141,6 +142,30 @@ describe('Argonath\'s proof', () => {
 
   test('that does not read is taken as one that could not look, never as a settled change', () => {
     expect(proofVerdict(PINNED_TEXT)).toMatchObject({ isSettled: false, isUnlooked: true })
+  })
+})
+
+describe("a quest's course", () => {
+  test('goes only where the Fellowship leads it: no commit unjudged, no pull request from the middle of a task', () => {
+    // A change is committed (judging → ready) only after the statues sat, and they sit only on a proved change
+    expect(canMove('judging', 'ready')).toBe(true)
+    expect(canMove('proving', 'ready')).toBe(false)
+    expect(canMove('ready', 'judging')).toBe(false)
+    expect(canMove('marching', 'judging')).toBe(false)
+    // It sails only once arrived
+    for (const from of ['ready', 'gazing', 'marching', 'proving', 'judging', 'stuck', 'warding'] as const) expect(canMove(from, 'sailed')).toBe(false)
+    expect(canMove('arrived', 'sailed')).toBe(true)
+    // It may stop for the person from anywhere before it has sailed, and stay where it is
+    for (const from of ['ready', 'gazing', 'marching', 'proving', 'judging', 'arrived', 'warding'] as const) expect(canMove(from, 'stuck')).toBe(true)
+    expect(canMove('sailed', 'stuck')).toBe(false)
+    expect(canMove('judging', 'judging')).toBe(true)
+  })
+
+  test('rests, once its agents are out no more, stuck where one was out and arrived where its branch was judged', () => {
+    expect(['gazing', 'marching', 'proving', 'judging'].map(one => restingPhase(one as never))).toEqual(['stuck', 'stuck', 'stuck', 'stuck'])
+    expect(restingPhase('warding')).toBe('arrived')
+    expect(restingPhase('ready')).toBe('ready')
+    expect(restingPhase('sailed')).toBe('sailed')
   })
 })
 

@@ -32,6 +32,7 @@ import {
   wardPurpose,
 } from './quest'
 import type { Retry } from './quest'
+import { canMove, restingPhase } from './phases'
 import { UNMODDED, errorText, git, isMergedFrom, openRequest, parseJudgement, proofVerdict, push, rootOf, run, secretsIn, sendBack, sendBackPrompt, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
@@ -118,17 +119,29 @@ async function questOf($: $, ref: string): Promise<FellowshipQuest | null> {
 async function keep($: $, ref: string, change: (was: FellowshipQuest) => FellowshipQuest): Promise<FellowshipQuest | null> {
   // Set inside the update: typed wide, as the narrowing does not follow it there
   let made = null as FellowshipQuest | null
+  let refused = ''
 
-  // The change is made once, on the quest as it stands when it is written, and what is kept across sessions is that
+  // The change is made once, on the quest as it stands when it is written, and what is kept across sessions is that;
+  // a change that would move the quest off its course is not made
   await update($, quests, held => {
     const was = held[ref]
 
     if (was === undefined) return held
 
-    made = change(was)
+    const next = change(was)
+
+    if (!canMove(was.phase, next.phase)) {
+      refused = `the quest on ${ref} cannot go from ${was.phase} to ${next.phase}`
+
+      return held
+    }
+
+    made = next
 
     return { ...held, [ref]: made }
   })
+
+  if (refused !== '') throw new Error(refused)
 
   if (made !== null) {
     const kept: FellowshipQuest = made
@@ -350,7 +363,7 @@ async function begin($: $, spec: Spec, made: FellowshipPlan): Promise<string> {
   // A quest left mid-march has no member out any more, and the statues no longer judge its whole branch: the person
   // sends it again, or sails again
   const was = resumed?.phase
-  const phase: FellowshipPhase = was === undefined ? 'ready' : was === 'gazing' || was === 'marching' || was === 'proving' || was === 'judging' ? 'stuck' : was === 'warding' ? 'arrived' : was
+  const phase: FellowshipPhase = was === undefined ? 'ready' : restingPhase(was)
   // A review handed over again brings the comments that came since: those already taken up keep where they stand. An
   // errand taken up again is the one task it was
   const tasks =
@@ -1249,7 +1262,7 @@ async function recallQuests($: $): Promise<void> {
     if (kept === undefined || kept === null || typeof kept.ref !== 'string' || held[kept.ref] !== undefined) continue
 
     const was = kept.phase
-    const phase: FellowshipPhase = was === 'gazing' || was === 'marching' || was === 'proving' || was === 'judging' ? 'stuck' : was === 'warding' ? 'arrived' : was
+    const phase = restingPhase(was)
     const quest: FellowshipQuest = { ...kept, kind: kept.kind ?? 'plan', phase }
 
     await update($, quests, all => ({ ...all, [quest.ref]: quest }))
