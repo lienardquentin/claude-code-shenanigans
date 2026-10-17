@@ -4,6 +4,8 @@ import type { SentAgent, SpentTurn, RunKind, RunPhase, RunWork, Run, RunTask, Ru
 import { HOW_TO, MARK, BUILDERS, isAllDone, issueRefOf, ownPlan, runLine, runText, reviewTasks, spentOn, tally, triesOf } from '../../core/run'
 import { canMove, restingPhase } from '../../core/phases'
 import * as loop from '../../core/build'
+import { budgetOf, fillOf } from '../../core/budget'
+import type { Budget, Quota } from '../../core/budget'
 import type { Ports, Spec } from '../../core/build'
 import { WARDING, runFromStore } from '../../core/run'
 import { errorText, forgeIn, gitRootOf, removeTree, isMergedFrom, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
@@ -12,7 +14,7 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, clockOf, homePath, keyed, shortRef } from '../look'
-import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
+import { askToPump, inFrame, remember, spawnIn, stopAgent, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
 import { markTask, planFor, readIssue, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
@@ -38,6 +40,14 @@ const spent = atom({ plugin: 'pipeline', key: 'buildSpent' } as const, {} as Rec
 
 export const buildView = paneView({ id: PANE, title: TITLE, command: '/build' })
 const view = buildView
+
+// Where the runs stop spending, as the person set it on the mod
+let budget: Budget = budgetOf(undefined)
+
+/** Takes where the runs stop spending from the mod's options. */
+export function setBudget(options: Readonly<Record<string, unknown>> | undefined): void {
+  budget = budgetOf(options)
+}
 
 // The project's folder, by the session's: the pane draws often, and git is asked once a folder. Where git could not
 // say, the session's folder stands in, and git is asked again at the next drawing
@@ -197,6 +207,7 @@ function portsOf($: $): Ports {
       send: asked => spawnIn($, { subagentType: typeOf(asked.builder), description: asked.description, prompt: asked.prompt, cwd: asked.cwd }),
       sendBack: (agentId, builder, text) => sendBack($, agentId, typeOf(builder), text),
       remember: (agentId, sent) => remember($, agentId, sent),
+      stop: (agentId, why) => stopAgent($, agentId, why),
     },
     parts: {
       planFor: ref => planFor($, ref),
@@ -218,8 +229,16 @@ function portsOf($: $): Ports {
       write: (path, text) => $.fs.write(path, text),
       treePath: (root, branch) => treePathOf(root, branch),
     },
-    clock: { now: () => Date.now() },
+    clock: { now: () => Date.now(), quota: () => quotaOf($) },
+    budget,
   }
+}
+
+/** The quota as the session last read it; nothing where it has no reading. */
+async function quotaOf($: $): Promise<Quota | undefined> {
+  const { rateLimits } = await $.session.usage()
+
+  return rateLimits.length === 0 ? undefined : { at: Date.now(), windows: rateLimits.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, ...(resetsAt !== undefined ? { resetsAt } : {}) })) }
 }
 
 /** Holds a run set out afresh, and its work, and keeps it across sessions. */
@@ -401,6 +420,8 @@ async function drain($: $, isFramed: boolean, only?: string, isLooking = false):
 
 /** The clock does what sends no agent: the rest waits for a hook. */
 async function tick($: $): Promise<void> {
+  // A run held for the quota is asked for its next task once its time has come
+  await loop.wakeHeld(portsOf($))
   await drain($, false)
 
   if ((await read($, wanted)).length > 0) await askToPump($, 'a build run waits to send its next agent.')
@@ -566,6 +587,22 @@ export async function builderFound($: $, agentId: string): Promise<SentAgent | u
 }
 
 export function registerBuild(on: On): void {
+  // Each response of a builder says how full its context is: one past its budget is stopped there
+  on('turn.step', async function* ($, e, next) {
+    const response = yield* next(e)
+
+    if (e.agentId !== undefined && response.usage !== null) {
+      const held = await runOfAgent($, e.agentId, 'building')
+
+      if (held !== undefined) await loop.measure(portsOf($), held, e.agentId, fillOf(response.usage))
+    }
+
+    return response
+  })
+    // A response is never held back by the run: what the model answered stands
+    .catch(async function* (_$, e, next) {
+      return yield* next(e)
+    })
 
   on('tool.call', { tool: 'mcp__pipeline__start_run' }, async ($, e) => {
     const given = e as unknown as { auto?: unknown; ref?: unknown }

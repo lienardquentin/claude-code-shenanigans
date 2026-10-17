@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Run, RunTask } from '../types'
-import { builderEnded, prove, sendNext } from '../core/build'
+import { builderEnded, measure, prove, sendNext, wakeHeld } from '../core/build'
+import { holdOf } from '../core/budget'
+import { refusalOf } from '../hooks/agents'
 import type { Ports } from '../core/build'
 import { HAND_BACK } from '../core/run'
 import { canMove } from '../core/phases'
 import type { Ran } from '../core/forge'
+import type { Quota } from '../core/budget'
 
 // The build's loop on plain fakes of its ports: no engine, no `$`, only what each port was asked and answered
 
@@ -37,13 +40,16 @@ const errandRun = (over: Partial<Run> = {}): Run => ({
 })
 
 /** A world of fakes: the runs held, what was said and asked, the agents sent, and git as a few answers. */
-function world(run: Run, answers: { proof?: unknown; judgement?: unknown } = {}) {
+function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?: Quota } = {}) {
   const runs = new Map<string, Run>([[run.ref, run]])
   const said: string[] = []
   const wanted: string[] = []
   const sent: { builder: string; cwd: string }[] = []
   const ran: string[] = []
   let head = 'aaa1111'
+  let quota: Quota | undefined = answers.quota
+  let now = 1_800_000_000_000
+  const stopped: string[] = []
 
   const answer = (stdout: string, exitCode = 0): Ran => ({ exitCode, stdout, stderr: '' })
   const shell = {
@@ -104,6 +110,7 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown } = {})
       },
       sendBack: async () => false,
       remember: async () => undefined,
+      stop: async (agentId, why) => void stopped.push(`${agentId}: ${why}`),
     },
     parts: {
       planFor: async () => null,
@@ -125,10 +132,10 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown } = {})
       write: async () => undefined,
       treePath: (root, branch) => `${root}/.pipeline/trees/${branch}`,
     },
-    clock: { now: () => 1_800_000_000_000 },
+    clock: { now: () => now, quota: async () => quota },
   }
 
-  return { ports, runs, said, wanted, sent, ran }
+  return { ports, runs, said, wanted, sent, ran, stopped, setQuota: (next: Quota | undefined) => void (quota = next), setNow: (at: number) => void (now = at) }
 }
 
 describe('the build loop, on plain fakes of its ports', () => {
@@ -181,4 +188,80 @@ describe('the build loop, on plain fakes of its ports', () => {
     expect(runs.get(ref)?.phase).toBe('stuck')
     expect(said[0]).toMatch(/^HEAD moved from ccc3333 to aaa1111 while task 1 was out/)
   })
+
+  test("waits while the 5-hour quota window is past its threshold, and goes on by itself once it has reset", async () => {
+    const at = 1_800_000_000_000
+    const resetsAt = new Date(at + 3_600_000).toISOString()
+    const { ports, runs, said, wanted, sent, setQuota, setNow } = world(errandRun(), { quota: { at, windows: [{ kind: 'five_hour', percentUsed: 95, resetsAt }] } })
+    const ref = 'github:o/r#7'
+
+    await sendNext(ports, ref)
+
+    expect(sent).toEqual([])
+    expect(runs.get(ref)).toMatchObject({ phase: 'ready', heldUntil: at + 3_600_000 + 60_000 })
+    expect(said[0]).toMatch(/^Task 1 waits: the 5-hour quota window is at 95% \(the run waits from 90%\)\. The run goes on by itself at \d\d:\d\d\.$/)
+
+    // not yet
+    await wakeHeld(ports)
+    expect(wanted).toEqual([])
+
+    // the window reset: the run is asked for its next task, and sends it
+    setNow(at + 3_600_000 + 60_000)
+    setQuota({ at: at + 3_600_000 + 60_000, windows: [{ kind: 'five_hour', percentUsed: 3 }] })
+    await wakeHeld(ports)
+    expect(wanted).toEqual([`next ${ref}`])
+    expect(runs.get(ref)?.heldUntil).toBeUndefined()
+
+    await sendNext(ports, ref)
+    expect(sent).toHaveLength(1)
+  })
+
+  test('stops for the person where the weekly window is past its threshold, as waiting hours does not help it', async () => {
+    const { ports, runs, said, sent } = world(errandRun(), { quota: { at: 0, windows: [{ kind: 'seven_day', percentUsed: 92 }, { kind: 'five_hour', percentUsed: 10 }] } })
+
+    await sendNext(ports, 'github:o/r#7')
+
+    expect(sent).toEqual([])
+    expect(runs.get('github:o/r#7')?.phase).toBe('stuck')
+    expect(said[0]).toMatch(/^Task 1 does not start: the weekly quota window is at 92%/)
+  })
+
+  test('stops a builder past its context budget, and says its task is too large once its turn ends', async () => {
+    const { ports, runs, said, stopped } = world(errandRun())
+    const ref = 'github:o/r#7'
+
+    await sendNext(ports, ref)
+    // 60% of the window: under the default 70%
+    await measure(ports, runs.get(ref) as Run, 'agent-1', 120_000)
+    expect(stopped).toEqual([])
+
+    await measure(ports, runs.get(ref) as Run, 'agent-1', 150_000)
+    expect(stopped).toEqual(['agent-1: This task has outgrown its context budget (75% of a context window) and is stopped.'])
+    expect(runs.get(ref)?.current?.tooLarge).toBe(150_000)
+
+    await builderEnded(ports, runs.get(ref) as Run, { answer: 'Stopped.', isAborted: false, reason: 'answer' })
+
+    expect(runs.get(ref)?.phase).toBe('stuck')
+    expect(said.at(-1)).toMatch(/^github:o\/r#7 is stuck: Task 1 was stopped at 75% of a context window: it is too large for one builder\. Split it into smaller issues/)
+  })
 })
+
+describe('the quota', () => {
+  test('holds no task where no window was read or every window is under its threshold', () => {
+    expect(holdOf(undefined, { fiveHourPercent: 90, weeklyPercent: 90, contextPercent: 70 })).toBeUndefined()
+    expect(holdOf({ at: 0, windows: [{ kind: 'five_hour', percentUsed: 89 }, { kind: 'seven_day', percentUsed: 50 }] }, { fiveHourPercent: 90, weeklyPercent: 90, contextPercent: 70 })).toBeUndefined()
+  })
+
+  test('looks again in half an hour where the 5-hour window does not say when it resets', () => {
+    expect(holdOf({ at: 1000, windows: [{ kind: 'five_hour', percentUsed: 91 }] }, { fiveHourPercent: 90, weeklyPercent: 90, contextPercent: 70 })?.until).toBe(1000 + 30 * 60 * 1000)
+  })
+})
+
+describe('a builder stopped past its budget', () => {
+  test('is refused whatever it calls, and told to end its turn', () => {
+    const why = refusalOf({ role: 'builder', root: '/proj', tree: TREE, stopped: 'This task has outgrown its context budget.' }, { tool: 'Read', file_path: `${TREE}/a.py` })
+
+    expect(why).toBe('This task has outgrown its context budget. Call no more tools: end your turn now, saying what you built so far.')
+  })
+})
+

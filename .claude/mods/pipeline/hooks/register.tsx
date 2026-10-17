@@ -6,7 +6,7 @@ import { errorText, rootOf, toolFailed } from './flow'
 import { verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
-import { endedBuild, buildView, builderFound, pumpBuild, registerBuild, sectionOfBuild, spentBuild, startBuild } from './build/register'
+import { endedBuild, buildView, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
 import { endedTestsFirst, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesView, registerIssues, startIssues } from './issues/register'
@@ -83,7 +83,9 @@ async function pump($: EngineInterface): Promise<void> {
   await pumpVerify($).catch(stumbled($, 'verify'))
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  setBudget(options)
+
   on('session.start', async ($, e, next) => {
     // The record of the agents sent before a reload, then their types: a reload loads the module afresh
     await recall($)

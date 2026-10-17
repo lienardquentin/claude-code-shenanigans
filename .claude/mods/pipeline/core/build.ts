@@ -3,6 +3,8 @@ import { UNMODDED } from './change'
 import { forgeOfUrl } from './forge'
 import type { Forge, ForgeKind, Issue, NewRequest, Ran, Shell } from './forge'
 import { applyAfresh, commitTask, git, gitRunsOf, landLane, leakOf } from './git'
+import { budgetOf, clockTime, holdOf, isOverBudget, shareOf } from './budget'
+import type { Budget, Quota } from './budget'
 import { errorText, inTurn } from './kit'
 import { restingPhase } from './phases'
 import {
@@ -94,6 +96,8 @@ export interface Agents {
   sendBack(agentId: string, builder: BuilderName, text: string): Promise<boolean>
   /** Records what an agent was sent as, so its turns are held to it. */
   remember(agentId: string, sent: SentAgent): Promise<void>
+  /** Refuses every tool an agent calls from now on, saying why: how the loop stops one, as no call ends a turn. */
+  stop(agentId: string, why: string): Promise<void>
 }
 
 /** How the reviewers are asked to judge a change. */
@@ -128,9 +132,14 @@ export interface Machine {
 
 export interface Clock {
   now(): number
+  /** The quota as the session last read it; nothing where it has no reading. */
+  quota(): Promise<Quota | undefined>
 }
 
-export type Ports = { runs: Runs; board: Board; agents: Agents; parts: Parts; machine: Machine; clock: Clock }
+export type Ports = { runs: Runs; board: Board; agents: Agents; parts: Parts; machine: Machine; clock: Clock; budget?: Budget }
+
+/** Where the ports say a run stops spending; the defaults where they say nothing. */
+const budgetIn = (p: Ports): Budget => p.budget ?? budgetOf(undefined)
 
 /** How a builder's turn ended, as the loop reads it. */
 export type BuilderTurn = { answer?: string; isAborted: boolean; reason: string }
@@ -406,7 +415,7 @@ export async function sendBuilder(p: Ports, held: Run, made: RunWork, task: RunT
 
   if (started.agentId !== undefined && started.agentId !== '') await p.agents.remember(started.agentId, { role: 'builder', root: await p.machine.root(), tree: held.tree, files: [...task.files], ref: issueRefOf(held) })
 
-  await p.runs.keep(held.ref, was => ({ ...was, phase: 'building', verdictLine: '', current: { taskId: task.id, title: task.title, builder: member, agentId: started.agentId ?? '', attempt, at: p.clock.now(), answer: '', head, isResumed: false } }))
+  await p.runs.keep(held.ref, was => ({ ...was, phase: 'building', verdictLine: '', heldUntil: undefined, heldWhy: undefined, current: { taskId: task.id, title: task.title, builder: member, agentId: started.agentId ?? '', attempt, at: p.clock.now(), answer: '', head, isResumed: false } }))
   await p.board.say(held.ref, '')
 }
 
@@ -463,6 +472,11 @@ export async function sendNext(p: Ports, ref: string): Promise<void> {
     return
   }
 
+  // No task starts while the quota is past where the person set the run to stop spending
+  const hold = holdOf(await p.clock.quota().catch(() => undefined), budgetIn(p))
+
+  if (hold !== undefined) return holdFor(p, held, task, hold)
+
   // A plan's task that is not light is shown first in the tests written first: the test writer writes its tests, red, before anyone builds it
   if (held.kind === 'plan' && task.weight !== 'light' && held.testsFor !== task.id) return gazeOn(p, held, made, task)
 
@@ -471,6 +485,43 @@ export async function sendNext(p: Ports, ref: string): Promise<void> {
 
   await p.board.working(ref, `Sending a builder on task ${task.id}…`)
   await sendBuilder(p, held, made, task, 1, retry)
+}
+
+/**
+ * Holds a run for the quota: past the 5-hour window's threshold it waits, and goes on by itself once the window has
+ * reset; past the weekly window's, which is days from resetting, it stops for the person.
+ */
+async function holdFor(p: Ports, held: Run, task: RunTask, hold: { why: string; until?: number; isOver?: true }): Promise<void> {
+  if (hold.isOver === true || hold.until === undefined) return stop(p, held, `Task ${task.id} does not start: ${hold.why}, days from resetting. Send it again once the quota has room, or raise the threshold in the pipeline's options.`)
+
+  await p.runs.keep(held.ref, was => ({ ...was, heldUntil: hold.until, heldWhy: hold.why }))
+  await p.board.say(held.ref, `Task ${task.id} waits: ${hold.why}. The run goes on by itself at ${clockTime(hold.until)}.`)
+}
+
+/** Sends on each run held for the quota whose time has come: in this session, or in the next one opened in the repo. */
+export async function wakeHeld(p: Ports): Promise<void> {
+  const now = p.clock.now()
+
+  for (const held of await p.runs.all()) {
+    if (held.heldUntil === undefined || held.heldUntil > now || (held.phase !== 'ready' && held.phase !== 'stuck')) continue
+
+    await p.runs.keep(held.ref, was => ({ ...was, heldUntil: undefined, heldWhy: undefined }))
+    await p.board.want(held.ref, 'next')
+  }
+}
+
+/**
+ * Counts how full a builder's context is, from a step of its turn: past its budget it is stopped, its every next call
+ * refused, and the task is the person's to split once its turn ends. A fresh builder would only fill another window.
+ */
+export async function measure(p: Ports, held: Run, agentId: string, tokens: number): Promise<void> {
+  const out = held.current
+
+  if (out === null || out.tooLarge !== undefined || held.phase !== 'building' || !isOverBudget(tokens, budgetIn(p))) return
+
+  await p.runs.keep(held.ref, was => ({ ...was, current: was.current === null ? null : { ...was.current, tooLarge: tokens } }))
+  await p.agents.stop(agentId, `This task has outgrown its context budget (${shareOf(tokens)}% of a context window) and is stopped.`)
+  await p.board.say(held.ref, `${BUILDERS[out.builder].title} on task ${out.taskId} is stopped at ${shareOf(tokens)}% of a context window: the task is too large for one builder.`)
 }
 
 /** Opens a lane on a task of a run: its branch off the run's, in a worktree of its own, its task sent by the clock. */
@@ -1186,6 +1237,13 @@ export async function builderEnded(p: Ports, held: Run, e: BuilderTurn): Promise
 
   const out = { ...held.current, answer: e.answer ?? '' }
   const title = BUILDERS[out.builder].title
+
+  // Stopped for its size: another builder would only fill another window, so the task is the person's to split
+  if (out.tooLarge !== undefined) {
+    await p.runs.keep(held.ref, was => ({ ...was, current: out }))
+
+    return stop(p, held, `Task ${out.taskId} was stopped at ${shareOf(out.tooLarge)}% of a context window: it is too large for one builder. Split it ${held.kind === 'plan' ? 'in the plan (the planner pane)' : 'into smaller issues'}, then send it again; what the builder left is in ${held.tree}.`)
+  }
   const handed = e.isAborted || e.reason !== 'answer' ? undefined : handBackOf(out.answer)
 
   if (e.isAborted || e.reason !== 'answer') {

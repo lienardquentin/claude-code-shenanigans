@@ -218,6 +218,8 @@ export type CurrentTry = {
   isRebased?: boolean
   /** The minor findings a rebased change passed with. */
   minor?: string[]
+  /** How full the builder's context was, in tokens, when it was stopped past its budget: the task is too large for one. */
+  tooLarge?: number
 }
 
 /**
@@ -288,6 +290,9 @@ export type Run = {
   /** A lane's: the run it is a task of, beside its others. */
   lane?: RunLane
   at: number
+  /** Until when it waits for the quota before its next task, in the clock's milliseconds, and why; absent while it does not. */
+  heldUntil?: number
+  heldWhy?: string
 }
 
 /** Something a press, a command or a turn asked the clock to do for a run, outside the hook that asked. */
@@ -660,6 +665,8 @@ export type SentAgent = {
   files?: string[]
   /** The issue it works for, as the planner spells it, where the part that sent it knew: what its turns cost is counted to it. */
   ref?: string
+  /** Why it may call no more tools, and must end its turn: a builder past its context budget. */
+  stopped?: string
 }
 
 /** One turn of an agent the mod sent, as `.fellowship/spend.jsonl` keeps it a line each: what it cost, and for what. */
