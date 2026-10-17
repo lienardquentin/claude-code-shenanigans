@@ -280,7 +280,7 @@ async function targetsIn($: $, place: Place, isKnown = false): Promise<ArgonathT
 }
 
 // `isOwing`: the proof is the session's own, so a settled change is owed the statues when its turn ends; a subagent's is not, as its work may not be done
-// `required`: tests written before the change (Galadriel's), each `{ file, name }`, that are to pass on the working tree
+// `required`: tests written before the change (written first), each `{ file, name }`, that are to pass on the working tree
 // `place`: the project's folder when left out
 type Asked = { target?: string; against: string; isProving: boolean; isOwing?: boolean; required?: readonly { file: string; name: string }[]; place?: Place }
 
@@ -358,7 +358,7 @@ async function proofShape($: $, looked: readonly Looked[], place: Place) {
 
 /**
  * Proves the change in a quest's worktree for the Fellowship, which sends the statues on it itself: so the proof owes
- * no review at the turn's end. Galadriel's tests, written before the change, must pass for it to settle.
+ * no review at the turn's end. The tests written first must pass for it to settle.
  */
 export async function proveFor($: $, tree: string, mustPass: readonly { file: string; name: string }[]): Promise<unknown> {
   const place = await placeOf($, undefined, tree)
@@ -560,7 +560,7 @@ async function edited($: $, path: unknown, agentId?: string): Promise<void> {
   lastProofs.delete(cwd)
   // The radius is old either way; a look at the turn's end, and the statues it may send, are owed only to an edit no
   // builder the mod sent made: its part proves the change and has it judged itself
-  if (!['member', 'galadriel'].includes((await roleOf($, agentId)) ?? '')) await update($, touched, held => [...new Set([...held, ...hit])])
+  if (!['member', 'test-writer'].includes((await roleOf($, agentId)) ?? '')) await update($, touched, held => [...new Set([...held, ...hit])])
   await update($, radii, held => held.map(one => (hit.includes(one.label) && !one.isStale ? { ...one, isStale: true } : one)))
 }
 

@@ -1,30 +1,24 @@
-import type { LothlorienAmendment, LothlorienBlock, LothlorienTest, LothlorienUnrun, LothlorienVision } from '../types'
+export type { Amendment, LockedBlock, TestsFirst, UnrunTest, WrittenTest } from '../types'
+import type { Amendment, LockedBlock, TestsFirst, UnrunTest, WrittenTest } from '../types'
 import { fencedJson } from './answers'
 
-// The tests written first for a task: what the test writer is told, how her answer and her tests are read, which of
+// The tests written first for a task: what the test writer is told, how its answer and its tests are read, which of
 // their lines are locked, and what a builder took out of them. Text in, text out.
 
-// The state contract must hold the types the mod keeps in its state itself: the core names them there
-export type Amendment = LothlorienAmendment
-export type LockedBlock = LothlorienBlock
-export type WrittenTest = LothlorienTest
-export type UnrunTest = LothlorienUnrun
-export type TestsFirst = LothlorienVision
-
-/** What Galadriel gazes with: Opus, at medium effort. */
+/** What the test writer writes with: Opus, at medium effort. */
 export const TEST_WRITER_MODEL = 'claude-opus-5-5'
 export const TEST_WRITER_EFFORT = 'medium'
 
-/** What she gazes with on a task that is not heavy: Sonnet, its tests no harder to see. */
+/** What it writes with on a task that is not heavy: Sonnet, its tests no harder to see. */
 export const TEST_WRITER_LIGHT_MODEL = 'claude-sonnet-5-5'
 
 /** A path that holds tests, by how projects name them: a tests folder, or a test file by its name. */
 export const isTestPath = (path: string): boolean =>
   /(^|\/)(tests?|__tests__|specs?|testing)\//.test(path) || /(^|\/)(test_[^/]+\.py|[^/]+_test\.(py|go|rs)|[^/]+\.(test|spec)\.[cm]?[jt]sx?|[^/]+Tests?\.(java|kt|cs|swift))$/.test(path)
 
-/** Galadriel's system prompt: she writes the tests of what is to come, and nothing else. */
+/** The test writer's system prompt: it writes the tests of what is to come, and nothing else. */
 export const TEST_WRITER_SYSTEM = [
-  'You are Galadriel, a test writer: before a behaviour is built, you write the tests that will prove it. They fail today and will pass once it is built. You write tests, and nothing else.',
+  'You are a test writer: before a behaviour is built, you write the tests that will prove it. They fail today and will pass once it is built. You write tests, and nothing else.',
   '',
   'How to work:',
   '- The prompt says what is to be built: a behaviour, a task, and how to tell it is done. First read the code around it and the tests already there (Read, Grep, Glob), then write tests that read like them, in the files where such tests live.',
@@ -45,11 +39,11 @@ export const TEST_WRITER_SYSTEM = [
   'With no test that cannot run here, `unrun` is `[]`. With nothing to test: `{ "tests": [], "red": "", "unrun": [], "untestable": "why, in a sentence" }`.',
 ].join('\n')
 
-/** What Galadriel is sent with: what is to come. */
-export const gazePrompt = (purpose: string): string =>
+/** What the test writer is sent with: what is to come. */
+export const testsFirstPrompt = (purpose: string): string =>
   ['Show what is to come, as the tests that will prove it:', '<purpose>', purpose.trim(), '</purpose>'].join('\n')
 
-/** What she answered, from the last json block of her answer; undefined when none reads. */
+/** What it answered, from the last json block of its answer; undefined when none reads. */
 export const parseGaze = (answer: string): { tests: WrittenTest[]; red: string; unrun: UnrunTest[]; untestable: string } | undefined => {
   const fenced = fencedJson(answer).reverse()
 
@@ -148,7 +142,7 @@ export const missingFrom = (locked: readonly string[], text: string): string[] =
 
 /**
  * The locked lines each file no longer holds, though no reason was given for changing it: what an edit the lock did
- * not see (a shell command) took out of her tests.
+ * not see (a shell command) took out of its tests.
  */
 export const tamperedWith = (blocks: readonly LockedBlock[], amendments: readonly Pick<Amendment, 'file'>[], files: readonly { file: string; text: string }[]): { file: string; lines: string[] }[] =>
   files
@@ -157,13 +151,13 @@ export const tamperedWith = (blocks: readonly LockedBlock[], amendments: readonl
     .filter(one => one.lines.length > 0)
 
 /**
- * The vision once a test she showed red is found to be one that cannot run here: moved to `unrun`, with why and who
- * said so, and owed no passing. Why it cannot be, in a sentence, when the test is none of her red ones.
+ * The vision once a test it showed red is found to be one that cannot run here: moved to `unrun`, with why and who
+ * said so, and owed no passing. Why it cannot be, in a sentence, when the test is none of its red ones.
  */
 export const released = (vision: TestsFirst, name: string, why: string, by: string): TestsFirst | string => {
   const test = vision.tests.find(one => one.name === name || one.name.endsWith(`::${name}`))
 
-  if (test === undefined) return `${name} is none of Galadriel's red tests: ${vision.tests.map(one => one.name).join(', ') || 'she showed none'}.`
+  if (test === undefined) return `${name} is none of the red tests written first: ${vision.tests.map(one => one.name).join(', ') || 'none was shown'}.`
 
   return { ...vision, tests: vision.tests.filter(one => one !== test), unrun: [...(vision.unrun ?? []), { ...test, why: why.trim(), by }] }
 }
@@ -172,28 +166,28 @@ export const released = (vision: TestsFirst, name: string, why: string, by: stri
 export const visionText = (vision: TestsFirst, isLocked: boolean, tampered: readonly { file: string; lines: string[] }[] = []): string =>
   [
     vision.state === 'gazing'
-      ? 'Galadriel gazes into the Mirror: the tests are being written.'
+      ? 'The test writer is writing the tests.'
       : vision.state === 'shown'
-        ? `The Mirror shows what is to come: ${vision.tests.length} ${vision.tests.length === 1 ? 'test' : 'tests'}, red${(vision.unrun ?? []).length > 0 ? `, and ${(vision.unrun ?? []).length} that cannot run here` : ''}${isLocked ? ', locked until they are committed' : ', committed since'}.`
+        ? `The tests written first show what is to come: ${vision.tests.length} ${vision.tests.length === 1 ? 'test' : 'tests'}, red${(vision.unrun ?? []).length > 0 ? `, and ${(vision.unrun ?? []).length} that cannot run here` : ''}${isLocked ? ', locked until they are committed' : ', committed since'}.`
         : vision.state === 'empty'
-          ? `The Mirror shows nothing to test: ${vision.why}`
-          : `The Mirror is clouded: ${vision.why}`,
+          ? `Nothing is tested first: ${vision.why}`
+          : `The tests written first could not be read: ${vision.why}`,
     ...vision.tests.map(test => `- ${test.file}: ${test.name}`),
     ...(vision.red !== '' ? ['', 'How they failed:', vision.red] : []),
     ...((vision.unrun ?? []).length > 0 ? ['', 'Written too, but they cannot run here, and are owed no passing:', ...(vision.unrun ?? []).map(test => `- ${test.file}: ${test.name}, ${test.why}${test.by !== undefined ? ` (said by ${test.by})` : ''}`)] : []),
     ...(vision.amendments.length > 0 ? ['', 'Changed since, and why:', ...vision.amendments.map(one => `- ${one.file}, by ${one.by}: ${one.why}`)] : []),
-    ...(tampered.length > 0 ? ['', 'Taken out of her tests with no reason given (an edit the lock did not see):', ...tampered.map(one => `- ${one.file}: ${one.lines.slice(0, 3).map(line => `\`${line.trim()}\``).join(', ')}`)] : []),
-    ...(isLocked && vision.state === 'shown' ? ['', 'Make them pass without changing them. A test that is wrong is changed only after mcp__middle-earth__amend says which file and why: the reason goes to whoever judges the change.'] : []),
+    ...(tampered.length > 0 ? ['', 'Taken out of the tests written first with no reason given (an edit the lock did not see):', ...tampered.map(one => `- ${one.file}: ${one.lines.slice(0, 3).map(line => `\`${line.trim()}\``).join(', ')}`)] : []),
+    ...(isLocked && vision.state === 'shown' ? ['', 'Make them pass without changing them. A test that is wrong is changed only after mcp__middle-earth__amend_test says which file and why: the reason goes to whoever judges the change.'] : []),
   ].join('\n')
 
 /**
- * The visions forgetting an issue lets go of: each gazed for it, and the project's own one gazed for none; the
+ * The visions forgetting an issue lets go of: each written for it, and the project's own one written for none; the
  * project's own alone when no issue is named.
  */
 export const forgottenOf = <T extends { place: { isHome: boolean }; held: { ref?: string } }>(held: readonly T[], ref: string): T[] =>
   held.filter(one => (ref === '' || one.held.ref === undefined ? one.place.isHome : one.held.ref === ref))
 
-/** What the Mirror shows a part that waits on her: where the vision stands, and what was changed of her tests, with a reason or without one. */
+/** What the tests written first show a part that waits on them: where they stand, and what was changed of them, with a reason or without one. */
 export type Shown = {
   state: TestsFirst['state'] | 'none'
   ref?: string

@@ -9,7 +9,7 @@ import type { FellowshipPhase } from '../../types'
  * from any phase before it has sailed.
  */
 export const MOVES: Readonly<Record<FellowshipPhase, readonly FellowshipPhase[]>> = {
-  // A task is sent (Galadriel gazes first, where she is owed), or every task is behind it
+  // A task is sent (its tests written first, where they are owed), or every task is behind it
   ready: ['gazing', 'marching', 'arrived'],
   // Her tests are shown, and the task is sent on them
   gazing: ['ready'],

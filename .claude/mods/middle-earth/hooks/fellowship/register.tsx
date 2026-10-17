@@ -52,7 +52,7 @@ import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
 import { markTask, planFor, readIssue, takeSetOut } from '../elrond/register'
-import { gazeFor, mirrorIn } from '../lothlorien/register'
+import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../argonath/register'
 
 type $ = EngineInterface
@@ -139,7 +139,7 @@ const TOOLS = [
 
 const PHASE_TONE: Record<FellowshipPhase, Tone> = { ready: 'neutral', gazing: 'info', marching: 'info', proving: 'info', judging: 'info', stuck: 'danger', arrived: 'accent', warding: 'info', sailed: 'success' }
 
-// The phases a quest waits in on something that is out: a member, the Mirror, the proof or the statues
+// The phases a quest waits in on something that is out: a member, the tests written first, the proof or the statues
 const OUT: readonly FellowshipPhase[] = ['gazing', 'marching', 'proving', 'judging', 'warding']
 
 async function questOf($: $, ref: string): Promise<FellowshipQuest | null> {
@@ -569,7 +569,7 @@ async function sendNext($: $, ref: string): Promise<void> {
     return
   }
 
-  // A plan's task that is not light is shown first in the Mirror: Galadriel writes its tests, red, before anyone builds it
+  // A plan's task that is not light is shown first in the tests written first: the test writer writes its tests, red, before anyone builds it
   if (held.kind === 'plan' && task.weight !== 'light' && held.gazed !== task.id) return gazeOn($, held, made, task)
 
   const last = held.march?.taskId === task.id ? held.march : null
@@ -615,16 +615,16 @@ async function openLane($: $, held: FellowshipQuest, made: FellowshipPlan, task:
   await want($, ref, 'next')
 }
 
-/** Has Galadriel write a task's tests first, in the quest's worktree. Where Lothlórien does not answer, the task is built without them. */
+/** Has the test writer write a task's tests first, in the quest's worktree. Where tests first does not answer, the task is built without them. */
 async function gazeOn($: $, held: FellowshipQuest, made: FellowshipPlan, task: FellowshipTask): Promise<void> {
-  await work($, held.ref, `Galadriel gazes on task ${task.id}…`)
+  await work($, held.ref, `The test writer writes the tests of task ${task.id}…`)
 
-  const sent = await gazeFor($, purposeOf(held, made, task), issueRefOf(held), task.weight, held.tree).catch((error: unknown) => errorText(error))
+  const sent = await writeTestsFor($, purposeOf(held, made, task), issueRefOf(held), task.weight, held.tree).catch((error: unknown) => errorText(error))
 
-  if (!/gazes/.test(sent)) {
+  if (!/writes the tests/.test(sent)) {
     const after = await keep($, held.ref, was => ({ ...was, gazed: task.id, vision: null }))
 
-    await say($, held.ref, `The Mirror did not answer (${sent.slice(0, 160)}): task ${task.id} is built without tests first.`)
+    await say($, held.ref, `The test writer did not answer (${sent.slice(0, 160)}): task ${task.id} is built without tests first.`)
     if (after !== null) await march($, after, made, task, 1)
 
     return
@@ -633,13 +633,13 @@ async function gazeOn($: $, held: FellowshipQuest, made: FellowshipPlan, task: F
   await keep($, held.ref, was => ({ ...was, phase: 'gazing', gazed: task.id, vision: null, march: null }))
 }
 
-/** Looks into the Mirror while Galadriel gazes: once she has shown the tests, or that there are none, the task is built. */
+/** Looks into the tests written first while the test writer gazes: once it has shown the tests, or that there are none, the task is built. */
 async function behold($: $, ref: string): Promise<void> {
   const held = await questOf($, ref)
 
   if (held === null || held.phase !== 'gazing') return
 
-  const shown: Seen = await mirrorIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable' as const, why: errorText(error).slice(0, 200) }))
+  const shown: Seen = await testsFirstIn($, held.tree).catch((error: unknown) => ({ state: 'unreadable' as const, why: errorText(error).slice(0, 200) }))
   const step = afterGaze(shown, await workOf($, held), held.gazed, ref)
 
   if (step.kind === 'wait') return
@@ -654,7 +654,7 @@ async function behold($: $, ref: string): Promise<void> {
   if (step.kind === 'clouded') {
     await keep($, ref, was => ({ ...was, phase: 'stuck', gazed: undefined }))
     await say($, ref, step.why)
-    await tell($, `the Mirror is clouded on task ${step.task.id} of ${ref}`)
+    await tell($, `the tests written first of task ${step.task.id} of ${ref} could not be read`)
 
     return
   }
@@ -732,7 +732,7 @@ async function prove($: $, ref: string): Promise<void> {
 
   await work($, ref, `Argonath proves task ${out.taskId}…`)
 
-  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end. Galadriel's
+  // The statues are convened here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
   // tests, written from the task before it was built, must pass for the proof to settle, all but
   // those a member has since said cannot run here
   const isSeen = held.vision?.taskId === out.taskId
@@ -765,11 +765,11 @@ async function prove($: $, ref: string): Promise<void> {
 }
 
 /**
- * What a member changed of Galadriel's tests and why, what was taken out of them with no reason, and which cannot run
- * here, as Lothlórien keeps it. A test a member said cannot run here is judged as a change is, its reason with it.
+ * What a member changed of the test writer's tests and why, what was taken out of them with no reason, and which cannot run
+ * here, as tests first keeps it. A test a member said cannot run here is judged as a change is, its reason with it.
  */
 async function mirrorOf($: $, held: FellowshipQuest): Promise<{ amendments: { file: string; why: string; by: string }[]; tampered: { file: string; lines: string[] }[]; unrun: { file: string; name: string }[] }> {
-  const shown = await mirrorIn($, held.tree).catch(() => undefined)
+  const shown = await testsFirstIn($, held.tree).catch(() => undefined)
   const unrun = shown?.unrun ?? []
   const said = unrun.flatMap(one => (one.by !== undefined ? [{ file: one.file, why: `${one.name} cannot run here, and is owed no passing: ${one.why}`, by: one.by }] : []))
 
@@ -1048,7 +1048,7 @@ async function resubmit($: $, ref: string): Promise<string> {
 /** What a quest that is out waits on before it may be abandoned; nothing when it waits on nothing. */
 const waitBeforeAbandon = (held: FellowshipQuest): string | undefined =>
   OUT.includes(held.phase)
-    ? `The quest on ${held.ref} is ${held.phase}: wait until ${held.phase === 'gazing' ? 'Galadriel has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
+    ? `The quest on ${held.ref} is ${held.phase}: wait until ${held.phase === 'gazing' ? 'the test writer has shown the tests' : held.phase === 'judging' || held.phase === 'warding' ? 'the statues have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.march === null ? 'the member' : MEMBERS[held.march.member].title} is back`}, then abandon it.`
     : undefined
 
 /** What a quest, or a lane of it, that is out waits on before the quest may be abandoned; nothing when none waits. */
@@ -1335,7 +1335,7 @@ const UNHELD: readonly FellowshipWanted[] = ['set out', 'set out auto', 'errand'
 /**
  * Does what was asked of the quests, the first ask of each at a time, and answers how many it took: in a hook every
  * one, as an agent sent there is held; from the clock only what sends none. `only` keeps to one quest's asks (and to
- * setting out); `isLooking` also looks at each quest waiting on the statues or the Mirror, whose answer is in.
+ * setting out); `isLooking` also looks at each quest waiting on the statues or the tests written first, whose answer is in.
  */
 async function drain($: $, isFramed: boolean, only?: string, isLooking = false): Promise<number> {
   // A press of Elrond's pane asks to set out on the plan it shows
@@ -1366,8 +1366,8 @@ async function tick($: $): Promise<void> {
 
 /**
  * Does what was asked of the quests, in the hook that calls it: where it stands in one, a member, the statues or the
- * Mirror it sends are held. Each ask may ask the next (setting out asks for the first task, a commit for the next), so
- * it goes on until none is left; a quest waiting on the statues or the Mirror is looked at first.
+ * test writer it sends are held. Each ask may ask the next (setting out asks for the first task, a commit for the next), so
+ * it goes on until none is left; a quest waiting on the statues or the tests written first is looked at first.
  */
 export async function pumpFellowship($: $, only?: string): Promise<void> {
   const isFramed = await inFrame($)
@@ -1477,7 +1477,7 @@ export async function startFellowship($: $): Promise<void> {
 
 /**
  * The quests kept across sessions, back as they stood: what was out when the session ended (a member, the proof, the
- * statues, the Mirror) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
+ * statues, the tests written first) is out no more, and its quest stuck, as taking it up again leaves it; nothing is sent. A quest
  * the session holds already (a reload keeps them) is left as it is.
  */
 async function recallQuests($: $): Promise<void> {
@@ -1816,19 +1816,19 @@ export function registerFellowship(on: On): void {
             ))}
           </Box>
         )}
-        {held.phase === 'gazing' && <Text color="suggestion">{`Galadriel gazes into the Mirror: task ${held.gazed ?? ''}'s tests are written first, red`}</Text>}
+        {held.phase === 'gazing' && <Text color="suggestion">{`The test writer writes task ${held.gazed ?? ''}'s tests first, red`}</Text>}
         {held.phase === 'warding' && <Text color="suggestion">{`${WARDING} before it sails`}</Text>}
         {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isWarded === true ? 'success' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
         {out !== null && (
           <Box flexDirection="column" borderStyle="round" borderColor={held.phase === 'stuck' ? 'error' : undefined} paddingX={1}>
             <Text bold>{`${MEMBERS[out.member].title} ${held.phase === 'stuck' ? 'is back from' : 'is on'} task ${out.taskId}: ${out.title}`}</Text>
             <Text dimColor>{`try ${out.attempt}${made !== null && outTask !== undefined ? ` of ${triesOf(made, outTask)}` : ''} · since ${clockOf(out.at)}`}</Text>
-            {held.vision !== undefined && held.vision !== null && held.vision.taskId === out.taskId && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} to make pass`}</Text>}
+            {held.vision !== undefined && held.vision !== null && held.vision.taskId === out.taskId && held.vision.tests.length > 0 && <Text dimColor>{`The tests written first: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} to make pass`}</Text>}
             {held.proofLine !== '' && <Text color={held.phase === 'judging' ? 'success' : 'warning'}>{`Argonath's proof: ${held.proofLine}`}</Text>}
             {held.verdictLine !== '' && <Text color={held.verdictLine.startsWith('passed') ? 'success' : held.verdictLine === 'judging' ? 'suggestion' : 'warning'}>{`The statues: ${held.verdictLine}`}</Text>}
           </Box>
         )}
-        {(out === null || held.vision?.taskId !== out.taskId) && held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The Mirror: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
+        {(out === null || held.vision?.taskId !== out.taskId) && held.vision !== undefined && held.vision !== null && held.vision.tests.length > 0 && <Text dimColor>{`The tests written first: ${held.vision.tests.length} red ${held.vision.tests.length === 1 ? 'test' : 'tests'} for task ${held.vision.taskId} to make pass`}</Text>}
         {held.pr !== '' && <Text color="success">{`Pull request: ${held.pr}`}</Text>}
         {cost[held.ref] !== undefined && <Text dimColor>{`Spent: ${cost[held.ref] ?? ''}`}</Text>}
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>

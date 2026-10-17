@@ -31,9 +31,9 @@ export const typeOf = (name: string): string => `${PLUGIN}:${name}`
 export const toolOf = (name: string): string => `mcp__${PLUGIN}__${name}`
 
 export const COUNCIL = 'council'
-export const GALADRIEL = 'galadriel'
-// She gazes on Sonnet for a task that is not heavy: the same charge, a lighter model
-export const GALADRIEL_SWIFT = 'galadriel-swift'
+export const TEST_WRITER = 'test-writer'
+// It gazes on Sonnet for a task that is not heavy: the same charge, a lighter model
+export const TEST_WRITER_LIGHT = 'test-writer-light'
 
 // How many agents are kept: a quest's agents are few, and an old one is never asked of again
 const KEPT = 64
@@ -70,7 +70,7 @@ export const roleOfType = (type: string): MiddleEarthRole | undefined => {
 
   const name = type.slice(PLUGIN.length + 1)
 
-  return name === COUNCIL ? 'council' : name === GALADRIEL || name === GALADRIEL_SWIFT ? 'galadriel' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
+  return name === COUNCIL ? 'council' : name === TEST_WRITER || name === TEST_WRITER_LIGHT ? 'test-writer' : name in MEMBERS ? 'member' : REVIEWERS.some(one => one.name === name) ? 'statue' : undefined
 }
 
 // The agents found to be none of the mod's: each is looked up once
@@ -124,15 +124,15 @@ const memberRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined
   return undefined
 }
 
-/** Why a call of Galadriel's is refused: she writes tests in the place she gazes in, and runs only what tests or reads. */
-const galadrielRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
-  if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return 'Galadriel writes her tests with Write and Edit, and runs only what tests or reads.'
+/** Why a call of the test writer's is refused: it writes tests in the place it writes in, and runs only what tests or reads. */
+const testWriterRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined => {
+  if (given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command)) return 'The test writer writes its tests with Write and Edit, and runs only what tests or reads.'
   if ((given.tool !== 'Edit' && given.tool !== 'Write') || typeof given.file_path !== 'string') return undefined
 
   const whole = resolvedFrom(agent.tree, given.file_path)
 
-  if (whole !== agent.tree && !whole.startsWith(`${agent.tree}/`)) return `The Mirror is in ${agent.tree}: write your tests there alone.`
-  if (!isTestPath(withinOf(agent.tree, whole))) return 'The Mirror shows what is to come as tests: write only in test files, and leave the source for whoever builds it.'
+  if (whole !== agent.tree && !whole.startsWith(`${agent.tree}/`)) return `The tests are written in ${agent.tree}: write yours there alone.`
+  if (!isTestPath(withinOf(agent.tree, whole))) return 'Tests first show what is to come: write only in test files, and leave the source for whoever builds it.'
 
   return undefined
 }
@@ -167,8 +167,8 @@ const roleRefusal = (agent: MiddleEarthAgent, given: Call): string | undefined =
       return given.tool === 'Bash' && typeof given.command === 'string' && isChanging(given.command) ? STATUE_READS : undefined
     case 'member':
       return memberRefusal(agent, given)
-    case 'galadriel':
-      return galadrielRefusal(agent, given)
+    case 'test-writer':
+      return testWriterRefusal(agent, given)
     default:
       return undefined
   }
@@ -204,13 +204,13 @@ export async function registerAgents($: $): Promise<void> {
       .catch(() => undefined)
   }
 
-  for (const [name, model] of [[GALADRIEL, TEST_WRITER_MODEL], [GALADRIEL_SWIFT, TEST_WRITER_LIGHT_MODEL]] as const) {
+  for (const [name, model] of [[TEST_WRITER, TEST_WRITER_MODEL], [TEST_WRITER_LIGHT, TEST_WRITER_LIGHT_MODEL]] as const) {
     await $.agent
       .register({
         name,
-        description: 'Galadriel: writes the failing tests of a behaviour before it is built, and only tests. Sent by Lothlórien alone.',
+        description: 'Test writer: writes the failing tests of a behaviour before it is built, and only tests. Sent by tests first alone.',
         prompt: TEST_WRITER_SYSTEM,
-        // What she may write (tests, in the place she gazes in) and run (what tests or reads) is the guard's
+        // What it may write (tests, in the place it writes in) and run (what tests or reads) is the guard's
         tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'],
         disallowedTools: ['Agent', 'NotebookEdit'],
         model,
@@ -347,5 +347,5 @@ export const guardRefusalNow = (e: unknown): string | undefined => {
 export function registerOffers(on: On): void {
   // Every agent type of the mod answers in a shape its part reads: Claude reaches them through the mod's tools, never
   // through the Agent tool
-  for (const name of [COUNCIL, GALADRIEL, GALADRIEL_SWIFT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
+  for (const name of [COUNCIL, TEST_WRITER, TEST_WRITER_LIGHT, ...Object.keys(MEMBERS), ...REVIEWERS.map(one => one.name)]) on('agent.offer', { agent: typeOf(name) }, () => ({ isOffered: false })).catch(() => ({ isOffered: false }))
 }
