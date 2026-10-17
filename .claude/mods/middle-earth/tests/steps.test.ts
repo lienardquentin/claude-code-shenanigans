@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { afterFailedTry, afterProof, afterVerdict, isTidyAsked } from '../core/quest'
-import type { Judged, ProofVerdict } from '../core/quest'
+import { afterFailedTry, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parsePlan, whyNotSail } from '../core/quest'
+import type { Judged, Plan, ProofVerdict, Quest } from '../core/quest'
 
 const proof = (over: Partial<ProofVerdict> = {}): ProofVerdict => ({ isSettled: true, isUnlooked: false, line: 'every changed run is pinned', unhandled: [], unreached: [], text: 'the proof', ...over })
 
@@ -76,5 +76,48 @@ describe('a try that did not pass', () => {
 
     expect(last.otherwise).toEqual({ kind: 'stop', why: "Task 2 did not pass after 3 tries, the last Gandalf's: 1 blocking finding. Finish it by hand in /proj/.fellowship/trees/x and commit it from the pane, or send it again." })
     expect(afterFailedTry(out, undefined, 'x', '/t').otherwise).toMatchObject({ kind: 'stop', why: expect.stringMatching(/^Task 2 did not pass after 1 try,/) })
+  })
+})
+
+describe('a quest that sails', () => {
+  const quest = (over: Partial<Quest> = {}) => ({ ref: 'github:o/r#12', kind: 'plan' as const, phase: 'arrived' as const, pr: '', commits: [], ...over })
+
+  test('sails once every task is committed, and a review with the answers it has', () => {
+    expect(whyNotSail(quest())).toBeUndefined()
+    expect(whyNotSail(quest({ kind: 'review', phase: 'stuck', commits: [{ taskId: 1, title: 'T', sha: 'a', by: 'Frodo', minor: [] }] }))).toBeUndefined()
+  })
+
+  test("says why it does not: a lane lands by itself, it sailed already, the reviewers judge it, or it has not arrived", () => {
+    expect(whyNotSail(quest({ lane: { of: 'github:o/r#12', taskId: 2 } }))).toBe("A lane lands on its quest's branch by itself: it is github:o/r#12 that sails.")
+    expect(whyNotSail(quest({ phase: 'sailed', pr: 'https://github.com/o/r/pull/7' }))).toBe('The pull request is open: https://github.com/o/r/pull/7')
+    expect(whyNotSail(quest({ phase: 'warding' }))).toBe('The statues judge the whole branch of github:o/r#12: the pull request opens once they pass it.')
+    expect(whyNotSail(quest({ phase: 'marching' }))).toBe('The quest on github:o/r#12 has not arrived: it is marching. Every task is committed first.')
+  })
+
+  test("waits on the reviewers' judgement of its whole branch, sails once they pass it, and stops on what blocks it", () => {
+    const at = { ref: 'github:o/r#12', tree: '/proj/.fellowship/trees/x' }
+
+    expect(afterWard(judged('sitting'), at)).toMatchObject({ kind: 'wait' })
+    expect(afterWard(judged('pass', { line: 'passed' }), at)).toEqual({ kind: 'sail', line: 'the whole branch passed' })
+    expect(afterWard(judged('fail', { blocking: ['- Anárion: it leaks'], line: '1 blocking finding' }), at)).toEqual({
+      kind: 'stop',
+      why: 'The statues found what blocks the whole branch of github:o/r#12:\n- Anárion: it leaks\nFix it in /proj/.fellowship/trees/x and commit, then sail again: they judge the branch as it then stands.',
+      line: 'the whole branch: 1 blocking finding',
+    })
+    expect(afterWard(judged('silent', { line: 'not judged' }), at)).toMatchObject({ kind: 'stop', why: expect.stringMatching(/could not judge the whole branch .*\(not judged\): sail again/) })
+  })
+})
+
+describe("a builder's brief", () => {
+  const plan = parsePlan(JSON.stringify({ ref: 'github:o/r#12', url: 'https://github.com/o/r/issues/12', title: 'Beacons burn', summary: '', approach: '', questions: [], decided: [], risks: [], accepted: [], at: 1, tasks: [{ id: 1, title: 'Keep when a beacon is lit', why: 'Nothing records it.', steps: ['Add lit_at'], files: ['beacons/gondor/app.py'], dependsOn: [], acceptance: 'lit_at is set', weight: 'light', state: 'todo' }] })) as Plan
+  const quest = { kind: 'plan' as const, ref: plan.ref, url: plan.url, title: plan.title, branch: 'fellowship/12-beacons-burn' }
+
+  test('names the builder its try and the task call for, a rung up on each try', () => {
+    const first = briefFor({ quest, plan, task: plan.tasks[0]!, attempt: 1, targets: [], standards: '' })
+    const second = briefFor({ quest, plan, task: plan.tasks[0]!, attempt: 2, targets: [], standards: '' })
+
+    expect(first.description).toMatch(/: task 1, Keep when a beacon is lit$/)
+    expect(first.builder).not.toBe(second.builder)
+    expect(first.prompt).toContain('Keep when a beacon is lit')
   })
 })

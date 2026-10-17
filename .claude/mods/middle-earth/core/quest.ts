@@ -861,3 +861,44 @@ export const afterFailedTry = (out: { taskId: number; attempt: number; by: strin
       ? { kind: 'climb', attempt: out.attempt + 1 }
       : { kind: 'stop', why: `Task ${out.taskId} did not pass after ${out.attempt} ${out.attempt === 1 ? 'try' : 'tries'}, the last ${out.by}'s: ${line}. Finish it by hand in ${tree} and commit it from the pane, or send it again.` },
 })
+
+/** What the reviewers do while they judge a plan's whole branch. */
+export const WARDING = 'The statues judge the whole branch'
+
+/**
+ * Why a quest cannot sail yet: a lane lands by itself, a quest sails once, and every task is committed first (a review
+ * may push the answers it has); nothing when it may.
+ */
+export const whyNotSail = (quest: Pick<Quest, 'ref' | 'kind' | 'phase' | 'pr' | 'lane' | 'commits'>): string | undefined => {
+  if (quest.lane !== undefined) return `A lane lands on its quest's branch by itself: it is ${quest.lane.of} that sails.`
+  if (quest.phase === 'sailed') return quest.kind === 'review' ? `The answers on ${quest.ref} are pushed.` : `The pull request is open: ${quest.pr}`
+  if (quest.phase === 'warding') return `${WARDING} of ${quest.ref}: the pull request opens once they pass it.`
+  if (quest.phase !== 'arrived' && !(quest.kind === 'review' && (quest.phase === 'ready' || quest.phase === 'stuck') && quest.commits.length > 0)) return `The quest on ${quest.ref} has not arrived: it is ${quest.phase}. Every task is committed first.`
+
+  return undefined
+}
+
+/**
+ * What the reviewers' judgement of a plan's whole branch comes to: waited on while they sit, sailing once they pass it,
+ * else stopped for the person with what blocks it or why they could not judge.
+ */
+export const afterWard = (judged: Judged, quest: Pick<Quest, 'ref' | 'tree'>): { kind: 'wait'; said: string } | { kind: 'sail'; line: string } | { kind: 'stop'; why: string; line: string } => {
+  if (judged.verdict === 'sitting') return { kind: 'wait', said: `${WARDING} of ${quest.ref} before it sails: the pull request opens once they pass it.` }
+  if (judged.verdict === 'pass') return { kind: 'sail', line: `the whole branch ${judged.line}` }
+
+  return {
+    kind: 'stop',
+    why:
+      judged.verdict === 'fail'
+        ? `The statues found what blocks the whole branch of ${quest.ref}:\n${judged.blocking.join('\n')}\nFix it in ${quest.tree} and commit, then sail again: they judge the branch as it then stands.`
+        : `The statues could not judge the whole branch of ${quest.ref} (${judged.line}): sail again to have them judge it.`,
+    line: `the whole branch: ${judged.line}`,
+  }
+}
+
+/** Who builds a try of a task, and what they are sent with: chosen by the try and the task's weight and target. */
+export const briefFor = (asked: { quest: QuestOf; plan: Plan; task: Task; attempt: number; targets: readonly TargetFolders[]; retry?: Retry; vision?: Vision | null; standards: string }): { builder: Builder; description: string; prompt: string } => {
+  const builder = memberFor(asked.plan, asked.task, asked.attempt, asked.targets)
+
+  return { builder, description: `${MEMBERS[builder].title}: task ${asked.task.id}, ${asked.task.title}`, prompt: companionPrompt(asked.quest, asked.plan, asked.task, builder, asked.retry, asked.vision, asked.standards) }
+}

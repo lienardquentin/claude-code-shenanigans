@@ -9,7 +9,6 @@ import {
   besideOf,
   branchOf,
   commitMessage,
-  companionPrompt,
   conflictPrompt,
   errandTask,
   handBackOf,
@@ -17,7 +16,6 @@ import {
   issueRefOf,
   laneBranchOf,
   laneRefOf,
-  memberFor,
   nextTask,
   ownMinor,
   ownPlan,
@@ -42,8 +40,8 @@ import { canMove, restingPhase } from './phases'
 import { forgeOfUrl } from '../../core/forge'
 import type { Ran } from '../../core/forge'
 import { UNMODDED, secretsIn } from '../../core/change'
-import { applyAfresh, commitTask, gitRunsOf, landLane } from '../../core/git'
-import { afterFailedTry, afterProof, afterVerdict, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt } from '../../core/quest'
+import { applyAfresh, commitTask, gitRunsOf, landLane, leakOf } from '../../core/git'
+import { WARDING, afterFailedTry, afterProof, afterVerdict, afterWard, briefFor, isTidyAsked, parseJudgement, proofVerdict, sendBackPrompt, tidyPrompt, whyNotSail } from '../../core/quest'
 import type { Judged, Why } from '../../core/quest'
 import { errorText, forgeIn, git, gitRootOf, inTurn, removeTree, isMergedFrom, openRequest, push, rootOf, run, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
@@ -65,7 +63,6 @@ const TITLE = 'Fellowship'
 // How often the clock looks for what a press, a command or a turn asked for
 const TICK_MS = 500
 // What is said while the statues judge a plan's whole branch
-const WARDING = 'The statues judge the whole branch'
 // Where a quest is kept across sessions, by its ref
 const STORE_KEY = (ref: string) => `quest:${ref}`
 // How long the forge is given to answer a fetch
@@ -495,14 +492,15 @@ export async function takeReview($: $, given: unknown, isAuto: boolean): Promise
 
 /** Sends a member on a task: marked doing, chosen by the try and the task, and spawned in the quest's worktree. */
 async function march($: $, held: FellowshipQuest, made: FellowshipPlan, task: FellowshipTask, attempt: number, retry?: Retry): Promise<void> {
-  const member = memberFor(made, task, attempt, await targetsKnown($).catch(() => []))
+  const brief = briefFor({ quest: held, plan: made, task, attempt, targets: await targetsKnown($).catch(() => []), ...(retry !== undefined ? { retry } : {}), vision: held.vision, standards: await standardsText($) })
+  const member = brief.builder
   const last = held.march
   // A task sent again keeps HEAD as it was when it was first sent: a commit made past the proof since stays one
   const head = last !== null && last.taskId === task.id && last.head !== undefined && last.head !== '' ? last.head : (await git($, ['rev-parse', 'HEAD'], held.tree)).out
 
   await mark($, held, task.id, 'doing')
 
-  const started = await spawnIn($, { subagentType: typeOf(member), description: `${MEMBERS[member].title}: task ${task.id}, ${task.title}`, prompt: companionPrompt(held, made, task, member, retry, held.vision, await standardsText($)), cwd: held.tree })
+  const started = await spawnIn($, { subagentType: typeOf(member), description: brief.description, prompt: brief.prompt, cwd: held.tree })
     .catch((error: unknown) => ({ deny: errorText(error), agentId: undefined }))
 
   if (started.deny !== undefined) {
@@ -1184,42 +1182,21 @@ async function answerThreads($: $, ref: string): Promise<string> {
   ].join('')
 }
 
-/**
- * Why a quest's branch may not leave the machine: what it adds over the branch it is pushed onto holds what looks like
- * a secret, or what it adds could not be read. Nothing when it may.
- */
-async function leakOf($: $, held: FellowshipQuest): Promise<string | undefined> {
-  const onto = `origin/${held.kind === 'review' ? held.branch : held.base}`
-  const isFetched = (await git($, ['rev-parse', '--verify', '--quiet', `refs/remotes/${onto}`], held.tree)).ok
-  const from = isFetched ? onto : held.kind === 'review' ? '' : held.base
-
-  if (from === '') return `${onto} is not known here, so what ${held.branch} adds cannot be read for secrets: fetch it, then push again.`
-
-  const added = await git($, ['diff', '--no-color', '--no-ext-diff', `${from}...HEAD`], held.tree)
-
-  if (!added.ok) return `What ${held.branch} adds over ${from} could not be read for secrets: ${added.out}`
-
-  const leaked = secretsIn(added.out)
-
-  return leaked.length === 0 ? undefined : `${held.branch} adds what looks like a secret (${leaked.join('; ')}), so it does not leave the machine: take it out of the branch's history, then push again.`
-}
-
 /** Pushes the branch and opens the pull request that closes the issue; a review's answers are pushed onto its pull request. */
 async function sail($: $, ref: string): Promise<string> {
   const held = await questOf($, ref)
 
   if (held === null) return HOW_TO
-  if (held.lane !== undefined) return `A lane lands on its quest's branch by itself: it is ${held.lane.of} that sails.`
-  if (held.phase === 'sailed') return held.kind === 'review' ? `The answers on ${ref} are pushed.` : `The pull request is open: ${held.pr}`
-  if (held.phase === 'warding') return `The statues judge the whole branch of ${ref}: the pull request opens once they pass it.`
-  if (held.phase !== 'arrived' && !(held.kind === 'review' && (held.phase === 'ready' || held.phase === 'stuck') && held.commits.length > 0)) return `The quest on ${ref} has not arrived: it is ${held.phase}. Every task is committed first.`
+  const unready = whyNotSail(held)
+
+  if (unready !== undefined) return unready
 
   const made = await workOf($, held)
 
   if (typeof made === 'string') return made
 
   // Nothing that looks like a secret leaves the machine, whoever committed it
-  const leak = await leakOf($, held)
+  const leak = await leakOf(shellIn($, held.tree), held)
 
   if (leak !== undefined) {
     await say($, ref, leak)
@@ -1286,24 +1263,21 @@ async function ward($: $, ref: string, judged: ReturnType<typeof parseJudgement>
   const held = await questOf($, ref)
 
   if (held === null || held.phase !== 'warding') return ''
-  if (judged.verdict === 'sitting') return `${WARDING} of ${ref} before it sails: the pull request opens once they pass it.`
+  const step = afterWard(judged, held)
 
-  if (judged.verdict === 'pass') {
-    await keep($, ref, was => ({ ...was, phase: 'arrived', isWarded: true, verdictLine: `the whole branch ${judged.line}` }))
+  if (step.kind === 'wait') return step.said
+
+  if (step.kind === 'sail') {
+    await keep($, ref, was => ({ ...was, phase: 'arrived', isWarded: true, verdictLine: step.line }))
 
     return sail($, ref)
   }
 
-  const why =
-    judged.verdict === 'fail'
-      ? `The statues found what blocks the whole branch of ${ref}:\n${judged.blocking.join('\n')}\nFix it in ${held.tree} and commit, then sail again: they judge the branch as it then stands.`
-      : `The statues could not judge the whole branch of ${ref} (${judged.line}): sail again to have them judge it.`
+  await keep($, ref, was => ({ ...was, phase: 'arrived', isWarded: false, verdictLine: step.line }))
+  await say($, ref, step.why)
+  await tell($, step.why.split('\n')[0] ?? step.why)
 
-  await keep($, ref, was => ({ ...was, phase: 'arrived', isWarded: false, verdictLine: `the whole branch: ${judged.line}` }))
-  await say($, ref, why)
-  await tell($, why.split('\n')[0] ?? why)
-
-  return why
+  return step.why
 }
 
 /** Looks at the statues' judgement of a plan's whole branch, while they sit. */
