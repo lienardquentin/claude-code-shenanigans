@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { ArgonathRadius, ArgonathTarget } from '../../types'
 import { errorText } from '../flow'
 import type { Changed } from './proof'
-import { CHANGE_SCRIPT, UNTRACKED, affectedOf, changesByTarget, gateOf, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, tidy, withLive } from './proof'
+import { CHANGE_SCRIPT, UNTRACKED, affectedOf, changesByTarget, gateOf, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, sizeText, tidy, withLive } from './proof'
 
 // What the Argonath runs on the machine for one target, in one place: Andúril's diff of a CLI, a service's requests,
 // the tests on both sides, the affected tests, checks and audits, and what git says the change holds. Each is handed the
@@ -120,6 +120,15 @@ export async function changeText($: $, tree: string, against = 'HEAD'): Promise<
     .catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: errorText(error) }))
 
   return ran.exitCode === 0 ? { text: ran.stdout } : { error: `git could not show the change since ${against}: ${ran.stderr.trim().split('\n').slice(-1)[0] || `it exited with ${ran.exitCode}`}` }
+}
+
+/** How big the change is, in a sentence for the statues: nothing when git could not count it, as a size is only a note. */
+export async function sizeIn($: $, tree: string, against = 'HEAD'): Promise<string> {
+  const ran = await $.process
+    .run(['sh', '-c', `b=$(git merge-base "$1" HEAD) || exit 1; git diff "$b" --numstat --no-ext-diff; echo '${UNTRACKED}'; git ls-files -o --exclude-standard -z | xargs -0 -r wc -l --`, 'sh', against], { cwd: tree })
+    .catch(() => undefined)
+
+  return ran?.exitCode === 0 ? sizeText(ran.stdout) : ''
 }
 
 /** What each target's folders hold against HEAD in a place, by label, read in one go: empty for a target the change did not reach. */

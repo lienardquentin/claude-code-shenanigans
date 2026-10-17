@@ -651,6 +651,50 @@ export const manifestsOf = (change: string): string[] =>
     ),
   ]
 
+// The files a dependency's lock is written whole in: they say nothing of what a change wrote
+const LOCKED = /(^|\/)(Cargo\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|uv\.lock|poetry\.lock|Pipfile\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/
+
+// How many of the files a change adds most to are named
+const SIZE_FILES = 5
+
+/**
+ * How big a change is, in a sentence for the statues, from git's numstat of its diff, `UNTRACKED`, then `wc -l` of its
+ * new files: the lines it adds and takes out, across how many files, how many new, and where it adds most. Lock files
+ * are not counted. Nothing for a change of no line.
+ */
+export const sizeText = (output: string): string => {
+  const [numstat = '', wc = ''] = output.split(`${UNTRACKED}\n`)
+  const changed = numstat
+    .split('\n')
+    .flatMap(line => {
+      const found = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+
+      return found === null ? [] : [{ path: found[3] ?? '', added: Number(found[1]) || 0, removed: Number(found[2]) || 0, isNew: false }]
+    })
+  const listed = wc.split('\n').flatMap(line => {
+    const found = /^\s*(\d+) (.+)$/.exec(line)
+
+    return found === null ? [] : [{ path: found[2] ?? '', added: Number(found[1]), removed: 0, isNew: true }]
+  })
+  // wc ends on a total of what it counted, when it counted more than one file
+  const fresh = listed.length > 1 ? listed.slice(0, -1) : listed
+  const all = [...changed, ...fresh]
+  const counted = all.filter(one => !LOCKED.test(one.path))
+  const added = counted.reduce((sum, one) => sum + one.added, 0)
+  const removed = counted.reduce((sum, one) => sum + one.removed, 0)
+
+  if (added === 0 && removed === 0) return ''
+
+  const news = counted.filter(one => one.isNew).length
+  const most = [...counted].filter(one => one.added > 0).sort((one, other) => other.added - one.added).slice(0, SIZE_FILES)
+
+  return [
+    `The change adds ${plural(added, 'line', 'lines')} and takes out ${removed}, across ${plural(counted.length, 'file', 'files')}${news > 0 ? `, ${news} of them new` : ''}.`,
+    ...(most.length > 0 ? [`Where it adds most: ${most.map(one => `${one.path} +${one.added}${one.isNew ? ' (new)' : ''}`).join(', ')}.`] : []),
+    ...(counted.length < all.length ? ['Lock files are not counted.'] : []),
+  ].join(' ')
+}
+
 // A test declared, as a removed or added line of a diff spells it: Rust's attribute, Python's and Go's test functions,
 // a JavaScript runner's call
 const TEST_DECLARED = /^\s*(#\[(\w+::)?test\]|(async\s+)?def\s+test_\w+|func\s+Test\w+|(it|test)\s*\(\s*['"`])/
