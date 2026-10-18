@@ -1,7 +1,7 @@
 import { describe, expect, mock } from 'claude-code/testing'
 import { test } from './hook-test'
 
-import { differsIn, installedOf, lagText, sectionOfLag, versionOf } from '../hooks/lag'
+import { differsIn, installedOf, lagText, marketplaceFolderOf, sectionOfLag, versionOf } from '../hooks/lag'
 
 const CWD = '/proj'
 const CACHE = '/home/q/.claude/plugins/cache/theseus'
@@ -24,19 +24,19 @@ describe('the plugins installed from the marketplace', () => {
 
   test('that lag are said with how each is brought level', () => {
     const text = lagText([
-      { plugin: 'oldtool@theseus', why: 'gone', installed: '' },
-      { plugin: 'recorder@theseus', why: 'behind', installed: `${CACHE}/recorder/0.1.0` },
+      { plugin: 'oldtool@theseus', why: 'gone', installed: '', source: '/proj/.claude/mods/oldtool' },
+      { plugin: 'recorder@theseus', why: 'behind', installed: `${CACHE}/recorder/0.1.0`, source: '/proj/.claude/mods/recorder' },
     ])
 
-    expect(text).toMatch(/- oldtool@theseus: installed, but no longer in \.claude\/mods\. Uninstall it \(claude plugin uninstall oldtool@theseus\)/)
-    expect(text).toMatch(/- recorder@theseus: its installed copy .* differs from \.claude\/mods\. \/reload-plugins reads it afresh/)
+    expect(text).toMatch(/- oldtool@theseus: installed, but no longer in the marketplace's folder\. Uninstall it \(claude plugin uninstall oldtool@theseus\)/)
+    expect(text).toMatch(/- recorder@theseus: its installed copy .* differs from \/proj\/\.claude\/mods\/recorder\. \/reload-plugins reads it afresh/)
     expect(text).toMatch(/until claude plugin update recorder@theseus takes the new version/)
   })
 
   test('that lag under the version they were installed at are told to bump it, since an update takes them for current', () => {
-    const text = lagText([{ plugin: 'theseus@theseus', why: 'behind', installed: `${CACHE}/theseus/0.1.0`, sameVersion: '0.1.0' }])
+    const text = lagText([{ plugin: 'theseus@theseus', why: 'behind', installed: `${CACHE}/theseus/0.1.0`, sameVersion: '0.1.0', source: '/proj/.claude/mods/theseus' }])
 
-    expect(text).toMatch(/has the same version \(0\.1\.0\), so claude plugin update will not take it: bump the version in \.claude\/mods\/theseus\/\.claude-plugin\/plugin\.json/)
+    expect(text).toMatch(/has the same version \(0\.1\.0\), so claude plugin update will not take it: bump the version in \/proj\/\.claude\/mods\/theseus\/\.claude-plugin\/plugin\.json/)
   })
 
   test('differ in what they ship, not in the types the engine writes beside it', () => {
@@ -49,6 +49,13 @@ describe('the plugins installed from the marketplace', () => {
   test('carry the version their plugin.json names', () => {
     expect(versionOf('{"name":"theseus","version":"0.2.0"}')).toBe('0.2.0')
     for (const text of ['', '{}', 'not json', '{"version":2}']) expect(versionOf(text)).toBeUndefined()
+  })
+
+  test('are compared with the folder the marketplace was added from, and with nothing where it came from GitHub', () => {
+    expect(marketplaceFolderOf(JSON.stringify({ theseus: { source: { source: 'directory', path: '/proj/.claude/mods/' } } }))).toBe('/proj/.claude/mods')
+    expect(marketplaceFolderOf(JSON.stringify({ theseus: { source: { source: 'github', repo: 'lienardquentin/theseus' } } }))).toBeUndefined()
+    expect(marketplaceFolderOf(JSON.stringify({ other: { source: { source: 'directory', path: '/x' } } }))).toBeUndefined()
+    for (const text of ['', 'not json', 'null']) expect(marketplaceFolderOf(text)).toBeUndefined()
   })
 
   test('lag when gone from the folder, or copied from code it no longer holds, and are said once the session starts', async ($, on) => {
@@ -72,6 +79,7 @@ describe('the plugins installed from the marketplace', () => {
       return { value: undefined } as never
     })
     on('fs.read', (_, e) => {
+      if (e.path.endsWith('/plugins/known_marketplaces.json')) return { value: JSON.stringify({ theseus: { source: { source: 'directory', path: `${CWD}/.claude/mods` } } }) } as never
       if (e.path.endsWith('/plugins/installed_plugins.json')) return { value: INSTALLED } as never
       if (e.path === `${CWD}/.claude/mods/recorder/.claude-plugin/plugin.json` || e.path === `${CWD}/.claude/mods/theseus/.claude-plugin/plugin.json`) return { value: '{}' } as never
 
@@ -94,7 +102,7 @@ describe('the plugins installed from the marketplace', () => {
 
     // Theseus's copy is its folder's: only the recorder, behind, and oldtool, gone, are said (what Claude is told of
     // each is lagText's, above)
-    expect(toasts).toContain('Theseus: recorder, oldtool lag .claude/mods')
+    expect(toasts).toContain('Theseus: recorder, oldtool lag their source')
     expect(sectionOfLag()?.text).not.toMatch(/theseus@theseus/)
   })
 })

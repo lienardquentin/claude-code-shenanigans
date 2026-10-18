@@ -30,7 +30,7 @@ export async function doctorOf($: $): Promise<Check[]> {
       targets: await targetsRead($),
       ...(({ errors, warnings }) => ({ configErrors: errors, configWarnings: warnings }))(projectErrors()),
       installed: installedOf(String(record)).map(one => one.id),
-      lags: (await lagging($)).map(lag => `${lag.plugin} ${lag.why === 'gone' ? 'is installed but gone from .claude/mods' : 'differs from .claude/mods'}`),
+      lags: (await lagging($)).map(lag => `${lag.plugin} ${lag.why === 'gone' ? `is installed but gone from ${lag.source ?? 'its folder'}` : `differs from ${lag.source ?? 'its folder'}`}`),
     },
   )
 }
