@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 import type { TestBody } from 'claude-code/testing'
 
 import { blocksOf, forgottenOf, isTestPath, missingFrom, parseGaze, takenBy, tamperedWith } from '../core/tests-first'
@@ -35,9 +36,9 @@ describe('the tests written first', () => {
   })
 
   test('reads a test that cannot run here apart from the red ones, with why', () => {
-    const answer = JSON.stringify({ tests: [], red: '', unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }, { name: 'no file' }], untestable: '' })
+    const answer = JSON.stringify({ tests: [], red: '', unrun: [{ file: 'deslop/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }, { name: 'no file' }], untestable: '' })
 
-    expect(parseGaze(`\`\`\`json\n${answer}\n\`\`\``)).toMatchObject({ tests: [], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }] })
+    expect(parseGaze(`\`\`\`json\n${answer}\n\`\`\``)).toMatchObject({ tests: [], unrun: [{ file: 'deslop/tests/cli.rs', name: 'a_folder_another_user_owns_keeps_nothing', why: 'needs root' }] })
   })
 
   test('locks the lines it added, and the new files whole', () => {

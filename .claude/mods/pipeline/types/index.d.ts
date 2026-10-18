@@ -374,7 +374,7 @@ export type TestsFirst = {
 /** What a target is, which says the handler that finds what changed in what it does. */
 export type TargetKind = 'cli' | 'service' | 'frontend'
 
-/** One thing the project builds, as `.claude/argonath` names it. */
+/** One thing the project builds, as `.claude/verify` names it. */
 export type Target = {
   /** Its name: for a CLI, the one the recorder watches it under. */
   label: string

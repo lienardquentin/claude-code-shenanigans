@@ -203,7 +203,7 @@ def main():
 
     context, namespace, kind, name = parts
     if "prod" in context.lower():
-        answer["error"] = "the context %s names prod: Argonath reads nothing from it and runs nothing in it" % context
+        answer["error"] = "the context %s names prod: verify reads nothing from it and runs nothing in it" % context
         return json.dump(answer, sys.stdout)
 
     forwards = []

@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 
 import { installedOf, lagText } from '../hooks/lag'
 

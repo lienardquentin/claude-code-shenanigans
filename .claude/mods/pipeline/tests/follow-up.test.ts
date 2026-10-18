@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 import type { TestBody } from 'claude-code/testing'
 
 import { parseGithubReview, parseGitlabReview, parsePullRef, parseRemote } from '../core/forge'

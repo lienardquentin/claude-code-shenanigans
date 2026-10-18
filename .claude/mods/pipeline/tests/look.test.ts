@@ -14,7 +14,7 @@ const TARGETS = parseProject(
     'narsil.tests=narsil/tests',
     'narsil.test=cargo test --test cli -- --exact {tests}',
     'narsil.check=cargo clippy -- -D warnings',
-    'narsil.check=sh scripts/orcrist.sh narsil {against}',
+    'narsil.check=sh scripts/deslop.sh narsil {against}',
     'gondor=service:gondor.app:app@beacons/gondor',
     'gondor.tests=beacons/tests',
     'gondor.test=uv run pytest -k "{tests: or }"',
@@ -129,7 +129,7 @@ describe('a proof', () => {
 
     await lookAt(fake, look({ isProving: true, against: 'main' }))
 
-    expect(world.jobs.filter(one => one.handler === 'affected').map(one => one.job.command)).toEqual(['cargo clippy -- -D warnings', "sh scripts/orcrist.sh narsil 'main'"])
+    expect(world.jobs.filter(one => one.handler === 'affected').map(one => one.job.command)).toEqual(['cargo clippy -- -D warnings', "sh scripts/deslop.sh narsil 'main'"])
   })
 
   test("runs what a change of a target can break, and the tests written before the change though no run is marked", async () => {
