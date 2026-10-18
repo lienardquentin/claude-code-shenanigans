@@ -126,6 +126,22 @@ verification commands its plan states, or its issue's `## Verification` section.
 removes a merged run's worktree and branch. Uninstalling the plugin leaves `.theseus/` in each project and its store
 file: delete them by hand if you no longer want them.
 
+## What it costs Claude's context
+
+Theseus's tools wait behind ToolSearch, as every plugin's do: Claude sees their names alone (about 180 tokens) until it
+loads one. The rest is what Theseus adds at each turn, held to these budgets by `tests/context.test.ts`:
+
+| When | Added | Tokens |
+|---|---|---|
+| A project with targets, none touched this session | which targets, and the three steps after an edit | ~60 |
+| Once a turn touched a target | the steps in full, and the reviewers owed | ~150 |
+| While a plan is held | which, how far, and the tools that read and mark it | ~65 |
+| While a run is out | each run, its phase and worktree | ~90 per run |
+| While tests written first are locked | which, and how a wrong one is changed | ~100 |
+| While an installed copy lags its source | which, and how to bring it level | ~130 |
+
+A project with no target, no plan and no run adds nothing.
+
 ## Troubleshooting
 
 **A run will not start.** `/theseus doctor` says what is missing and the command that fixes it: a forge CLI not

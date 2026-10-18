@@ -302,7 +302,7 @@ async function refusal($: $, path: string, taken: (locked: string[]) => string[]
     : `That change takes out ${gone.length === 1 ? 'a line' : `${gone.length} lines`} of the tests written first in ${file} (${gone.slice(0, 2).map(line => `\`${line.trim()}\``).join(', ')}). They are locked: make them pass as they are. If one is wrong, call mcp__theseus__amend_test with the file and why, then change it.`
 }
 
-const sectionText = (held: TestsFirst): string =>
+export const testsFirstSectionText = (held: TestsFirst): string =>
   `The tests written first of what is to come are held here, red and locked until they are committed: ${held.tests.map(test => `${test.file} ${test.name}`).join(', ')}. Make them pass without changing them; a test that is wrong is changed only after mcp__theseus__amend_test says why, and one that cannot run here is named to it with its test.`
 
 /** tests first at the session's start: its command and its tools. */
@@ -339,7 +339,7 @@ export async function sectionOfTestsFirst($: $): Promise<Section | undefined> {
   const place = { tree: await rootOf($), isHome: true }
   const held = await visionIn($, place)
 
-  return held === null || !(await isLocked($, place, held)) ? undefined : { id: 'tests-first:locked', text: sectionText(held) }
+  return held === null || !(await isLocked($, place, held)) ? undefined : { id: 'tests-first:locked', text: testsFirstSectionText(held) }
 }
 
 /** The test writer, where the record lost her (sent where its spawn answered no id), found by the vision it writes on. */

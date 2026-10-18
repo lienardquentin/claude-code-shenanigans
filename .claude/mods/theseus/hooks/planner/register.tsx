@@ -208,7 +208,7 @@ async function isPlanner($: $, sitting: Planning, agentId: string): Promise<bool
   return sitting.agentId !== '' ? agentId === sitting.agentId : (await $.agent.list()).some(one => one.id === agentId && one.type === AGENT_TYPE)
 }
 
-const sectionText = (held: IssuePlan): string =>
+export const plannerSectionText = (held: IssuePlan): string =>
   `The planner holds an implementation plan for ${held.ref} (${held.title}), ${tally(held)}: mcp__theseus__plan reads it whole. When working on it, mark each task doing as you start it and done once its acceptance holds with mcp__theseus__task.`
 
 
@@ -275,7 +275,7 @@ export async function endedPlanner($: $, e: TurnEnded): Promise<void> {
 export async function sectionOfPlanner($: $): Promise<Section | undefined> {
   const held = await current($)
 
-  return held === null || held.tasks.every(task => task.state === 'done') ? undefined : { id: 'planner:plan', text: sectionText(held) }
+  return held === null || held.tasks.every(task => task.state === 'done') ? undefined : { id: 'planner:plan', text: plannerSectionText(held) }
 }
 
 /** `/theseus plan`: Plans an issue, or grills an idea into one; alone, opens the plan. */
