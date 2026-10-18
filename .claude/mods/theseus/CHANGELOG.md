@@ -3,6 +3,15 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.8.1
+
+- The three largest core modules are split by phase and concern, with no change in behaviour (#155): the build's
+  loop into `core/loop/` (ports, start, send, prove, review, commit, submit), the run's work into `core/runs/`
+  (builders, work, fence, prompts, texts, steps), the proof into `core/proofs/` (project, changes, answers, marks,
+  verdict). `core/build.ts`, `core/run.ts` and `core/proof.ts` re-export them.
+- The plugin type-checks against the engine's own types (`sh .claude/mods/kit/typecheck.sh .claude/mods/theseus`); the
+  one error it found, in reading a comment's weight, is fixed.
+
 ## 0.8.0
 
 - Each run keeps its history in `.theseus/runs/<run>.jsonl` (#154): every change the build keeps of it (started, a
