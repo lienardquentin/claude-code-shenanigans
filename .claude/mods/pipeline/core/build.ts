@@ -116,6 +116,8 @@ export interface Parts {
   targetsKnown(): Promise<TargetFolders[]>
   standardsText(): Promise<string>
   isMergedFrom(url: string, branch?: string): Promise<boolean>
+  /** Settles a plan for an auto run: its questions answered and its risks accepted alone, each listed. */
+  settleAlone(ref: string): Promise<IssuePlan | null>
 }
 
 /** The machine the runs are built on: the project's folder, a shell in a folder, its forge, its files. */
@@ -391,7 +393,18 @@ export async function setOut(p: Ports, isAuto: boolean, ref = ''): Promise<strin
 
   const open = unsettledOf(made)
 
-  if (open.length > 0) return `The planner's work on ${made.ref} is not settled: ${open.join('; ')}. Settle them in the planner pane, then start the run.`
+  // An auto run settles what the planner left open itself, and lists it; a risk to cover asks for a revision, which it does not make
+  if (open.length > 0 && isAuto && !made.risks.some(risk => risk.wantsTask)) {
+    const settled = parsePlan(await p.parts.settleAlone(made.ref))
+
+    if (settled === null || typeof settled === 'string') return `The planner's work on ${made.ref} could not be settled by the run: ${settled ?? 'no plan is kept any more'}.`
+
+    const said = await begin(p, { kind: 'plan', ref: settled.ref, url: settled.url, title: settled.title, branch: branchOf(settled), isAuto, checks: settled.verification ?? [], setup: settled.setup ?? [] }, settled)
+
+    return `${said} It settled alone what the plan left open (${open.join('; ')}): the plan and the pull request list it under "Decided without the person".`
+  }
+
+  if (open.length > 0) return `The planner's work on ${made.ref} is not settled: ${open.join('; ')}. Settle them in the planner pane, then start the run${made.risks.some(risk => risk.wantsTask) ? '' : ', or start it auto to have it settle them alone'}.`
 
   return begin(p, { kind: 'plan', ref: made.ref, url: made.url, title: made.title, branch: branchOf(made), isAuto, checks: made.verification ?? [], setup: made.setup ?? [] }, made)
 }

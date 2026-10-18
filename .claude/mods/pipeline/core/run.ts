@@ -182,6 +182,7 @@ export const parsePlan = (answer: unknown): Plan | null | string => {
       wantsTask: one.wantsTask === true,
     })),
     accepted: strings(plan.accepted),
+    ...(strings(plan.alone).length > 0 ? { alone: strings(plan.alone) } : {}),
     ...(strings(plan.verification).length > 0 ? { verification: strings(plan.verification) } : {}),
     ...(strings(plan.setup).length > 0 ? { setup: strings(plan.setup) } : {}),
   }
@@ -638,6 +639,9 @@ export const prBody = (quest: Pick<Run, 'kind' | 'ref' | 'commits'>, plan: Plan)
     ...(plan.summary !== '' ? [plan.summary, ''] : []),
     ...(plan.approach !== '' ? [plan.approach, ''] : []),
     ...(quest.kind === 'plan' ? ['## Tasks', '', ...quest.commits.map(one => `- ${one.sha === '' ? 'no change' : one.sha.slice(0, 7)} ${one.taskId}. ${one.title} (${one.by})`)] : []),
+    ...((plan.alone ?? []).length > 0
+      ? ['', '## Decided without the person', '', 'This run went on by itself: what it decided that the person was not asked, for them to check.', '', ...(plan.alone ?? []).map(one => `- ${one}`)]
+      : []),
     ...(quest.commits.some(one => one.minor.length > 0)
       ? ['', '## Minor findings', '', 'What the reviewers found and let pass:', '', ...quest.commits.flatMap(one => one.minor.map(line => `${line.replace(/^- /, `- task ${one.taskId}: `)}`))]
       : []),

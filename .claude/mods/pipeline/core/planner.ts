@@ -2,7 +2,7 @@ import type { IssuePlan, Planning, PlanTaskState, SentAgent } from '../types'
 import { parseRemote, refText } from './forge'
 import type { Forge, ForgeKind, Issue, IssueRef, Repo, Shell } from './forge'
 import { inTurn } from './kit'
-import { decidedOf, marked, parsePlan, parseRef, planOf, planPathOf, planText, plannerPrompt, ready, risksFor, tally, taskText, tidyPlan, withDecided, withUnproven } from './plan'
+import { decidedOf, marked, settledAlone, parsePlan, parseRef, planOf, planPathOf, planText, plannerPrompt, ready, risksFor, tally, taskText, tidyPlan, withDecided, withUnproven } from './plan'
 import type { TargetFolders } from './run'
 
 // The planner's course: an issue read, a planner sent on it, the plan it lays kept and shown, its tasks marked as runs
@@ -225,6 +225,34 @@ export async function planFor(p: PlannerPorts, ref = ''): Promise<IssuePlan | nu
 export async function keepPlan(p: PlannerPorts, made: IssuePlan): Promise<void> {
   if ((await current(p))?.ref === made.ref) await keep(p, made)
   else await p.plans.keep(made)
+}
+
+/**
+ * Settles a plan for an auto run, the person asked nothing: its open questions answered with the planner's recommended
+ * options, its undecided risks accepted, each listed as decided without the person. Nothing where no plan is kept.
+ */
+export async function settleAlone(p: PlannerPorts, ref: string): Promise<IssuePlan | null> {
+  const held = await planFor(p, ref)
+
+  if (held === null) return null
+
+  const settled = settledAlone(held)
+
+  await keepPlan(p, settled)
+
+  return settled
+}
+
+/** Opens an issue in the project's own repository, as Claude wrote it from an idea: its ref, as the planner spells it, and its URL. */
+export async function openIssue(p: PlannerPorts, title: string, body: string): Promise<{ ref: string; url: string } | string> {
+  const origin = await originOf(p)
+
+  if (origin === undefined) return 'The project has no origin remote on GitHub or GitLab to open the issue in.'
+  if (title.trim() === '') return 'An issue is opened with a title.'
+
+  const opened = await p.machine.forge(origin.forge).openIssue(origin, title.trim(), body)
+
+  return typeof opened === 'string' ? opened : { ref: refText({ ...origin, number: opened.number }), url: opened.url }
 }
 
 // One mark at a time: a run's lanes mark their tasks beside one another, each writing the plan as it read it

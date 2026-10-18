@@ -452,8 +452,53 @@ export const planText = (plan: IssuePlan): string =>
     ...(plan.questions.length > 0 ? ['', 'Open questions:', ...plan.questions.map(questionText)] : []),
     ...(plan.risks.length > 0 ? ['', 'Risks, the worst first:', ...sortedRisks(plan).map(({ risk }) => riskText(risk))] : []),
     ...(plan.accepted.length > 0 ? ['', 'Risks the person accepted as they are:', ...plan.accepted.map(one => `- ${one}`)] : []),
+    ...((plan.alone ?? []).length > 0 ? ['', 'Decided without the person (by an auto run):', ...(plan.alone ?? []).map(one => `- ${one}`)] : []),
     ...((plan.verification ?? []).length > 0 ? ['', 'Verified by (where the project names no target in .claude/verify):', ...(plan.verification ?? []).map(one => `- ${one}`)] : []),
     ...((plan.setup ?? []).length > 0 ? ['', 'A fresh worktree is set up by:', ...(plan.setup ?? []).map(one => `- ${one}`)] : []),
+  ].join('\n')
+
+/**
+ * A plan settled by an auto run, the person asked nothing: each open question answered with the planner's first, recommended
+ * option, each undecided risk accepted as it is, and every one of them listed as decided without the person. A risk
+ * the person wanted covered is left: it asks for a revision, which no run makes alone.
+ */
+export const settledAlone = (plan: IssuePlan): IssuePlan => {
+  const asked = plan.questions.filter(question => question.answer.trim() === '')
+  const risks = plan.risks.filter(risk => !risk.wantsTask)
+  const lines = [
+    ...asked.map(question => `${question.text} → ${question.options[0] ?? "left to the builder's judgement"} (the planner's recommended answer)`),
+    ...risks.map(risk => `Accepted as it is (${risk.severity}): ${risk.text}`),
+  ]
+
+  return {
+    ...plan,
+    questions: plan.questions.map(question => (question.answer.trim() === '' ? { ...question, answer: question.options[0] ?? "Left to the builder's judgement" } : question)),
+    risks: plan.risks.filter(risk => risk.wantsTask),
+    accepted: [...plan.accepted, ...risks.map(risk => risk.text)],
+    ...(lines.length > 0 ? { alone: [...(plan.alone ?? []), ...lines] } : {}),
+  }
+}
+
+/**
+ * What Claude is handed to start from an idea instead of an issue: grill the person, write the issue, open it, and have
+ * the planner plan it. An auto start asks the person nothing, and lists what it decided in the issue.
+ */
+export const ideaPrompt = (idea: string, isAuto: boolean): string =>
+  [
+    `The person starts the pipeline from an idea rather than an issue${isAuto ? ', and asks to be asked nothing' : ''}. The idea is theirs, below.`,
+    '',
+    '<idea>',
+    idea.trim(),
+    '</idea>',
+    '',
+    isAuto
+      ? '1. **Grill yourself.** Call the Skill tool for `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling`, and work the questions they raise, but ask the person nothing: answer each with your recommended answer, from the code wherever the code can settle it.'
+      : '1. **Grill.** Call the Skill tool for `mattpocock-skills:grilling` and `mattpocock-skills:domain-modeling`, and grill the person about the idea, a question at a time, until they confirm the shared understanding. Where those skills are not there, ask the questions yourself, one at a time.',
+    "2. **Write the issue.** A title under 70 characters, and a body that says what is wanted and why, how to tell it is done, a `## Verification` section with the commands that check it (its tests, its linter, a command a line, as this repository runs them), and `## Setup` where a fresh git worktree needs something first (installed dependencies).",
+    ...(isAuto ? ['   List every answer you gave yourself under `## Decided without the person`, each with its reason in a line: the pull request shows it, for the person to check.'] : []),
+    `3. **Open it and plan it.** Call mcp__pipeline__open_issue with the title and the body; then mcp__pipeline__make_plan on the issue it answers.${isAuto ? '' : ' Show the person the issue before you open it.'}`,
+    '',
+    'Publish nothing else: no comment, no label, no branch.',
   ].join('\n')
 
 /** What Claude is asked when the person begins a task from the pane. */

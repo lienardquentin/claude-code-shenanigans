@@ -201,6 +201,9 @@ The workflow mods are one marketplace, `pipeline`, kept in
   the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
   and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
   merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
+  `/planner <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
+  planned (`--auto` asks nothing, and lists what it decided in the issue). An auto run settles a plan's open questions
+  and risks itself, and the plan and the pull request list them under "Decided without the person".
   Verify proves each change against the targets a project names in `.claude/verify`; a project that names none is
   proved by the verification commands its plan states, or its issue's `## Verification` section (and `## Setup` for a
   fresh worktree). A run with neither is not started.
