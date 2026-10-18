@@ -407,15 +407,10 @@ describe('verify', () => {
     expect(await call($, 'mcp__theseus__radius')).toMatch(/Verify knows no target here.*app = "gondor\.app:app"/s)
   })
 
-  test('reads the project\'s targets from .claude/verify, and from .claude/argonath only where it has no .claude/verify', async ($, on) => {
-    const world = machine(on, { [`${CWD}/.claude/verify`]: 'narsil=cli@narsil', [`${CWD}/.claude/argonath`]: PROJECT })
+  test('reads the project\'s targets from .claude/verify where there is no .claude/theseus.toml', async ($, on) => {
+    machine(on, { [`${CWD}/.claude/verify`]: 'narsil=cli@narsil' })
 
     expect(await call($, 'mcp__theseus__radius', { target: 'nope' })).toBe('Verify knows no target named nope. It knows narsil.')
-
-    delete world.files[`${CWD}/.claude/verify`]
-    world.files[`${CWD}/.claude/argonath`] = 'deslop=cli@deslop'
-
-    expect(await call($, 'mcp__theseus__radius', { target: 'nope' })).toBe('Verify knows no target named nope. It knows deslop.')
   })
 
   test('reads .claude/theseus.toml before the line format, and says what of it does not read, by its line', async ($, on) => {
@@ -1165,7 +1160,7 @@ describe('the reviewers, on a change', () => {
     expect(scripts.some(line => line.includes('--numstat'))).toBe(true)
     expect(scripts.some(line => line.includes('New files:'))).toBe(true)
     for (const script of scripts) {
-      for (const listing of script.match(/git (diff "\$b"|ls-files -o)[^;|]*/g) ?? []) expect(listing).toContain("'--' '.' ':(exclude).theseus' ':(exclude).pipeline' ':(exclude).recorder' ':(exclude).anduril' ':(exclude).elrond' ':(exclude).argonath' ':(exclude).fellowship' ':(exclude).lothlorien' ':(exclude).blackgate'")
+      for (const listing of script.match(/git (diff "\$b"|ls-files -o)[^;|]*/g) ?? []) expect(listing).toContain("'--' '.' ':(exclude).theseus' ':(exclude).pipeline' ':(exclude).recorder'")
     }
   })
 

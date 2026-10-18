@@ -39,10 +39,10 @@ describe('the leftovers', () => {
 /** A run the build keeps across sessions, as its store holds it. */
 const quest = (tree: string, pr = PR) => ({ kind: 'plan', ref: REF, url: '', title: 'Quench a single beacon', branch: BRANCH, base: 'main', tree, isAuto: false, phase: 'submitted', current: null, proof: '', proofLine: '', verdictLine: '', commits: [], pr, at: 0 })
 
-/** The plan Elrond keeps of the issue. */
+/** The plan the planner keeps of the issue. */
 const PLAN = { ref: REF, url: '', title: 'Quench a single beacon', summary: '', approach: '', tasks: [], questions: [], decided: [], risks: [], accepted: [], at: 0 }
 
-/** Stands for the machine and the forge beneath the mod, and the store the build and Elrond keep their work in. */
+/** Stands for the machine and the forge beneath the mod, and the store the build and the planner keep their work in. */
 const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?: boolean } = {}) => {
   const world = {
     tools: [] as string[],
@@ -89,7 +89,7 @@ const machine = (on: On, kept: { tree?: string; isPlanned?: boolean; isReviewed?
     if (line === 'git status --porcelain') return answer(world.dirty)
     if (line === `git -C ${TREE} status --porcelain`) return answer(world.treeDirty)
     // What the tree holds, the mods' own folders left out
-    if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(elrond|argonath|pipeline|theseus|recorder|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
+    if (line.startsWith(`git -C ${TREE} status --porcelain -- `)) return answer(world.treeDirty.split('\n').filter(one => !/ \.(pipeline|theseus|recorder|anduril|fellowship|lothlorien|blackgate)\//.test(one)).join('\n'))
     // The recorder builds the run's CLI in a worktree of its own, inside the run's
     if (line === 'git worktree list --porcelain') return answer([`worktree ${CWD}\nbranch refs/heads/main\n`, `worktree ${TREE}\nbranch refs/heads/${BRANCH}\n`, `worktree ${TREE}/.recorder/trees/narsil\ndetached\n`].join('\n'))
     if (line.startsWith('git switch ')) {

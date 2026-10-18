@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Attachment, Baseline, Broker, Browser, Cursor, Database, Peek, EnvVar, Facts, Health, History, Plans, RendersAs, Rows, Scenario, Shown, Suite, TestsAs, Usage, Watch } from '../types'
-import { composeAttachments, DIRTY_ARGV, editedBetween, HEAD_ARGV, merged, movedArgv, OLD_PROJECT_FILE, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
+import { composeAttachments, DIRTY_ARGV, editedBetween, HEAD_ARGV, merged, movedArgv, parseList, PROJECT_FILE, routed, shown, tidy, under } from './attach'
 import type { Dirty } from './attach'
 import { askBrokerPrompt, brokerKind, diagnoseGroupsPrompt, brokerText, GROUPS_ARGV, kafkaBroker, KIND_NAME, kindOf, markedBroker, matching, NO_BROKER, peekArgv, peekEach, peekText, readGroups, readRecords, readTopics, settleBroker, standing, stuckFor, TOPICS_ARGV, topicsOf, unreadBroker } from './broker'
 import { answerLimit, answerRowsText, askPrompt, diagnoseSessionsPrompt, byApp, byState, databaseText, HOLDS_SQL, isBlocked, isIdling, isPostgres, matchingRows, NO_DATABASE, psqlArgv, readHolds, readRows, querySql, rowsLimit, rowsSql, rowsText, sessionStanding, settleDatabase, sizeText, troubled, unreadDatabase } from './database'
@@ -110,7 +110,6 @@ const projectOf = async ($: EngineInterface): Promise<string> => {
     const folder = parts.slice(0, depth).join('/')
 
     if (await $.fs.exists(`${folder}/${PROJECT_FILE}`).catch(() => false)) return folder
-    if (await $.fs.exists(`${folder}/${OLD_PROJECT_FILE}`).catch(() => false)) return folder
   }
 
   return cwd
@@ -394,8 +393,7 @@ const discover = ($: EngineInterface, asked: unknown): Promise<Attachment[]> =>
       const composeFiles = await Promise.all(COMPOSE_FILES.map(file => $.fs.exists(`${cwd}/${file}`).catch(() => false)))
       // Docker is asked only in a project that has a compose file
       const project = composeFiles.some(Boolean) ? await $.process.run(COMPOSE_CONFIG_ARGV, { timeoutMs: 15_000 }).catch(() => undefined) : undefined
-      const isOld = !(await $.fs.exists(`${cwd}/${PROJECT_FILE}`).catch(() => false)) && (await $.fs.exists(`${cwd}/${OLD_PROJECT_FILE}`).catch(() => false))
-      const listed = await $.fs.read(`${cwd}/${isOld ? OLD_PROJECT_FILE : PROJECT_FILE}`).catch(() => '')
+      const listed = await $.fs.read(`${cwd}/${PROJECT_FILE}`).catch(() => '')
 
       return merged(
         project?.exitCode === 0 ? composeAttachments(project.stdout, cwd) : [],

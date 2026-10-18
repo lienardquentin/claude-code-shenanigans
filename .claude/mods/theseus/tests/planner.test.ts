@@ -130,7 +130,7 @@ describe('a plan', () => {
       { label: 'narsil', roots: ['narsil'] },
     ]
     const task = (id: number, files: string[]) => ({ id, title: `t${id}`, why: '', steps: [], files, dependsOn: [], acceptance: '', weight: 'light' as const, state: 'todo' as const })
-    // #34 as Elrond first split it: the archive alone, then the route with its tests and kept requests, then docs
+    // #34 as the planner first split it: the archive alone, then the route with its tests and kept requests, then docs
     const plan = {
       ...about,
       summary: '',

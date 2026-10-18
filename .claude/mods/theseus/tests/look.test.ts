@@ -152,10 +152,8 @@ describe('a proof', () => {
 })
 
 describe('the marks on a kept run', () => {
-  test('are written pins:, and a mark written sting: before the rename still reads', () => {
-    expect(marksOf(['// pins: narsil show 999', 'fn show_says_what_is_missing() {}', '# sting: gondor GET /health', 'def test_health(client):'].join('\n'))).toEqual([
-      { line: 'narsil show 999', test: 'show_says_what_is_missing' },
-      { line: 'gondor GET /health', test: 'test_health' },
-    ])
+  test('are written pins:, and nothing else marks a test', () => {
+    expect(marksOf(['// pins: narsil show 999', 'fn show_says_what_is_missing() {}', '# sting: gondor GET /health', 'def test_health(client):'].join('\n'))).toEqual([{ line: 'narsil show 999', test: 'show_says_what_is_missing' }])
   })
+
 })

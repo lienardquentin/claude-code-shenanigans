@@ -445,7 +445,7 @@ describe('recorder', () => {
   })
 
   test("plays a quest's worktree, and launches its build, for an agent sent to work there or a mod that names it", async ($, on) => {
-    const tree = `${CWD}/.fellowship/trees/12-burned`
+    const tree = `${CWD}/.theseus/trees/12-burned`
     const world = machine(on, { [`${CWD}/.claude/recorder`]: KEPT, [`${tree}/.claude/recorder`]: KEPT, [BINARY]: 'ELF' })
     const commands: string[] = []
     world.replay.answer = JSON.stringify(ANSWER)
@@ -458,7 +458,7 @@ describe('recorder', () => {
     const pane = await mountPane($)
     await pane.press({ key: 'refresh' })
 
-    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'middle-earth:gimli', cwd: tree } as never)
+    await $.agent.spawn({ prompt: 'Build task 2', subagentType: 'theseus:builder-cli', cwd: tree } as never)
     await $.tool.call({ tool: 'mcp__recorder__diff', agentId: 'gimli-1' } as never)
     await $.tool.call({ tool: 'Bash', command: 'narsil ls', agentId: 'gimli-1' } as never)
 

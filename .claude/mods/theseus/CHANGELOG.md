@@ -3,6 +3,13 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.7.0
+
+- The names from before #104 are no longer read (#150): `.claude/argonath`, `.fellowship/trees` and
+  `.fellowship/spend.jsonl`, and a test marked `sting:` (write `pins:`). A commit no longer leaves out the old
+  folders `.anduril`, `.elrond`, `.argonath`, `.fellowship`, `.lothlorien`, `.blackgate`. The `pipeline` carry-over
+  stays for one more release.
+
 ## 0.6.1
 
 - The manifest names its author, homepage, repository, license (MIT) and keywords (#149).

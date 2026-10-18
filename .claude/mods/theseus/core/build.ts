@@ -221,7 +221,7 @@ export async function baseOf(p: Ports, root: string, branch: string): Promise<st
 
 /**
  * Where a run is built: the folder its branch is checked out in already (a worktree, or the person's own checkout),
- * else a worktree made for it under .fellowship/trees, its branch made from its base when there is none. A review's
+ * else a worktree made for it under .theseus/trees, its branch made from its base when there is none. A review's
  * branch is the pull request's, fetched from the forge. Answers why there is none where it could not be made.
  */
 export async function placeTree(p: Ports, branch: string, base: string | undefined, isFetched: boolean): Promise<{ tree: string; base: string; isNew?: true } | string> {

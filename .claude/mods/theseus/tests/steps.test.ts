@@ -145,7 +145,7 @@ describe('a task whose tests were written first', () => {
 })
 
 describe('a run kept in the store', () => {
-  const kept = { kind: 'plan', ref: 'github:o/r#12', url: '', title: 'T', branch: 'fellowship/12-t', base: 'main', tree: '/t', isAuto: false, proof: '', proofLine: '', verdictLine: '', commits: [], pr: '', at: 1 }
+  const kept = { kind: 'plan', ref: 'github:o/r#12', url: '', title: 'T', branch: 'build/12-t', base: 'main', tree: '/t', isAuto: false, proof: '', proofLine: '', verdictLine: '', commits: [], pr: '', at: 1 }
 
   test('kept before the rename, reads in its new names: phase, builder and fields', () => {
     const old = { ...kept, phase: 'marching', march: { taskId: 2, title: 'Two', member: 'gimli', agentId: 'a', attempt: 1, at: 1, answer: '' }, vision: { taskId: 2, tests: [], red: '' }, gazed: 2, isWarded: true }
