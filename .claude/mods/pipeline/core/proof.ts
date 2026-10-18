@@ -543,7 +543,7 @@ export const narrowed = (command: string, names: readonly string[]): string => c
 
 /**
  * A target's check or audit told the commit the change is compared with: `{against}` becomes it, as one word to the
- * shell whatever it holds (`orcrist check --since {against}` judges only the lines the change added).
+ * shell whatever it holds (`deslop check --since {against}` judges only the lines the change added).
  */
 export const gated = (command: string, against: string): string => command.replaceAll('{against}', `'${against.replaceAll("'", "'\\''")}'`)
 

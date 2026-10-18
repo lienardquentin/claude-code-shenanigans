@@ -1,4 +1,0 @@
-# orcrist's own config: it touches only fixtures/configured, whose kept run shows a config at work. Every other
-# fixture is judged by the defaults.
-[rules.vague-name]
-skip = ["fixtures/configured/**"]
