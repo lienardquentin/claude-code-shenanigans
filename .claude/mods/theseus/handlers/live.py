@@ -86,11 +86,24 @@ def workload_env(context, namespace, kind, name):
     return env, secrets
 
 
+def secret_parts(value):
+    """A secret's value, and the parts of it that say as much alone: the password and user of an address."""
+    parts = [value]
+    try:
+        address = urlsplit(value)
+        parts += [one for one in (address.password, address.username) if one]
+    except ValueError:
+        pass
+    return parts
+
+
 def redacted(answer, secrets):
     """An answer with every secret's value written <secret>, wherever an app or an error put it: the answer is shown
-    in the pane, to Claude and to the reviewers. A value under four characters says too little to be one."""
+    in the pane, to Claude and to the reviewers. Each value counts whole, as the build was played with it once an
+    address was pointed elsewhere, and by the password in it. A value under four characters says too little to be one."""
     text = json.dumps(answer)
-    for secret in sorted({one for one in secrets if len(one) >= 4}, key=len, reverse=True):
+    every = {part for one in secrets for part in secret_parts(one)}
+    for secret in sorted({one for one in every if len(one) >= 4}, key=len, reverse=True):
         text = text.replace(json.dumps(secret)[1:-1], "<secret>")
     return json.loads(text)
 
@@ -238,6 +251,8 @@ def main():
             forwards.append(process)
             env = {key: value.replace("%s:%s" % (service, port), "127.0.0.1:%s" % local) for key, value in env.items()}
         env.update(live["env"])
+        # A secret pointed at a forwarded port is still the secret
+        secrets += [env[key] for key, value in found[0].items() if value in secrets and key in env]
 
         scratch = live.get("scratch", "")
         if scratch and not live["db"]:
@@ -261,7 +276,10 @@ def main():
                 copied(context, namespace, live["db"], copies["from"])
                 twinned(context, namespace, live["db"], copies["to"], copies["from"])
                 for side, folder in sides:
-                    played.append(play(job, folder, {**env, scratch: pointed_at(env[scratch], copies[side])}, "%s-%s" % (rid, side)))
+                    pointed = pointed_at(env[scratch], copies[side])
+                    if env[scratch] in secrets:
+                        secrets.append(pointed)
+                    played.append(play(job, folder, {**env, scratch: pointed}, "%s-%s" % (rid, side)))
             finally:
                 for copy in copies.values():
                     dropped(context, namespace, live["db"], copy)
