@@ -9,10 +9,10 @@ narsil.build=cargo build --quiet --manifest-path narsil/Cargo.toml
 narsil.mask=generated at \S+
 narsil.mask=thread '[^']*' \(\d+\)
 
-# orcrist, the linter: built and compared as narsil is.
-orcrist=orcrist/target/debug/orcrist@orcrist
-orcrist.build=cargo build --quiet --manifest-path orcrist/Cargo.toml
-orcrist.mask=thread '[^']*' \(\d+\)
+# deslop, the linter: built and compared as narsil is.
+deslop=deslop/target/debug/deslop@deslop
+deslop.build=cargo build --quiet --manifest-path deslop/Cargo.toml
+deslop.mask=thread '[^']*' \(\d+\)
 
 # The runs kept to be played on two builds, in order, in a copy of narsil/: each as it is typed.
 $ narsil ls
@@ -28,34 +28,34 @@ $ narsil seal chronicle.jsonl
 $ narsil forge big.jsonl --count 20000
 $ narsil --chronicle big.jsonl tally
 
-# orcrist's, in a copy of orcrist/: each fixture holds the slop of one language, or none; fixtures/clean holds
+# deslop's, in a copy of deslop/: each fixture holds the slop of one language, or none; fixtures/clean holds
 # idiomatic code of each, in styles other than this repository's, where any finding is a false one.
-$ orcrist check fixtures/restating.rs
-$ orcrist check fixtures/clean.rs
-$ orcrist check fixtures/clean/cart.ts
-$ orcrist check fixtures/clean/TodoList.tsx
-$ orcrist check fixtures/clean/debounce.js
-$ orcrist check fixtures/clean/shapes.py
-$ orcrist check fixtures/clean/inventory.rs
-$ orcrist check fixtures/swallowed.py
-$ orcrist check fixtures/guards.ts
-$ orcrist check fixtures/arrows.ts
-$ orcrist check fixtures/Beacon.vue
-$ orcrist check fixtures/Beacons.tsx
-$ orcrist check fixtures/light.js
-$ orcrist check fixtures/configured/load.ts
-$ orcrist check fixtures/precise.ts
-$ orcrist check fixtures/precise.py
-$ orcrist check fixtures/precise.rs
-$ orcrist check fixtures/Signals.vue
-$ orcrist check fixtures/closures.rs
-$ orcrist check fixtures/lambdas.py
-$ orcrist check --root fixtures/allowing api.py
-$ orcrist check --root fixtures/misconfigured load.rs
-$ orcrist check fixtures/Unquoted.vue
-$ orcrist check --since no-such-commit
-$ orcrist check --format json fixtures/restating.rs
-$ orcrist check --format sarif fixtures/configured/load.ts
-$ orcrist check fixtures/store.rs fixtures/disk.rs
-$ orcrist check fixtures/notes.txt
-$ orcrist check fixtures/missing.rs
+$ deslop check fixtures/restating.rs
+$ deslop check fixtures/clean.rs
+$ deslop check fixtures/clean/cart.ts
+$ deslop check fixtures/clean/TodoList.tsx
+$ deslop check fixtures/clean/debounce.js
+$ deslop check fixtures/clean/shapes.py
+$ deslop check fixtures/clean/inventory.rs
+$ deslop check fixtures/swallowed.py
+$ deslop check fixtures/guards.ts
+$ deslop check fixtures/arrows.ts
+$ deslop check fixtures/Beacon.vue
+$ deslop check fixtures/Beacons.tsx
+$ deslop check fixtures/light.js
+$ deslop check fixtures/configured/load.ts
+$ deslop check fixtures/precise.ts
+$ deslop check fixtures/precise.py
+$ deslop check fixtures/precise.rs
+$ deslop check fixtures/Signals.vue
+$ deslop check fixtures/closures.rs
+$ deslop check fixtures/lambdas.py
+$ deslop check --root fixtures/allowing api.py
+$ deslop check --root fixtures/misconfigured load.rs
+$ deslop check fixtures/Unquoted.vue
+$ deslop check --since no-such-commit
+$ deslop check --format json fixtures/restating.rs
+$ deslop check --format sarif fixtures/configured/load.ts
+$ deslop check fixtures/store.rs fixtures/disk.rs
+$ deslop check fixtures/notes.txt
+$ deslop check fixtures/missing.rs
