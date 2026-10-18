@@ -46,7 +46,7 @@ _Avoid_: Session usage, context usage, tokens left
 
 ## Theseus
 
-Theseus (`.claude/mods`, the `theseus` marketplace) takes an issue, or a pull request's review, to committed
+Theseus ([lienardquentin/theseus](https://github.com/lienardquentin/theseus), the `theseus` marketplace) takes an issue, or a pull request's review, to committed
 and reviewed work. The `theseus` plugin holds the parts of the workflow: the issues pane lists the issues,
 the planner plans, the build builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
 review, and the cleanup clears what is merged. The recorder and the runtime, plugins of their own, watch what the code does.
@@ -146,7 +146,7 @@ pull request is merged.
 _Avoid_: Relic, cache, artefact
 
 **Core**:
-The workflow's code that never touches the engine (`.claude/mods/theseus/core`): it runs commands through a shell it
+The workflow's code that never touches the engine (`theseus/core` in its repository): it runs commands through a shell it
 is handed, so the mod and a runner outside Claude Code can share it. Written in plain names.
 _Avoid_: Engine, kernel, lib
 
