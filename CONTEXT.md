@@ -44,15 +44,15 @@ _Avoid_: Status bar, footer, prompt line
 How much of the current session's context window is used. A measure, where a context budget is a limit a run sets.
 _Avoid_: Session usage, context usage, tokens left
 
-## The pipeline
+## Theseus
 
-The pipeline mods (`.claude/mods`, the `pipeline` marketplace) take an issue, or a pull request's review, to committed
-and reviewed work. The `pipeline` plugin holds the parts of the workflow: the issues pane lists the issues,
+Theseus (`.claude/mods`, the `theseus` marketplace) takes an issue, or a pull request's review, to committed
+and reviewed work. The `theseus` plugin holds the parts of the workflow: the issues pane lists the issues,
 the planner plans, the build builds, the test writer writes tests first, verify checks and reviews, the review follow-up reads
 review, and the cleanup clears what is merged. The recorder and the runtime, plugins of their own, watch what the code does.
 
 **Part**:
-One of the workflow's seven pieces inside the `pipeline` plugin (the issues pane, the planner, the build, tests first,
+One of the workflow's seven pieces inside the `theseus` plugin (the issues pane, the planner, the build, tests first,
 verify, the review follow-up, the cleanup), with its own folder, command and pane. Parts call one another as functions.
 _Avoid_: Mod (for a part), module, sub-plugin
 
@@ -91,7 +91,7 @@ comment.
 _Avoid_: Ticket, step, job
 
 **Run worktree**:
-The git worktree a run is built in, under `.pipeline/trees/`; the person's own checkout is never switched by a
+The git worktree a run is built in, under `.theseus/trees/`; the person's own checkout is never switched by a
 run. A review whose branch is already checked out somewhere is built there instead.
 _Avoid_: Sandbox, clone, workspace
 
@@ -146,7 +146,7 @@ pull request is merged.
 _Avoid_: Relic, cache, artefact
 
 **Core**:
-The workflow's code that never touches the engine (`.claude/mods/pipeline/core`): it runs commands through a shell it
+The workflow's code that never touches the engine (`.claude/mods/theseus/core`): it runs commands through a shell it
 is handed, so the mod and a runner outside Claude Code can share it. Written in plain names.
 _Avoid_: Engine, kernel, lib
 

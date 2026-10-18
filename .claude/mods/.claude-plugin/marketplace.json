@@ -1,13 +1,13 @@
 {
-  "name": "pipeline",
-  "description": "An AI pipeline for Claude Code: pipeline takes an issue or a pull request's review to committed and reviewed work (the planner plans, the build builds in a worktree of its own, the test writer writes tests first, verify proves and reviews each change, the review follow-up reads review, the cleanup clears what is merged), while the recorder and the runtime watch, each useful alone, what the code does",
+  "name": "theseus",
+  "description": "Theseus for Claude Code: takes an issue or a pull request's review to committed and reviewed work (plan, tests first, build in a worktree, prove, review, follow-up, cleanup), with the recorder and the runtime, each useful alone, watching what the code does",
   "owner": {
     "name": "quent"
   },
   "plugins": [
     {
-      "name": "pipeline",
-      "source": "./pipeline"
+      "name": "theseus",
+      "source": "./theseus"
     },
     {
       "name": "recorder",
