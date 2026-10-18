@@ -15,6 +15,7 @@ import { sectionOfLag, startLag } from './lag'
 import { reported, troublesText } from './trouble'
 import { doctorOf } from './doctor'
 import { initCommand } from './init'
+import { uiCommand } from './ui'
 import { doctorText } from '../core/doctor'
 import { parseLog, standingText } from '../core/events'
 import { clockOf } from './look'
@@ -45,6 +46,7 @@ const VERBS = {
   plan: { usage: 'plan <issue | idea> [--again] [--auto]', does: 'plan an issue, or grill an idea into one; alone, the plan' },
   build: { usage: 'build [--auto] | errand <issue> | next | commit | submit | halt | abandon [run]', does: 'build the plan in a worktree, task by task; alone, the runs' },
   graph: { usage: 'graph [run]', does: 'a run as its graph: each task, its steps, who builds it, and what you can do' },
+  ui: { usage: 'ui [report <run>]', does: 'the web view: a run live as its graph, played again, and the history; report writes one run as a page' },
   history: { usage: 'history', does: 'every run with a log: how it ended, how long it took, its pull request' },
   tests: { usage: 'tests [<behaviour>]', does: 'write the failing tests of a behaviour first; alone, those written' },
   verify: { usage: 'verify', does: 'the proof of the uncommitted change' },
@@ -77,6 +79,8 @@ async function answerOf($: EngineInterface, verb: keyof typeof VERBS, args: stri
       return graphCommand($, args)
     case 'history':
       return { text: await historyText($) }
+    case 'ui':
+      return uiCommand($, args)
     case 'log':
       return { text: await logOf($, args.trim()) }
     case 'doctor':

@@ -19,7 +19,7 @@ import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spen
 import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
-import { RUNS_DIR, eventsOf, logLines, logPathOf, parseLog } from '../../core/events'
+import { REQUESTS_FILE, RUNS_DIR, eventsOf, logLines, logPathOf, parseLog, viewsPathOf } from '../../core/events'
 import { ACTION_VERB, durationOf, graphLines, historyLines, historyOf, runView, stepsLine } from '../../core/view'
 import type { Action, RunView, TaskView } from '../../core/view'
 import type { Cause, RunEvent } from '../../core/events'
@@ -154,6 +154,53 @@ async function logEvents($: $, events: readonly RunEvent[]): Promise<void> {
   })
 }
 
+/**
+ * Keeps a run's view as it now stands for the web view, a snapshot a line: the latest is what it shows live, the
+ * rest what it plays again. A lane's change is its run's: the run's view is kept.
+ */
+async function keepView($: $, ref: string): Promise<void> {
+  const held = await runAt($, ref)
+  const of = held?.lane?.of ?? ref
+  const shown = await viewOf($, of)
+
+  if (shown === null) return
+
+  const { events: _left, ...view } = shown
+  const path = viewsPathOf(await rootOf($), of)
+
+  await logTurn(async () => {
+    const was = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : ''
+
+    await $.fs.write(path, `${was}${JSON.stringify({ ...view, at: Date.now() })}\n`)
+  })
+}
+
+/** Does the actions the web view left in .theseus/requests.jsonl, each through the one dispatcher, and clears them. */
+async function takeRequests($: $): Promise<void> {
+  const root = await rootOf($)
+  const path = `${root}/${REQUESTS_FILE}`
+
+  if (!(await $.fs.exists(path))) return
+
+  // Moved aside before it is read, so a request the web view adds meanwhile waits for the next tick
+  const taken = `${path}.taken`
+  const moved = await $.process.run(['mv', path, taken], { cwd: root })
+
+  if (moved.exitCode !== 0) throw new Error(`the web view's requests could not be taken: ${moved.stderr.trim()}`)
+
+  const asked = String(await $.fs.read(taken))
+
+  await $.process.run(['rm', '-f', taken], { cwd: root })
+  for (const line of asked.split('\n').filter(one => one.trim() !== '')) {
+    const { ref, action } = JSON.parse(line) as { ref?: unknown; action?: unknown }
+
+    if (typeof ref !== 'string' || typeof action !== 'string' || !(action in ACTION_VERB)) continue
+    entry = 'web'
+    causes.set(ref, 'web')
+    await say($, ref, await dispatch($, ref, action as Action['id']))
+  }
+}
+
 /** What a run's log holds, oldest first; none where it has no log yet. */
 export async function runLog($: $, ref: string): Promise<string> {
   const path = logPathOf(await rootOf($), ref)
@@ -195,6 +242,7 @@ async function keep($: $, ref: string, change: (was: Run) => Run): Promise<Run |
     const kept: Run = made
 
     await logEvents($, eventsOf(before ?? undefined, kept, Date.now(), causeOf(ref))).catch(reported($, 'the run log'))
+    await keepView($, ref).catch(reported($, 'the web view'))
     await $.store.set(STORE_KEY(ref), kept).catch(async (error: unknown) => {
       const why = `${ref} could not be kept for the next session: ${errorText(error)}`
 
@@ -309,6 +357,7 @@ async function put($: $, held: Run, made: RunWork): Promise<void> {
   await update($, quests, all => ({ ...all, [held.ref]: held }))
   await logEvents($, eventsOf(was, held, Date.now(), causeOf(held.ref))).catch(reported($, 'the run log'))
   await update($, plans, was => ({ ...was, [held.ref]: made }))
+  await keepView($, held.ref).catch(reported($, 'the web view'))
   await $.store.set(STORE_KEY(held.ref), held).catch((error: unknown) => $.ui.toast(`Build: ${held.ref} could not be kept for the next session: ${errorText(error)}`))
 }
 
@@ -486,6 +535,8 @@ async function drain($: $, isFramed: boolean, only?: string, isLooking = false):
 
 /** The clock does what sends no agent: the rest waits for a hook. */
 async function tick($: $): Promise<void> {
+  entry = 'clock'
+  await takeRequests($).catch(reported($, 'the web view'))
   entry = 'clock'
   // A run held for the quota is asked for its next task once its time has come
   await loop.wakeHeld(portsOf($))
