@@ -81,6 +81,8 @@ flowchart LR
 | Command | What it does |
 |---|---|
 | `/theseus` | Each run under way: where it stands, what moved it there, its last events; and what failed this session. |
+| `/theseus graph [run]` | A run as its graph: each task indented under what it waits for, its five steps (tests, build, prove, review, commit) marked done, running, failed or skipped, who builds it, its commit or why it waits; and what you can do. Pick a task in the pane to see its events. |
+| `/theseus history` | Every run with a log, the latest first: under way, a pull request, stopped or abandoned; how many tasks it committed and how long it took. |
 | `/theseus log [run]` | A run's whole history: every move, when, and what caused it (your command, Claude's call, the clock, an agent's turn, a press). |
 | `/theseus plan <issue \| idea>` | Plans an issue (`--again` plans afresh). An idea is a sentence: Claude grills you on it, opens its issue and plans it (`--auto` asks nothing). Alone, opens the plan. |
 | `/theseus build` | Builds the plan in force in a worktree (`--auto` goes on by itself). Alone, lists the runs under way. |
