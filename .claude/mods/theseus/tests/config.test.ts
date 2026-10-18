@@ -104,7 +104,8 @@ describe("the project's file", () => {
 
     expect(lines.errors).toEqual([])
     expect(toml.errors).toEqual([])
-    expect(toml.targets).toEqual(lines.targets)
+    // The one setting the TOML file adds: a live stage plays in a context it names, which the conversion names
+    expect(toml.targets).toEqual(lines.targets.map(target => (target.live === null ? target : { ...target, live: { ...target.live, isAllowed: true } })))
     expect(toml.reviews).toEqual(lines.reviews)
     expect(toml.standards).toEqual(lines.standards)
   })
@@ -146,6 +147,14 @@ describe("the project's file", () => {
       '.claude/verify:3: gondor is no target this file names (narsil)',
       '.claude/verify:4: quill is no target this file names (narsil)',
     ])
+  })
+
+  test('plays a live stage only in a context live_contexts names, and says which is not', () => {
+    const live = (contexts: string) => projectOfToml(`${contexts}\n[targets.gondor]\nkind = "service"\napp = "g:app"\nroots = ["g"]\n[targets.gondor.live]\nworkload = "k3d-beacons/beacons/deployment/gondor"\n`, CWD)
+
+    expect(live('live_contexts = ["k3d-beacons"]').targets[0]?.live?.isAllowed).toBe(true)
+    expect(live('').targets[0]?.live?.isAllowed).toBe(false)
+    expect(live('live_contexts = ["staging"]').errors).toEqual(['.claude/theseus.toml:6: targets.gondor.live plays in k3d-beacons, which live_contexts does not name: name it there for verify to touch it'])
   })
 
   test('is the TOML one where both are there, and the line format with a warning that it goes', () => {

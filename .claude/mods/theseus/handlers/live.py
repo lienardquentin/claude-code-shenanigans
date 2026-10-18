@@ -67,11 +67,13 @@ def kubectl(context, namespace, *args, stdin=None, seconds=60):
 
 
 def workload_env(context, namespace, kind, name):
-    """The variables the deployed workload's first container runs with, each secret read from its secret."""
+    """The variables the deployed workload's first container runs with, each secret read from its secret; and the
+    secrets' values, to be kept out of everything the handler answers."""
     spec = json.loads(kubectl(context, namespace, "get", kind, name, "-o", "json"))
     if not (spec.get("status", {}).get("readyReplicas") or 0):
         return None
     env = {}
+    secrets = []
     for variable in spec["spec"]["template"]["spec"]["containers"][0].get("env", []):
         if "value" in variable:
             env[variable["name"]] = variable["value"]
@@ -80,7 +82,17 @@ def workload_env(context, namespace, kind, name):
         if secret:
             held = kubectl(context, namespace, "get", "secret", secret["name"], "-o", "jsonpath={.data.%s}" % secret["key"].replace(".", "\\."))
             env[variable["name"]] = base64.b64decode(held).decode() if held else ""
-    return env
+            secrets.append(env[variable["name"]])
+    return env, secrets
+
+
+def redacted(answer, secrets):
+    """An answer with every secret's value written <secret>, wherever an app or an error put it: the answer is shown
+    in the pane, to Claude and to the reviewers. A value under four characters says too little to be one."""
+    text = json.dumps(answer)
+    for secret in sorted({one for one in secrets if len(one) >= 4}, key=len, reverse=True):
+        text = text.replace(json.dumps(secret)[1:-1], "<secret>")
+    return json.loads(text)
 
 
 def forward(context, namespace, service, port):
@@ -202,6 +214,9 @@ def main():
         return json.dump(answer, sys.stdout)
 
     context, namespace, kind, name = parts
+    if not live.get("isAllowed"):
+        answer["error"] = "the context %s is not named in live_contexts in .claude/theseus.toml: verify reads nothing from it and runs nothing in it" % context
+        return json.dump(answer, sys.stdout)
     if "prod" in context.lower():
         answer["error"] = "the context %s names prod: verify reads nothing from it and runs nothing in it" % context
         return json.dump(answer, sys.stdout)
@@ -209,11 +224,13 @@ def main():
     forwards = []
     rid = "verify-%d" % int(time.time())
     snapshot = []
+    secrets = []
     try:
-        env = workload_env(context, namespace, kind, name)
-        if env is None:
+        found = workload_env(context, namespace, kind, name)
+        if found is None:
             answer["skipped"] = "%s is not running" % live["workload"]
             return json.dump(answer, sys.stdout)
+        env, secrets = found
 
         for one in live["forward"]:
             service, _, port = one.partition(":")
@@ -268,7 +285,7 @@ def main():
         for process in forwards:
             process.kill()
 
-    json.dump(answer, sys.stdout)
+    json.dump(redacted(answer, secrets), sys.stdout)
 
 
 def clean(context, namespace, live, rid, snapshot):

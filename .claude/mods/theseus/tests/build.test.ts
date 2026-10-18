@@ -545,6 +545,8 @@ const machine = (on: On) => {
     changed: 'beacons/gondor/app.py',
     // What the agents sent have cost, as .theseus/spend.jsonl keeps it
     spend: '',
+    // Where a path leads once links are followed, for the few a test makes; any other leads where it is spelt
+    links: {} as Record<string, string>,
     // Each run's log under .theseus/runs/, by its path
     logs: {} as Record<string, string>,
     // Each lane's worktree, by its folder: what it holds uncommitted, its HEAD, and where it left its run's branch. The
@@ -629,6 +631,7 @@ const machine = (on: On) => {
     if (line.startsWith('git diff -U0')) return answer(world.wrote ? ['diff --git a/beacons/tests/test_gondor.py b/beacons/tests/test_gondor.py', '--- a/beacons/tests/test_gondor.py', '+++ b/beacons/tests/test_gondor.py', '@@ -3,0 +4,3 @@', ...LOCKED.map(one => `+${one}`)].join('\n') : '')
 
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
+    if (e.argv[0] === 'realpath') return answer(`${world.links[e.argv.at(-1) ?? ''] ?? e.argv.at(-1) ?? ''}\n`)
     // The web view's requests, moved aside and removed as the clock takes them
     if (e.argv[0] === 'mv' && (e.argv[1] ?? '') in world.logs) {
       world.logs[e.argv[2] ?? ''] = world.logs[e.argv[1] ?? ''] ?? ''
@@ -1306,6 +1309,11 @@ describe('build', () => {
     expect(await edit('builder-light-1-1', `${TREE}/../../../beacons/gondor/app.py`)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
     expect(await $.tool.call({ tool: 'Grep', pattern: 'lit', path: CWD, agentId: 'builder-light-1-1' } as never)).toMatchObject({ deny: expect.stringMatching(/You work in the run's worktree/) })
     expect(world.spawned).toHaveLength(1)
+
+    // A link made in the worktree leads outside it, however its path is spelt
+    world.links[`${TREE}/beacons/escape/notes.md`] = '/home/someone/.ssh/notes.md'
+    expect(await edit('builder-light-1-1', `${TREE}/beacons/escape/notes.md`)).toMatchObject({ deny: expect.stringMatching(/leads outside .* through a link, to \/home\/someone\/\.ssh\/notes\.md/) })
+    expect(await edit('builder-light-1-1', `${TREE}/beacons/gondor/app.py`)).toMatchObject({ result: 'edited' })
   })
 
   test('sends its builders under the session\'s own permission mode, as every agent the mod sends', async ($, on) => {

@@ -185,6 +185,39 @@ const roleRefusal = (agent: SentAgent, given: Call): string | undefined => {
   }
 }
 
+// The real path of each fence, by its spelling: a worktree under a linked folder is its target's
+const fences = new Map<string, string>()
+
+/** A path as the machine resolves it, links followed, whether or not it is there yet; empty where it cannot say. */
+async function realOf($: $, path: string, cwd: string): Promise<string> {
+  const ran = await $.process.run(['realpath', '-m', '--', path], { cwd, timeoutMs: 5_000 })
+
+  return ran.exitCode === 0 ? ran.stdout.trim() : ''
+}
+
+/**
+ * Why a sent agent's call on a file is refused once links are followed: the path reads as inside its fence (its
+ * worktree, or the project for the planner and the reviewers) but leads outside it. The checks before it read paths as
+ * they are spelt; a link made in the worktree would take them elsewhere. Where the machine cannot resolve a path, the
+ * checks by spelling stand alone.
+ */
+export async function linkRefusal($: $, agent: SentAgent, e: unknown): Promise<string | undefined> {
+  if (agent.role === 'other' || agent.stopped !== undefined) return undefined
+
+  const named = namedOf(e as Call)
+
+  if (named === undefined) return undefined
+
+  const fence = agent.role === 'builder' || agent.role === 'test-writer' ? agent.tree : agent.root
+  const real = await realOf($, resolvedFrom(agent.tree, named), agent.tree)
+  const fenceReal = fences.get(fence) ?? (await realOf($, fence, agent.tree))
+
+  if (real === '' || fenceReal === '') return undefined
+  fences.set(fence, fenceReal)
+
+  return real === fenceReal || real.startsWith(`${fenceReal}/`) ? undefined : `${named} leads outside ${fence} through a link, to ${real}: work on files there alone, and make no link that leaves it.`
+}
+
 /** Registers every agent type the mod sends, at the session's start. */
 export async function registerAgents($: $): Promise<void> {
   // Each of them is hidden from the model by `registerOffers`, and sent by the mod alone

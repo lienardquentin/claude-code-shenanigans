@@ -309,6 +309,22 @@ describe('the live stage', () => {
     expect(owed(fast)).toContain('Not meant: a regression, fix the code.')
   })
 
+  test('is started only in a context live_contexts names, and never for one the project does not', async ($, on) => {
+    const toml = (contexts: string) =>
+      `${contexts}\n[targets.gondor]\nkind = "service"\napp = "gondor.app:app"\nroots = ["beacons/gondor"]\npython = "beacons"\ntests = ["beacons/tests"]\ntest = 'uv run pytest -v beacons/tests/test_gondor.py -k "{tests: or }"'\nrequests = ["GET /health"]\n[targets.gondor.live]\nworkload = "k3d-beacons/beacons/deployment/gondor"\n`
+    const world = machine(on, { [`${CWD}/.claude/theseus.toml`]: toml('live_contexts = ["k3d-beacons"]') })
+
+    await call($, 'mcp__theseus__radius', { target: 'gondor' })
+    expect(world.jobs.live).toHaveLength(1)
+    expect(world.jobs.live[0]).toMatchObject({ live: { workload: 'k3d-beacons/beacons/deployment/gondor', isAllowed: true } })
+
+    world.files[`${CWD}/.claude/theseus.toml`] = toml('live_contexts = ["staging"]')
+    world.jobs.live.length = 0
+
+    expect(await call($, 'mcp__theseus__radius', { target: 'gondor' })).toContain('Live: not played, the context of k3d-beacons/beacons/deployment/gondor is not named in live_contexts in .claude/theseus.toml')
+    expect(world.jobs.live).toHaveLength(0)
+  })
+
   test('is never started for a context that names prod', async ($, on) => {
     const world = machine(on, { [`${CWD}/.claude/verify`]: `${PROJECT}\n${LIVE.replace('k3d-beacons', 'gke-prod')}` })
 

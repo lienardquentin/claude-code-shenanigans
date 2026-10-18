@@ -12,6 +12,8 @@ review = [
 ]
 # What the project rejects in a change, read from this folder and handed to both reviewers: a run's branch never loosens it
 standards = ["docs/agents/standards.md"]
+# The Kubernetes contexts a live stage may play in: verify reads from and runs in no other
+live_contexts = ["k3d-beacons"]
 
 # narsil, the CLI: its runs are kept by the recorder, in .claude/recorder.
 [targets.narsil]

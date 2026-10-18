@@ -113,6 +113,7 @@ const serviceChanged = async (machine: Machine, target: Target, look: Look): Pro
 
   // A context that names prod is never touched: the handler, which refuses it too, is not even started
   if (isProd(target.live.workload)) return { ...fast, live: `Live: not played, the context of ${target.live.workload} names prod, and verify reads nothing from it and runs nothing in it` }
+  if (target.live.isAllowed !== true) return { ...fast, live: `Live: not played, the context of ${target.live.workload} is not named in live_contexts in ${CONFIG_FILE}, and verify reads nothing from it and runs nothing in it` }
 
   await machine.say(`Playing what ${target.label} keeps on both builds against its real dependencies, on ${target.live.workload}…`)
 
