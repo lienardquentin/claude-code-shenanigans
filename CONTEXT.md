@@ -24,60 +24,16 @@ _Avoid_: Track, swimlane, thread
 One stretch of work drawn in a lane: a turn of the main conversation, or one tool call, with when it started and ended.
 _Avoid_: Event, entry, bar
 
-**Ship-flow run**:
-One feature taken from an idea or an existing issue to a pull request by ship-flow, the older workflow mod.
-_Avoid_: Job, pipeline, session
-
-**Feature issue**:
-The single issue a run starts from, or opens from its spec at the checkpoint, on the repo's forge (GitHub or GitLab), closed by the run's pull request (a merge request on GitLab).
-_Avoid_: Parent issue, epic
-
-**Spec**:
-The document that states what a run builds, written locally; a run that started from an idea publishes it as its feature issue.
-_Avoid_: PRD, plan
-
-**Ticket**:
-One local file describing a vertical slice of a spec, with the tickets that block it.
-_Avoid_: Task, sub-issue, step
-
-**Flight**:
-One ticket being built: its implementer at work in a git worktree of its own, on a branch cut from the run's branch. A run has several at once when their tickets' reaches do not overlap.
-_Avoid_: Job, worker, slot
-
-**Run card**:
-A run's card in the workflow pane: its standing, quota and actions, with a ticket card for each of its tickets nested inside.
-_Avoid_: Issue card, run row
-
-**Ticket card**:
-One ticket drawn inside its run card: number, title, state, what blocks it, how far it got, and its reach and outward actions.
-_Avoid_: Ticket row, ticket line
-
-**Checkpoint**:
-A point in a run where it stops for the user's decision; an auto run passes it by itself.
-_Avoid_: Gate, approval step
-
 **Auto run**:
-A run the user opted to be asked nothing in: each question takes the recommended option, and its checkpoint approves itself.
+A run that goes on by itself: each task sent once the one before is committed, and the pull request opened at the end. What its plan left open it settles with the planner's recommended option, and lists as decided without the person.
 _Avoid_: Auto mode, YOLO run, unattended run
 
-**Blast radius**:
-What building a ticket is estimated to touch, in two parts never folded into one figure: its reach and its outward actions. A run's blast radius is the union of its tickets'.
-_Avoid_: Impact, risk score, scope
-
-**Reach**:
-The files a ticket expects to change, and the files that depend on them.
-_Avoid_: Footprint, surface area
-
-**Outward action**:
-Something a ticket expects to do that reaches outside the working tree or is hard to reverse.
-_Avoid_: Side effect, dangerous command
-
 **Context budget**:
-How much of one context window a phase of a run may fill before its work must move to a fresh window.
+How much of one context window a builder may fill before it is stopped and its task said to be too large, to be split.
 _Avoid_: Session usage, token limit
 
 **Quota**:
-The plan's usage allowance that a run spends, by time window.
+The plan's usage allowance that a run spends, by time window: past a threshold, no task starts.
 _Avoid_: Session usage, rate limit, credits
 
 **Status line**:
@@ -162,7 +118,7 @@ _Avoid_: Fixture, golden, snapshot
 
 **Radius**:
 The kept runs whose answer a change altered, each `bare` or `marked` by a test.
-_Avoid_: Blast radius (that is ship-flow's), diff, impact
+_Avoid_: Blast radius, diff, impact
 
 **Pinned**:
 A changed run whose test fails on HEAD's source and passes on the working tree. A change is settled once every changed

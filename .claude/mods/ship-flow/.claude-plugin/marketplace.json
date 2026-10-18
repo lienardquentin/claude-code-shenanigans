@@ -1,5 +1,0 @@
-{
-  "name": "ship-flow-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "ship-flow", "source": "./" }]
-}

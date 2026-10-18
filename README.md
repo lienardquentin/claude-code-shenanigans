@@ -5,55 +5,9 @@ Personal Claude Code mods and experiments.
 ## Mods
 
 Claude sees nothing of a pane by itself, so every mod that opens one also serves it as a tool, `mcp__<mod>__pane`
-(`mcp__ship-flow__pane`, `mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__renovate-desk__pane`, `mcp__recorder__pane`). It answers
+(`mcp__termaid-view__pane`, `mcp__timeline-view__pane`, `mcp__renovate-desk__pane`, `mcp__recorder__pane`). It answers
 whether the pane is open, then its latest drawing as text: the tree you see, so your selection, page and filter are
 in it. Ask Claude about "the pane" and it can read it.
-
-### `ship-flow`
-
-Takes one feature from an idea or an issue to a pull request, on GitHub through `gh` or on GitLab through `glab`
-(where it is a merge request): the repo's origin says which. It lives in
-[`.claude/mods/ship-flow`](.claude/mods/ship-flow). It automates the flow of the `mattpocock-skills` plugin, with
-the spec and the tickets written as local files under `.scratch/<feature>/`, and the tickets never published.
-
-- `/ship <idea>` or `/ship #<issue>` starts a run: you are grilled about the feature, then a spec and a set of
-  tickets are written locally. Nothing is published.
-- You read them, change what you like, and approve with `/ship resume`. That is the one checkpoint. A run from an
-  idea opens its single issue then, with the spec as its text.
-- From there the run is unattended, on a branch `ship/<feature>`: each ticket is built by a fresh subagent in a git
-  worktree of its own (`.scratch/<feature>/trees/<NN>`), the run executes the spec's verification commands there
-  itself, commits, and puts the commit on the run's branch. Work that does not pass is kept for the ticket's one
-  retry to put right; a ticket that fails twice is marked `blocked` while the rest go on.
-- Tickets whose blockers are done and whose `**Touches:**` do not overlap are built side by side, three at once
-  unless the setting says otherwise. A commit that finds the branch moved by a ticket built beside it is rebased
-  onto it and verified again before it lands; one that conflicts is built anew, at no cost to its attempts.
-- At the end the branch is reviewed once and fixed once, in a worktree too, pushed, and a pull request is opened
-  whose body says what was built and how that compares with each ticket's estimate, what was not built and why, what
-  the review found, and what the run spent of your quota. It is a draft when any ticket is unfinished. Nothing of a
-  run is built or reset in your own working tree.
-- `/ship resume` on a run whose pull request is open follows up its failing checks and new comments.
-- The run keeps its own budget: no ticket starts when the 5-hour quota window is nearly spent (it pauses and goes
-  on by itself after the reset, in a later session too), and an implementer that fills too much of its context is
-  stopped and its ticket marked `too-large`.
-- `/ship status` shows every run of the repo, ticket by ticket, and `/ship pane` shows the same live in a pane,
-  with buttons to take a run up or stop it. `/ship stop` stops a run; `/ship clean <feature>` removes its folder,
-  worktrees and ticket branches.
-- Tickets declare what they expect to touch (`**Touches:**`) and what they do that reaches outside the working tree
-  or is hard to reverse (`**Outward actions:**`). The pane, `/ship status` and the checkpoint show the run's blast
-  radius, an estimate: its reach (files, their dependents, tests) and its outward actions, kept apart. It informs
-  and holds nothing back.
-
-It needs `gh` signed in, and the `mattpocock-skills` plugin for the grilling. The models and the thresholds are
-settings of the mod. Its own [README](.claude/mods/ship-flow/README.md) has the commands, the ticket format and the
-settings in full. The decisions behind it are in [`docs/adr`](docs/adr) (0002, 0003, 0004) and what was learnt about
-the mod API in [`docs/research/ship-flow-mod-api.md`](docs/research/ship-flow-mod-api.md).
-
-Install it from a clone:
-
-```
-claude plugin marketplace add <path to this clone>/.claude/mods/ship-flow
-claude plugin install ship-flow@ship-flow-mods
-```
 
 ### `termaid-view`
 
@@ -142,8 +96,8 @@ claude plugin install status-line@status-line-mods
 A pane that draws what a session did over time. It lives in [`.claude/mods/timeline-view`](.claude/mods/timeline-view).
 
 - `/timeline` opens the pane. Each lane is one row of cells over the period shown: the main conversation first, then
-  one lane per subagent, from its spawn to the end of its run. A ship-flow run's implementers are subagents, so each
-  ticket being built has a lane of its own.
+  one lane per subagent, from its spawn to the end of its run. A pipeline run's builders are subagents, so each task
+  being built has a lane of its own.
 - A cell a tool call ran in is filled, in the color of its kind of work (reads, edits, shell, agents, other), and a
   failed call is red and never painted over. A cell where the lane was at work with no tool running (the model
   thinking or writing) is shaded; an idle cell is a dot.
