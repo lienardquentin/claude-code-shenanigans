@@ -1,0 +1,5 @@
+{"version":"0.12.1","at":"2026-10-18T13:47:25.593Z","case":"doctor","score":1,"runs":1,"cost":0.090312}
+{"version":"0.12.1","at":"2026-10-18T13:47:25.593Z","case":"errand-bugfix","score":1,"runs":1,"cost":0.18833429999999995}
+{"version":"0.12.1","at":"2026-10-18T13:47:25.593Z","case":"init","score":1,"runs":1,"cost":0}
+{"version":"0.12.1","at":"2026-10-18T13:47:25.593Z","case":"plan-auto","score":1,"runs":1,"cost":0.6541417849999999}
+{"version":"0.12.1","at":"2026-10-18T13:47:25.593Z","case":"tests-first","score":1,"runs":1,"cost":0.17303410000000002}

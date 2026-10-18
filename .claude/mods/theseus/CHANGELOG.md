@@ -3,6 +3,11 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.12.1
+
+- The builder's and the reviewers' prompts say what the tools' words mean: a kept run, a changed run, pinned, bare
+  (#153, second part). The prompts were read against `docs/agents/writing.md`; nothing else in them needed a change.
+
 ## 0.12.0
 
 - An eval suite (#156, `evals/`): five cases that give Claude, with Theseus loaded, what a person asks, in a sandbox
