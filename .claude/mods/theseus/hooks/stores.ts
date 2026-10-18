@@ -1,7 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { rootOf } from './flow'
-import { stumbled } from './trouble'
+import { reported } from './trouble'
 
 // Theseus was the `pipeline` plugin until 0.3.0. A plugin's store is a JSON file under the configuration folder, named
 // by its id, and a project's own files sat in .pipeline/: what the pipeline kept is carried over once, here. A key
@@ -56,7 +56,7 @@ export async function carryStores($: $): Promise<void> {
     const carried = carriedOf(String(await $.fs.read(`${folder}/${entry.name}`)), await $.store.keys())
 
     if (carried === undefined) {
-      stumbled($, 'the store carry')(new Error(`${folder}/${entry.name} is not a store that reads: its plans and runs were not carried`))
+      reported($, 'the store carry')(new Error(`${folder}/${entry.name} is not a store that reads: its plans and runs were not carried`))
       continue
     }
 

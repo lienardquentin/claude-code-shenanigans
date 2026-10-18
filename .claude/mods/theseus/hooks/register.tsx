@@ -12,7 +12,7 @@ import { cleanupCommand, cleanupView, registerCleanup, startCleanup } from './cl
 import { issuesCommand, issuesView, registerIssues, startIssues } from './issues/register'
 import { carryFolder, carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
-import { stumbled, troublesText } from './trouble'
+import { reported, troublesText } from './trouble'
 import { doctorOf } from './doctor'
 import { initCommand } from './init'
 import { doctorText } from '../core/doctor'
@@ -101,7 +101,7 @@ async function statusOf($: EngineInterface): Promise<string> {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session, `doctor` what Theseus needs here and what is missing. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
+    'Reads one of the side panes as text: what it shows the person now, or showed last. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session, `doctor` what Theseus needs here and what is missing. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
   inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles', 'doctor'] } }, required: ['pane'] },
 } as const
 
@@ -129,9 +129,9 @@ async function lost($: EngineInterface, agentId: string): Promise<SentAgent | un
  */
 async function pump($: EngineInterface): Promise<void> {
   pumped()
-  await pumpPlanner($).catch(stumbled($, 'the planner'))
-  await pumpBuild($).catch(stumbled($, 'the build'))
-  await pumpVerify($).catch(stumbled($, 'verify'))
+  await pumpPlanner($).catch(reported($, 'the planner'))
+  await pumpBuild($).catch(reported($, 'the build'))
+  await pumpVerify($).catch(reported($, 'verify'))
 }
 
 export const register: Register = (on, options) => {
@@ -141,21 +141,21 @@ export const register: Register = (on, options) => {
     // The record of the agents sent before a reload, then their types: a reload loads the module afresh
     await recall($)
     await registerAgents($)
-    await carryStores($).catch(stumbled($, 'the store carry'))
-    await carryFolder($).catch(stumbled($, 'the folder carry'))
+    await carryStores($).catch(reported($, 'the store carry'))
+    await carryFolder($).catch(reported($, 'the folder carry'))
     await offerTools($, [PANE_TOOL, FRAME_TOOL, PUMP_TOOL])
-    await $.command.register({ name: 'theseus', description: 'Theseus: plan, build, test first, verify, follow up and clean up. /theseus help lists the verbs' }).catch(stumbled($, 'the /theseus command'))
+    await $.command.register({ name: 'theseus', description: 'Theseus: plan, build, test first, verify, follow up and clean up. /theseus help lists the verbs' }).catch(reported($, 'the /theseus command'))
 
     // A part the host refuses to start (a command name it holds) is said, and the parts after it start all the same
-    await startPlanner($).catch(stumbled($, 'the planner'))
-    await startTestsFirst($).catch(stumbled($, 'the test writer'))
-    await startVerify($).catch(stumbled($, 'verify'))
-    await startBuild($).catch(stumbled($, 'the build'))
-    await startFollowUp($).catch(stumbled($, 'the review follow-up'))
-    await startCleanup($).catch(stumbled($, 'the cleanup'))
-    await startIssues($).catch(stumbled($, 'the issues pane'))
+    await startPlanner($).catch(reported($, 'the planner'))
+    await startTestsFirst($).catch(reported($, 'the test writer'))
+    await startVerify($).catch(reported($, 'verify'))
+    await startBuild($).catch(reported($, 'the build'))
+    await startFollowUp($).catch(reported($, 'the review follow-up'))
+    await startCleanup($).catch(reported($, 'the cleanup'))
+    await startIssues($).catch(reported($, 'the issues pane'))
     // A plugin of the marketplace that lags its folder is said, to the person and to Claude
-    await startLag($).catch(stumbled($, 'the lag check'))
+    await startLag($).catch(reported($, 'the lag check'))
 
     // A reload loads the module afresh: a pane drawn by the copy before it is drawn again, so its buttons press this one
     $.ui.invalidate('ui.render')
@@ -168,12 +168,12 @@ export const register: Register = (on, options) => {
     // What a turn of an agent the mod sent cost is counted, whichever part sent it
     const agent = agentOf(e.agentId)
 
-    if (agent !== undefined && agent.role !== 'other') await spentBuild($, agent, e).catch(stumbled($, 'the spend record'))
+    if (agent !== undefined && agent.role !== 'other') await spentBuild($, agent, e).catch(reported($, 'the spend record'))
 
-    await endedPlanner($, e).catch(stumbled($, 'the planner'))
-    await endedTestsFirst($, e).catch(stumbled($, 'Tests first'))
-    await endedVerify($, e).catch(stumbled($, 'verify'))
-    await endedBuild($, e).catch(stumbled($, 'the build'))
+    await endedPlanner($, e).catch(reported($, 'the planner'))
+    await endedTestsFirst($, e).catch(reported($, 'Tests first'))
+    await endedVerify($, e).catch(reported($, 'verify'))
+    await endedBuild($, e).catch(reported($, 'the build'))
 
     return next(e)
   })
@@ -183,7 +183,7 @@ export const register: Register = (on, options) => {
   // own turn sends only the reviewers its change is owed: a run's proof takes minutes, not kept from the person
   for (const reason of [/./, /[^]/]) {
     on('turn.complete', { reason }, async ($, e, next) => {
-      await (e.agentId === undefined ? pumpVerify($) : pump($)).catch(stumbled($, 'the turn\'s end'))
+      await (e.agentId === undefined ? pumpVerify($) : pump($)).catch(reported($, 'the turn\'s end'))
 
       return next(e)
     }).catch((_$, e, next) => next(e))
@@ -193,10 +193,10 @@ export const register: Register = (on, options) => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     const added = [
-      await sectionOfPlanner($).catch(stumbled($, 'the planner')),
-      await sectionOfBuild($).catch(stumbled($, 'the build')),
-      await sectionOfTestsFirst($).catch(stumbled($, 'Tests first')),
-      await sectionOfVerify($).catch(stumbled($, 'verify')),
+      await sectionOfPlanner($).catch(reported($, 'the planner')),
+      await sectionOfBuild($).catch(reported($, 'the build')),
+      await sectionOfTestsFirst($).catch(reported($, 'Tests first')),
+      await sectionOfVerify($).catch(reported($, 'verify')),
       sectionOfLag(),
     ].filter(one => one !== undefined)
 
@@ -243,7 +243,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__theseus__pump' }, async $ => {
     await pump($)
 
-    return { result: 'Done: the panes say how it went.' }
+    return { result: 'Done. The panes show the results.' }
   }).catch((_$, _e, next) => toolFailed('pump', next.error))
 
   // The one command: a verb each part answers, or what is running, or the help

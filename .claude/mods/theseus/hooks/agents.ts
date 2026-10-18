@@ -9,7 +9,7 @@ import { BUILDERS, isModSource, isOutside, builderSystem, reachesOut } from '../
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
 import { TEST_WRITER_EFFORT, TEST_WRITER_LIGHT_MODEL, TEST_WRITER_MODEL, TEST_WRITER_SYSTEM, isTestPath } from '../core/tests-first'
 import type { Trees } from './kit/trees'
-import { stumbled } from './trouble'
+import { reported } from './trouble'
 
 // Every agent the mod sends, in one place: the types it registers, the record of each one sent, and the one guard that
 // holds each to what its part allows. None of them has a permission mode of its own: each works under the session's,
@@ -198,7 +198,7 @@ export async function registerAgents($: $): Promise<void> {
       disallowedTools: ['Edit', 'NotebookEdit'],
       model: 'inherit',
     })
-    .catch(stumbled($, 'the agent types'))
+    .catch(reported($, 'the agent types'))
 
   for (const [name, member] of Object.entries(BUILDERS) as [BuilderName, (typeof BUILDERS)[BuilderName]][]) {
     await $.agent
@@ -212,7 +212,7 @@ export async function registerAgents($: $): Promise<void> {
         model: member.model,
         effort: member.effort,
       })
-      .catch(stumbled($, 'the agent types'))
+      .catch(reported($, 'the agent types'))
   }
 
   for (const [name, model] of [[TEST_WRITER, TEST_WRITER_MODEL], [TEST_WRITER_LIGHT, TEST_WRITER_LIGHT_MODEL]] as const) {
@@ -227,7 +227,7 @@ export async function registerAgents($: $): Promise<void> {
         model,
         effort: TEST_WRITER_EFFORT,
       })
-      .catch(stumbled($, 'the agent types'))
+      .catch(reported($, 'the agent types'))
   }
 
   for (const reviewer of REVIEWERS) {
@@ -241,7 +241,7 @@ export async function registerAgents($: $): Promise<void> {
         model: REVIEWER_MODEL,
         effort: REVIEWER_EFFORT,
       })
-      .catch(stumbled($, 'the agent types'))
+      .catch(reported($, 'the agent types'))
   }
 }
 
@@ -289,7 +289,7 @@ export async function askToPump($: $, what: string): Promise<void> {
   isAskedToPump = true
   await $.prompt.submit({ text: `Theseus: ${what} It is done where the agents it sends are held: call ${toolOf(PUMP_TOOL.name)}.` }).catch((error: unknown) => {
     isAskedToPump = false
-    stumbled($, 'Theseus')(error)
+    reported($, 'Theseus')(error)
   })
 }
 

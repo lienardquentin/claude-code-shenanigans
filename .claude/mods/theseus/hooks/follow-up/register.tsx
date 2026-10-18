@@ -176,7 +176,7 @@ async function tick($: $): Promise<void> {
     $.ui.toast(`Follow-up: ${said.split('\n')[0] ?? said}`)
     await update($, note, () => said)
   } catch (error) {
-    await update($, note, () => `The follow-up stumbled: ${errorText(error)}`)
+    await update($, note, () => `The follow-up failed: ${errorText(error)}`)
   } finally {
     isBusy = false
     await update($, working, () => '')
@@ -225,7 +225,7 @@ export async function followUpCommand($: $, args: string): Promise<{ text: strin
 
   await update($, wanted, () => ({ what: 'open' as const, arg: words.join(' ') }))
 
-  return { text: 'The review follow-up opens: the pane says what it read.' }
+  return { text: 'Reading the review comments: they appear in the follow-up pane.' }
 }
 
 export function registerFollowUp(on: On): void {

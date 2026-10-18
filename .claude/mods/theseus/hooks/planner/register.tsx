@@ -15,7 +15,7 @@ import { paneView } from '../kit/pane-text'
 import { clip, keyed, shortRef } from '../look'
 import { settlingOf } from '../../core/run'
 import { PLANNER, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
-import { inBackground, stumbled } from '../trouble'
+import { inBackground, reported } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -149,8 +149,8 @@ function portsOf($: $): PlannerPorts {
       select: async id => void (await update($, selected, () => id)),
       show: async () => void (await openPane($, PANE, TITLE)),
       toast: text => $.ui.toast(text),
-      notify: async text => void (await $.ui.notify(text, { title: 'the planner' }).catch(stumbled($, 'the planner'))),
-      hand: async text => void (await $.prompt.submit({ text }).catch(stumbled($, 'the planner'))),
+      notify: async text => void (await $.ui.notify(text, { title: 'the planner' }).catch(reported($, 'the planner'))),
+      hand: async text => void (await $.prompt.submit({ text }).catch(reported($, 'the planner'))),
     },
     agents: {
       send: asked => spawnIn($, { subagentType: AGENT_TYPE, description: asked.description, prompt: asked.prompt }),

@@ -458,7 +458,7 @@ export async function arrive(p: Ports, held: Run): Promise<void> {
   await p.runs.keep(held.ref, was => ({ ...was, phase: 'built', current: null }))
 
   if (held.isAuto && held.kind !== 'review') await p.board.want(held.ref, 'submit')
-  else await p.board.tell(`every task of ${held.ref} is behind it: ${held.kind === 'review' ? 'push the answers' : 'open the pull request'} from the pane`)
+  else await p.board.tell(`every task of ${held.ref} is done: ${held.kind === 'review' ? 'push the answers' : 'open the pull request'} from the build pane, or with /theseus build submit`)
 }
 
 /** The lanes out on a run's tasks, beside one another. */
@@ -594,7 +594,7 @@ export async function openLane(p: Ports, held: Run, made: RunWork, task: RunTask
 
 /** Has the test writer write a task's tests first, in the run's worktree. Where tests first does not answer, the task is built without them. */
 export async function gazeOn(p: Ports, held: Run, made: RunWork, task: RunTask): Promise<void> {
-  await p.board.working(held.ref, `The test writer writes the tests of task ${task.id}…`)
+  await p.board.working(held.ref, `Writing the tests of task ${task.id} first…`)
 
   const sent = await p.parts.writeTestsFor(purposeOf(held, made, task), issueRefOf(held), task.weight, held.tree).catch((error: unknown) => errorText(error))
 
@@ -737,7 +737,7 @@ export async function prove(p: Ports, ref: string): Promise<void> {
 
   if (moved !== undefined) return stop(p, held, moved)
 
-  await p.board.working(ref, `Verify proves task ${out.taskId}…`)
+  await p.board.working(ref, `Proving task ${out.taskId}…`)
 
   // The reviewers are sent here, on the change and what it is for: the proof owes none at the turn's end. the test writer's
   // tests, written from the task before it was built, must pass for the proof to settle, all but
@@ -755,7 +755,7 @@ export async function prove(p: Ports, ref: string): Promise<void> {
   if (step.kind === 'again') return again(p, ref, step.why, step.line)
   if (step.kind === 'commit') return void (await commitNow(p, ref, step.minor))
 
-  await p.board.working(ref, `The reviewers are sent to judge task ${out.taskId}…`)
+  await p.board.working(ref, `Reviewing task ${out.taskId}…`)
 
   const made = await workOf(p, held)
   const task = typeof made === 'string' ? undefined : made.tasks.find(one => one.id === out.taskId)
@@ -1343,7 +1343,7 @@ export async function builderEnded(p: Ports, held: Run, e: BuilderTurn): Promise
     else await p.board.say(held.ref, `${title} hands the comment back (${handed}), but left changes in ${held.tree}: drop them, or commit them from the pane.`)
   } else if (handed !== undefined) {
     await p.runs.keep(held.ref, was => ({ ...was, phase: 'stuck', current: out }))
-    await p.board.say(held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is no errand. ${handed} Abandon it, then plan it with /theseus plan ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the planner pane, then send the task again.`)
+    await p.board.say(held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is not an errand. ${handed} Abandon it, then plan it with /theseus plan ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the planner pane, then send the task again.`)
     await p.board.tell(`${title} hands ${held.ref} back: ${handed}`)
   } else {
     await p.runs.keep(held.ref, was => ({ ...was, phase: 'proving', current: out }))

@@ -40,7 +40,7 @@ export const forgetTroubles = (): void => troubles.clear()
  * What a part's failure comes to: it is kept, and said in a toast when it differs from the part's last failure, so a
  * part that keeps failing alike is said once and counted after. It answers nothing in the part's place.
  */
-export function stumbled($: $, part: string): (error: unknown) => undefined {
+export function reported($: $, part: string): (error: unknown) => undefined {
   return error => {
     if (kept(part, error)) $.ui.toast(`Theseus: ${part} failed: ${errorText(error).split('\n')[0] ?? ''}`)
 
@@ -50,5 +50,5 @@ export function stumbled($: $, part: string): (error: unknown) => undefined {
 
 /** A clock's callback that does a part's work, its failure kept and said rather than dropped. */
 export function inBackground($: $, part: string, work: () => Promise<unknown>): () => void {
-  return () => void work().catch(stumbled($, part))
+  return () => void work().catch(reported($, part))
 }
