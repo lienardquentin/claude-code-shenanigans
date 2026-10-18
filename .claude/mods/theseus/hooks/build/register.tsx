@@ -16,7 +16,7 @@ import { paneView } from '../kit/pane-text'
 import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, stopAgent, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
-import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
+import { markTask, planFor, planRead, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
 import { REQUESTS_FILE, RUNS_DIR, eventsOf, logLines, logPathOf, parseLog, viewsPathOf } from '../../core/events'
@@ -877,6 +877,10 @@ export function registerBuild(on: On): void {
     const given = e as unknown as { auto?: unknown; ref?: unknown }
 
     const said = await alone($, '', () => setOut($, given.auto === true, typeof given.ref === 'string' ? given.ref : ''))
+    const started = await runNamed($, typeof given.ref === 'string' ? given.ref : '')
+
+    // A run started on a plan is a plan Claude knows: the planner's notice of it still on its way is stale
+    if (started !== null) planRead(issueRefOf(started))
 
     // The first task is sent here, where its builder is held
     await pumpBuild($)

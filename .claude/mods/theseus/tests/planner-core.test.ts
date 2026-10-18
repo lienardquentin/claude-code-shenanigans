@@ -4,6 +4,7 @@ import type { IssuePlan, Planning } from '../types'
 import { adjourn, makePlan, markTask } from '../core/planner'
 import type { PlannerPorts } from '../core/planner'
 import type { Ran } from '../core/forge'
+import { isStaleNotice, planRead } from '../hooks/planner/register'
 
 // The planner's course on plain fakes of its ports: no engine, no `$`
 
@@ -93,5 +94,15 @@ describe('the planner, on plain fakes of its ports', () => {
 
     expect(await markTask(ports, 1, 'done')).toMatch(/Ready next: 2\. Answer the seconds burned\./)
     expect(at().inForce?.tasks.find(task => task.id === 1)?.state).toBe('done')
+  })
+})
+
+describe("the planner's notice", () => {
+  test('is stale once Claude has read the plan it announces, and only that plan', () => {
+    expect(isStaleNotice('The planner has planned local:issues#2. Present the plan to the person; begin no task until they say so.')).toBe(false)
+    planRead('local:issues#2')
+    expect(isStaleNotice('The planner has planned local:issues#2. Present the plan to the person; begin no task until they say so.')).toBe(true)
+    expect(isStaleNotice('The planner has planned github:o/r#9. Present the plan.')).toBe(false)
+    expect(isStaleNotice('Something else entirely.')).toBe(false)
   })
 })

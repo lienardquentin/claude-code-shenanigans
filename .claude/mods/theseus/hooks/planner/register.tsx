@@ -277,6 +277,20 @@ export async function sectionOfPlanner($: $): Promise<Section | undefined> {
   return held === null || held.tasks.every(task => task.state === 'done') ? undefined : { id: 'planner:plan', text: plannerSectionText(held) }
 }
 
+// The plans Claude has read since a planner was sent through the tool, by ref: the planner's notice of one, which
+// waits for the session to be idle, is stale once Claude has read the plan or started its run
+const readPlans = new Set<string>()
+
+/** Claude has read the plan of an issue, or started its run: a notice of it still on its way says nothing new. */
+export const planRead = (ref: string): void => void readPlans.add(ref)
+
+/** Whether a prompt is the planner's notice of a plan Claude has read since: one to drop rather than wake Claude with. */
+export const isStaleNotice = (text: string): boolean => {
+  const ref = /^The planner has planned (\S+)\./.exec(text)?.[1]
+
+  return ref !== undefined && readPlans.has(ref)
+}
+
 /** `/theseus plan`: Plans an issue, or grills an idea into one; alone, opens the plan. */
 export async function planCommand($: $, args: string): Promise<{ text: string }> {
   const isAgain = /(^|\s)--again(\s|$)/.test(args)
@@ -307,6 +321,10 @@ export function registerPlanner(on: On): void {
     const given = e as unknown as { issue?: unknown; again?: unknown }
     const done = await makePlan($, typeof given.issue === 'string' ? given.issue : '', 'tool', given.again === true)
 
+    // A plan asked for afresh is one Claude has not read: its notice is owed again
+    if (done.plan === undefined) readPlans.clear()
+    else planRead(done.plan.ref)
+
     return { result: done.plan === undefined ? done.text : `${done.text}\n\n${planText(done.plan)}` }
   }).catch((_$, _e, next) => toolFailed('make_plan', next.error))
 
@@ -323,6 +341,8 @@ export function registerPlanner(on: On): void {
     const given = e as unknown as { ref?: unknown }
     const held = await planFor($, typeof given.ref === 'string' ? given.ref : '')
     const sitting = await read($, planner)
+
+    if (held !== null) planRead(held.ref)
 
     return { result: held !== null ? planText(held) : sitting !== null ? `The planner is still on ${sitting.ref}: no plan yet.` : `No plan is in force. ${HOW_TO}` }
   }).catch((_$, _e, next) => toolFailed('plan', next.error))
