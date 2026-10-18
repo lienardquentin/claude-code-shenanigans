@@ -96,7 +96,7 @@ claude plugin install status-line@status-line-mods
 A pane that draws what a session did over time. It lives in [`.claude/mods/timeline-view`](.claude/mods/timeline-view).
 
 - `/timeline` opens the pane. Each lane is one row of cells over the period shown: the main conversation first, then
-  one lane per subagent, from its spawn to the end of its run. A pipeline run's builders are subagents, so each task
+  one lane per subagent, from its spawn to the end of its run. A Theseus run's builders are subagents, so each task
   being built has a lane of its own.
 - A cell a tool call ran in is filled, in the color of its kind of work (reads, edits, shell, agents, other), and a
   failed call is red and never painted over. A cell where the lane was at work with no tool running (the model
@@ -144,17 +144,18 @@ claude plugin install renovate-desk@renovate-desk-mods
 
 Then open the pane with `/renovate`.
 
-### Pipeline
+### Theseus
 
-The workflow mods are one marketplace, `pipeline`, kept in
+The workflow mods are one marketplace, `theseus`, kept in
 [`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json), of three plugins:
 
-- `pipeline` ([`.claude/mods/pipeline`](.claude/mods/pipeline)) takes a GitHub or GitLab issue, or a pull request's
+- `theseus` ([`.claude/mods/theseus`](.claude/mods/theseus)) takes a GitHub or GitLab issue, or a pull request's
   review, to committed and reviewed work. Its parts each have a folder under `hooks/`, and their logic, which never
   touches the engine, is under `core/`: the issues pane lists the issues (`/issues`), the planner plans (`/planner`),
   the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
   and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
-  merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
+  merged (`/cleanup`). Its tools are `mcp__theseus__*`; `mcp__theseus__pane` reads any of its panes by name, and
+  `troubles` lists what any part failed at.
   A pull request says of each task its commit, how long it took, what it changed beyond its files and what its builder
   left unticked, then what was not built, the reviewers' minor findings and what the run spent. `/follow-up` takes a
   pull request's failing checks (GitHub checks, GitLab pipeline jobs) up as changes, beside its review comments.
@@ -174,8 +175,8 @@ Install them from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods
-for mod in pipeline recorder runtime; do
-  claude plugin install "$mod@pipeline"
+for mod in theseus recorder runtime; do
+  claude plugin install "$mod@theseus"
 done
 ```
 
@@ -183,19 +184,26 @@ To take a new version after pulling, update each plugin and restart Claude Code.
 `version` (see each plugin's `CHANGELOG.md`): an update leaves a plugin whose version did not change as it was.
 
 ```
-for mod in pipeline recorder runtime; do
-  claude plugin update "$mod@pipeline"
+for mod in theseus recorder runtime; do
+  claude plugin update "$mod@theseus"
 done
 ```
 
-The plugins were named for The Lord of the Rings until #104 (`middle-earth`, `anduril`, `palantir`). A plugin's kept
-state belongs to its id, so on its first start `pipeline` carries the plans and runs the old `middle-earth` plugin kept
-into its own store, and each mod still reads a project's file under its old name (`.claude/argonath`,
-`.claude/anduril`, `.claude/palantir`) until it is moved. Uninstall the old ones once the new ones are installed.
+Theseus was the `pipeline` plugin until 0.3.0. On its first start it carries the plans and runs the pipeline kept into
+its own store, and moves a project's `.pipeline/` folder to `.theseus/`, repairing the worktrees in it. Coming from the
+`pipeline` marketplace, remove it and install from this one:
 
 ```
-claude plugin validate .claude/mods/pipeline
-claude plugin test .claude/mods/pipeline
+claude plugin marketplace remove pipeline
+claude plugin marketplace add <path to this clone>/.claude/mods
+for mod in theseus recorder runtime; do
+  claude plugin install "$mod@theseus"
+done
+```
+
+```
+claude plugin validate .claude/mods/theseus
+claude plugin test .claude/mods/theseus
 ```
 
 ### `recorder`
@@ -240,7 +248,7 @@ lives in [`.claude/mods/recorder`](.claude/mods/recorder), and [`narsil`](narsil
 
 It needs `python3`, and `git` for a comparison, on a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
 what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it with
-the other [pipeline](#pipeline) mods, or alone from a clone:
+the other [Theseus](#theseus) mods, or alone from a clone:
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods/recorder

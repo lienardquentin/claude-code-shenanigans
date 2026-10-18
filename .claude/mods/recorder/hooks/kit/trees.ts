@@ -4,7 +4,7 @@
 // file is the same in each of them.
 
 /** Where the build keeps its runs' worktrees, from the project's folder. */
-export const RUN_TREES = '.pipeline/trees'
+export const RUN_TREES = '.theseus/trees'
 
 // Where it kept them before it was renamed: a run set out then still works in one
 const OLD_TREES = '.fellowship/trees'

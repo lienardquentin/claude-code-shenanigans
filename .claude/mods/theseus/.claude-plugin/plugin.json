@@ -1,0 +1,26 @@
+{
+  "name": "theseus",
+  "version": "0.3.0",
+  "description": "Takes an issue, or a pull request's review, to committed and reviewed work: it plans the issue, writes the tests first, builds it task by task in a worktree of its own, proves and reviews each change, answers review, and cleans up what is merged",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "fiveHourPercent": {
+      "type": "number",
+      "title": "5-hour quota threshold (%)",
+      "description": "How full the 5-hour quota window may be for a run to start its next task. Past it, the run waits and goes on by itself once the window resets.",
+      "default": 90
+    },
+    "weeklyPercent": {
+      "type": "number",
+      "title": "Weekly quota threshold (%)",
+      "description": "How full the weekly quota window may be for a run to start its next task. Past it, the run stops for you: the window is days from resetting.",
+      "default": 90
+    },
+    "contextPercent": {
+      "type": "number",
+      "title": "Builder context budget (%)",
+      "description": "How much of a 200k-token context window a builder may fill before it is stopped and its task said to be too large, to be split.",
+      "default": 70
+    }
+  }
+}
