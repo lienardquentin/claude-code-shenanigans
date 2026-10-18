@@ -6,7 +6,7 @@ import { HOW_TO, MARK, ideaPrompt, acceptRisk, askRisk, risksFor, sortedRisks, u
 import { refText } from '../../core/forge'
 import type { Issue, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
-import { forgeIn, isMergedFrom, offerTools, openPane, rootOf, shellIn, toolFailed } from '../flow'
+import { forgeIn, isMergedFrom, movedTo, offerTools, openPane, rootOf, shellIn, toolFailed } from '../flow'
 import * as core from '../../core/planner'
 import type { PlannerPorts } from '../../core/planner'
 import { targetsKnown } from '../verify/register'
@@ -79,7 +79,7 @@ const TICK_MS = 500
 // A risk drawn in the color of what it could cost
 const SEVERITY_COLOR: Record<RiskSeverity, string> = { high: 'error', medium: 'warning', low: 'subtle' }
 
-export const plannerView = paneView({ id: PANE, title: TITLE, command: '/planner' })
+export const plannerView = paneView({ id: PANE, title: TITLE, command: '/theseus plan' })
 const view = plannerView
 
 const TOOLS = [
@@ -99,7 +99,7 @@ const TOOLS = [
   {
     name: 'open_issue',
     description:
-      "Opens an issue in this repository (GitHub or GitLab, by its origin), and answers its ref and URL. Only to open the issue the person's idea became, as /planner <idea> asks: its body says what is wanted and why, how to tell it is done, and its ## Verification commands.",
+      "Opens an issue in this repository (GitHub or GitLab, by its origin), and answers its ref and URL. Only to open the issue the person's idea became, as /theseus plan <idea> asks: its body says what is wanted and why, how to tell it is done, and its ## Verification commands.",
     inputSchema: { type: 'object', properties: { title: { type: 'string', description: 'Under 70 characters.' }, body: { type: 'string', description: 'The issue in Markdown.' } }, required: ['title', 'body'] },
   },
   {
@@ -256,7 +256,7 @@ export async function plannerFound($: $, agentId: string): Promise<SentAgent | u
 
 /** The planner at the session's start: its command, its tools, and the clock that sends what a press asked for. */
 export async function startPlanner($: $): Promise<void> {
-  await $.command.register({ name: 'planner', description: 'Plan a GitHub or GitLab issue as tasks: /planner <issue> plans it (--again to plan afresh); /planner <idea> grills you on an idea, opens its issue and plans it (--auto asks nothing); /planner alone opens the plan' })
+  await $.command.register({ name: 'planner', description: 'Now /theseus plan (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -276,6 +276,31 @@ export async function sectionOfPlanner($: $): Promise<Section | undefined> {
   const held = await current($)
 
   return held === null || held.tasks.every(task => task.state === 'done') ? undefined : { id: 'planner:plan', text: sectionText(held) }
+}
+
+/** `/theseus plan`: Plans an issue, or grills an idea into one; alone, opens the plan. */
+export async function planCommand($: $, args: string): Promise<{ text: string }> {
+  const isAgain = /(^|\s)--again(\s|$)/.test(args)
+  const isAuto = /(^|\s)--auto(\s|$)/.test(args)
+  const input = args.replace(/(^|\s)--(again|auto)(?=\s|$)/g, ' ').trim()
+
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  if (input === '') {
+    const held = await current($)
+
+    return { text: held === null ? HOW_TO : `${held.ref}: ${held.title}, ${tally(held)}.` }
+  }
+
+  // A sentence that names no issue is an idea: Claude grills the person on it, opens its issue, and plans that. The
+  // prompt waits on the session being idle, which it is not inside the command's own hook
+  if (isIdea(input) && typeof parseRef(input, await originOf($)) === 'string') {
+    $.clock.after(0, inBackground($, 'the planner', () => $.prompt.submit({ text: ideaPrompt(input, isAuto) })))
+
+    return { text: isAuto ? 'Claude works the idea into an issue alone, opens it, and has the planner plan it.' : 'Claude grills you on the idea, then opens its issue and has the planner plan it.' }
+  }
+
+  return { text: (await makePlan($, input, 'command', isAgain)).text }
 }
 
 export function registerPlanner(on: On): void {
@@ -310,29 +335,9 @@ export function registerPlanner(on: On): void {
     return { result: state === undefined ? 'state is one of todo, doing, done.' : await markTask($, Number(given.id), state, typeof given.ref === 'string' ? given.ref : '') }
   }).catch((_$, _e, next) => toolFailed('task', next.error))
 
-  on('command.run', { command: 'planner' }, async ($, e) => {
-    const isAgain = /(^|\s)--again(\s|$)/.test(e.args)
-    const isAuto = /(^|\s)--auto(\s|$)/.test(e.args)
-    const input = e.args.replace(/(^|\s)--(again|auto)(?=\s|$)/g, ' ').trim()
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'planner' }, async ($, e) => movedTo('/planner', '/theseus plan', await planCommand($, e.args)))
 
-    await $.ui.open({ id: PANE, title: TITLE })
-
-    if (input === '') {
-      const held = await current($)
-
-      return { text: held === null ? HOW_TO : `${held.ref}: ${held.title}, ${tally(held)}.` }
-    }
-
-    // A sentence that names no issue is an idea: Claude grills the person on it, opens its issue, and plans that. The
-    // prompt waits on the session being idle, which it is not inside the command's own hook
-    if (isIdea(input) && typeof parseRef(input, await originOf($)) === 'string') {
-      $.clock.after(0, inBackground($, 'the planner', () => $.prompt.submit({ text: ideaPrompt(input, isAuto) })))
-
-      return { text: isAuto ? 'Claude works the idea into an issue alone, opens it, and has the planner plan it.' : 'Claude grills you on the idea, then opens its issue and has the planner plan it.' }
-    }
-
-    return { text: (await makePlan($, input, 'command', isAgain)).text }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const table = $.ui.resolve(e)

@@ -119,7 +119,7 @@ export const builderFor = (plan: Plan, task: Task, attempt: number, targets: rea
 }
 
 export const HOW_TO =
-  'No run is under way. Plan an issue with /planner <issue>, answer its questions and decide its risks, then /build starts on it (/build --auto goes on by itself). A small issue goes straight to /build errand <issue>; an open pull request\'s review comments, to /follow-up.'
+  'No run is under way. Plan an issue with /theseus plan <issue>, answer its questions and decide its risks, then /theseus build starts on it (/theseus build --auto goes on by itself). A small issue goes straight to /theseus build errand <issue>; an open pull request\'s review comments, to /follow-up.'
 
 export const MARK: Record<TaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
 
@@ -483,7 +483,7 @@ const runHead = (quest: RunOf, plan: Plan, task: Task, member: Builder): string[
       (task.brief ?? '').trim(),
       '</issue>',
       '',
-      `It was sent as an errand: one change that needs no decision from anyone. You may hand it back if it is not one: if it leaves open something the person must decide, crosses several parts of the project, or would take more than one coherent change, it goes to the planner (/planner) instead.`,
+      `It was sent as an errand: one change that needs no decision from anyone. You may hand it back if it is not one: if it leaves open something the person must decide, crosses several parts of the project, or would take more than one coherent change, it goes to the planner (/theseus plan) instead.`,
       '',
       "Build what the issue names, and change no behaviour it does not name. Where the issue takes for true something the code does not do (\"as X already does\"), and building it would change how X behaves, that is a decision for the person, not yours: hand it back, saying what the issue assumes, what the code does instead, and the two ways it could go.",
     ]

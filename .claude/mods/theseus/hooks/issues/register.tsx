@@ -6,7 +6,7 @@ import { HOW_TO, listedOf, standingOf } from './listed'
 import { parseRemote } from '../../core/forge'
 import { askPlanner, planStanding } from '../planner/register'
 import { askErrand, runLeftovers } from '../build/register'
-import { errorText, forgeIn, git } from '../flow'
+import { errorText, forgeIn, git, movedTo } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed } from '../look'
@@ -23,7 +23,7 @@ const note = atom({ plugin: 'theseus', key: 'issuesNote' } as const, '')
 const working = atom({ plugin: 'theseus', key: 'issuesWorking' } as const, '')
 const selected = atom({ plugin: 'theseus', key: 'issuesSelected' } as const, 0)
 
-export const issuesView = paneView({ id: PANE, title: TITLE, command: '/issues' })
+export const issuesView = paneView({ id: PANE, title: TITLE, command: '/theseus issues' })
 const view = issuesView
 
 /** Reads the origin's open issues again, and says how it went: what the forge said in place of a list, when it said one. */
@@ -78,15 +78,20 @@ async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<stri
 
 /** The issues pane at the session's start: its command. The issues are read once the pane is opened. */
 export async function startIssues($: $): Promise<void> {
-  await $.command.register({ name: 'issues', description: 'Open the pane of the open issues: each one an errand for the build, or sent to the planner' })
+  await $.command.register({ name: 'issues', description: 'Now /theseus issues (this name goes in the next release)' })
+}
+
+/** `/theseus issues`: Opens the open issues. */
+export async function issuesCommand($: $, _args: string): Promise<{ text: string }> {
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  return { text: await refreshed($) }
 }
 
 export function registerIssues(on: On): void {
-  on('command.run', { command: 'issues' }, async $ => {
-    await $.ui.open({ id: PANE, title: TITLE })
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'issues' }, async ($, e) => movedTo('/issues', '/theseus issues', await issuesCommand($, e.args)))
 
-    return { text: await refreshed($) }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
@@ -166,7 +171,7 @@ export function registerIssues(on: On): void {
             {open.url !== '' && <Text dimColor wrap="truncate-middle">{open.url}</Text>}
             <Box marginTop={1}>
               {isOnRun ? (
-                <Text color="suggestion">{`The build is on it (${openStanding}): /build goes on with it.`}</Text>
+                <Text color="suggestion">{`The build is on it (${openStanding}): /theseus build goes on with it.`}</Text>
               ) : (
                 <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
                   <Button key="errand" hotkey="e" variant="primary" onPress={() => askErrand($, open.ref).then(() => said(`${open.ref} is sent as an errand: the build pane shows it started.`))}>

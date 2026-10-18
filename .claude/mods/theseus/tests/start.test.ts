@@ -19,7 +19,7 @@ describe('the session start', () => {
     on('command.register', (_, e) => {
       const name = String((e as unknown as { name: string }).name)
 
-      if (name === 'checks') throw new Error('$.command.register: "/checks" refused: it is the built-in /checks')
+      if (name === 'checks') throw new Error('$.command.register: "/theseus verify" refused: it is the built-in /theseus verify')
       commands.push(name)
 
       return { value: undefined } as never

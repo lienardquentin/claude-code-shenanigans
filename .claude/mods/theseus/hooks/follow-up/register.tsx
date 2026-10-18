@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { FollowUpComment, FollowUp, FollowUpPhase } from '../../types'
 import { HOW_TO, WEIGHER_MODEL, commentShown, followUpText, handedOf, parseWeights, reviewRef, weighPrompt, checkComments } from './follow-up'
 import { parsePullRef, parseRemote } from '../../core/forge'
-import { errorText, forgeIn, git, isMergedFrom, offerTools, openPane, toolFailed } from '../flow'
+import { errorText, forgeIn, git, isMergedFrom, movedTo, offerTools, openPane, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -26,7 +26,7 @@ const note = atom({ plugin: 'theseus', key: 'followUpNote' } as const, '')
 const wanted = atom({ plugin: 'theseus', key: 'followUpWanted' } as const, null as { what: 'open' | 'hand' | 'hand auto'; arg?: string } | null)
 const working = atom({ plugin: 'theseus', key: 'followUpWorking' } as const, '')
 
-export const followUpView = paneView({ id: PANE, title: TITLE, command: '/follow-up' })
+export const followUpView = paneView({ id: PANE, title: TITLE, command: '/theseus follow-up' })
 const view = followUpView
 
 const TOOLS = [
@@ -117,7 +117,7 @@ async function open($: $, input: string): Promise<string> {
   const questions = comments.length - changes
   const failing = typeof checks === 'string' ? 0 : checks.length
 
-  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}${failing > 0 ? ` (${failing} of the changes ${failing === 1 ? 'is a failing check' : 'are failing checks'})` : ''}. /follow-up answer hands them to the build.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
+  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}${failing > 0 ? ` (${failing} of the changes ${failing === 1 ? 'is a failing check' : 'are failing checks'})` : ''}. /theseus follow-up answer hands them to the build.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
 }
 
 /** Hands the comments that ask for a change to the build, which builds them on the pull request's branch. */
@@ -196,11 +196,36 @@ async function alone<T>($: $, act: () => Promise<T>): Promise<T> {
 
 /** The review follow-up at the session's start: its command, its tools, and the clock that does what a command asked. */
 export async function startFollowUp($: $): Promise<void> {
-  await $.command.register({ name: 'follow-up', description: "Answer a pull request's review comments: /follow-up <pr> opens them; answer (--auto) hands them to the build; close" })
+  await $.command.register({ name: 'follow-up', description: 'Now /theseus follow-up (this name goes in the next release)' })
 
   await offerTools($, TOOLS)
 
   $.clock.every(TICK_MS, inBackground($, 'the review follow-up', () => tick($)))
+}
+
+/** `/theseus follow-up`: Answers a pull request's review. */
+export async function followUpCommand($: $, args: string): Promise<{ text: string }> {
+  const words = args.trim().split(/\s+/).filter(word => word !== '')
+  const verb = words.find(word => !word.startsWith('--')) ?? ''
+  const held = await read($, followUp)
+
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  // Handed over here, where the builder the build sends on the first comment is held
+  if (verb === 'answer') return { text: await alone($, () => hand($, words.includes('--auto'))) }
+
+  if (verb === 'close') {
+    if (held?.phase === 'weighing') return { text: 'The follow-up weighs the comments: close it once it settles.' }
+    await update($, followUp, () => null)
+
+    return { text: `The review follow-up is closed.${held?.phase === 'handed' ? ` The build's run on ${reviewRef(held.pr)} goes on: /theseus build abandon ${reviewRef(held.pr)} stops it.` : ''}` }
+  }
+
+  if (verb === '' && held !== null) return { text: followUpText(held) }
+
+  await update($, wanted, () => ({ what: 'open' as const, arg: words.join(' ') }))
+
+  return { text: 'The review follow-up opens: the pane says what it read.' }
 }
 
 export function registerFollowUp(on: On): void {
@@ -215,29 +240,9 @@ export function registerFollowUp(on: On): void {
   }).catch((_$, _e, next) => toolFailed('review_comments', next.error))
 
   // Reading the forge and handing over take a while: the command answers at once, and the clock does them
-  on('command.run', { command: 'follow-up' }, async ($, e) => {
-    const words = e.args.trim().split(/\s+/).filter(word => word !== '')
-    const verb = words.find(word => !word.startsWith('--')) ?? ''
-    const held = await read($, followUp)
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'follow-up' }, async ($, e) => movedTo('/follow-up', '/theseus follow-up', await followUpCommand($, e.args)))
 
-    await $.ui.open({ id: PANE, title: TITLE })
-
-    // Handed over here, where the builder the build sends on the first comment is held
-    if (verb === 'answer') return { text: await alone($, () => hand($, words.includes('--auto'))) }
-
-    if (verb === 'close') {
-      if (held?.phase === 'weighing') return { text: 'The follow-up weighs the comments: close it once it settles.' }
-      await update($, followUp, () => null)
-
-      return { text: `The review follow-up is closed.${held?.phase === 'handed' ? ` The build's run on ${reviewRef(held.pr)} goes on: /build abandon ${reviewRef(held.pr)} stops it.` : ''}` }
-    }
-
-    if (verb === '' && held !== null) return { text: followUpText(held) }
-
-    await update($, wanted, () => ({ what: 'open' as const, arg: words.join(' ') }))
-
-    return { text: 'The review follow-up opens: the pane says what it read.' }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)

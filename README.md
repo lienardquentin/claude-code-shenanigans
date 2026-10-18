@@ -151,15 +151,16 @@ The workflow mods are one marketplace, `theseus`, kept in
 
 - `theseus` ([`.claude/mods/theseus`](.claude/mods/theseus)) takes a GitHub or GitLab issue, or a pull request's
   review, to committed and reviewed work. Its parts each have a folder under `hooks/`, and their logic, which never
-  touches the engine, is under `core/`: the issues pane lists the issues (`/issues`), the planner plans (`/planner`),
-  the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
-  and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
-  merged (`/cleanup`). Its tools are `mcp__theseus__*`; `mcp__theseus__pane` reads any of its panes by name, and
-  `troubles` lists what any part failed at.
+  touches the engine, is under `core/`. One command drives it: `/theseus plan <issue>` plans an issue (or grills an
+  idea into one), `/theseus build` builds the plan in a worktree of its own, `/theseus tests <behaviour>` has the test
+  writer write tests first, `/theseus verify` shows the proof and review of each change, `/theseus follow-up <pr>`
+  reads review, `/theseus cleanup` clears what is merged and `/theseus issues` lists the open issues. `/theseus` alone
+  says what is under way, and `/theseus help` lists every verb. Its tools are `mcp__theseus__*`; `mcp__theseus__pane`
+  reads any of its panes by the same names, and `troubles` lists what any part failed at.
   A pull request says of each task its commit, how long it took, what it changed beyond its files and what its builder
-  left unticked, then what was not built, the reviewers' minor findings and what the run spent. `/follow-up` takes a
+  left unticked, then what was not built, the reviewers' minor findings and what the run spent. `/theseus follow-up` takes a
   pull request's failing checks (GitHub checks, GitLab pipeline jobs) up as changes, beside its review comments.
-  `/planner <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
+  `/theseus plan <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
   planned (`--auto` asks nothing, and lists what it decided in the issue). An auto run settles a plan's open questions
   and risks itself, and the plan and the pull request list them under "Decided without the person".
   Verify proves each change against the targets a project names in `.claude/verify`; a project that names none is

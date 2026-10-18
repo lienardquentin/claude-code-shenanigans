@@ -213,11 +213,11 @@ describe('tests first', () => {
     expect(await call($, 'mcp__theseus__tests_first')).toMatch(/^The tests written first could not be read: it did not show its tests red/)
   })
 
-  test('tells the Claude of a person who asked through /tests what the test writer showed', async ($, on) => {
+  test('tells the Claude of a person who asked through /theseus tests what the test writer showed', async ($, on) => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect((await $.command.run({ command: 'tests', args: 'quenching one beacon answers 200' } as never)).text).toMatch(/The test writer writes the tests/)
+    expect((await $.command.run({ command: 'theseus', args: 'tests quenching one beacon answers 200' } as never)).text).toMatch(/The test writer writes the tests/)
     await ends($, 'test-writer-1', SHOWN)
 
     expect(world.submitted[0]).toMatch(/^The tests written first show what is to come: 1 test, red, locked until they are committed\.\n- beacons\/tests\/test_gondor\.py: test_quenching_one_beacon[\s\S]*mcp__theseus__amend_test/)

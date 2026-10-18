@@ -236,6 +236,9 @@ export async function sendBack($: $, agentId: string, agentType: string, text: s
   return sent?.isDelivered === true
 }
 
+/** What a command kept from before /theseus answers: its answer, its new spelling first. */
+export const movedTo = (old: string, now: string, answered: { text: string }): { text: string } => ({ text: `${old} is ${now} now.\n\n${answered.text}` })
+
 /** Registers a part's tools. A host that registers no tools (an older engine, a test's) still starts the part: its commands and panes work without them. */
 export async function offerTools($: $, tools: readonly Parameters<$['tool']['register']>[0][]): Promise<void> {
   for (const tool of tools) await $.tool.register(tool).catch(() => undefined)

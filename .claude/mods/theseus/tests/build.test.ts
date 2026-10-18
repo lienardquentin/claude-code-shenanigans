@@ -1106,7 +1106,7 @@ describe('build', () => {
     await call($, 'mcp__theseus__start_run')
     await settle($, world)
 
-    expect((await $.command.run({ command: 'build', args: `abandon ${REF}` } as never)).text).toMatch(/~1 is building: wait until Light builder 1 is back/)
+    expect((await $.command.run({ command: 'theseus', args: `build abandon ${REF}` } as never)).text).toMatch(/~1 is building: wait until Light builder 1 is back/)
     expect(world.ran.some(line => line.startsWith('git worktree remove'))).toBe(false)
   })
 
@@ -1255,13 +1255,13 @@ describe('build', () => {
     await settle($, world)
 
     // A builder out is waited for
-    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toMatch(/is building: wait until Light builder 1 is back/)
+    expect((await $.command.run({ command: 'theseus', args: 'build abandon' } as never)).text).toMatch(/is building: wait until Light builder 1 is back/)
 
     await ends($, 'builder-light-1-1', 'Added lit_at.', world)
     await settle($, world)
 
     // The clock abandons it, outside the command's hooks
-    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toMatch(/being abandoned/)
+    expect((await $.command.run({ command: 'theseus', args: 'build abandon' } as never)).text).toMatch(/being abandoned/)
     await settle($, world)
 
     expect(world.toasts.at(-1)).toBe(`Build: The run on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the plan.`)
@@ -1283,7 +1283,7 @@ describe('build', () => {
     await settle($, world)
     world.dirty = ' M beacons/gondor/app.py\n'
 
-    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toBe(`${TREE} holds uncommitted changes: commit, stash or drop them there, then abandon the run.`)
+    expect((await $.command.run({ command: 'theseus', args: 'build abandon' } as never)).text).toBe(`${TREE} holds uncommitted changes: commit, stash or drop them there, then abandon the run.`)
     await settle($, world)
 
     expect(world.ran).not.toContain(`git worktree remove ${TREE}`)
@@ -1367,17 +1367,17 @@ describe('build', () => {
     expect(await call($, 'mcp__theseus__run')).toMatch(/: stuck/)
 
     world.mirror = ['empty']
-    expect((await $.command.run({ command: 'build', args: 'next' } as never)).text).toMatch(/sent on the next task/)
+    expect((await $.command.run({ command: 'theseus', args: 'build next' } as never)).text).toMatch(/sent on the next task/)
     await settle($, world)
     expect(world.testsFor).toHaveLength(2)
     expect(world.spawned).toHaveLength(1)
   })
 
-  test('starts from /build --auto in the command, where the builder it sends is held', async ($, on) => {
+  test('starts from /theseus build --auto in the command, where the builder it sends is held', async ($, on) => {
     const world = machine(on)
     await start($, world)
 
-    expect((await $.command.run({ command: 'build', args: '--auto' } as never)).text).toMatch(/starts on the plan, going on by itself/)
+    expect((await $.command.run({ command: 'theseus', args: 'build --auto' } as never)).text).toMatch(/starts on the plan, going on by itself/)
     // The builder is out before the command answers: no clock sent it
     expect(world.spawned).toHaveLength(1)
 
@@ -1435,9 +1435,9 @@ describe('build', () => {
     expect(world.jobs.service[0]).toMatchObject({ home: TREE })
 
     // A command that names none acts on the run the pane shows, the last started; one names another by its ref or branch
-    expect((await $.command.run({ command: 'build', args: 'halt' } as never)).text).toMatch(/#14 stops after the task it is on/)
-    expect((await $.command.run({ command: 'build', args: `halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
-    expect((await $.command.run({ command: 'build', args: 'halt #99' } as never)).text).toMatch(/No run on #99 is under way/)
+    expect((await $.command.run({ command: 'theseus', args: 'build halt' } as never)).text).toMatch(/#14 stops after the task it is on/)
+    expect((await $.command.run({ command: 'theseus', args: `build halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
+    expect((await $.command.run({ command: 'theseus', args: 'build halt #99' } as never)).text).toMatch(/No run on #99 is under way/)
     expect(await call($, 'mcp__theseus__run')).toMatch(/#12 \(plan\)[\s\S]*―――[\s\S]*#14 \(plan\)/)
   })
 })
@@ -1478,11 +1478,11 @@ describe('a run kept across sessions', () => {
     await start($, world)
 
     expect(await call($, 'mcp__theseus__run')).toMatch(/#21 \(errand\), "Quench answers 404 for an unknown beacon" \(0\/1 done\): stuck/)
-    // A bare /build lists it, and sets nothing out
-    expect((await $.command.run({ command: 'build', args: '' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
+    // A bare /theseus build lists it, and sets nothing out
+    expect((await $.command.run({ command: 'theseus', args: 'build' } as never)).text).toMatch(/#21 \(errand\)[^\n]*: stuck/)
     expect(world.spawned).toEqual([])
 
-    // Claude sends the stuck task again itself, with no /build next typed: in its worktree, from the tool's hook
+    // Claude sends the stuck task again itself, with no /theseus build next typed: in its worktree, from the tool's hook
     expect(await call($, 'mcp__theseus__next', { ref: ISSUE.ref })).toMatch(/A builder is sent on the next task of github:.*#21/)
     await settle($, world)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'theseus:builder-service', cwd: tree })
@@ -1548,7 +1548,7 @@ describe('an errand', () => {
     await settle($, world)
     expect(world.spawned).toEqual([])
 
-    expect((await $.command.run({ command: 'build', args: 'errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
+    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
     await settle($, world)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'theseus:builder-service' })
   })
@@ -1558,7 +1558,7 @@ describe('an errand', () => {
     world.plan = null
     await start($, world)
 
-    expect((await $.command.run({ command: 'build', args: 'errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
+    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
     await settle($, world)
 
     const tree = `${CWD}/.theseus/trees/build-21-quench-answers-404-for-an-unknown-beacon`
@@ -1581,7 +1581,7 @@ describe('an errand', () => {
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
     // The person says go: no ward for one change both reviewers judged whole
-    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.judged).toHaveLength(2)
     expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/Quench answers 404 now; test_quench_unknown proves it\.[\s\S]*The the proof: every changed run is pinned[\s\S]*Built as an errand[\s\S]*Closes lienardquentin\/claude-code-shenanigans#21/)
@@ -1593,7 +1593,7 @@ describe('an errand', () => {
     world.plan = null
     world.staged = `diff --git a/beacons/gondor/settings.py b/beacons/gondor/settings.py\n+++ b/beacons/gondor/settings.py\n+KEY = "AKIA${'Q'.repeat(16)}"\n`
     await start($, world)
-    await $.command.run({ command: 'build', args: 'errand #21' } as never)
+    await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)
     await settle($, world)
     await ends($, 'builder-service-1', 'Quench answers 404 now.', world)
     await settle($, world)
@@ -1611,12 +1611,12 @@ describe('an errand', () => {
     expect(world.ran.some(line => line.startsWith('git commit'))).toBe(true)
 
     world.pushed = `+++ b/narsil/deploy.pem\n+-----BEGIN RSA PRIVATE KEY-----\n`
-    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('git push') || line.startsWith('gh pr create'))).toBe(false)
 
     world.pushed = ''
-    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build submit ${ISSUE.ref}` } as never)
     await settle($, world)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(true)
   })
@@ -1699,9 +1699,9 @@ describe('an errand', () => {
 
     // The person brings the change into the worktree and puts it up for verification
     world.dirty = ' M beacons/gondor/app.py\n'
-    await $.command.run({ command: 'build', args: `commit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build commit ${ISSUE.ref}` } as never)
     await settle($, world)
-    await $.command.run({ command: 'build', args: `submit ${ISSUE.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build submit ${ISSUE.ref}` } as never)
     await settle($, world)
 
     expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/The proof could not be made: the tools were unreachable\.\n\nService builder's account above was written before its change was proven: the person put it up for verification, whose proof says: every changed run is pinned\./)
@@ -1734,7 +1734,7 @@ describe('a review handed over by the review follow-up', () => {
     expect(gitIn(world, TREE).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m Review: Name it burned_seconds/)
 
     // The second comment asks a question: its builder builds nothing and hands it back
-    await $.command.run({ command: 'build', args: 'next' } as never)
+    await $.command.run({ command: 'theseus', args: 'build next' } as never)
     await settle($, world)
     world.dirty = ''
     await ends($, 'builder-service-1', 'Handed back: whether to answer seconds or a timestamp is the author\'s call.')
@@ -1746,7 +1746,7 @@ describe('a review handed over by the review follow-up', () => {
     // The first answer was amended by hand since it was committed: its reply names the commit its branch holds
     world.rewritten = { c0ffee2aaaa: 'feedbee1234567' }
 
-    await $.command.run({ command: 'build', args: 'submit' } as never)
+    await $.command.run({ command: 'theseus', args: 'build submit' } as never)
     await settle($, world)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
     expect(world.ran.some(line => line.startsWith('gh pr create'))).toBe(false)
@@ -1762,7 +1762,7 @@ describe('a review handed over by the review follow-up', () => {
     ])
 
     // Sailed again, no thread is answered twice
-    await $.command.run({ command: 'build', args: `submit review:${REVIEW.ref}` } as never)
+    await $.command.run({ command: 'theseus', args: `build submit review:${REVIEW.ref}` } as never)
     await settle($, world)
     expect(world.ran.filter(line => line.startsWith('gh api graphql') && /ReviewThread/.test(line))).toHaveLength(3)
   })
@@ -1799,7 +1799,7 @@ describe('a review handed over by the review follow-up', () => {
 
     await ends($, 'builder-light-1-1', 'Renamed it.', world)
     await settle($, world)
-    await $.command.run({ command: 'build', args: 'abandon' } as never)
+    await $.command.run({ command: 'theseus', args: 'build abandon' } as never)
     await settle($, world)
 
     expect(world.ran.some(line => line.startsWith('git worktree remove') || line.startsWith('git branch -D'))).toBe(false)
@@ -1814,7 +1814,7 @@ describe('a run named in a command', () => {
     for (const [ref, branch] of [['github:o/r#12', 'build/12-a'], ['github:o/r#2', 'build/2-b'], ['github:a/x#5', 'build/5-c'], ['github:b/y#5', 'build/5-d']]) world.store[`run:${ref}`] = kept(ref ?? '', branch ?? '')
     await start($, world)
 
-    const halt = async (named: string) => String((await $.command.run({ command: 'build', args: `halt ${named}` } as never)).text)
+    const halt = async (named: string) => String((await $.command.run({ command: 'theseus', args: `build halt ${named}` } as never)).text)
 
     expect(await halt('2')).toMatch(/^The run on github:o\/r#2 stops/)
     expect(await halt('#12')).toMatch(/^The run on github:o\/r#12 stops/)
@@ -1924,7 +1924,7 @@ describe('the hand-offs of a task', () => {
     // Fixed, committed, and passed: it is submitted
     world.head = 'f1xed00aaaa'
     world.judgements = ['pass']
-    await $.command.run({ command: 'build', args: 'submit' } as never)
+    await $.command.run({ command: 'theseus', args: 'build submit' } as never)
     await settle($, world)
     expect(world.ran).toContain(`git push -u origin ${BRANCH}`)
   })

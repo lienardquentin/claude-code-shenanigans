@@ -419,7 +419,7 @@ export async function errand(p: Ports, input: string, isAuto: boolean, isPersons
   const issue = await p.parts.readIssue(input)
 
   if ('error' in issue) return issue.error
-  if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person starts on it, with /build errand ${issue.ref} or from the issues pane (/issues).`
+  if (issue.isOutside && !isPersons) return `${issue.ref} was opened by ${issue.author || 'someone'}, from outside the repository (or the forge could not say who can push to it): only the person starts on it, with /theseus build errand ${issue.ref} or from the issues pane (/theseus issues).`
 
   const task = errandTask(issue)
   const spec: Spec = { kind: 'errand', ref: issue.ref, url: issue.url ?? '', title: issue.title ?? '', branch: branchOf({ ref: issue.ref, title: issue.title ?? '' }), isAuto, tasks: [task], checks: verificationOf(issue.body ?? ''), setup: setupOf(issue.body ?? '') }
@@ -1343,7 +1343,7 @@ export async function builderEnded(p: Ports, held: Run, e: BuilderTurn): Promise
     else await p.board.say(held.ref, `${title} hands the comment back (${handed}), but left changes in ${held.tree}: drop them, or commit them from the pane.`)
   } else if (handed !== undefined) {
     await p.runs.keep(held.ref, was => ({ ...was, phase: 'stuck', current: out }))
-    await p.board.say(held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is no errand. ${handed} Abandon it, then plan it with /planner ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the planner pane, then send the task again.`)
+    await p.board.say(held.ref, held.kind === 'errand' ? `${title} hands ${held.ref} back: it is no errand. ${handed} Abandon it, then plan it with /theseus plan ${held.ref}.` : `${title} stops on task ${out.taskId}: the plan must be revised. ${handed} Revise it in the planner pane, then send the task again.`)
     await p.board.tell(`${title} hands ${held.ref} back: ${handed}`)
   } else {
     await p.runs.keep(held.ref, was => ({ ...was, phase: 'proving', current: out }))

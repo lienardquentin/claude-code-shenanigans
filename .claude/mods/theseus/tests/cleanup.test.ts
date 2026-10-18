@@ -123,7 +123,7 @@ const call = async ($: Engine, tool: string) => String((await $.tool.call({ tool
 
 /** Cleans up as the person types it: the command answers at once, and the clock cleans up, telling what came of it. */
 const cleaning = async ($: Engine, world: ReturnType<typeof machine>, args = 'clean'): Promise<string> => {
-  expect((await $.command.run({ command: 'cleanup', args } as never)).text).toMatch(/the pane says/)
+  expect((await $.command.run({ command: 'theseus', args: `cleanup ${args}` } as never)).text).toMatch(/the pane says/)
   await world.clock.advance(600)
 
   return (world.toasts.at(-1) ?? '').replace(/^Cleanup: /, '')
@@ -143,7 +143,7 @@ describe('cleanup', () => {
     await world.clock.advance(31_000)
 
     expect(world.toasts.filter(toast => toast.startsWith('Cleanup'))).toHaveLength(1)
-    expect(await call($, 'mcp__theseus__leftovers')).toMatch(/1 merged, ready to clean up[\s\S]*●[\s\S]*merged\n\nThe person cleans them up with \/cleanup clean/)
+    expect(await call($, 'mcp__theseus__leftovers')).toMatch(/1 merged, ready to clean up[\s\S]*●[\s\S]*merged\n\nThe person cleans them up with \/theseus cleanup clean/)
     expect(world.toasts.filter(toast => toast.startsWith('Cleanup'))).toHaveLength(1)
   })
 
