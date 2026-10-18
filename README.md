@@ -148,34 +148,27 @@ Then open the pane with `/renovate`.
 
 Theseus takes a GitHub or GitLab issue to a reviewed pull request: it plans the issue, writes each task's failing
 tests first, builds it in a worktree of its own, proves every change against what the project does, and has reviewers
-judge it. It is one plugin of the `theseus` marketplace in [`.claude/mods`](.claude/mods), with the `recorder` and the
-`runtime` below, each useful alone. Its own [README](.claude/mods/theseus/README.md) covers the quickstart, how a run
-goes, its commands and options, and troubleshooting; [docs/config.md](docs/config.md) the project file.
+judge it. It lives in its own repository, [lienardquentin/theseus](https://github.com/lienardquentin/theseus), with the `recorder` and the
+`runtime` below, each useful alone; its README covers the quickstart, how a run goes, its commands and options, and
+troubleshooting. This repository is where it is tried: `.claude/theseus.toml` is its project file.
 
 ```
-claude plugin marketplace add <path to this clone>/.claude/mods
+claude plugin marketplace add lienardquentin/theseus
 for mod in theseus recorder runtime; do
   claude plugin install "$mod@theseus"
 done
 ```
 
-Every change to a plugin bumps its `version` (see each plugin's `CHANGELOG.md`): `claude plugin update <plugin>@theseus`
-takes it, then restart Claude Code.
-
-Theseus was the `pipeline` plugin until 0.3.0. Install it from this marketplace and start a session first: it carries
-the plans and runs the pipeline kept, and moves a project's `.pipeline/` to `.theseus/`. Then remove the old marketplace
-(`claude plugin marketplace remove pipeline`).
-
 ### `recorder`
 
 Keeps a record of every run of the command-line tool being written, whoever ran it, and shows them in a pane. It
-lives in [`.claude/mods/recorder`](.claude/mods/recorder), and [`narsil`](narsil) is the tool it is shown on.
+lives in [Theseus's repository](https://github.com/lienardquentin/theseus/tree/main/recorder), and [`narsil`](narsil) is the tool it is shown on.
 
 - A project names what is watched in [`.claude/recorder`](.claude/recorder), a line each:
   `narsil=narsil/target/debug/narsil@narsil` is the name the tool is run by, the built binary a run of it runs, and
   the folder of its source.
 - For each tool the mod writes a launcher of that name in `.recorder/bin`, which hands the run to
-  [`shim/recorder_shim.py`](.claude/mods/recorder/shim/recorder_shim.py). A command of Claude's that names the tool
+  [`shim/recorder_shim.py`](https://github.com/lienardquentin/theseus/blob/main/recorder/shim/recorder_shim.py). A command of Claude's that names the tool
   finds the launcher first on its PATH, and Claude is told to run the tool by its name. For the runs you make in a
   terminal of your own, put the folder first on its PATH: `export PATH="$PWD/.recorder/bin:$PATH"`.
 - The tool runs as it would without the shim: a stream that was a terminal is still one for it, of the same size, so
@@ -208,16 +201,12 @@ lives in [`.claude/mods/recorder`](.claude/mods/recorder), and [`narsil`](narsil
 
 It needs `python3`, and `git` for a comparison, on a POSIX system; it has only been run on Linux. Not recorded: a run made by the binary's path or through `cargo run`, and
 what was typed on stdin. The shim adds about 60 ms to a run, which the recorded duration leaves out. Install it with
-the other [Theseus](#theseus) mods, or alone from a clone:
+the other [Theseus](#theseus) mods, or alone:
 
 ```
-claude plugin marketplace add <path to this clone>/.claude/mods/recorder
-claude plugin install recorder@recorder-mods
+claude plugin marketplace add lienardquentin/theseus
+claude plugin install recorder@theseus
 ```
 
 Then build `narsil` (`cargo build --manifest-path narsil/Cargo.toml`), open the pane with `/recorder`, and run
-`narsil ls`. Tests:
-
-```
-claude plugin test .claude/mods/recorder
-```
+`narsil ls`.

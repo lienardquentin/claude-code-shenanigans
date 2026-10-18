@@ -140,7 +140,7 @@ Anor holds itself ([`anor/app/utils/geography.ts`](anor/app/utils/geography.ts))
 9. **Why a component rendered.** Open the page in a Chrome that listens on a debug port
    ([`docs/remote-browser.md`](../docs/remote-browser.md) opens one), then `c` in the pane, or ask Claude "why
    does the beacon chain keep rendering" (`mcp__runtime__renders`). The runtime mod asks the tab itself, and Anor holds
-   nothing for it ([how](../.claude/mods/runtime/browser/README.md)). The beacons are fetched again every three
+   nothing for it ([how](https://github.com/lienardquentin/theseus/blob/main/runtime/browser/README.md)). The beacons are fetched again every three
    seconds, and every lamp renders each time, lit or not. The view is a tree under each component, with the value
    each state and prop held (`t`), or the page's own elements as they stand (`d`).
 10. **A realm that falls silent.** Stop the launcher: within two minutes the pane says each log is quiet.
