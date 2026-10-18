@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SentAgent } from '../types'
-import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
+import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, linkRefusal, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
 import { offerTools, rootOf, toolFailed } from './flow'
 import { verifyCommand, verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpCommand, followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
@@ -250,7 +250,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const agentId = (e as { agentId?: string }).agentId
     const agent = agentId === undefined ? undefined : (agentOf(agentId) ?? (await lost($, agentId)))
-    const why = (agent === undefined ? undefined : refusalOf(agent, e)) ?? ((await lockRefusal($, e)) || undefined)
+    const why = (agent === undefined ? undefined : (refusalOf(agent, e) ?? (await linkRefusal($, agent, e)))) ?? ((await lockRefusal($, e)) || undefined)
 
     return why === undefined ? next(e) : { deny: why }
   }).catch((_$, e, next) => {

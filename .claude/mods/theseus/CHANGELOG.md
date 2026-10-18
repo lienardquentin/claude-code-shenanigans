@@ -3,6 +3,16 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.11.0
+
+- `docs/security.md` says what each agent may touch, what the guard enforces, what the project's file makes Theseus
+  run, what leaves the machine, and every destructive or outward action with when it asks (#157).
+- The guard follows links: a sent agent's file call whose path leads outside its fence once the machine resolves it
+  (a link made in the worktree) is refused, however the path is spelt.
+- A live stage plays only in a Kubernetes context the project names in `live_contexts`; one it does not is an error of
+  the file and is never touched, nor ever one whose name holds `prod`. The live handler refuses an unnamed context too.
+- The values of a deployed workload's secrets are written `<secret>` in everything the live handler answers.
+
 ## 0.10.0
 
 - The web view (#161): `/theseus ui` starts a server for the session (127.0.0.1 alone, behind a token) and answers its

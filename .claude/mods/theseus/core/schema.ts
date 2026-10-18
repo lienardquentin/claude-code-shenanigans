@@ -17,6 +17,13 @@ export const SCHEMA = {
       },
       "description": "The slash commands that review a settled change, in turn: \"/code-review medium\"."
     },
+    "live_contexts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The Kubernetes contexts a target's live stage may play in: verify reads from and runs in no other, and never in one whose name holds prod."
+    },
     "standards": {
       "type": "array",
       "items": {

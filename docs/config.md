@@ -54,6 +54,7 @@ This repository's own [`.claude/theseus.toml`](../.claude/theseus.toml) uses eve
 |---|---|---|
 | `review` | list of strings | The slash commands that review a settled change, in turn, each with what follows its name: `"/code-review medium"`. |
 | `standards` | list of strings | Files of written standards, from the project's folder, handed to every reviewer and builder. A run's branch never changes them. |
+| `live_contexts` | list of strings | The Kubernetes contexts a target's live stage may play in. A live stage in any other context is an error of the file and is never played; one whose name holds `prod` never is, listed or not. |
 | `targets` | tables | Each thing the project builds, under its name: `[targets.<name>]`. |
 
 ### A target: `[targets.<name>]`
@@ -94,7 +95,9 @@ Docker.
 ### Where it is deployed: `[targets.<name>.live]`
 
 While the service runs in a cluster, both builds are played again against its real dependencies, reached by
-port-forward, with the deployed workload's own variables. A context whose name holds `prod` is refused. Needs kubectl.
+port-forward, with the deployed workload's own variables. Its context must be named in `live_contexts`, and one whose
+name holds `prod` is refused whatever the list says. The values of the workload's secrets are written `<secret>` in
+everything the live stage answers. Needs kubectl.
 
 | Key | Type | What it does |
 |---|---|---|

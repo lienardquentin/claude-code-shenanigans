@@ -1,6 +1,6 @@
 {
   "name": "theseus",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Takes an issue, or a pull request's review, to committed and reviewed work: it plans the issue, writes the tests first, builds it task by task in a worktree of its own, proves and reviews each change, answers review, and cleans up what is merged",
   "author": {
     "name": "lienardquentin",

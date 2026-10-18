@@ -38,7 +38,7 @@ const TARGET_KEYS = {
 const DB_KEYS = { image: 'string', env: 'string', setup: 'string' } as const
 const READY_KEYS = { request: 'string', match: 'string' } as const
 const LIVE_KEYS = { workload: 'string', forward: 'strings', env: 'strings by name', db: 'string', before: 'string', cleanup: 'strings', restore: 'string', scratch: 'string' } as const
-const TOP_KEYS = { review: 'strings', standards: 'strings', targets: 'table' } as const
+const TOP_KEYS = { review: 'strings', live_contexts: 'strings', standards: 'strings', targets: 'table' } as const
 
 /** The keys of the file, at each level, as the JSON Schema has them: a test holds the two the same. */
 export const KEYS = { top: TOP_KEYS, target: TARGET_KEYS, db: DB_KEYS, ready: READY_KEYS, live: LIVE_KEYS } as const
@@ -148,6 +148,17 @@ export const projectOfToml = (text: string, cwd: string): Project => {
     return [{ command: found[1] ?? '', args: (found[2] ?? '').trim() }]
   })
 
+  // A live stage is played only in a context the project names, whatever the target says
+  const contexts = strings(read.value, 'live_contexts')
+
+  for (const target of targets) {
+    const live = target.live
+
+    if (live === null) continue
+    live.isAllowed = contexts.includes(live.workload.split('/')[0] ?? '')
+    if (!live.isAllowed) errors.push(`${where(`targets.${target.label}.live`)}: targets.${target.label}.live plays in ${live.workload.split('/')[0] ?? ''}, which live_contexts does not name: name it there for verify to touch it`)
+  }
+
   return { targets, reviews, standards: strings(read.value, 'standards'), errors, file: CONFIG_FILE }
 }
 
@@ -198,6 +209,10 @@ export const projectToml = (project: Pick<Project, 'targets' | 'reviews' | 'stan
 
   if (project.reviews.length > 0) lines.push(`review = ${list(project.reviews.map(one => `/${one.command}${one.args === '' ? '' : ` ${one.args}`}`))}`)
   if (project.standards.length > 0) lines.push(`standards = ${list(project.standards)}`)
+
+  const contexts = [...new Set(project.targets.flatMap(target => (target.live === null ? [] : [target.live.workload.split('/')[0] ?? ''])))].filter(one => one !== '')
+
+  if (contexts.length > 0) lines.push('# The Kubernetes contexts a live stage may play in: verify touches no other', `live_contexts = ${list(contexts)}`)
 
   for (const target of project.targets) {
     const label = /^[A-Za-z0-9_-]+$/.test(target.label) ? target.label : tomlString(target.label)

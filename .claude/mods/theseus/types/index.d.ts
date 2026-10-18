@@ -423,6 +423,8 @@ export type Database = {
 export type LiveStage = {
   /** The workload, `context/namespace/kind/name`: its environment is the one played with. A context naming prod is refused. */
   workload: string
+  /** Whether the project names its context in `live_contexts`: one it does not is never touched. */
+  isAllowed?: boolean
   /** The services reached through a port-forward, `service:port`; the workload's variables are pointed at the forwarded ones. */
   forward: string[]
   /** What is laid over the workload's variables. */
