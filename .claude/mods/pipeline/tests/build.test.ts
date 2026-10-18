@@ -1381,7 +1381,7 @@ describe('build', () => {
 
     expect(world.spawned).toHaveLength(2)
     expect(gitIn(world, TREE)).toContain(`git push -u origin ${BRANCH}`)
-    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/--base main --head build\/12-.*\(Light builder 1\)[\s\S]*\(Service builder\)[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/s)
+    expect(world.ran.find(line => line.startsWith('gh pr create'))).toMatch(/--base main --head build\/12-.*\(Light builder 1, \d+ min\)[\s\S]*\(Service builder, \d+ min\)[\s\S]*Closes lienardquentin\/claude-code-shenanigans#12/s)
     expect(await call($, 'mcp__pipeline__run')).toMatch(/: submitted[\s\S]*Pull request: https:\/\/github\.com\/.*\/pull\/13/)
   })
 

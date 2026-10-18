@@ -59,6 +59,14 @@ export type ReviewComment = { id: string; author: string; path: string; line: nu
 /** A pull request's open review, and what of it could not be read. */
 export type Review = { pr: PullRequest; comments: ReviewComment[]; unread: string[] }
 
+/** A check that fails on a pull request: its name, where to see it, and the end of its log, as data. */
+export type FailingCheck = { name: string; url: string; log: string }
+
+// How much of a failing check's log is kept: its end, where a failure says itself
+const LOG_TAIL = 3_000
+
+const tailOf = (log: string): string => (log.length > LOG_TAIL ? `…${log.slice(-LOG_TAIL)}` : log).trim()
+
 /** A pull request to open from a branch onto another. */
 export type NewRequest = { branch: string; base: string; title: string; body: string }
 
@@ -81,6 +89,8 @@ export type Forge = {
   readReview: (repo: string, number: number) => Promise<Review | string>
   /** Opens a pull request from a branch already pushed: its URL. */
   openRequest: (request: NewRequest) => Promise<{ url: string } | string>
+  /** The checks that fail on a pull request (GitHub checks, the jobs of a GitLab merge request's last pipeline), each with the end of its log where the forge gave it. */
+  failingChecks: (repo: string, number: number) => Promise<FailingCheck[] | string>
   /** Opens an issue in a repository: its URL and number. */
   openIssue: (repo: Repo, title: string, body: string) => Promise<{ url: string; number: number } | string>
   /** Replies to a review thread of pull request `number` in the repository the shell runs in. */
@@ -523,6 +533,17 @@ export const parseGitlabReview = (request: string, discussions: string, repo: st
   }
 }
 
+/** A JSON list of objects, as a CLI printed it; nothing where it printed none. */
+const jsonList = (said: string): Record<string, unknown>[] | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(said)
+
+    return Array.isArray(parsed) ? parsed.filter((one): one is Record<string, unknown> => typeof one === 'object' && one !== null) : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** The issue a CLI opened, by the address it printed (`/issues/12`, `/-/issues/12` on GitLab); why there is none. */
 const openedIssue = (opened: Ran, cli: 'gh' | 'glab'): { url: string; number: number } | string => {
   const url = printedUrl(opened.stdout)
@@ -583,6 +604,26 @@ export const github = (shell: Shell): Forge => ({
     const opened = await shell.run(['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body], { timeoutMs: SLOW_TIMEOUT_MS })
 
     return opened.exitCode === 0 ? { url: printedUrl(opened.stdout) } : `The pull request could not be opened: gh said ${(opened.stderr || opened.stdout).trim() || 'nothing'}`
+  },
+
+  async failingChecks(repo, number) {
+    // gh answers 1 where a check fails and 8 where one is pending: what it printed says which
+    const got = await shell.run(['gh', 'pr', 'checks', String(number), '--repo', repo, '--json', 'name,bucket,link'], { timeoutMs: READ_TIMEOUT_MS })
+    const checks = jsonList(got.stdout)
+
+    if (checks === undefined) return got.exitCode !== 0 && /no checks/i.test(got.stderr) ? [] : `gh could not read the checks of ${repo}#${number}: ${lastLine(got.stderr || got.stdout)}`
+
+    const failing = checks.filter(one => one.bucket === 'fail')
+
+    return Promise.all(
+      failing.map(async one => {
+        const url = typeof one.link === 'string' ? one.link : ''
+        const job = /\/actions\/runs\/\d+\/job\/(\d+)/.exec(url)?.[1]
+        const log = job === undefined ? undefined : await shell.run(['gh', 'run', 'view', '--repo', repo, '--job', job, '--log-failed'], { timeoutMs: SLOW_TIMEOUT_MS })
+
+        return { name: typeof one.name === 'string' ? one.name : 'a check', url, log: log?.exitCode === 0 ? tailOf(log.stdout) : '' }
+      }),
+    )
   },
 
   async openIssue(repo, title, body) {
@@ -658,6 +699,28 @@ export const gitlab = (shell: Shell): Forge => ({
     const opened = await shell.run(['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes'], { timeoutMs: SLOW_TIMEOUT_MS })
 
     return opened.exitCode === 0 ? { url: printedUrl(opened.stdout) } : `The pull request could not be opened: glab said ${(opened.stderr || opened.stdout).trim() || 'nothing'}`
+  },
+
+  async failingChecks(repo, number) {
+    const project = encodeURIComponent(repo)
+    const pipelines = await shell.run(['glab', 'api', `projects/${project}/merge_requests/${number}/pipelines`], { timeoutMs: READ_TIMEOUT_MS })
+    const last = jsonList(pipelines.stdout)?.[0]
+
+    if (pipelines.exitCode !== 0) return `glab could not read the pipelines of ${repo}!${number}: ${lastLine(pipelines.stderr || pipelines.stdout)}`
+    if (last === undefined || typeof last.id !== 'number') return []
+
+    const jobs = await shell.run(['glab', 'api', `projects/${project}/pipelines/${last.id}/jobs?scope[]=failed`], { timeoutMs: READ_TIMEOUT_MS })
+    const failed = jsonList(jobs.stdout)
+
+    if (jobs.exitCode !== 0 || failed === undefined) return `glab could not read the jobs of pipeline ${last.id}: ${lastLine(jobs.stderr || jobs.stdout)}`
+
+    return Promise.all(
+      failed.map(async one => {
+        const trace = typeof one.id === 'number' ? await shell.run(['glab', 'api', `projects/${project}/jobs/${one.id}/trace`], { timeoutMs: SLOW_TIMEOUT_MS }) : undefined
+
+        return { name: typeof one.name === 'string' ? one.name : 'a job', url: typeof one.web_url === 'string' ? one.web_url : '', log: trace?.exitCode === 0 ? tailOf(trace.stdout) : '' }
+      }),
+    )
   },
 
   async openIssue(repo, title, body) {

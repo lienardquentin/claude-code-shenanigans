@@ -260,6 +260,12 @@ export type RunCommit = {
   proof?: string
   /** Whether the person put it up for verification after its builder was back: the builder's account came before the proof. */
   isPutBefore?: boolean
+  /** How long its task took, from its builder sent to its commit, in milliseconds. */
+  took?: number
+  /** The files it changed that its task did not name. */
+  outside?: string[]
+  /** What its builder's checklist left unticked. */
+  unticked?: string[]
 }
 
 /** A run:its work taken to a pull request (or a push), one committed task at a time, in a git worktree of its own. */

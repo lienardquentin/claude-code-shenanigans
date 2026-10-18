@@ -116,6 +116,8 @@ export interface Parts {
   targetsKnown(): Promise<TargetFolders[]>
   standardsText(): Promise<string>
   isMergedFrom(url: string, branch?: string): Promise<boolean>
+  /** What a run's agents have cost, in a few lines; empty where nothing was counted to it. */
+  spentOn(held: Run): Promise<string>
   /** Settles a plan for an auto run: its questions answered and its risks accepted alone, each listed. */
   settleAlone(ref: string): Promise<IssuePlan | null>
 }
@@ -717,6 +719,13 @@ const noProofFor = (spec: Spec): string =>
       : 'Add a `## Verification` section to the issue, a command a line (its tests, its linter), and `## Setup` for what a fresh worktree needs. Or name what the project builds in .claude/verify.',
   ].join(' ')
 
+/** What a builder's answer left unticked: each `- [ ]` item of a checklist it wrote. */
+const untickedOf = (answer: string): string[] =>
+  answer
+    .split('\n')
+    .map(line => /^\s*[-*]\s+\[ \]\s+(.+)$/.exec(line)?.[1]?.trim() ?? '')
+    .filter(item => item !== '')
+
 /** Proves what a builder built: settled, the reviewers are sent to judge it; else the task goes up a rung. */
 export async function prove(p: Ports, ref: string): Promise<void> {
   const held = await p.runs.at(ref)
@@ -883,13 +892,18 @@ export async function commitNow(p: Ports, ref: string, minor: readonly string[])
 
   // A task that needed no change is done with no commit
   const sha = committed.kind === 'committed' ? committed.sha : ''
+  // What the pull request says of the task: how long it took, what it changed beyond its files, what its builder left undone
+  const written = sha === '' ? [] : (await gitAt(p, ['show', '--name-only', '--format=', sha], held.tree)).out.split('\n').map(one => one.trim()).filter(one => one !== '')
+  const outside = written.filter(file => !task.files.includes(file))
+  const unticked = untickedOf(out.answer)
+  const told = { took: Math.max(p.clock.now() - out.at, 0), ...(outside.length > 0 ? { outside } : {}), ...(unticked.length > 0 ? { unticked } : {}) }
 
   // A lane's commit is its run's once it lands on the run's branch
-  if (held.lane !== undefined) return land(p, ref, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: held.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) })
+  if (held.lane !== undefined) return land(p, ref, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: held.proofLine, ...told, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) })
 
   await mark(p, held, task.id, 'done')
 
-  const after = await p.runs.keep(ref, was => ({ ...was, phase: 'ready', current: null, testsToPass: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isBranchReviewed: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: was.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) }] }))
+  const after = await p.runs.keep(ref, was => ({ ...was, phase: 'ready', current: null, testsToPass: null, proof: '', proofLine: '', verdictLine: '', unproven: [], isBranchReviewed: false, commits: [...was.commits, { taskId: task.id, title: task.title, sha, by, ...told, minor: [...minor], unproven: [...unproven], answer: out.answer, proof: was.proofLine, ...(out.isPutBefore === true ? { isPutBefore: true } : {}) }] }))
   const left = after === null ? made : await workOf(p, after)
   const isArrived = typeof left !== 'string' && isAllDone(left)
   const said = `Task ${task.id} of ${ref}, "${task.title}", built by ${by}, passed verification and is committed${sha === '' ? ' (it changed nothing, so it is marked done with no commit)' : ` as ${sha.slice(0, 7)}`}.`
@@ -1237,7 +1251,7 @@ export async function sail(p: Ports, ref: string): Promise<string> {
 
   await p.board.working(ref, `Pushing ${held.branch} and opening the pull request…`)
 
-  const { forge, request } = requestOf(held, made)
+  const { forge, request } = requestOf(held, made, await p.parts.spentOn(held).catch(() => ''))
   const opened = await openAt(p, forge, request, held.tree)
 
   if (typeof opened !== 'object') return opened
