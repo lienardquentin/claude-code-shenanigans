@@ -3,6 +3,12 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 1.0.2
+
+- The check that an installed copy lags its source compares it with the folder the theseus marketplace was added
+  from, read from Claude Code's own record, and only when that is a folder on this machine. It compared with the open
+  project's `.claude/mods`, so in any other project every Theseus plugin was said to be gone from it.
+
 ## 1.0.1
 
 - The planner's notice of a plan Claude asked for, which waits for the session to be idle, is dropped once Claude has

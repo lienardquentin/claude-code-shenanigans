@@ -1,0 +1,10 @@
+{"version":"1.0.2","at":"2026-10-18T14:17:25.433Z","case":"doctor","score":1,"runs":1,"cost":0.0905203}
+{"version":"1.0.2","at":"2026-10-18T14:17:25.433Z","case":"errand-bugfix","score":1,"runs":1,"cost":0.18347379999999996}
+{"version":"1.0.2","at":"2026-10-18T14:17:25.433Z","case":"init","score":1,"runs":1,"cost":0}
+{"version":"1.0.2","at":"2026-10-18T14:17:25.433Z","case":"plan-auto","score":1,"runs":1,"cost":0.634985755}
+{"version":"1.0.2","at":"2026-10-18T14:17:25.433Z","case":"tests-first","score":0.8,"runs":1,"cost":0.1733997}
+{"version":"1.0.2","at":"2026-10-18T14:25:09.022Z","case":"doctor","score":1,"runs":1,"cost":0.0897773}
+{"version":"1.0.2","at":"2026-10-18T14:25:09.022Z","case":"errand-bugfix","score":1,"runs":1,"cost":0.1705883}
+{"version":"1.0.2","at":"2026-10-18T14:25:09.022Z","case":"init","score":1,"runs":1,"cost":0}
+{"version":"1.0.2","at":"2026-10-18T14:25:09.022Z","case":"plan-auto","score":1,"runs":1,"cost":0.7110061200000001}
+{"version":"1.0.2","at":"2026-10-18T14:25:09.022Z","case":"tests-first","score":1,"runs":1,"cost":0.16314900000000004}
