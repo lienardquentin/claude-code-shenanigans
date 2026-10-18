@@ -580,6 +580,8 @@ const machine = (on: On) => {
 
     return { value: undefined } as never
   })
+  // The runs' logs, the one folder of the project a test lists
+  on('fs.list', (_, e) => ({ value: Object.keys(world.logs).filter(path => path.startsWith(`${e.path}/`)).map(path => ({ name: path.slice(e.path.length + 1), kind: 'file' })) }) as never)
   // The project's file is the line format, in the project's folder alone
   on('fs.exists', (_, e) =>
     /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : e.path.startsWith(`${CWD}/.theseus/runs/`) ? ({ value: e.path in world.logs }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
@@ -930,6 +932,10 @@ describe('build', () => {
     // The pane shows the run's last events under its standing
     await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'build' })
     expect(await call($, 'mcp__theseus__pane', { pane: 'build' })).toMatch(/History\n\s*[\d:]+(?: [AP]M)? Started a plan on build\/12-[\s\S]*[\d:]+(?: [AP]M)? Sent Light builder 1 on task 1/)
+
+    // The graph says each task and its steps, and the history the run, under way
+    expect((await $.command.run({ command: 'theseus', args: 'graph' } as never)).text).toMatch(/1\. Keep when a beacon is lit\n\s+– tests  ◐ build  · prove  · review  · commit · Light builder 1[\s\S]*Abandon the run: \/theseus build abandon github:/)
+    expect((await $.command.run({ command: 'theseus', args: 'history' } as never)).text).toMatch(/^under way\s+github:lienardquentin\/claude-code-shenanigans#12 · 0 tasks committed/)
   })
 
   test('offers Claude no tool that pushes or opens a pull request: the person is submitted', async ($, on) => {

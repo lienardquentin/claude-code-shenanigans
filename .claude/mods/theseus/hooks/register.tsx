@@ -6,7 +6,7 @@ import { offerTools, rootOf, toolFailed } from './flow'
 import { verifyCommand, verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpCommand, followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { planCommand, plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
-import { buildCommand, endedBuild, buildView, runLeftovers, runLog, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
+import { buildCommand, endedBuild, buildView, graphCommand, graphView, historyText, runLeftovers, runLog, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
 import { endedTestsFirst, testsCommand, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupCommand, cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesCommand, issuesView, registerIssues, startIssues } from './issues/register'
@@ -30,6 +30,7 @@ const PANES = {
   issues: issuesView,
   plan: plannerView,
   build: buildView,
+  graph: graphView,
   tests: testsFirstView,
   verify: verifyView,
   'follow-up': followUpView,
@@ -43,6 +44,8 @@ const OLD_PANES: Record<string, keyof typeof PANES> = { planner: 'plan', 'tests-
 const VERBS = {
   plan: { usage: 'plan <issue | idea> [--again] [--auto]', does: 'plan an issue, or grill an idea into one; alone, the plan' },
   build: { usage: 'build [--auto] | errand <issue> | next | commit | submit | halt | abandon [run]', does: 'build the plan in a worktree, task by task; alone, the runs' },
+  graph: { usage: 'graph [run]', does: 'a run as its graph: each task, its steps, who builds it, and what you can do' },
+  history: { usage: 'history', does: 'every run with a log: how it ended, how long it took, its pull request' },
   tests: { usage: 'tests [<behaviour>]', does: 'write the failing tests of a behaviour first; alone, those written' },
   verify: { usage: 'verify', does: 'the proof of the uncommitted change' },
   'follow-up': { usage: 'follow-up <pr> | answer [--auto] | close', does: "answer a pull request's review and failing checks" },
@@ -70,6 +73,10 @@ async function answerOf($: EngineInterface, verb: keyof typeof VERBS, args: stri
       return cleanupCommand($, args)
     case 'issues':
       return issuesCommand($, args)
+    case 'graph':
+      return graphCommand($, args)
+    case 'history':
+      return { text: await historyText($) }
     case 'log':
       return { text: await logOf($, args.trim()) }
     case 'doctor':
@@ -122,8 +129,8 @@ async function statusOf($: EngineInterface): Promise<string> {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person now, or showed last. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session, `doctor` what Theseus needs here and what is missing. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
-  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles', 'doctor'] } }, required: ['pane'] },
+    'Reads one of the side panes as text: what it shows the person now, or showed last. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `graph` a run as its tasks and their steps, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session, `doctor` what Theseus needs here and what is missing, `history` every run with a log. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
+  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles', 'doctor', 'history'] } }, required: ['pane'] },
 } as const
 
 /**
@@ -284,6 +291,7 @@ export const register: Register = (on, options) => {
 
     if (named === 'troubles') return { result: troublesText() }
     if (named === 'doctor') return { result: doctorText(await doctorOf($)) }
+    if (named === 'history') return { result: await historyText($) }
 
     const pane = OLD_PANES[named] ?? named
 

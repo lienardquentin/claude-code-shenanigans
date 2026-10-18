@@ -3,6 +3,16 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.9.0
+
+- A run's view model (#160, `core/view.ts`): the run, each task as a node of its graph with its five steps, who builds
+  it, its commit or why it waits, and the actions open on it. Every view draws from it and derives nothing itself; a
+  test fails when a field of the model is drawn by no view and not left out on purpose.
+- `/theseus graph [run]` and the "Run graph" pane draw a run as its graph; picking a task shows its events, and the
+  pane's buttons do the run's actions. `/theseus history` lists every run with a log.
+- One dispatcher for every action a view offers (`dispatch`), through the verb of `/theseus build` it names; a new verb,
+  `/theseus build go [run]`, has a run go on by itself.
+
 ## 0.8.1
 
 - The three largest core modules are split by phase and concern, with no change in behaviour (#155): the build's

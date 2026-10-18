@@ -19,7 +19,9 @@ import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spen
 import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
-import { eventsOf, logLines, logPathOf, parseLog } from '../../core/events'
+import { RUNS_DIR, eventsOf, logLines, logPathOf, parseLog } from '../../core/events'
+import { ACTION_VERB, durationOf, graphLines, historyLines, historyOf, runView, stepsLine } from '../../core/view'
+import type { Action, RunView, TaskView } from '../../core/view'
 import type { Cause, RunEvent } from '../../core/events'
 import { inTurn } from '../../core/kit'
 import { startRefusal } from '../doctor'
@@ -44,6 +46,10 @@ const selected = atom({ plugin: 'theseus', key: 'buildSelected' } as const, '')
 const spent = atom({ plugin: 'theseus', key: 'buildSpent' } as const, {} as Record<string, string>)
 
 export const buildView = paneView({ id: PANE, title: TITLE, command: '/theseus build' })
+
+const GRAPH = 'graph'
+export const graphView = paneView({ id: GRAPH, title: 'Run graph', command: '/theseus graph' })
+const graphTask = atom({ plugin: 'theseus', key: 'buildGraphTask' } as const, {} as Record<string, number>)
 const view = buildView
 
 // Where the runs stop spending, as the person set it on the mod
@@ -649,6 +655,59 @@ export async function builderFound($: $, agentId: string): Promise<SentAgent | u
   return { role: 'builder', root: await rootOf($), tree: held.tree, files: [...(task?.files ?? [])], ref: issueRefOf(held) }
 }
 
+/** A run as every view draws it: the run, its work, its lanes and its log. */
+export async function viewOf($: $, ref: string): Promise<RunView | null> {
+  const held = await runAt($, ref)
+
+  if (held === null) return null
+
+  return runView(held, (await read($, plans))[ref] ?? null, await loop.lanesOf(portsOf($), ref), parseLog(await runLog($, ref)).events)
+}
+
+/** The run a view is asked of: the one named (by its ref, its number or its branch), else the one shown, else the latest. */
+async function runNamed($: $, named: string): Promise<Run | null> {
+  const all = Object.values(await read($, quests)).filter(one => one.lane === undefined).sort((one, other) => other.at - one.at)
+
+  if (named !== '') return all.find(one => one.ref === named || one.ref.endsWith(named) || one.branch === named) ?? null
+
+  const shown = await read($, selected)
+
+  return all.find(one => one.ref === shown) ?? all[0] ?? null
+}
+
+/** `/theseus graph [run]`: a run as its graph, in the pane and in the answer. */
+export async function graphCommand($: $, args: string): Promise<{ text: string }> {
+  const held = await runNamed($, args.trim())
+
+  await openPane($, GRAPH, 'Run graph')
+  if (held === null) return { text: args.trim() === '' ? 'No run is under way.' : `No run on ${args.trim()} is under way.` }
+
+  await update($, selected, () => held.ref)
+  const view = await viewOf($, held.ref)
+
+  return { text: view === null ? `No run on ${held.ref} is under way.` : graphLines(view, Date.now(), clockOf).join('\n') }
+}
+
+/** Every run the logs under .theseus/runs/ hold, the latest first, as /theseus history says them. */
+export async function historyText($: $): Promise<string> {
+  const folder = `${await rootOf($)}/${RUNS_DIR}`
+  const files = (await $.fs.exists(folder)) ? (await $.fs.list(folder)).filter(one => one.kind === 'file' && one.name.endsWith('.jsonl')) : []
+  const logs: { ref: string; events: ReturnType<typeof parseLog>['events'] }[] = []
+
+  for (const file of files) {
+    const { events } = parseLog(String(await $.fs.read(`${folder}/${file.name}`)))
+
+    logs.push({ ref: events[0]?.ref ?? file.name.replace(/\.jsonl$/, ''), events })
+  }
+
+  return historyLines(historyOf(logs), clockOf).join('\n')
+}
+
+/** Does an action a view offers on a run: the one dispatcher, through the verb of /theseus build it names. */
+export async function dispatch($: $, ref: string, action: Action['id']): Promise<string> {
+  return (await buildCommand($, `${ACTION_VERB[action]} ${ref}`)).text
+}
+
 /** `/theseus build`: Builds the plan in force, an errand or a review task by task in a worktree. */
 export async function buildCommand($: $, args: string): Promise<{ text: string }> {
   entry = 'command'
@@ -703,6 +762,16 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     return { text: `Abandoning the run on ${held.ref}. The build pane shows when it is done.` }
   }
 
+  if (verb === 'go') {
+    await keep($, held.ref, was => ({ ...was, isAuto: true }))
+    if (held.phase === 'ready') {
+      await want($, held.ref, 'next')
+      await pumpBuild($, held.ref)
+    }
+
+    return { text: `The run on ${held.ref} goes on by itself now, to its pull request.` }
+  }
+
   if (verb === 'halt') {
     await keep($, held.ref, was => ({ ...was, isAuto: false }))
 
@@ -732,7 +801,7 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     return { text: `Submitting ${held.ref}: its whole branch is reviewed, then pushed and its pull request opened. The build pane shows its progress.` }
   }
 
-  return { text: `/theseus build does not know ${verb}. It takes start [--auto], errand <issue>, next, commit, submit, halt or abandon, each with a run's ref or branch.` }
+  return { text: `/theseus build does not know ${verb}. It takes start [--auto], errand <issue>, next, commit, submit, go, halt or abandon, each with a run's ref or branch.` }
 }
 
 export function registerBuild(on: On): void {
@@ -1008,4 +1077,73 @@ export function registerBuild(on: On): void {
       width,
     )
   })
+
+  // The run graph: the run shown as its tasks, each with its steps, the one picked in full, and the run's actions
+  on('ui.render', { component: 'Pane', requestId: GRAPH }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const width = e.props.bodyColumns ?? 80
+    const held = await runNamed($, '')
+
+    if (held === null) return graphView.keep(<Text dimColor>No run is under way. /theseus build starts one; this pane draws it as its tasks.</Text>, width)
+
+    const shown = await viewOf($, held.ref)
+
+    if (shown === null) return graphView.keep(<Text dimColor>{`No run on ${held.ref} is under way.`}</Text>, width)
+
+    const view: RunView = shown
+    const pickedId = (await read($, graphTask))[view.ref]
+    const picked = view.tasks.find(task => task.id === pickedId)
+    const now = Date.now()
+    const tone = (task: TaskView): 'success' | 'warning' | 'error' | 'suggestion' | undefined =>
+      task.standing === 'done' ? 'success' : task.standing === 'stopped' ? 'error' : task.standing === 'waiting' || task.standing === 'handed back' ? 'warning' : task.standing === 'running' ? 'suggestion' : undefined
+    const [title = '', head = '', ...rest] = graphLines({ ...view, tasks: [], actions: [] }, now, clockOf)
+
+    return graphView.keep(
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column">
+          <Text bold>{clip(title, width)}</Text>
+          <Text dimColor>{clip(head, width)}</Text>
+          {rest.filter(line => line !== '').map((line, at) => (
+            <Text key={`head-${at}`} color="warning">{line}</Text>
+          ))}
+        </Box>
+        <Box flexDirection="column">
+          {view.tasks.map(task => (
+            <Box key={`task-${task.id}`} flexDirection="column" paddingLeft={task.depth * 2}>
+              <Button key={`pick-${task.id}`} plain onPress={() => update($, graphTask, was => ({ ...was, [view.ref]: task.id })).then(() => undefined)}>
+                {clip(`${picked?.id === task.id ? '▸ ' : ''}${task.id}. ${task.title}${task.isLane ? ' (lane)' : ''}`, width - task.depth * 2)}
+              </Button>
+              <Text color={tone(task)}>{clip(`${stepsLine(task.steps)}${task.builder !== '' ? ` · ${task.builder}${task.attempt > 1 ? `, try ${task.attempt}` : ''}` : ''}${task.sha !== '' ? ` · ${task.sha}` : task.why !== '' ? ` · ${task.why}` : ''}`, width - task.depth * 2)}</Text>
+            </Box>
+          ))}
+        </Box>
+        {picked !== undefined && (
+          <Box flexDirection="column">
+            <Text bold>{`Task ${picked.id}: ${picked.standing}${picked.sentAt > 0 ? ` · ${durationOf((picked.doneAt > 0 ? picked.doneAt : now) - picked.sentAt)}` : ''}`}</Text>
+            {view.events.filter(event => event.task === picked.id || (event.kind === 'note' && event.text.includes(`task ${picked.id}`))).slice(-8).map((event, at) => (
+              <Text key={`detail-${at}`} dimColor={event.kind === 'note'}>{clip(`${clockOf(event.at)} ${event.text}`, width)}</Text>
+            ))}
+          </Box>
+        )}
+        {view.actions.length > 0 && (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {view.actions.map(action => (
+              <Button
+                key={`action-${action.id}`}
+                onPress={() => {
+                  entry = 'press'
+
+                  return dispatch($, view.ref, action.id).then(text => say($, view.ref, text))
+                }}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </Box>
+        )}
+      </Box>,
+      width,
+    )
+  })
+
 }

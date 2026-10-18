@@ -750,6 +750,8 @@ declare module 'claude-code' {
       buildWanted: { ref: string; what: RunAsk; arg?: string }[]
       /** The run the pane shows and a command acts on when it names none, by its ref. */
       buildSelected: string
+      /** The task the run graph shows in full, by the run's ref; none where none was picked. */
+      buildGraphTask: Record<string, number>
       /** What each run's agents have cost so far, in a line, by its ref: the pane shows it without reading the record. */
       buildSpent: Record<string, string>
 

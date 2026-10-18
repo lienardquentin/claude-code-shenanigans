@@ -33,7 +33,8 @@ export const RUNS_DIR = '.theseus/runs'
 /** The log of a run, under the project's folder. */
 export const logPathOf = (root: string, ref: string): string => `${root.replace(/\/+$/, '')}/${RUNS_DIR}/${ref.replace(/[^A-Za-z0-9._-]+/g, '-')}.jsonl`
 
-const PHASE_SAID: Record<RunPhase, string> = {
+/** Each phase in words, as the logs and the views say it. */
+export const PHASE_SAID: Record<RunPhase, string> = {
   ready: 'ready for its next task',
   'writing-tests': 'writing tests first',
   building: 'building',
