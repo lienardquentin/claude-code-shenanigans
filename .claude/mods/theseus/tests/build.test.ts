@@ -576,7 +576,7 @@ const machine = (on: On) => {
   on('env.get', () => ({ value: undefined }) as never)
   on('fs.write', (_, e) => {
     if (e.path === `${CWD}/.theseus/spend.jsonl`) world.spend = e.text
-    if (e.path.startsWith(`${CWD}/.theseus/runs/`)) world.logs[e.path] = e.text
+    if (/^\/proj\/\.theseus\/(runs|views|reports)\/|^\/proj\/\.theseus\/requests/.test(e.path)) world.logs[e.path] = e.text
 
     return { value: undefined } as never
   })
@@ -584,7 +584,7 @@ const machine = (on: On) => {
   on('fs.list', (_, e) => ({ value: Object.keys(world.logs).filter(path => path.startsWith(`${e.path}/`)).map(path => ({ name: path.slice(e.path.length + 1), kind: 'file' })) }) as never)
   // The project's file is the line format, in the project's folder alone
   on('fs.exists', (_, e) =>
-    /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : e.path.startsWith(`${CWD}/.theseus/runs/`) ? ({ value: e.path in world.logs }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
+    /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : /^\/proj\/\.theseus\/(runs|views|requests)/.test(e.path) ? ({ value: e.path in world.logs || Object.keys(world.logs).some(path => path.startsWith(`${e.path}/`)) }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
   )
   on('fs.read', (_, e) => {
     if (e.path === `${CWD}/.claude/verify`) return { value: PROJECT } as never
@@ -629,6 +629,18 @@ const machine = (on: On) => {
     if (line.startsWith('git diff -U0')) return answer(world.wrote ? ['diff --git a/beacons/tests/test_gondor.py b/beacons/tests/test_gondor.py', '--- a/beacons/tests/test_gondor.py', '+++ b/beacons/tests/test_gondor.py', '@@ -3,0 +4,3 @@', ...LOCKED.map(one => `+${one}`)].join('\n') : '')
 
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
+    // The web view's requests, moved aside and removed as the clock takes them
+    if (e.argv[0] === 'mv' && (e.argv[1] ?? '') in world.logs) {
+      world.logs[e.argv[2] ?? ''] = world.logs[e.argv[1] ?? ''] ?? ''
+      delete world.logs[e.argv[1] ?? '']
+
+      return answer('')
+    }
+    if (e.argv[0] === 'rm') {
+      for (const path of e.argv.slice(2)) delete world.logs[path]
+
+      return answer('')
+    }
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
     if (line === 'git rev-parse --abbrev-ref HEAD') return answer(`${cwd === CWD ? world.branch : (world.worktrees.find(one => one.path === cwd)?.branch ?? '')}\n`)
     if (line.startsWith('git config --show-origin --get-regexp ')) return answer(world.gitRuns, world.gitRuns === '' ? 1 : 0)
@@ -936,6 +948,28 @@ describe('build', () => {
     // The graph says each task and its steps, and the history the run, under way
     expect((await $.command.run({ command: 'theseus', args: 'graph' } as never)).text).toMatch(/1\. Keep when a beacon is lit\n\s+– tests  ◐ build  · prove  · review  · commit · Light builder 1[\s\S]*Abandon the run: \/theseus build abandon github:/)
     expect((await $.command.run({ command: 'theseus', args: 'history' } as never)).text).toMatch(/^under way\s+github:lienardquentin\/claude-code-shenanigans#12 · 0 tasks committed/)
+  })
+
+  test('keeps each view of a run for the web view, and does what the web view asks on the clock', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+
+    await call($, 'mcp__theseus__start_run')
+    await settle($, world)
+
+    const views = (world.logs[`${CWD}/.theseus/views/github-lienardquentin-claude-code-shenanigans-12.jsonl`] ?? '').trim().split('\n').map(line => JSON.parse(line) as { ref: string; said: string; tasks: { id: number; standing: string }[]; at: number; events?: unknown })
+
+    expect(views.at(-1)).toMatchObject({ ref: 'github:lienardquentin/claude-code-shenanigans#12', said: 'building', tasks: [{ id: 1, standing: 'running' }, { id: 2, standing: 'queued' }] })
+    // A view holds no events: the web view reads them from the log
+    expect(views.every(view => view.events === undefined)).toBe(true)
+
+    // A press on the web view: done on the clock's next tick, through the one dispatcher, and logged as the web view's
+    world.logs[`${CWD}/.theseus/requests.jsonl`] = `${JSON.stringify({ ref: 'github:lienardquentin/claude-code-shenanigans#12', action: 'auto', at: 1 })}\n`
+    await world.clock.advance(600)
+
+    expect(world.logs[`${CWD}/.theseus/requests.jsonl`]).toBeUndefined()
+    expect(world.logs[`${CWD}/.theseus/runs/github-lienardquentin-claude-code-shenanigans-12.jsonl`]).toMatch(/"cause":"web","kind":"note","text":"Goes on by itself now, to its pull request"/)
+
   })
 
   test('offers Claude no tool that pushes or opens a pull request: the person is submitted', async ($, on) => {

@@ -3,6 +3,17 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.10.0
+
+- The web view (#161): `/theseus ui` starts a server for the session (127.0.0.1 alone, behind a token) and answers its
+  address. The page shows a run as a live graph laid out by ELK, each task a card with its steps, the task picked in
+  full, the run's events, a replay of the run from its views at any speed, and the history of every run; its actions
+  are done through the same dispatcher as the terminal's. One self-contained page, nothing loaded from outside.
+- `/theseus ui report <run>` writes a run as a page that plays it again with no server.
+- After each change it keeps of a run, Theseus writes the run's view to `.theseus/views/<run>.jsonl`; an action
+  pressed on the page is left in `.theseus/requests.jsonl` and done on the clock's next tick, logged as the web
+  view's. Going on by itself, or not, is now an event of the log.
+
 ## 0.9.0
 
 - A run's view model (#160, `core/view.ts`): the run, each task as a node of its graph with its five steps, who builds

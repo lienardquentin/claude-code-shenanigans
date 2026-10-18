@@ -7,7 +7,7 @@ import { BUILDERS } from './run'
 // .theseus/runs/. The panes, /theseus and the run views to come read a run from its log. Text in, text out.
 
 /** What set a change off: a command typed, a tool Claude called, the clock, an agent's turn ending, a press on a pane. */
-export type Cause = 'command' | 'tool' | 'clock' | 'turn' | 'press' | 'session'
+export type Cause = 'command' | 'tool' | 'clock' | 'turn' | 'press' | 'web' | 'session'
 
 /** One thing that happened to a run. */
 export type RunEvent = {
@@ -29,6 +29,15 @@ export type RunEvent = {
 
 /** Where the runs' logs are kept, from the project's folder. */
 export const RUNS_DIR = '.theseus/runs'
+
+/** Where the views of each run are kept for the web view, a snapshot a line, from the project's folder. */
+export const VIEWS_DIR = '.theseus/views'
+
+/** The views of a run, under the project's folder. */
+export const viewsPathOf = (root: string, ref: string): string => `${root.replace(/\/+$/, '')}/${VIEWS_DIR}/${ref.replace(/[^A-Za-z0-9._-]+/g, '-')}.jsonl`
+
+/** Where the web view leaves the actions a person asks for, a line each, for the clock to do. */
+export const REQUESTS_FILE = '.theseus/requests.jsonl'
 
 /** The log of a run, under the project's folder. */
 export const logPathOf = (root: string, ref: string): string => `${root.replace(/\/+$/, '')}/${RUNS_DIR}/${ref.replace(/[^A-Za-z0-9._-]+/g, '-')}.jsonl`
@@ -65,6 +74,7 @@ export const eventsOf = (was: Run | undefined, now: Run, at: number, cause: Caus
   if (now.heldUntil !== undefined && now.heldUntil !== was.heldUntil) events.push({ ...base, kind: 'waiting', until: now.heldUntil, text: `Waiting until ${clockTime(now.heldUntil)}: ${now.heldWhy ?? 'the quota'}` })
   if (now.heldUntil === undefined && was.heldUntil !== undefined) events.push({ ...base, kind: 'resumed', text: 'Resumed after waiting for the quota' })
 
+  if (now.isAuto !== was.isAuto) events.push({ ...base, kind: 'note', text: now.isAuto ? 'Goes on by itself now, to its pull request' : 'Stops after its current task, for you' })
   if (now.pr !== '' && now.pr !== was.pr) events.push({ ...base, kind: 'opened', url: now.pr, text: `Opened ${now.pr}` })
 
   if (now.phase !== was.phase) events.push({ ...base, kind: 'moved', from: was.phase, to: now.phase, text: `${PHASE_SAID[was.phase].replace(/^./, first => first.toUpperCase())} → ${PHASE_SAID[now.phase]}` })
@@ -95,7 +105,7 @@ export const parseLog = (text: string): { events: RunEvent[]; unread: number } =
 /** Events as the lines of a log. */
 export const logLines = (events: readonly RunEvent[]): string => events.map(event => `${JSON.stringify(event)}\n`).join('')
 
-const CAUSE_SAID: Record<Cause, string> = { command: 'your command', tool: "Claude's call", clock: 'the clock', turn: "an agent's turn ending", press: 'a press on a pane', session: 'the session starting' }
+const CAUSE_SAID: Record<Cause, string> = { command: 'your command', tool: "Claude's call", clock: 'the clock', turn: "an agent's turn ending", press: 'a press on a pane', web: 'a press on the web view', session: 'the session starting' }
 
 /** A run's standing from its log, as /theseus says it: where it is, what moved it last and why, and its last events. */
 export const standingText = (ref: string, phase: RunPhase, events: readonly RunEvent[], shown = 5, clock: (ms: number) => string = clockTime): string => {

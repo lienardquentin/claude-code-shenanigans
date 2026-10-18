@@ -82,6 +82,7 @@ flowchart LR
 |---|---|
 | `/theseus` | Each run under way: where it stands, what moved it there, its last events; and what failed this session. |
 | `/theseus graph [run]` | A run as its graph: each task indented under what it waits for, its five steps (tests, build, prove, review, commit) marked done, running, failed or skipped, who builds it, its commit or why it waits; and what you can do. Pick a task in the pane to see its events. |
+| `/theseus ui [report <run>]` | The web view's address, starting its server; or a run written as a page. |
 | `/theseus history` | Every run with a log, the latest first: under way, a pull request, stopped or abandoned; how many tasks it committed and how long it took. |
 | `/theseus log [run]` | A run's whole history: every move, when, and what caused it (your command, Claude's call, the clock, an agent's turn, a press). |
 | `/theseus plan <issue \| idea>` | Plans an issue (`--again` plans afresh). An idea is a sentence: Claude grills you on it, opens its issue and plans it (`--auto` asks nothing). Alone, opens the plan. |
@@ -99,6 +100,17 @@ flowchart LR
 
 Each command opens its pane. Claude reads any pane with the `mcp__theseus__pane` tool, so you can ask about what a
 pane shows.
+
+## The web view
+
+`/theseus ui` starts a small server for the session and answers its address: a page with the run as a live graph
+(each task a card with its five steps, edges that fill as work passes), the detail of the task you pick, its events,
+a replay of the run from its start at any speed, and the history of every run. The actions it offers are the
+terminal's, done through the same command. It needs Node.js 18 or later; it listens on 127.0.0.1 alone, behind a token
+the address carries, and loads nothing from the internet.
+
+`/theseus ui report <run>` writes the run as one page, `.theseus/reports/<run>.html`, that plays it again with no server:
+attach it to the pull request if you want reviewers to see how the change was built.
 
 ## Configuration
 
@@ -123,6 +135,8 @@ verification commands its plan states, or its issue's `## Verification` section.
 | `.theseus/verify/trees/` | Throwaway checkouts the proof plays the commit in. |
 | `.theseus/spend.jsonl` | What each run's agents spent, a turn a line. |
 | `.theseus/runs/<run>.jsonl` | Each run's history, an event a line: what happened, when, and what caused it. |
+| `.theseus/views/<run>.jsonl` | Each run's view after each change, for the web view to show and play again. |
+| `.theseus/reports/<run>.html` | A run written as a page, when you ask for one. |
 | `build/<issue>-<title>` | A run's branch, pushed only on submit. |
 | `~/.claude/plugins/store/theseus_*.json` | The plans and runs, kept across sessions. |
 
