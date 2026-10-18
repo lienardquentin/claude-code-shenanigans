@@ -12,7 +12,7 @@ import { errorText, movedTo, offerTools, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
 import { TEST_WRITER, TEST_WRITER_LIGHT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
-import { stumbled } from '../trouble'
+import { reported } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -198,7 +198,7 @@ async function behold($: $, place: Place, held: TestsFirst, answer: string, ende
   await setVision($, place, () => made)
   $.ui.toast(`Tests first: ${made.state === 'shown' ? `${made.tests.length} red ${made.tests.length === 1 ? 'test' : 'tests'} show what is to come${(made.unrun ?? []).length > 0 ? `, ${(made.unrun ?? []).length} more cannot run here` : ''}` : made.state === 'empty' ? 'nothing to test' : `the tests could not be read: ${made.why}`}`)
 
-  if (made.by === 'command') await $.prompt.submit({ text: visionText(made, await isLocked($, place, made)) }).catch(stumbled($, 'the test writer'))
+  if (made.by === 'command') await $.prompt.submit({ text: visionText(made, await isLocked($, place, made)) }).catch(reported($, 'the test writer'))
 }
 
 /** Whether an agent is the test writer gazing on a vision: by the id its spawn answered, else, where it answered none, by its type. */

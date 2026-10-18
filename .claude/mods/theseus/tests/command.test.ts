@@ -62,14 +62,14 @@ describe('/theseus', () => {
   test(
     'hands a verb to the part that answers it',
     started(async $ => {
-      expect(await run($, 'theseus', 'cleanup')).toMatch(/Looking again: the pane says what the forge answers\.$/)
+      expect(await run($, 'theseus', 'cleanup')).toMatch(/Asking the forge again: the cleanup pane shows its answer\.$/)
     }),
   )
 
   test(
     'keeps the commands it had before for one release, each saying its new spelling',
     started(async $ => {
-      expect(await run($, 'cleanup', '')).toMatch(/^\/cleanup is \/theseus cleanup now\.\n\n[\s\S]*Looking again/)
+      expect(await run($, 'cleanup', '')).toMatch(/^\/cleanup is \/theseus cleanup now\.\n\n[\s\S]*Asking the forge again/)
       expect(await run($, 'checks', '')).toMatch(/^\/checks is \/theseus verify now\./)
     }),
   )

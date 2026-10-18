@@ -119,7 +119,7 @@ export const builderFor = (plan: Plan, task: Task, attempt: number, targets: rea
 }
 
 export const HOW_TO =
-  'No run is under way. Plan an issue with /theseus plan <issue>, answer its questions and decide its risks, then /theseus build starts on it (/theseus build --auto goes on by itself). A small issue goes straight to /theseus build errand <issue>; an open pull request\'s review comments, to /follow-up.'
+  'No run is under way. Plan an issue with /theseus plan <issue>, answer its questions and decide its risks, then /theseus build starts on it (/theseus build --auto goes on by itself). A small issue goes straight to /theseus build errand <issue>; an open pull request\'s review comments, to /theseus follow-up <pr>.'
 
 export const MARK: Record<TaskState, string> = { todo: '○', doing: '◐', done: '●', asked: '?' }
 

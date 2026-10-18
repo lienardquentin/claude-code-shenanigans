@@ -36,7 +36,7 @@ import {
   proofAnswer,
   proofBrief,
 } from '../../core/proof'
-import { inBackground, stumbled } from '../trouble'
+import { inBackground, reported } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -284,7 +284,7 @@ async function setUp($: $): Promise<Target[]> {
   reviews = project?.reviews ?? []
   standards = project?.standards ?? []
   // What does not read is said once a time it changes, and kept where /theseus doctor and the troubles read it
-  if (errors.length > 0 && errors.join('\n') !== configErrors.join('\n')) stumbled($, 'the project file')(new Error(errors.join('\n')))
+  if (errors.length > 0 && errors.join('\n') !== configErrors.join('\n')) reported($, 'the project file')(new Error(errors.join('\n')))
   configErrors = errors
   await update($, targets, () => list)
 
@@ -516,7 +516,7 @@ async function rise($: $, made: Judgement): Promise<void> {
 
   await $.prompt
     .submit({ text: [judgementText(made, false), next].filter(one => one !== '').join('\n\n') })
-    .catch(stumbled($, 'verify'))
+    .catch(reported($, 'verify'))
 }
 
 /** The seat of a reviewer whose turn this is: by the id its spawn answered, else, where it answered none, by its type. */
@@ -611,7 +611,7 @@ async function fingerprints($: $): Promise<Map<string, string>> {
 
   if (roots.length === 0) return new Map()
 
-  const ran = await $.process.run(['sh', '-c', STANDING_SCRIPT, 'sh', ...roots], { cwd }).catch(stumbled($, 'verify'))
+  const ran = await $.process.run(['sh', '-c', STANDING_SCRIPT, 'sh', ...roots], { cwd }).catch(reported($, 'verify'))
 
   return ran === undefined || ran.exitCode !== 0 ? new Map() : standingByTarget(ran.stdout, list, cwd)
 }
@@ -721,7 +721,7 @@ export async function startVerify($: $): Promise<void> {
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
 
-  await setUp($).catch(stumbled($, 'verify'))
+  await setUp($).catch(reported($, 'verify'))
   $.clock.every(BEAT_MS, inBackground($, 'verify', () => beat($)))
   $.clock.every(OWED_MS, inBackground($, 'verify', () => settle($)))
 }
@@ -803,7 +803,7 @@ export function registerVerify(on: On): void {
       const cwd = await homeOf($)
 
       for (const image of new Set(known.flatMap(target => (target.db === null ? [] : [target.db.image])))) {
-        await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/warm.py`, 'stop', cwd, image], { timeoutMs: 30_000 }).catch(stumbled($, `verify (stopping the ${image} database)`))
+        await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/warm.py`, 'stop', cwd, image], { timeoutMs: 30_000 }).catch(reported($, `verify (stopping the ${image} database)`))
       }
     }
 

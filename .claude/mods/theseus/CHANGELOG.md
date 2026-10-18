@@ -3,6 +3,13 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.7.2
+
+- What you read is plainer (#153, first part): command answers lead with what happened and name the next command
+  ("Started an errand on #21. The build pane shows its progress."), failures say "failed" where they said
+  "stumbled", and the pane's progress lines say what is being done ("Proving task 3…", "Reviewing task 3…").
+  `docs/agents/writing.md` holds the rules.
+
 ## 0.7.1
 
 - What Theseus adds to Claude's context at each turn is measured and held to budgets by a test (#152). Until a

@@ -20,7 +20,7 @@ import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../pl
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
 import { startRefusal } from '../doctor'
-import { inBackground, stumbled } from '../trouble'
+import { inBackground, reported } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -180,7 +180,7 @@ async function want($: $, ref: string, what: RunAsk, arg?: string): Promise<void
 
 async function tell($: $, text: string): Promise<void> {
   $.ui.toast(`Build: ${text}`)
-  await $.ui.notify(text, { title: 'Build' }).catch(stumbled($, 'the build'))
+  await $.ui.notify(text, { title: 'Build' }).catch(reported($, 'the build'))
 }
 
 
@@ -390,7 +390,7 @@ async function act($: $, asked: { ref: string; what: RunAsk | 'look'; arg?: stri
       await say($, ref !== '' && (await runAt($, ref)) !== null ? ref : '', said)
     }
   } catch (error) {
-    await say($, ref, `The build stumbled: ${errorText(error)}`)
+    await say($, ref, `The build failed: ${errorText(error)}`)
   } finally {
     busy.delete(ref)
     await update($, working, ({ [ref]: _done, ...rest }) => rest)
@@ -540,7 +540,7 @@ export async function startBuild($: $): Promise<void> {
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
 
-  await recallQuests($).catch(stumbled($, 'the build'))
+  await recallQuests($).catch(reported($, 'the build'))
   await recallSpent($).catch((error: unknown) => $.ui.toast(`Build: what the runs cost could not be read from ${SPEND_FILE}: ${errorText(error)}`))
 
   $.clock.every(TICK_MS, inBackground($, 'the build', () => tick($)))
@@ -564,7 +564,7 @@ async function recallQuests($: $): Promise<void> {
     const quest: Run = { ...kept, kind: kept.kind ?? 'plan', phase }
 
     await update($, quests, all => ({ ...all, [quest.ref]: quest }))
-    await workOf($, quest).catch(stumbled($, `the build (run ${quest.ref})`))
+    await workOf($, quest).catch(reported($, `the build (run ${quest.ref})`))
   }
 }
 
@@ -617,7 +617,7 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     await want($, '', isAuto ? 'errand auto' : 'errand', plain.slice(1).join(' '))
     await pumpBuild($)
 
-    return { text: `The build starts on ${named} as an errand: the pane says how it went.` }
+    return { text: `Started an errand on ${named}. The build pane shows its progress.` }
   }
 
   if (verb === '' || verb === 'start') {
@@ -630,7 +630,7 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     await want($, '', isAuto ? 'start auto' : 'start', verb === 'start' ? named : '')
     await pumpBuild($)
 
-    return { text: `The build starts on the plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
+    return { text: `Started building the plan${isAuto ? '; it goes on by itself to the pull request' : ''}. The build pane shows its progress.` }
   }
 
   const held = await namedQuest($, named)
@@ -644,13 +644,13 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     if (refused !== undefined) return { text: refused }
     await want($, held.ref, 'abandon')
 
-    return { text: `The run on ${held.ref} is being abandoned: the pane says how it went.` }
+    return { text: `Abandoning the run on ${held.ref}. The build pane shows when it is done.` }
   }
 
   if (verb === 'halt') {
     await keep($, held.ref, was => ({ ...was, isAuto: false }))
 
-    return { text: `The run on ${held.ref} stops after the task it is on: send the next from the pane, or /theseus build next.` }
+    return { text: `The run on ${held.ref} stops after its current task. Send the next one from the build pane, or with /theseus build next.` }
   }
 
   if (verb === 'next') {
@@ -658,7 +658,7 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     await want($, held.ref, 'next')
     await pumpBuild($, held.ref)
 
-    return { text: `A builder is sent on the next task of ${held.ref}.` }
+    return { text: `Sent a builder on the next task of ${held.ref}.` }
   }
 
   if (verb === 'commit') {
@@ -673,10 +673,10 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
     await want($, held.ref, 'submit')
     await pumpBuild($, held.ref)
 
-    return { text: `The run on ${held.ref} makes ready to submit: the pane says how it went.` }
+    return { text: `Submitting ${held.ref}: its whole branch is reviewed, then pushed and its pull request opened. The build pane shows its progress.` }
   }
 
-  return { text: `/theseus build knows start (no word, or --auto), errand <issue>, next, commit, submit, halt and abandon, each with a run's ref or branch; not ${verb}.` }
+  return { text: `/theseus build does not know ${verb}. It takes start [--auto], errand <issue>, next, commit, submit, halt or abandon, each with a run's ref or branch.` }
 }
 
 export function registerBuild(on: On): void {
@@ -761,7 +761,7 @@ export function registerBuild(on: On): void {
     // The builder is sent here, inside the tool's own hook, where it is held
     await pumpBuild($, held.ref)
 
-    return { result: `A builder is sent on the next task of ${held.ref}: mcp__theseus__run says how it goes.` }
+    return { result: `Sent a builder on the next task of ${held.ref}. mcp__theseus__run shows its progress.` }
   }).catch((_$, _e, next) => toolFailed('next', next.error))
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person is submitted with

@@ -13,7 +13,7 @@ import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../planner/register'
 import { forgetRun, runLeftovers } from '../build/register'
 import { forgetTestsFirst } from '../tests-first/register'
-import { inBackground, stumbled } from '../trouble'
+import { inBackground, reported } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -53,7 +53,7 @@ async function forgets($: $, keeper: 'build' | 'follow-up' | 'planner' | 'tests-
 
   return (
     await forgot.catch((error: unknown) => {
-      stumbled($, 'the cleanup')(error)
+      reported($, 'the cleanup')(error)
 
       return { forgotten: false }
     })
@@ -120,7 +120,7 @@ async function watch($: $): Promise<Leftover[]> {
   if (fresh.length > 0) {
     await update($, told, was => [...was, ...fresh.map(leftover => leftover.pr)])
     $.ui.toast(`Cleanup: ${fresh.map(one => one.ref || one.branch).join(', ')} merged: /theseus cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`)
-    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /theseus cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(stumbled($, 'the cleanup'))
+    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /theseus cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(reported($, 'the cleanup'))
   }
 
   return found
@@ -250,7 +250,7 @@ async function tick($: $): Promise<void> {
     $.ui.toast(`Cleanup: ${said.split('\n')[0] ?? ''}`)
     await update($, note, () => said)
   } catch (error) {
-    await update($, note, () => `The cleanup stumbled: ${errorText(error)}`)
+    await update($, note, () => `The cleanup failed: ${errorText(error)}`)
   } finally {
     isBusy = false
   }
@@ -278,7 +278,7 @@ export async function cleanupCommand($: $, args: string): Promise<{ text: string
   // Looking and cleaning up ask the forge, and take a while: the command answers at once, and the clock does both
   await update($, wanted, () => (words[0] === 'clean' ? `clean ${words.slice(1).join(' ')}`.trim() : 'look'))
 
-  return { text: words[0] === 'clean' ? 'The cleanup removes what is merged: the pane says what it cleaned up.' : `${leftoversText(await read($, leftovers))}\n\nLooking again: the pane says what the forge answers.` }
+  return { text: words[0] === 'clean' ? 'Cleaning up what is merged. The cleanup pane shows what was removed.' : `${leftoversText(await read($, leftovers))}\n\nAsking the forge again: the cleanup pane shows its answer.` }
 }
 
 export function registerCleanup(on: On): void {

@@ -123,7 +123,7 @@ const call = async ($: Engine, tool: string) => String((await $.tool.call({ tool
 
 /** Cleans up as the person types it: the command answers at once, and the clock cleans up, telling what came of it. */
 const cleaning = async ($: Engine, world: ReturnType<typeof machine>, args = 'clean'): Promise<string> => {
-  expect((await $.command.run({ command: 'theseus', args: `cleanup ${args}` } as never)).text).toMatch(/the pane says/)
+  expect((await $.command.run({ command: 'theseus', args: `cleanup ${args}` } as never)).text).toMatch(/The cleanup pane shows/)
   await world.clock.advance(600)
 
   return (world.toasts.at(-1) ?? '').replace(/^Cleanup: /, '')

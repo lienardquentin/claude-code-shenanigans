@@ -177,7 +177,7 @@ describe('the build loop, on plain fakes of its ports', () => {
     await sendNext(ports, ref)
 
     expect(runs.get(ref)?.phase).toBe('built')
-    expect(said.at(-1)).toBe('every task of github:o/r#7 is behind it: open the pull request from the pane')
+    expect(said.at(-1)).toBe('every task of github:o/r#7 is done: open the pull request from the build pane, or with /theseus build submit')
   })
 
   test('stops the run for the person where a builder hands the errand back', async () => {
@@ -189,7 +189,7 @@ describe('the build loop, on plain fakes of its ports', () => {
 
     expect(runs.get(ref)?.phase).toBe('stuck')
     expect(wanted).toEqual([])
-    expect(said.join('\n')).toMatch(/hands github:o\/r#7 back: it is no errand\. this needs a decision about the schema\./)
+    expect(said.join('\n')).toMatch(/hands github:o\/r#7 back: it is not an errand\. this needs a decision about the schema\./)
   })
 
   test('stops where HEAD moved past the proof while the task was out', async () => {

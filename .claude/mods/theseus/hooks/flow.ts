@@ -23,7 +23,7 @@ export { errorText, inTurn } from '../core/kit'
  * as if no tool were there.
  */
 export const toolFailed = (tool: string, error: { kind: string; message?: string }): { result: string } => ({
-  result: `${tool} failed: ${error.kind === 'timeout' ? 'it ran past its time' : 'it stumbled'}${error.message !== undefined && error.message !== '' ? ` (${error.message})` : ''}. Say so to the person; the pane may say more.`,
+  result: `${tool} failed: ${error.kind === 'timeout' ? 'it ran out of time' : 'its hook failed'}${error.message !== undefined && error.message !== '' ? ` (${error.message})` : ''}. Say so to the person; the pane may say more.`,
 })
 
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : [])

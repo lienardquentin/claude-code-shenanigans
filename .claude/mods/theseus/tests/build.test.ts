@@ -1265,7 +1265,7 @@ describe('build', () => {
     await settle($, world)
 
     // The clock abandons it, outside the command's hooks
-    expect((await $.command.run({ command: 'theseus', args: 'build abandon' } as never)).text).toMatch(/being abandoned/)
+    expect((await $.command.run({ command: 'theseus', args: 'build abandon' } as never)).text).toMatch(/Abandoning the run/)
     await settle($, world)
 
     expect(world.toasts.at(-1)).toBe(`Build: The run on ${REF} is abandoned. Its worktree is removed. ${BRANCH} is deleted, with its 1 commit. 1 task is open again in the plan.`)
@@ -1371,7 +1371,7 @@ describe('build', () => {
     expect(await call($, 'mcp__theseus__run')).toMatch(/: stuck/)
 
     world.mirror = ['empty']
-    expect((await $.command.run({ command: 'theseus', args: 'build next' } as never)).text).toMatch(/sent on the next task/)
+    expect((await $.command.run({ command: 'theseus', args: 'build next' } as never)).text).toMatch(/Sent a builder on the next task/)
     await settle($, world)
     expect(world.testsFor).toHaveLength(2)
     expect(world.spawned).toHaveLength(1)
@@ -1381,7 +1381,7 @@ describe('build', () => {
     const world = machine(on)
     await start($, world)
 
-    expect((await $.command.run({ command: 'theseus', args: 'build --auto' } as never)).text).toMatch(/starts on the plan, going on by itself/)
+    expect((await $.command.run({ command: 'theseus', args: 'build --auto' } as never)).text).toMatch(/Started building the plan; it goes on by itself/)
     // The builder is out before the command answers: no clock sent it
     expect(world.spawned).toHaveLength(1)
 
@@ -1439,8 +1439,8 @@ describe('build', () => {
     expect(world.jobs.service[0]).toMatchObject({ home: TREE })
 
     // A command that names none acts on the run the pane shows, the last started; one names another by its ref or branch
-    expect((await $.command.run({ command: 'theseus', args: 'build halt' } as never)).text).toMatch(/#14 stops after the task it is on/)
-    expect((await $.command.run({ command: 'theseus', args: `build halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after the task it is on/)
+    expect((await $.command.run({ command: 'theseus', args: 'build halt' } as never)).text).toMatch(/#14 stops after its current task/)
+    expect((await $.command.run({ command: 'theseus', args: `build halt ${BRANCH}` } as never)).text).toMatch(/#12 stops after its current task/)
     expect((await $.command.run({ command: 'theseus', args: 'build halt #99' } as never)).text).toMatch(/No run on #99 is under way/)
     expect(await call($, 'mcp__theseus__run')).toMatch(/#12 \(plan\)[\s\S]*―――[\s\S]*#14 \(plan\)/)
   })
@@ -1487,7 +1487,7 @@ describe('a run kept across sessions', () => {
     expect(world.spawned).toEqual([])
 
     // Claude sends the stuck task again itself, with no /theseus build next typed: in its worktree, from the tool's hook
-    expect(await call($, 'mcp__theseus__next', { ref: ISSUE.ref })).toMatch(/A builder is sent on the next task of github:.*#21/)
+    expect(await call($, 'mcp__theseus__next', { ref: ISSUE.ref })).toMatch(/Sent a builder on the next task of github:.*#21/)
     await settle($, world)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'theseus:builder-service', cwd: tree })
     expect(await call($, 'mcp__theseus__next', { ref: ISSUE.ref })).toMatch(/is building: no task is sent now/)
@@ -1552,7 +1552,7 @@ describe('an errand', () => {
     await settle($, world)
     expect(world.spawned).toEqual([])
 
-    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
+    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/Started an errand on #21/)
     await settle($, world)
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'theseus:builder-service' })
   })
@@ -1562,7 +1562,7 @@ describe('an errand', () => {
     world.plan = null
     await start($, world)
 
-    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/starts on #21 as an errand/)
+    expect((await $.command.run({ command: 'theseus', args: 'build errand #21' } as never)).text).toMatch(/Started an errand on #21/)
     await settle($, world)
 
     const tree = `${CWD}/.theseus/trees/build-21-quench-answers-404-for-an-unknown-beacon`
