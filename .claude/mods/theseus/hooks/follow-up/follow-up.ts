@@ -65,9 +65,9 @@ export const parseWeights = (answer: string): Map<string, { weight: CommentWeigh
     for (const one of JSON.parse(found?.[0] ?? '[]') as { id?: unknown; weight?: unknown; kind?: unknown }[]) {
       if (typeof one.id !== 'string') continue
 
-      const isRead = one.weight === 'light' || one.weight === 'standard' || one.weight === 'heavy'
+      const weight = one.weight === 'light' || one.weight === 'standard' || one.weight === 'heavy' ? one.weight : undefined
 
-      weighed.set(one.id, { weight: isRead ? one.weight : 'standard', ...(isRead ? {} : { isUnweighed: true }), kind: one.kind === 'question' || one.kind === 'settled' ? one.kind : 'change' })
+      weighed.set(one.id, { weight: weight ?? 'standard', ...(weight !== undefined ? {} : { isUnweighed: true }), kind: one.kind === 'question' || one.kind === 'settled' ? one.kind : 'change' })
     }
   } catch {
     // weighed as it stands

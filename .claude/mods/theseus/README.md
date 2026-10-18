@@ -179,9 +179,13 @@ claude plugin validate .            # the manifest, and the hooks' rules
 claude plugin test .                # the tests
 sh ../kit/check-versions.sh main    # each changed plugin bumped its version
 sh ../kit/write-schema.sh --check   # the JSON Schema matches core/schema.ts
+sh ../kit/typecheck.sh .            # the types, against the engine's own (written once Claude Code has loaded the mod)
 ```
 
-The workflow lives in `core/`, which never touches the engine; the hooks under `hooks/` adapt it to Claude Code. Each
+The workflow lives in `core/`, which never touches the engine: the build's loop in `core/loop/`, a run's work and
+what its agents are told in `core/runs/`, the proof in `core/proofs/`, the run's history in `core/events.ts`. The hooks
+under `hooks/` adapt it to Claude Code; each part's pane is drawn in its `register.tsx`, beside the state it reads,
+as the engine reads a part's state only where it is declared. Each
 change bumps `version` in `.claude-plugin/plugin.json` and says what it changes in `CHANGELOG.md`.
 
 ## License

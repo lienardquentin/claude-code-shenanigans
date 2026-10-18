@@ -1456,7 +1456,8 @@ export const register: Register = (on, options) => {
     const answer = await next(e)
     const firsts = await lookForEdits($).catch(() => [] as string[])
 
-    return firsts.length === 0 ? answer : { ...answer, context: [...(answer.context ?? []), WATCHED_NOTE(firsts)] }
+    // A call refused runs nothing, and carries no note
+    return firsts.length === 0 || 'deny' in answer ? answer : { ...answer, context: [...(answer.context ?? []), WATCHED_NOTE(firsts)] }
   })
 
   on('command.run', { command: 'runtime' }, async $ => {
