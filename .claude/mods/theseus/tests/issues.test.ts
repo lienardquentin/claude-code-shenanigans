@@ -118,7 +118,7 @@ describe('issues', () => {
       const world = machine(on)
       await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-      expect((await $.command.run({ command: 'issues', args: '' } as never)).text).toBe(`2 open issues on ${REPO}.`)
+      expect((await $.command.run({ command: 'theseus', args: 'issues' } as never)).text).toBe(`2 open issues on ${REPO}.`)
 
       const pane = await $.ui.mount({ plugin: 'theseus', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
       expect(await call($, 'mcp__theseus__pane', { pane: 'issues' })).toMatch(/2 open · lienardquentin\/claude-code-shenanigans[\s\S]*#12 Beacons answer how long they have burned \[ready-for-agent\][\s\S]*#21 Quench answers 404/)
@@ -133,7 +133,7 @@ describe('issues', () => {
       expect(world.toasts.find(toast => toast.startsWith('Build: '))).toMatch(new RegExp(`^Build: The build starts on github:${REPO}#21, "Quench answers 404 for an unknown beacon"`))
 
       // Once on the build's road, the issue is the build's: no second errand, no council
-      expect(await call($, 'mcp__theseus__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The build is on it \(errand · \w+\): \/build goes on with it\./)
+      expect(await call($, 'mcp__theseus__pane', { pane: 'issues' })).toMatch(/#21 Quench answers 404 for an unknown beacon errand · [\s\S]*The build is on it \(errand · \w+\): \/theseus build goes on with it\./)
       expect(await call($, 'mcp__theseus__pane', { pane: 'issues' })).not.toContain('[e Errand]')
     })
   }
@@ -141,7 +141,7 @@ describe('issues', () => {
   test('sends the issue opened to the planner, which is sent where it is held, and opens a kept plan rather than planning afresh', async ($, on) => {
     const world = machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
-    await $.command.run({ command: 'issues', args: '' } as never)
+    await $.command.run({ command: 'theseus', args: 'issues' } as never)
 
     const pane = await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
@@ -169,7 +169,7 @@ describe('issues', () => {
   test('keeps where an issue stands in a narrow pane, its title cut and whole once opened', async ($, on) => {
     machine(on)
     await $.session.start({ source: 'startup', cwd: CWD } as never)
-    await $.command.run({ command: 'issues', args: '' } as never)
+    await $.command.run({ command: 'theseus', args: 'issues' } as never)
 
     const pane = await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 40 } as never, requestId: 'issues' })
     await pane.press({ key: 'issue-12' })
@@ -191,7 +191,7 @@ describe('issues', () => {
     world.list = ''
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-    expect((await $.command.run({ command: 'issues', args: '' } as never)).text).toBe(`gh could not list the issues of ${REPO}: not found`)
+    expect((await $.command.run({ command: 'theseus', args: 'issues' } as never)).text).toBe(`gh could not list the issues of ${REPO}: not found`)
     await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'issues' })
     expect(await call($, 'mcp__theseus__pane', { pane: 'issues' })).toMatch(/not read[\s\S]*gh could not list the issues/)
   })

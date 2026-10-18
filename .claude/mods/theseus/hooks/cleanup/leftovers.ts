@@ -1,6 +1,6 @@
 import type { CleanupKeeper, Leftover } from '../../types'
 
-export const HOW_TO = 'Nothing is kept of any run. The cleanup watches what the build and the review follow-up keep, and once a pull request is merged, /cleanup clean removes all of it: its worktree, its branch, and what every part remembers of it.'
+export const HOW_TO = 'Nothing is kept of any run. The cleanup watches what the build and the review follow-up keep, and once a pull request is merged, /theseus cleanup clean removes all of it: its worktree, its branch, and what every part remembers of it.'
 
 /** What a part keeps of a branch's work. */
 type Kept = { ref?: unknown; branch?: unknown; base?: unknown; pr?: unknown; tree?: unknown }
@@ -52,5 +52,5 @@ export const leftoversText = (leftovers: readonly Leftover[]): string =>
     : [
         `The cleanup watches ${leftovers.length} ${leftovers.length === 1 ? 'leftover' : 'leftovers'}; ${leftovers.filter(one => one.isMerged).length} merged, ready to clean up.`,
         ...leftovers.map(leftoverLine),
-        ...(leftovers.some(one => one.isMerged) ? ['', 'The person cleans them up with /cleanup clean: no tool offers it to Claude.'] : []),
+        ...(leftovers.some(one => one.isMerged) ? ['', 'The person cleans them up with /theseus cleanup clean: no tool offers it to Claude.'] : []),
       ].join('\n')

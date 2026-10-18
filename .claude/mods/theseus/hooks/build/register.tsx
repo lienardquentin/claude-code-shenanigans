@@ -8,7 +8,7 @@ import { budgetOf, fillOf } from '../../core/budget'
 import type { Budget, Quota } from '../../core/budget'
 import type { Ports, Spec } from '../../core/build'
 import { WARDING, runFromStore } from '../../core/run'
-import { errorText, forgeIn, gitRootOf, isMergedFrom, offerTools, openPane, removeTree, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
+import { errorText, forgeIn, gitRootOf, isMergedFrom, movedTo, offerTools, openPane, removeTree, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -39,7 +39,7 @@ const wanted = atom({ plugin: 'theseus', key: 'buildWanted' } as const, [] as { 
 const selected = atom({ plugin: 'theseus', key: 'buildSelected' } as const, '')
 const spent = atom({ plugin: 'theseus', key: 'buildSpent' } as const, {} as Record<string, string>)
 
-export const buildView = paneView({ id: PANE, title: TITLE, command: '/build' })
+export const buildView = paneView({ id: PANE, title: TITLE, command: '/theseus build' })
 const view = buildView
 
 // Where the runs stop spending, as the person set it on the mod
@@ -75,7 +75,7 @@ const TOOLS = [
   {
     name: 'start_run',
     description:
-      "Implements the plan in force (or resumes it) in a git worktree of its own under .theseus/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, verify checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /build submit, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; runs on other issues run beside it. Call it when the person asks to implement a planned issue.",
+      "Implements the plan in force (or resumes it) in a git worktree of its own under .theseus/trees/, leaving the person's checkout alone: a builder subagent builds each task in turn, verify checks that an integration test pins each behaviour it changed, reviewer subagents review the change, and it is committed once they pass it. When every task is committed, the person opens the pull request with /theseus build submit, or it opens by itself with auto. It starts only once every question of the plan is answered and every risk decided; runs on other issues run beside it. Call it when the person asks to implement a planned issue.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -87,7 +87,7 @@ const TOOLS = [
   {
     name: 'start_errand',
     description:
-      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, verify checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /planner to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
+      "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, verify checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /theseus plan to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
     inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
   },
   {
@@ -103,7 +103,7 @@ const TOOLS = [
   {
     name: 'next',
     description:
-      "Sends a builder on the run's next task, or on its stuck task again, from its first rung and on what its worktree holds, as /build next does. Only for a run that is ready or stuck. Call it when the person asks to go on with a run, or to try a stuck task again.",
+      "Sends a builder on the run's next task, or on its stuck task again, from its first rung and on what its worktree holds, as /theseus build next does. Only for a run that is ready or stuck. Call it when the person asks to go on with a run, or to try a stuck task again.",
     inputSchema: { type: 'object', properties: { ref: REF } },
   },
 ] as const
@@ -534,7 +534,7 @@ export async function spentBuild($: $, agent: SentAgent, e: { durationMs: number
 
 /** The build at the session's start: its command, its tools, and the clock that does what was asked of a run. */
 export async function startBuild($: $): Promise<void> {
-  await $.command.register({ name: 'build', description: 'Build a plan, an errand or a review task by task in a worktree: /build starts (--auto goes on by itself); errand <issue>; next, commit, submit, halt, abandon [run]' })
+  await $.command.register({ name: 'build', description: 'Now /theseus build (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -591,6 +591,84 @@ export async function builderFound($: $, agentId: string): Promise<SentAgent | u
   const task = (await read($, plans))[held.ref]?.tasks.find(one => one.id === held.current?.taskId)
 
   return { role: 'builder', root: await rootOf($), tree: held.tree, files: [...(task?.files ?? [])], ref: issueRefOf(held) }
+}
+
+/** `/theseus build`: Builds the plan in force, an errand or a review task by task in a worktree. */
+export async function buildCommand($: $, args: string): Promise<{ text: string }> {
+  const words = args.trim().split(/\s+/).filter(word => word !== '')
+  // `auto` is taken as --auto: no issue is named so, and /theseus build start auto once started on an issue "auto"
+  const isAuto = words.includes('--auto') || words.includes('auto')
+  const plain = words.filter(word => !word.startsWith('--') && word !== 'auto')
+  const verb = plain[0] ?? ''
+  const named = plain[1] ?? ''
+
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  if (verb === 'errand') {
+    if (named === '') return { text: 'Name the issue: /theseus build errand <issue> (--auto opens its pull request by itself).' }
+    await want($, '', isAuto ? 'errand auto' : 'errand', plain.slice(1).join(' '))
+    await pumpBuild($)
+
+    return { text: `The build starts on ${named} as an errand: the pane says how it went.` }
+  }
+
+  if (verb === '' || verb === 'start') {
+    // Every run under way is shown, unless the person asks to start: /theseus build start [issue]
+    const all = Object.values(await read($, quests))
+    const shown = await read($, plans)
+
+    if (all.length > 0 && !isAuto && verb === '') return { text: all.map(held => runLine(held, shown[held.ref] ?? null)).join('\n') }
+
+    await want($, '', isAuto ? 'start auto' : 'start', verb === 'start' ? named : '')
+    await pumpBuild($)
+
+    return { text: `The build starts on the plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
+  }
+
+  const held = await namedQuest($, named)
+
+  if (held === null) return { text: named === '' ? 'Name the run, by its ref or its branch: more than one is under way, or none.' : `No run on ${named} is under way.` }
+
+  if (verb === 'abandon') {
+    // What would refuse it is said here, not found by the clock after the command has answered
+    const refused = await abandonRefusal($, held)
+
+    if (refused !== undefined) return { text: refused }
+    await want($, held.ref, 'abandon')
+
+    return { text: `The run on ${held.ref} is being abandoned: the pane says how it went.` }
+  }
+
+  if (verb === 'halt') {
+    await keep($, held.ref, was => ({ ...was, isAuto: false }))
+
+    return { text: `The run on ${held.ref} stops after the task it is on: send the next from the pane, or /theseus build next.` }
+  }
+
+  if (verb === 'next') {
+    if (held.phase !== 'ready' && held.phase !== 'stuck') return { text: `The run on ${held.ref} is ${held.phase}: no task is sent now.` }
+    await want($, held.ref, 'next')
+    await pumpBuild($, held.ref)
+
+    return { text: `A builder is sent on the next task of ${held.ref}.` }
+  }
+
+  if (verb === 'commit') {
+    const said = await resubmit($, held.ref)
+
+    await pumpBuild($, held.ref)
+
+    return { text: said }
+  }
+
+  if (verb === 'submit') {
+    await want($, held.ref, 'submit')
+    await pumpBuild($, held.ref)
+
+    return { text: `The run on ${held.ref} makes ready to submit: the pane says how it went.` }
+  }
+
+  return { text: `/theseus build knows start (no word, or --auto), errand <issue>, next, commit, submit, halt and abandon, each with a run's ref or branch; not ${verb}.` }
 }
 
 export function registerBuild(on: On): void {
@@ -679,84 +757,11 @@ export function registerBuild(on: On): void {
   }).catch((_$, _e, next) => toolFailed('next', next.error))
 
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person is submitted with
-  // /build submit or the pane, or opted into it up front with --auto. What sends an agent is done in the command,
+  // /theseus build submit or the pane, or opted into it up front with --auto. What sends an agent is done in the command,
   // where the agent is held: it answers once the agent is out (submitting, once the pull request is open)
-  on('command.run', { command: 'build' }, async ($, e) => {
-    const words = e.args.trim().split(/\s+/).filter(word => word !== '')
-    // `auto` is taken as --auto: no issue is named so, and /build start auto once started on an issue "auto"
-    const isAuto = words.includes('--auto') || words.includes('auto')
-    const plain = words.filter(word => !word.startsWith('--') && word !== 'auto')
-    const verb = plain[0] ?? ''
-    const named = plain[1] ?? ''
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'build' }, async ($, e) => movedTo('/build', '/theseus build', await buildCommand($, e.args)))
 
-    await $.ui.open({ id: PANE, title: TITLE })
-
-    if (verb === 'errand') {
-      if (named === '') return { text: 'Name the issue: /build errand <issue> (--auto opens its pull request by itself).' }
-      await want($, '', isAuto ? 'errand auto' : 'errand', plain.slice(1).join(' '))
-      await pumpBuild($)
-
-      return { text: `The build starts on ${named} as an errand: the pane says how it went.` }
-    }
-
-    if (verb === '' || verb === 'start') {
-      // Every run under way is shown, unless the person asks to start: /build start [issue]
-      const all = Object.values(await read($, quests))
-      const shown = await read($, plans)
-
-      if (all.length > 0 && !isAuto && verb === '') return { text: all.map(held => runLine(held, shown[held.ref] ?? null)).join('\n') }
-
-      await want($, '', isAuto ? 'start auto' : 'start', verb === 'start' ? named : '')
-      await pumpBuild($)
-
-      return { text: `The build starts on the plan${isAuto ? ', going on by itself' : ''}: the pane says how it went.` }
-    }
-
-    const held = await namedQuest($, named)
-
-    if (held === null) return { text: named === '' ? 'Name the run, by its ref or its branch: more than one is under way, or none.' : `No run on ${named} is under way.` }
-
-    if (verb === 'abandon') {
-      // What would refuse it is said here, not found by the clock after the command has answered
-      const refused = await abandonRefusal($, held)
-
-      if (refused !== undefined) return { text: refused }
-      await want($, held.ref, 'abandon')
-
-      return { text: `The run on ${held.ref} is being abandoned: the pane says how it went.` }
-    }
-
-    if (verb === 'halt') {
-      await keep($, held.ref, was => ({ ...was, isAuto: false }))
-
-      return { text: `The run on ${held.ref} stops after the task it is on: send the next from the pane, or /build next.` }
-    }
-
-    if (verb === 'next') {
-      if (held.phase !== 'ready' && held.phase !== 'stuck') return { text: `The run on ${held.ref} is ${held.phase}: no task is sent now.` }
-      await want($, held.ref, 'next')
-      await pumpBuild($, held.ref)
-
-      return { text: `A builder is sent on the next task of ${held.ref}.` }
-    }
-
-    if (verb === 'commit') {
-      const said = await resubmit($, held.ref)
-
-      await pumpBuild($, held.ref)
-
-      return { text: said }
-    }
-
-    if (verb === 'submit') {
-      await want($, held.ref, 'submit')
-      await pumpBuild($, held.ref)
-
-      return { text: `The run on ${held.ref} makes ready to submit: the pane says how it went.` }
-    }
-
-    return { text: `/build knows start (no word, or --auto), errand <issue>, next, commit, submit, halt and abandon, each with a run's ref or branch; not ${verb}.` }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)

@@ -11,7 +11,7 @@ import type { SendReviewer } from '../../core/review'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
-import { errorText, offerTools, rootOf, shellIn, toolFailed } from '../flow'
+import { errorText, movedTo, offerTools, rootOf, shellIn, toolFailed } from '../flow'
 import type { TargetFolders } from '../../core/run'
 import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
@@ -194,7 +194,7 @@ async function allJudgements($: $): Promise<{ place: Place; held: Judgement }[]>
 }
 
 // What the pane last drew, for the model to read
-export const verifyView = paneView({ id: PANE, title: TITLE, command: '/checks' })
+export const verifyView = paneView({ id: PANE, title: TITLE, command: '/theseus verify' })
 const view = verifyView
 
 // An agent sent to work in a run's worktree is looked at there
@@ -689,7 +689,7 @@ export async function judgementFor($: $, tree: string, asked: ReviewAsk = {}): P
 
 /** Verify at the session's start: its command, its tools, the project's targets, the band's glow, and the clock that looks at what a turn edited. */
 export async function startVerify($: $): Promise<void> {
-  await $.command.register({ name: 'checks', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
+  await $.command.register({ name: 'checks', description: 'Now /theseus verify (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -720,6 +720,23 @@ export async function endedVerify($: $, e: TurnEnded): Promise<void> {
   // A subagent's turn is not the session's: its edits wait for the turn that spawned it
   // A proof Claude asked for during the turn may have owed the reviews: they too wait for the turn to end
   if (e.agentId === undefined && !e.isAborted && ((await read($, touched)).length > 0 || reviewDue !== '')) isOwed = true
+}
+
+/** `/theseus verify`: Opens the proof of the uncommitted change. */
+export async function verifyCommand($: $, _args: string): Promise<{ text: string }> {
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  const list = await setUp($)
+  const held = await read($, radii)
+
+  return {
+    text:
+      list.length === 0
+        ? HOW_TO
+        : held.length === 0
+          ? `Verify knows ${list.map(({ label, kind }) => `${label} (${kind})`).join(', ')}. Nothing is looked at yet: Radius in the pane looks.`
+          : held.map(one => `${radiusLine(one)}.`).join(' '),
+  }
 }
 
 export function registerVerify(on: On): void {
@@ -795,21 +812,9 @@ export function registerVerify(on: On): void {
     return { result: got.held === null ? 'The reviewers have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
   }).catch((_$, _e, next) => toolFailed('review', next.error))
 
-  on('command.run', { command: 'checks' }, async $ => {
-    await $.ui.open({ id: PANE, title: TITLE })
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'checks' }, async ($, e) => movedTo('/checks', '/theseus verify', await verifyCommand($, e.args)))
 
-    const list = await setUp($)
-    const held = await read($, radii)
-
-    return {
-      text:
-        list.length === 0
-          ? HOW_TO
-          : held.length === 0
-            ? `Verify knows ${list.map(({ label, kind }) => `${label} (${kind})`).join(', ')}. Nothing is looked at yet: Radius in the pane looks.`
-            : held.map(one => `${radiusLine(one)}.`).join(' '),
-    }
-  })
 
   // The mark glows while a run that changed is not pinned, and is dark otherwise
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

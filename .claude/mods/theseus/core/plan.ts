@@ -11,7 +11,7 @@ const MAX_COMMENTS = 20
 const MAX_COMMENT = 4_000
 
 export const HOW_TO =
-  'Name an issue: /planner https://github.com/owner/repo/issues/12, /planner https://gitlab.com/group/project/-/issues/12, /planner owner/repo#12, /planner gl:group/project#12, or /planner #12 for this repository\'s own.'
+  'Name an issue: /theseus plan https://github.com/owner/repo/issues/12, /theseus plan https://gitlab.com/group/project/-/issues/12, /theseus plan owner/repo#12, /theseus plan gl:group/project#12, or /theseus plan #12 for this repository\'s own.'
 
 /** The issue a person or Claude named, as the forge reads it; why not, with how to name one, when it names none. */
 export const parseRef = (input: string, origin?: Repo): IssueRef | string => {

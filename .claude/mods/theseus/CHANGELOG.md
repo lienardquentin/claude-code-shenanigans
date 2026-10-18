@@ -3,6 +3,16 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.4.0
+
+- One command, `/theseus <verb>` (#151): `plan`, `build`, `tests`, `verify`, `follow-up`, `cleanup`, `issues`,
+  `troubles` and `help`. Alone it says what is under way and what failed; a verb it does not know is answered with
+  the help. Every message that names a command names its `/theseus` spelling.
+- The panes are read by the same names (`plan` was `planner`, `tests` was `tests-first`); the old names are still
+  read by `mcp__theseus__pane`.
+- `/issues`, `/planner`, `/build`, `/tests`, `/checks`, `/follow-up` and `/cleanup` still work, each saying its new
+  spelling first. They go in the next release.
+
 ## 0.3.0
 
 - The plugin is Theseus (`theseus@theseus`), formerly `pipeline` (ADR 0008). Its tools are `mcp__theseus__*`, its

@@ -2,7 +2,7 @@ import type { FollowUpComment, FollowUp, FollowUpPr, CommentWeight } from '../..
 import { WEIGHT_MEANS } from '../../core/run'
 import type { FailingCheck } from '../../core/forge'
 
-export const HOW_TO = "No review follow-up is open. /follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /follow-up answer hands those that ask for a change to the build, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
+export const HOW_TO = "No review follow-up is open. /theseus follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /theseus follow-up answer hands those that ask for a change to the build, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
 /** What weighs the comments, a sentence each. */
 export const WEIGHER_MODEL = 'claude-haiku-5-5'

@@ -8,7 +8,7 @@ import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
 import { forgeOfHost } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
-import { errorText, forgeIn, offerTools, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
+import { errorText, forgeIn, movedTo, offerTools, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../planner/register'
 import { forgetRun, runLeftovers } from '../build/register'
@@ -35,13 +35,13 @@ const wanted = atom({ plugin: 'theseus', key: 'cleanupWanted' } as const, '')
 const TICK_MS = 500
 const working = atom({ plugin: 'theseus', key: 'cleanupWorking' } as const, '')
 
-export const cleanupView = paneView({ id: PANE, title: TITLE, command: '/cleanup' })
+export const cleanupView = paneView({ id: PANE, title: TITLE, command: '/theseus cleanup' })
 const view = cleanupView
 
 const TOOLS = [
   {
     name: 'leftovers',
-    description: "The work kept that is cleaned up once merged: each branch the build or the review follow-up keeps, its worktree, its pull request, and whether the forge says it is merged. Cleaning up deletes branches and worktrees, so it is the person's: /cleanup clean.",
+    description: "The work kept that is cleaned up once merged: each branch the build or the review follow-up keeps, its worktree, its pull request, and whether the forge says it is merged. Cleaning up deletes branches and worktrees, so it is the person's: /theseus cleanup clean.",
     inputSchema: { type: 'object', properties: {} },
   },
 ] as const
@@ -119,8 +119,8 @@ async function watch($: $): Promise<Leftover[]> {
 
   if (fresh.length > 0) {
     await update($, told, was => [...was, ...fresh.map(leftover => leftover.pr)])
-    $.ui.toast(`Cleanup: ${fresh.map(one => one.ref || one.branch).join(', ')} merged: /cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`)
-    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(stumbled($, 'the cleanup'))
+    $.ui.toast(`Cleanup: ${fresh.map(one => one.ref || one.branch).join(', ')} merged: /theseus cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`)
+    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /theseus cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(stumbled($, 'the cleanup'))
   }
 
   return found
@@ -235,7 +235,7 @@ async function clean($: $, named: string): Promise<string> {
 
 let isBusy = false
 
-/** Looks or cleans up as /cleanup asked, outside its hooks: what came of it is told as well as kept in the pane. */
+/** Looks or cleans up as /theseus cleanup asked, outside its hooks: what came of it is told as well as kept in the pane. */
 async function tick($: $): Promise<void> {
   const asked = await read($, wanted)
 
@@ -258,7 +258,7 @@ async function tick($: $): Promise<void> {
 
 /** The cleanup at the session's start: its command, its tool, and the clock that watches the forge and does what a command asked. */
 export async function startCleanup($: $): Promise<void> {
-  await $.command.register({ name: 'cleanup', description: 'Remove what is kept of a merged pull request: /cleanup shows what is watched; /cleanup clean [branch or pr] cleans it up' })
+  await $.command.register({ name: 'cleanup', description: 'Now /theseus cleanup (this name goes in the next release)' })
 
   await offerTools($, TOOLS)
 
@@ -267,22 +267,27 @@ export async function startCleanup($: $): Promise<void> {
   $.clock.every(TICK_MS, inBackground($, 'the cleanup', () => tick($)))
 }
 
+/** `/theseus cleanup`: Says what is kept of merged pull requests, and cleans it up. */
+export async function cleanupCommand($: $, args: string): Promise<{ text: string }> {
+  const words = args.trim().split(/\s+/).filter(word => word !== '')
+
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  if (words.length > 0 && words[0] !== 'clean') return { text: `/theseus cleanup knows clean; not ${words[0] ?? ''}.` }
+
+  // Looking and cleaning up ask the forge, and take a while: the command answers at once, and the clock does both
+  await update($, wanted, () => (words[0] === 'clean' ? `clean ${words.slice(1).join(' ')}`.trim() : 'look'))
+
+  return { text: words[0] === 'clean' ? 'The cleanup removes what is merged: the pane says what it cleaned up.' : `${leftoversText(await read($, leftovers))}\n\nLooking again: the pane says what the forge answers.` }
+}
+
 export function registerCleanup(on: On): void {
   on('tool.call', { tool: 'mcp__theseus__leftovers' }, async $ => ({ result: leftoversText(await watch($)) })).catch((_$, _e, next) => toolFailed('leftovers', next.error))
 
   // Cleaning up deletes branches and has every part forget: no tool offers it to Claude, and the person cleans up
-  on('command.run', { command: 'cleanup' }, async ($, e) => {
-    const words = e.args.trim().split(/\s+/).filter(word => word !== '')
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'cleanup' }, async ($, e) => movedTo('/cleanup', '/theseus cleanup', await cleanupCommand($, e.args)))
 
-    await $.ui.open({ id: PANE, title: TITLE })
-
-    if (words.length > 0 && words[0] !== 'clean') return { text: `/cleanup knows clean; not ${words[0] ?? ''}.` }
-
-    // Looking and cleaning up ask the forge, and take a while: the command answers at once, and the clock does both
-    await update($, wanted, () => (words[0] === 'clean' ? `clean ${words.slice(1).join(' ')}`.trim() : 'look'))
-
-    return { text: words[0] === 'clean' ? 'The cleanup removes what is merged: the pane says what it cleaned up.' : `${leftoversText(await read($, leftovers))}\n\nLooking again: the pane says what the forge answers.` }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)

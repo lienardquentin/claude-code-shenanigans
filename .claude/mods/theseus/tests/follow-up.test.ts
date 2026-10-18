@@ -252,7 +252,7 @@ describe('follow-up', () => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    expect(await call($, 'mcp__theseus__open_review')).toBe('The review follow-up opens on lienardquentin/claude-code-shenanigans#40, "Gondor: quench a single beacon", on build/34-gondor-quench-a-single-beacon: 2 comments ask for a change, 1 is a question for the person. /follow-up answer hands them to the build.')
+    expect(await call($, 'mcp__theseus__open_review')).toBe('The review follow-up opens on lienardquentin/claude-code-shenanigans#40, "Gondor: quench a single beacon", on build/34-gondor-quench-a-single-beacon: 2 comments ask for a change, 1 is a question for the person. /theseus follow-up answer hands them to the build.')
     expect(world.ran.some(line => /^git (switch|checkout|fetch)/.test(line))).toBe(false)
     expect(await call($, 'mcp__theseus__review_comments')).toMatch(/○ \[light\] aragorn-reviewer on beacons\/gondor\/app\.py:12: Rename quench_one[\s\S]*\? \[question\] aragorn-reviewer on beacons\/tests\/test_gondor\.py:12: Why 409[\s\S]*○ \[standard\] eowyn: Please log the 409 too\./)
     // Nothing that reaches the forge is offered to Claude
@@ -359,7 +359,7 @@ describe('follow-up', () => {
     world.isWeighing = false
     await $.session.start({} as never)
 
-    expect(await call($, 'mcp__theseus__open_review')).toMatch(/: 0 comments ask for a change, 3 are questions for the person\. \/follow-up answer hands them to the build\. Mind: the comments could not be weighed \(it gave no answer\): each is a question for you\.$/)
+    expect(await call($, 'mcp__theseus__open_review')).toMatch(/: 0 comments ask for a change, 3 are questions for the person\. \/theseus follow-up answer hands them to the build\. Mind: the comments could not be weighed \(it gave no answer\): each is a question for you\.$/)
     expect(await call($, 'mcp__theseus__answer_review')).toMatch(/^No comment of .*#40 asks for a change/)
 
     // Weighed as a change, a stranger's comment still is not one
@@ -379,13 +379,13 @@ describe('follow-up', () => {
     expect(world.ran.some(line => line.startsWith('git fetch') || line.startsWith('git worktree add'))).toBe(false)
   })
 
-  test('hands over from /follow-up answer in the command, where the builder sent is held, and says when the build would not', async ($, on) => {
+  test('hands over from /theseus follow-up answer in the command, where the builder sent is held, and says when the build would not', async ($, on) => {
     // The build is on that pull request already, as another kind of run
     const world = machine(on, { [`run:review:${REPO}#40`]: { kind: 'plan', ref: `review:${REPO}#40`, url: '', title: '', branch: 'build/34-gondor-quench-a-single-beacon', base: 'main', tree: '', isAuto: false, phase: 'stuck', march: null, proof: '', proofLine: '', verdictLine: '', commits: [], pr: '', at: 0 } })
     await $.session.start({} as never)
     await call($, 'mcp__theseus__open_review')
 
-    expect((await $.command.run({ command: 'follow-up', args: 'answer' } as never)).text).toMatch(/^The build did not take the comments up: The build is on review:.*#40 already, as a plan \(stuck\)/)
+    expect((await $.command.run({ command: 'theseus', args: 'follow-up answer' } as never)).text).toMatch(/^The build did not take the comments up: The build is on review:.*#40 already, as a plan \(stuck\)/)
     await settle(world)
 
     expect(await call($, 'mcp__theseus__review_comments')).toMatch(/: ready/)

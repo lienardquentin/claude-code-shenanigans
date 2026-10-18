@@ -8,7 +8,7 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clockOf, shortRef } from '../look'
-import { errorText, offerTools, rootOf, toolFailed } from '../flow'
+import { errorText, movedTo, offerTools, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
 import { TEST_WRITER, TEST_WRITER_LIGHT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
@@ -20,7 +20,7 @@ type On = Parameters<Register>[0]
 const PANE = 'tests-first'
 const TITLE = 'Tests first'
 
-export const HOW_TO = 'No tests are written first yet. /tests <the behaviour to come> has the test writer write the failing tests that show it, before it is built.'
+export const HOW_TO = 'No tests are written first yet. /theseus tests <the behaviour to come> has the test writer write the failing tests that show it, before it is built.'
 const AGENT_TYPE = typeOf(TEST_WRITER)
 const SWIFT_TYPE = typeOf(TEST_WRITER_LIGHT)
 
@@ -28,7 +28,7 @@ const vision = atom({ plugin: 'theseus', key: 'testsFirst' } as const, null as T
 const visions = atom({ plugin: 'theseus', key: 'testsFirstByTree' } as const, {} as Record<string, TestsFirst>)
 const note = atom({ plugin: 'theseus', key: 'testsFirstNote' } as const, '')
 
-export const testsFirstView = paneView({ id: PANE, title: TITLE, command: '/tests' })
+export const testsFirstView = paneView({ id: PANE, title: TITLE, command: '/theseus tests' })
 const view = testsFirstView
 
 const TOOLS = [
@@ -307,7 +307,7 @@ const sectionText = (held: TestsFirst): string =>
 
 /** tests first at the session's start: its command and its tools. */
 export async function startTestsFirst($: $): Promise<void> {
-  await $.command.register({ name: 'tests', description: 'The test writer writes the failing tests of what is to come: /tests <the behaviour>; /tests alone shows the tests written first' })
+  await $.command.register({ name: 'tests', description: 'Now /theseus tests (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -349,6 +349,21 @@ export async function testWriterFound($: $, agentId: string): Promise<SentAgent 
   return found === undefined ? undefined : { role: 'test-writer', root: await rootOf($), tree: found.place.tree }
 }
 
+/** `/theseus tests`: Has the test writer write the failing tests of a behaviour first; alone, shows them. */
+export async function testsCommand($: $, args: string): Promise<{ text: string }> {
+  await $.ui.open({ id: PANE, title: TITLE })
+
+  const place = { tree: await rootOf($), isHome: true }
+
+  if (args.trim() === '') {
+    const held = await visionIn($, place)
+
+    return { text: held === null ? HOW_TO : visionText(held, await isLocked($, place, held)) }
+  }
+
+  return { text: await gaze($, args, 'command', place) }
+}
+
 export function registerTestsFirst(on: On): void {
 
   on('tool.call', { tool: 'mcp__theseus__write_tests' }, async ($, e) => {
@@ -374,19 +389,9 @@ export function registerTestsFirst(on: On): void {
     return { result: await amend($, place, file, String(given.why ?? ''), await whoIs($, e.agentId), String(given.test ?? '').trim()) }
   }).catch((_$, _e, next) => toolFailed('amend_test', next.error))
 
-  on('command.run', { command: 'tests' }, async ($, e) => {
-    await $.ui.open({ id: PANE, title: TITLE })
+  // The command it had before /theseus, kept for one release: it says its new spelling
+  on('command.run', { command: 'tests' }, async ($, e) => movedTo('/tests', '/theseus tests', await testsCommand($, e.args)))
 
-    const place = { tree: await rootOf($), isHome: true }
-
-    if (e.args.trim() === '') {
-      const held = await visionIn($, place)
-
-      return { text: held === null ? HOW_TO : visionText(held, await isLocked($, place, held)) }
-    }
-
-    return { text: await gaze($, e.args, 'command', place) }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
