@@ -13,6 +13,7 @@ export const inTurn = (): (<T>(work: () => Promise<T>) => Promise<T>) => {
   return work => {
     const done = last.then(work)
 
+    // The failure is the caller's, through `done`; the next work waits only for this one to end
     last = done.catch(() => undefined)
 
     return done

@@ -8,11 +8,12 @@ import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
 import { forgeOfHost } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
-import { errorText, forgeIn, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
+import { errorText, forgeIn, offerTools, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../planner/register'
 import { forgetRun, runLeftovers } from '../build/register'
 import { forgetTestsFirst } from '../tests-first/register'
+import { inBackground, stumbled } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -50,7 +51,13 @@ async function forgets($: $, keeper: 'build' | 'follow-up' | 'planner' | 'tests-
   const forgot =
     keeper === 'build' ? forgetRun($, leftover.ref, leftover.pr) : keeper === 'follow-up' ? closeFollowUp($, leftover.pr) : keeper === 'planner' ? forgetPlan($, leftover.ref, leftover.pr) : forgetTestsFirst($, leftover.ref)
 
-  return (await forgot.catch(() => ({ forgotten: false }))).forgotten
+  return (
+    await forgot.catch((error: unknown) => {
+      stumbled($, 'the cleanup')(error)
+
+      return { forgotten: false }
+    })
+  ).forgotten
 }
 
 async function run($: $, argv: readonly string[]): Promise<{ ok: boolean; out: string }> {
@@ -66,8 +73,8 @@ function git($: $, args: readonly string[]) {
 /** Looks at what the parts keep, and asks the forge whether each is merged; tells the person of each newly merged once. */
 async function watch($: $): Promise<Leftover[]> {
   const answers = [
-    { keeper: 'build' as const, kept: await runLeftovers($).catch(() => []) },
-    { keeper: 'follow-up' as const, kept: await followUpLeftovers($).catch(() => []) },
+    { keeper: 'build' as const, kept: await runLeftovers($) },
+    { keeper: 'follow-up' as const, kept: await followUpLeftovers($) },
   ]
 
   const origin = (await git($, ['remote', 'get-url', 'origin'])).out
@@ -113,7 +120,7 @@ async function watch($: $): Promise<Leftover[]> {
   if (fresh.length > 0) {
     await update($, told, was => [...was, ...fresh.map(leftover => leftover.pr)])
     $.ui.toast(`Cleanup: ${fresh.map(one => one.ref || one.branch).join(', ')} merged: /cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`)
-    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(() => undefined)
+    await $.ui.notify(`${fresh.length === 1 ? 'A pull request is' : `${fresh.length} pull requests are`} merged: /cleanup clean removes what is kept of ${fresh.length === 1 ? 'it' : 'them'}`, { title: 'Cleanup' }).catch(stumbled($, 'the cleanup'))
   }
 
   return found
@@ -133,6 +140,7 @@ async function cleanUp($: $, leftover: Leftover): Promise<string> {
   const root = await rootOf($)
 
   // A worktree an earlier cleanup removed already is gone: what git still says of it is pruned
+  // A tree that cannot be looked at is taken as there, and kept
   const isTreeGone = leftover.tree !== '' && leftover.tree !== root && !(await $.fs.exists(leftover.tree).catch(() => true))
 
   if (isTreeGone) await git($, ['worktree', 'prune'])
@@ -252,11 +260,11 @@ async function tick($: $): Promise<void> {
 export async function startCleanup($: $): Promise<void> {
   await $.command.register({ name: 'cleanup', description: 'Remove what is kept of a merged pull request: /cleanup shows what is watched; /cleanup clean [branch or pr] cleans it up' })
 
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 
-  $.clock.after(FIRST_LOOK_MS, () => void watch($).catch(() => undefined))
-  $.clock.every(WATCH_MS, () => void watch($).catch(() => undefined))
-  $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+  $.clock.after(FIRST_LOOK_MS, inBackground($, 'the cleanup', () => watch($)))
+  $.clock.every(WATCH_MS, inBackground($, 'the cleanup', () => watch($)))
+  $.clock.every(TICK_MS, inBackground($, 'the cleanup', () => tick($)))
 }
 
 export function registerCleanup(on: On): void {

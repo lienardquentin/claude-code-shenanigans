@@ -569,6 +569,8 @@ const machine = (on: On) => {
   const testFile = () => [...(world.proving === 'bare' ? [] : [MARKED]), ...(world.wrote ? LOCKED.filter(line => !(world.tampered && line.includes('assert'))) : [])].join('\n')
 
   on('session.cwd', () => ({ value: CWD }) as never)
+  // A subscription with no quota window to read, as an API key has: the quota holds no run
+  on('session.usage', () => ({ value: { rateLimits: [] } }) as never)
   on('fs.write', (_, e) => {
     if (e.path === `${CWD}/.pipeline/spend.jsonl`) world.spend = e.text
 

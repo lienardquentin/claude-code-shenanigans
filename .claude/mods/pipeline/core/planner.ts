@@ -72,7 +72,7 @@ export async function forgetPlan(p: PlannerPorts, ref: string, pr: string): Prom
   const cwd = await p.machine.root()
 
   await p.plans.forget(ref)
-  await p.machine.shell(cwd).run(['rm', '-f', planPathOf(cwd, ref)]).catch(() => undefined)
+  await p.machine.shell(cwd).run(['rm', '-f', planPathOf(cwd, ref)])
   if ((await current(p))?.ref === ref) await p.plans.setInForce(null)
 
   return { forgotten: true, text: `The plan of ${ref} is forgotten, its file with it.` }
@@ -124,8 +124,8 @@ export async function makePlan(p: PlannerPorts, input: string, by: Planning['by'
   const cwd = await p.machine.root()
   const planPath = planPathOf(cwd, key)
   // The folder ignores itself, and a plan an earlier planner wrote is not read as this one's
-  await p.machine.write(`${cwd}/.pipeline/.gitignore`, '*\n').catch(() => undefined)
-  await p.machine.write(planPath, '').catch(() => undefined)
+  await p.machine.write(`${cwd}/.pipeline/.gitignore`, '*\n')
+  await p.machine.write(planPath, '')
 
   const issue = await fetchIssue(p, ref, origin)
 
@@ -159,7 +159,7 @@ export async function makePlan(p: PlannerPorts, input: string, by: Planning['by'
  */
 export async function land(p: PlannerPorts, sitting: Planning, laid: IssuePlan): Promise<void> {
   // A task verify cannot prove is a risk the person decides, and one they accepted before stays accepted
-  const made = withDecided(withUnproven(laid, await p.parts.targetsKnown().catch(() => [])), sitting.decided ?? [], sitting.accepted ?? [])
+  const made = withDecided(withUnproven(laid, await p.parts.targetsKnown()), sitting.decided ?? [], sitting.accepted ?? [])
 
   await p.plans.sit(({ ...sitting, isLaid: true }))
   await keep(p, made)

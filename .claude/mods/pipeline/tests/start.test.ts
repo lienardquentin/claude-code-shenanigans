@@ -53,6 +53,6 @@ describe('the session start', () => {
     // the parts after verify started all the same: the build's, the cleanup's
     expect(tools).toEqual(expect.arrayContaining(['start_run', 'leftovers']))
     expect(commands).toEqual(expect.arrayContaining(['build', 'follow-up', 'cleanup', 'issues']))
-    expect(toasts.filter(toast => toast.startsWith('Pipeline: '))).toEqual([expect.stringMatching(/^Pipeline: verify stumbled: /)])
+    expect(toasts.filter(toast => toast.startsWith('Pipeline: '))).toEqual([expect.stringMatching(/^Pipeline: verify failed: /)])
   })
 })

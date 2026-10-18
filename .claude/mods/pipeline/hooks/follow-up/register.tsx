@@ -4,12 +4,13 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { FollowUpComment, FollowUp, FollowUpPhase } from '../../types'
 import { HOW_TO, WEIGHER_MODEL, commentShown, followUpText, handedOf, parseWeights, reviewRef, weighPrompt, checkComments } from './follow-up'
 import { parsePullRef, parseRemote } from '../../core/forge'
-import { errorText, forgeIn, git, isMergedFrom, toolFailed } from '../flow'
+import { errorText, forgeIn, git, isMergedFrom, offerTools, openPane, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
 import { takeReview } from '../build/register'
+import { inBackground } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -110,7 +111,7 @@ async function open($: $, input: string): Promise<string> {
 
   await keep($, was => ({ ...was, comments, phase: 'ready' }))
   await update($, note, () => (said.length === 0 ? '' : `${said.join('; ')}.`))
-  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+  await openPane($, PANE, TITLE)
 
   const changes = comments.filter(one => one.kind === 'change').length
   const questions = comments.length - changes
@@ -197,9 +198,9 @@ async function alone<T>($: $, act: () => Promise<T>): Promise<T> {
 export async function startFollowUp($: $): Promise<void> {
   await $.command.register({ name: 'follow-up', description: "Answer a pull request's review comments: /follow-up <pr> opens them; answer (--auto) hands them to the build; close" })
 
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 
-  $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+  $.clock.every(TICK_MS, inBackground($, 'the review follow-up', () => tick($)))
 }
 
 export function registerFollowUp(on: On): void {

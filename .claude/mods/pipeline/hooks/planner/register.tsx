@@ -6,7 +6,7 @@ import { HOW_TO, MARK, ideaPrompt, acceptRisk, askRisk, risksFor, sortedRisks, u
 import { refText } from '../../core/forge'
 import type { Issue, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
-import { forgeIn, isMergedFrom, rootOf, shellIn, toolFailed } from '../flow'
+import { forgeIn, isMergedFrom, offerTools, openPane, rootOf, shellIn, toolFailed } from '../flow'
 import * as core from '../../core/planner'
 import type { PlannerPorts } from '../../core/planner'
 import { targetsKnown } from '../verify/register'
@@ -15,6 +15,7 @@ import { paneView } from '../kit/pane-text'
 import { clip, keyed, shortRef } from '../look'
 import { settlingOf } from '../../core/run'
 import { PLANNER, askToPump, inFrame, remember, spawnIn, typeOf } from '../agents'
+import { inBackground, stumbled } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -137,19 +138,19 @@ function portsOf($: $): PlannerPorts {
     plans: {
       inForce: () => read($, plan),
       setInForce: async made => void (await update($, plan, () => made)),
-      kept: ref => $.store.get(STORE_KEY(ref)).catch(() => undefined),
-      keep: made => $.store.set(STORE_KEY(made.ref), made).catch(() => undefined),
-      forget: ref => $.store.delete(STORE_KEY(ref)).catch(() => undefined),
+      kept: ref => $.store.get(STORE_KEY(ref)),
+      keep: made => $.store.set(STORE_KEY(made.ref), made),
+      forget: ref => $.store.delete(STORE_KEY(ref)),
       sitting: () => read($, planner),
       sit: async sitting => void (await update($, planner, () => sitting)),
     },
     board: {
       note: async text => void (await update($, note, () => text)),
       select: async id => void (await update($, selected, () => id)),
-      show: async () => void (await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)),
+      show: async () => void (await openPane($, PANE, TITLE)),
       toast: text => $.ui.toast(text),
-      notify: async text => void (await $.ui.notify(text, { title: 'the planner' }).catch(() => undefined)),
-      hand: async text => void (await $.prompt.submit({ text }).catch(() => undefined)),
+      notify: async text => void (await $.ui.notify(text, { title: 'the planner' }).catch(stumbled($, 'the planner'))),
+      hand: async text => void (await $.prompt.submit({ text }).catch(stumbled($, 'the planner'))),
     },
     agents: {
       send: asked => spawnIn($, { subagentType: AGENT_TYPE, description: asked.description, prompt: asked.prompt }),
@@ -204,7 +205,7 @@ export function settlePlanAlone($: $, ref: string): Promise<IssuePlan | null> {
 
 /** Whether an agent's turn is the planner's: by the id its spawn answered, else, where it answered none, by the type it runs as. */
 async function isPlanner($: $, sitting: Planning, agentId: string): Promise<boolean> {
-  return sitting.agentId !== '' ? agentId === sitting.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && one.type === AGENT_TYPE)
+  return sitting.agentId !== '' ? agentId === sitting.agentId : (await $.agent.list()).some(one => one.id === agentId && one.type === AGENT_TYPE)
 }
 
 const sectionText = (held: IssuePlan): string =>
@@ -219,7 +220,7 @@ const sectionText = (held: IssuePlan): string =>
 export async function askPlanner($: $, input: string): Promise<string> {
   const ref = parseRef(input, await originOf($))
 
-  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+  await openPane($, PANE, TITLE)
 
   if (typeof ref === 'string') return ref
   if ((await kept($, refText(ref))) !== undefined || (await read($, planner)) !== null) return (await makePlan($, input, 'command', false)).text
@@ -258,9 +259,9 @@ export async function startPlanner($: $): Promise<void> {
   await $.command.register({ name: 'planner', description: 'Plan a GitHub or GitLab issue as tasks: /planner <issue> plans it (--again to plan afresh); /planner <idea> grills you on an idea, opens its issue and plans it (--auto asks nothing); /planner alone opens the plan' })
 
   // A host that registers no tools still starts the session
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 
-  $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+  $.clock.every(TICK_MS, inBackground($, 'the planner', () => tick($)))
 }
 
 /** A turn has ended: the planner's answer is the plan. */
@@ -325,7 +326,7 @@ export function registerPlanner(on: On): void {
     // A sentence that names no issue is an idea: Claude grills the person on it, opens its issue, and plans that. The
     // prompt waits on the session being idle, which it is not inside the command's own hook
     if (isIdea(input) && typeof parseRef(input, await originOf($)) === 'string') {
-      $.clock.after(0, () => void $.prompt.submit({ text: ideaPrompt(input, isAuto) }).catch(() => undefined))
+      $.clock.after(0, inBackground($, 'the planner', () => $.prompt.submit({ text: ideaPrompt(input, isAuto) })))
 
       return { text: isAuto ? 'Claude works the idea into an issue alone, opens it, and has the planner plan it.' : 'Claude grills you on the idea, then opens its issue and has the planner plan it.' }
     }

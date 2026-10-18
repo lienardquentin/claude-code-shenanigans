@@ -9,6 +9,7 @@ import { BUILDERS, isModSource, isOutside, builderSystem, reachesOut } from '../
 import { isChanging, isForbiddenGit, isModPath, isPrivatePath, privateRefusal, rootOf } from './flow'
 import { TEST_WRITER_EFFORT, TEST_WRITER_LIGHT_MODEL, TEST_WRITER_MODEL, TEST_WRITER_SYSTEM, isTestPath } from '../core/tests-first'
 import type { Trees } from './kit/trees'
+import { stumbled } from './trouble'
 
 // Every agent the mod sends, in one place: the types it registers, the record of each one sent, and the one guard that
 // holds each to what its part allows. None of them has a permission mode of its own: each works under the session's,
@@ -90,7 +91,7 @@ const strangers = new Set<string>()
 export async function listedRole($: $, agentId: string): Promise<AgentRole | undefined> {
   if (strangers.has(agentId)) return undefined
 
-  const listed = (await $.agent.list().catch(() => undefined))?.find(one => one.id === agentId)
+  const listed = (await $.agent.list()).find(one => one.id === agentId)
   const role = roleOfType(listed?.type ?? '')
 
   // An agent the session does not list yet is asked about again on its next call
@@ -197,7 +198,7 @@ export async function registerAgents($: $): Promise<void> {
       disallowedTools: ['Edit', 'NotebookEdit'],
       model: 'inherit',
     })
-    .catch(() => undefined)
+    .catch(stumbled($, 'the agent types'))
 
   for (const [name, member] of Object.entries(BUILDERS) as [BuilderName, (typeof BUILDERS)[BuilderName]][]) {
     await $.agent
@@ -211,7 +212,7 @@ export async function registerAgents($: $): Promise<void> {
         model: member.model,
         effort: member.effort,
       })
-      .catch(() => undefined)
+      .catch(stumbled($, 'the agent types'))
   }
 
   for (const [name, model] of [[TEST_WRITER, TEST_WRITER_MODEL], [TEST_WRITER_LIGHT, TEST_WRITER_LIGHT_MODEL]] as const) {
@@ -226,7 +227,7 @@ export async function registerAgents($: $): Promise<void> {
         model,
         effort: TEST_WRITER_EFFORT,
       })
-      .catch(() => undefined)
+      .catch(stumbled($, 'the agent types'))
   }
 
   for (const reviewer of REVIEWERS) {
@@ -240,7 +241,7 @@ export async function registerAgents($: $): Promise<void> {
         model: REVIEWER_MODEL,
         effort: REVIEWER_EFFORT,
       })
-      .catch(() => undefined)
+      .catch(stumbled($, 'the agent types'))
   }
 }
 
@@ -262,6 +263,7 @@ export const FRAMED = 'framed'
 
 /** Whether the mod stands in one of its hooks now, where an agent it sends is held. */
 export async function inFrame($: $): Promise<boolean> {
+  // Outside a hook the call is refused, which is the answer
   const answered = await $.tool.call({ tool: toolOf(FRAME_TOOL.name) } as never).catch(() => undefined)
 
   return (answered as { result?: unknown } | undefined)?.result === FRAMED
@@ -285,8 +287,9 @@ export async function askToPump($: $, what: string): Promise<void> {
   if (isAskedToPump) return
 
   isAskedToPump = true
-  await $.prompt.submit({ text: `The pipeline mod: ${what} It is done where the agents it sends are held: call ${toolOf(PUMP_TOOL.name)}.` }).catch(() => {
+  await $.prompt.submit({ text: `The pipeline mod: ${what} It is done where the agents it sends are held: call ${toolOf(PUMP_TOOL.name)}.` }).catch((error: unknown) => {
     isAskedToPump = false
+    stumbled($, 'the pipeline')(error)
   })
 }
 

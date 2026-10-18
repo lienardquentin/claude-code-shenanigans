@@ -226,13 +226,24 @@ export async function push($: $, branch: string, cwd?: string): Promise<{ ok: bo
  * Whether it was reached.
  */
 export async function sendBack($: $, agentId: string, agentType: string, text: string): Promise<boolean> {
-  const to = agentId !== '' ? agentId : ((await $.agent.list().catch(() => [])).filter(one => one.type === agentType).at(-1)?.id ?? '')
+  const to = agentId !== '' ? agentId : ((await $.agent.list()).filter(one => one.type === agentType).at(-1)?.id ?? '')
 
   if (to === '') return false
 
+  // An agent gone since answers no delivery: the caller sends a fresh one
   const sent = await $.session.send({ to: { agentId: to }, text }).catch(() => undefined)
 
   return sent?.isDelivered === true
+}
+
+/** Registers a part's tools. A host that registers no tools (an older engine, a test's) still starts the part: its commands and panes work without them. */
+export async function offerTools($: $, tools: readonly Parameters<$['tool']['register']>[0][]): Promise<void> {
+  for (const tool of tools) await $.tool.register(tool).catch(() => undefined)
+}
+
+/** Opens a part's pane. A host with no panes (the desktop app's compact view, a test's) still runs the part: Claude reads it through the pane tool. */
+export async function openPane($: $, id: string, title: string): Promise<void> {
+  await $.ui.open({ id, title }).catch(() => undefined)
 }
 
 /** The worktree a branch is built in, under the project's folder. */
