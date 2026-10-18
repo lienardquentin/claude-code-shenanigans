@@ -2,7 +2,8 @@
   "name": "theseus",
   "description": "Theseus for Claude Code: takes an issue or a pull request's review to committed and reviewed work (plan, tests first, build in a worktree, prove, review, follow-up, cleanup), with the recorder and the runtime, each useful alone, watching what the code does",
   "owner": {
-    "name": "quent"
+    "name": "lienardquentin",
+    "url": "https://github.com/lienardquentin"
   },
   "plugins": [
     {

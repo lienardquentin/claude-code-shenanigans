@@ -146,34 +146,11 @@ Then open the pane with `/renovate`.
 
 ### Theseus
 
-The workflow mods are one marketplace, `theseus`, kept in
-[`.claude/mods/.claude-plugin/marketplace.json`](.claude/mods/.claude-plugin/marketplace.json), of three plugins:
-
-- `theseus` ([`.claude/mods/theseus`](.claude/mods/theseus)) takes a GitHub or GitLab issue, or a pull request's
-  review, to committed and reviewed work. Its parts each have a folder under `hooks/`, and their logic, which never
-  touches the engine, is under `core/`. One command drives it: `/theseus plan <issue>` plans an issue (or grills an
-  idea into one), `/theseus build` builds the plan in a worktree of its own, `/theseus tests <behaviour>` has the test
-  writer write tests first, `/theseus verify` shows the proof and review of each change, `/theseus follow-up <pr>`
-  reads review, `/theseus cleanup` clears what is merged and `/theseus issues` lists the open issues. `/theseus` alone
-  says what is under way, and `/theseus help` lists every verb. Its tools are `mcp__theseus__*`; `mcp__theseus__pane`
-  reads any of its panes by the same names, and `troubles` lists what any part failed at.
-  A pull request says of each task its commit, how long it took, what it changed beyond its files and what its builder
-  left unticked, then what was not built, the reviewers' minor findings and what the run spent. `/theseus follow-up` takes a
-  pull request's failing checks (GitHub checks, GitLab pipeline jobs) up as changes, beside its review comments.
-  `/theseus plan <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
-  planned (`--auto` asks nothing, and lists what it decided in the issue). An auto run settles a plan's open questions
-  and risks itself, and the plan and the pull request list them under "Decided without the person".
-  Verify proves each change against the targets a project names in `.claude/theseus.toml` (`/theseus init` proposes
-  one, and [docs/config.md](docs/config.md) says what each key does); a project that names none is
-  proved by the verification commands its plan states, or its issue's `## Verification` section (and `## Setup` for a
-  fresh worktree). A run with neither is not started.
-  A run starts no task while the 5-hour quota window is past 90%: it waits, and goes on by itself once the window
-  resets (past 90% of the weekly window it stops for you). A builder that fills 70% of a context window is stopped,
-  and its task said to be too large, to be split. Each threshold is an option of the plugin (`/plugin`).
-- `recorder` and `runtime`, each useful alone, watch what the code does. Verify reads the recorder's diff for a
-  command-line tool.
-
-Install them from a clone:
+Theseus takes a GitHub or GitLab issue to a reviewed pull request: it plans the issue, writes each task's failing
+tests first, builds it in a worktree of its own, proves every change against what the project does, and has reviewers
+judge it. It is one plugin of the `theseus` marketplace in [`.claude/mods`](.claude/mods), with the `recorder` and the
+`runtime` below, each useful alone. Its own [README](.claude/mods/theseus/README.md) covers the quickstart, how a run
+goes, its commands and options, and troubleshooting; [docs/config.md](docs/config.md) the project file.
 
 ```
 claude plugin marketplace add <path to this clone>/.claude/mods
@@ -182,31 +159,12 @@ for mod in theseus recorder runtime; do
 done
 ```
 
-To take a new version after pulling, update each plugin and restart Claude Code. Every change to a plugin bumps its
-`version` (see each plugin's `CHANGELOG.md`): an update leaves a plugin whose version did not change as it was.
+Every change to a plugin bumps its `version` (see each plugin's `CHANGELOG.md`): `claude plugin update <plugin>@theseus`
+takes it, then restart Claude Code.
 
-```
-for mod in theseus recorder runtime; do
-  claude plugin update "$mod@theseus"
-done
-```
-
-Theseus was the `pipeline` plugin until 0.3.0. On its first start it carries the plans and runs the pipeline kept into
-its own store, and moves a project's `.pipeline/` folder to `.theseus/`, repairing the worktrees in it. Coming from the
-`pipeline` marketplace, remove it and install from this one:
-
-```
-claude plugin marketplace remove pipeline
-claude plugin marketplace add <path to this clone>/.claude/mods
-for mod in theseus recorder runtime; do
-  claude plugin install "$mod@theseus"
-done
-```
-
-```
-claude plugin validate .claude/mods/theseus
-claude plugin test .claude/mods/theseus
-```
+Theseus was the `pipeline` plugin until 0.3.0. Install it from this marketplace and start a session first: it carries
+the plans and runs the pipeline kept, and moves a project's `.pipeline/` to `.theseus/`. Then remove the old marketplace
+(`claude plugin marketplace remove pipeline`).
 
 ### `recorder`
 

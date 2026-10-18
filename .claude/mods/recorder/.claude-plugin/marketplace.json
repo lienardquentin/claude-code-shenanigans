@@ -1,5 +1,6 @@
 {
   "name": "recorder-mods",
+  "description": "The recorder alone: keeps every run of the command-line tool being written, and shows them to you and to Claude",
   "owner": {
     "name": "quent"
   },
