@@ -19,6 +19,9 @@ import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spen
 import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
+import { eventsOf, logLines, logPathOf, parseLog } from '../../core/events'
+import type { Cause, RunEvent } from '../../core/events'
+import { inTurn } from '../../core/kit'
 import { startRefusal } from '../doctor'
 import { inBackground, reported } from '../trouble'
 
@@ -115,10 +118,48 @@ async function runAt($: $, ref: string): Promise<Run | null> {
   return (await read($, quests))[ref] ?? null
 }
 
+// What set off the work under way, for each run's log: the entry it came in by (a command, a tool, the clock, an
+// agent's turn, a press), carried with each ask to the run it is acted on, as asks are acted on side by side
+let entry: Cause = 'session'
+const causes = new Map<string, Cause>()
+const askCauses = new Map<string, Cause>()
+const askKey = (asked: { ref: string; what: string; arg?: string }): string => `${asked.ref}|${asked.what}|${asked.arg ?? ''}`
+const causeOf = (ref: string): Cause => causes.get(ref) ?? causes.get('') ?? entry
+
+// How many of a run's last events the pane shows
+const HISTORY = 6
+
+// The logs are read and written whole, one write at a time
+const logTurn = inTurn()
+
+/** Appends events to their runs' logs under .theseus/runs/. */
+async function logEvents($: $, events: readonly RunEvent[]): Promise<void> {
+  if (events.length === 0) return
+
+  const root = await rootOf($)
+
+  await logTurn(async () => {
+    for (const ref of [...new Set(events.map(event => event.ref))]) {
+      const path = logPathOf(root, ref)
+      const was = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : ''
+
+      await $.fs.write(path, was + logLines(events.filter(event => event.ref === ref)))
+    }
+  })
+}
+
+/** What a run's log holds, oldest first; none where it has no log yet. */
+export async function runLog($: $, ref: string): Promise<string> {
+  const path = logPathOf(await rootOf($), ref)
+
+  return (await $.fs.exists(path)) ? String(await $.fs.read(path)) : ''
+}
+
 /** Changes a run, and keeps it across sessions. Answers it as it now stands; nothing when no run is on the ref. */
 async function keep($: $, ref: string, change: (was: Run) => Run): Promise<Run | null> {
   // Set inside the update: typed wide, as the narrowing does not follow it there
   let made = null as Run | null
+  let before = null as Run | null
   let refused = ''
 
   // The change is made once, on the run as it stands when it is written, and what is kept across sessions is that;
@@ -137,6 +178,7 @@ async function keep($: $, ref: string, change: (was: Run) => Run): Promise<Run |
     }
 
     made = next
+    before = was
 
     return { ...held, [ref]: made }
   })
@@ -146,6 +188,7 @@ async function keep($: $, ref: string, change: (was: Run) => Run): Promise<Run |
   if (made !== null) {
     const kept: Run = made
 
+    await logEvents($, eventsOf(before ?? undefined, kept, Date.now(), causeOf(ref))).catch(reported($, 'the run log'))
     await $.store.set(STORE_KEY(ref), kept).catch(async (error: unknown) => {
       const why = `${ref} could not be kept for the next session: ${errorText(error)}`
 
@@ -164,17 +207,21 @@ async function drop($: $, ref: string): Promise<void> {
   await update($, working, ({ [ref]: _gone, ...rest }) => rest)
   await $.store.delete(STORE_KEY(ref))
   await update($, selected, was => (was === ref ? '' : was))
+  await logEvents($, [{ at: Date.now(), ref, kind: 'dropped', cause: causeOf(ref), text: 'Dropped: no longer under way' }]).catch(reported($, 'the run log'))
 }
 
 async function say($: $, ref: string, text: string): Promise<void> {
   await update($, notes, was => ({ ...was, [ref]: text }))
+  if (ref !== '' && text !== '') await logEvents($, [{ at: Date.now(), ref, kind: 'note', cause: causeOf(ref), text }]).catch(reported($, 'the run log'))
 }
 
 async function work($: $, ref: string, text: string): Promise<void> {
   await update($, working, was => ({ ...was, [ref]: text }))
+  if (ref !== '' && text !== '') await logEvents($, [{ at: Date.now(), ref, kind: 'working', cause: causeOf(ref), text }]).catch(reported($, 'the run log'))
 }
 
 async function want($: $, ref: string, what: RunAsk, arg?: string): Promise<void> {
+  askCauses.set(askKey({ ref, what, ...(arg !== undefined ? { arg } : {}) }), entry)
   await update($, wanted, was => [...was, { ref, what, ...(arg !== undefined ? { arg } : {}) }])
 }
 
@@ -251,7 +298,10 @@ async function quotaOf($: $): Promise<Quota | undefined> {
 
 /** Holds a run set out afresh, and its work, and keeps it across sessions. */
 async function put($: $, held: Run, made: RunWork): Promise<void> {
-  await update($, quests, was => ({ ...was, [held.ref]: held }))
+  const was = (await read($, quests))[held.ref]
+
+  await update($, quests, all => ({ ...all, [held.ref]: held }))
+  await logEvents($, eventsOf(was, held, Date.now(), causeOf(held.ref))).catch(reported($, 'the run log'))
   await update($, plans, was => ({ ...was, [held.ref]: made }))
   await $.store.set(STORE_KEY(held.ref), held).catch((error: unknown) => $.ui.toast(`Build: ${held.ref} could not be kept for the next session: ${errorText(error)}`))
 }
@@ -366,6 +416,8 @@ async function act($: $, asked: { ref: string; what: RunAsk | 'look'; arg?: stri
   const { ref, what } = asked
 
   busy.add(ref)
+  causes.set(ref, askCauses.get(askKey(asked)) ?? entry)
+  askCauses.delete(askKey(asked))
 
   try {
     if (what === 'look') {
@@ -428,6 +480,7 @@ async function drain($: $, isFramed: boolean, only?: string, isLooking = false):
 
 /** The clock does what sends no agent: the rest waits for a hook. */
 async function tick($: $): Promise<void> {
+  entry = 'clock'
   // A run held for the quota is asked for its next task once its time has come
   await loop.wakeHeld(portsOf($))
   await drain($, false)
@@ -573,6 +626,8 @@ async function recallQuests($: $): Promise<void> {
 export async function endedBuild($: $, e: TurnEnded): Promise<void> {
   const held = e.agentId === undefined ? undefined : await runOfAgent($, e.agentId, 'building')
 
+  entry = 'turn'
+  if (held !== undefined) causes.set(held.ref, 'turn')
   if (held !== undefined) await loop.builderEnded(portsOf($), held, e)
 }
 
@@ -596,6 +651,7 @@ export async function builderFound($: $, agentId: string): Promise<SentAgent | u
 
 /** `/theseus build`: Builds the plan in force, an errand or a review task by task in a worktree. */
 export async function buildCommand($: $, args: string): Promise<{ text: string }> {
+  entry = 'command'
   const words = args.trim().split(/\s+/).filter(word => word !== '')
   // `auto` is taken as --auto: no issue is named so, and /theseus build start auto once started on an issue "auto"
   const isAuto = words.includes('--auto') || words.includes('auto')
@@ -698,6 +754,7 @@ export function registerBuild(on: On): void {
     })
 
   on('tool.call', { tool: 'mcp__theseus__start_run' }, async ($, e) => {
+    entry = 'tool'
     const given = e as unknown as { auto?: unknown; ref?: unknown }
 
     const said = await alone($, '', () => setOut($, given.auto === true, typeof given.ref === 'string' ? given.ref : ''))
@@ -709,6 +766,7 @@ export function registerBuild(on: On): void {
   }).catch((_$, _e, next) => toolFailed('start_run', next.error))
 
   on('tool.call', { tool: 'mcp__theseus__start_errand' }, async ($, e) => {
+    entry = 'tool'
     const given = e as unknown as { issue?: unknown; auto?: unknown }
 
     const said = await alone($, '', () => errand($, String(given.issue ?? ''), given.auto === true, false))
@@ -739,6 +797,7 @@ export function registerBuild(on: On): void {
   }).catch((_$, _e, next) => toolFailed('run', next.error))
 
   on('tool.call', { tool: 'mcp__theseus__commit' }, async ($, e) => {
+    entry = 'tool'
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
 
     if (held === null) return { result: 'Name the run, by its ref: more than one is under way, or none.' }
@@ -752,6 +811,7 @@ export function registerBuild(on: On): void {
   }).catch((_$, _e, next) => toolFailed('commit', next.error))
 
   on('tool.call', { tool: 'mcp__theseus__next' }, async ($, e) => {
+    entry = 'tool'
     const held = await namedQuest($, String((e as unknown as { ref?: unknown }).ref ?? ''))
 
     if (held === null) return { result: 'Name the run, by its ref: more than one is under way, or none.' }
@@ -780,8 +840,10 @@ export function registerBuild(on: On): void {
     const doing = await read($, working)
     const queue = await read($, wanted)
     const cost = await read($, spent)
+    const history = held === null ? [] : parseLog(await runLog($, held.ref)).events.filter(event => event.kind !== 'working').slice(-HISTORY)
     // A press asks, then does it where it stands in a hook: where it does not, Claude is asked to call for it
     const press = async (ref: string, what: RunAsk) => {
+      entry = 'press'
       await want($, ref, what)
       await pumpBuild($, ref === '' ? undefined : ref)
     }
@@ -893,7 +955,15 @@ export function registerBuild(on: On): void {
             ))}
           </Box>
         )}
-        {held.phase === 'writing-tests' && <Text color="suggestion">{`The test writer writes task ${held.testsFor ?? ''}'s tests first, red`}</Text>}
+        {history.length > 0 && (
+          <Box flexDirection="column">
+            <Text dimColor>History</Text>
+            {history.map((event, at) => (
+              <Text key={`event-${at}`} dimColor={event.kind === 'note'}>{`${clockOf(event.at)} ${event.text}`}</Text>
+            ))}
+          </Box>
+        )}
+        {held.phase === 'writing-tests' && <Text color="suggestion">{`Writing task ${held.testsFor ?? ''}'s tests first: they should fail`}</Text>}
         {held.phase === 'reviewing-branch' && <Text color="suggestion">{`${WARDING} before it is submitted`}</Text>}
         {out === null && held.verdictLine.startsWith('the whole branch') && <Text color={held.isBranchReviewed === true ? 'success' : 'warning'}>{`The reviewers: ${held.verdictLine}`}</Text>}
         {out !== null && (

@@ -3,6 +3,17 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.8.0
+
+- Each run keeps its history in `.theseus/runs/<run>.jsonl` (#154): every change the build keeps of it (started, a
+  task sent, a commit, a proof, the reviewers' verdict, a wait for the quota, a pull request opened, a move from one
+  phase to another, what the pane said) as an event with its time and its cause: your command, Claude's call, the
+  clock, an agent's turn ending, a press on a pane.
+- `/theseus` says each run's standing from its log: where it is, since when, what moved it there, and its last
+  events. `/theseus log [run]` shows the whole history. The build pane shows the selected run's last events.
+- The moves a run may make stay the one table in `core/phases.ts`; the events are worked out from what each kept
+  change changed (`core/events.ts`), so no part writes the log by hand.
+
 ## 0.7.2
 
 - What you read is plainer (#153, first part): command answers lead with what happened and name the next command
