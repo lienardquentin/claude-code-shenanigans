@@ -6,7 +6,7 @@ import { offerTools, rootOf, toolFailed } from './flow'
 import { verifyCommand, verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpCommand, followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { planCommand, plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
-import { buildCommand, endedBuild, buildView, runLeftovers, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
+import { buildCommand, endedBuild, buildView, runLeftovers, runLog, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
 import { endedTestsFirst, testsCommand, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupCommand, cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesCommand, issuesView, registerIssues, startIssues } from './issues/register'
@@ -16,6 +16,9 @@ import { reported, troublesText } from './trouble'
 import { doctorOf } from './doctor'
 import { initCommand } from './init'
 import { doctorText } from '../core/doctor'
+import { parseLog, standingText } from '../core/events'
+import { clockOf } from './look'
+import type { RunPhase } from '../types'
 
 // Theseus: one plugin, each of its parts a folder of its own (the issues pane lists the issues, plans, the
 // Build builds, the test writer writes tests first, verify prove and judge, the review follow-up reads review, the cleanup
@@ -45,6 +48,7 @@ const VERBS = {
   'follow-up': { usage: 'follow-up <pr> | answer [--auto] | close', does: "answer a pull request's review and failing checks" },
   cleanup: { usage: 'cleanup [clean [branch | pr]]', does: 'what is kept of merged pull requests; clean removes it' },
   issues: { usage: 'issues', does: 'the open issues' },
+  log: { usage: 'log <run>', does: "a run's history: every move, when, and what caused it" },
   doctor: { usage: 'doctor', does: 'what Theseus needs here, and how to fix what is missing' },
   init: { usage: 'init [--write] [--force]', does: 'propose .claude/theseus.toml from the project; --write writes it' },
 } as const
@@ -66,11 +70,25 @@ async function answerOf($: EngineInterface, verb: keyof typeof VERBS, args: stri
       return cleanupCommand($, args)
     case 'issues':
       return issuesCommand($, args)
+    case 'log':
+      return { text: await logOf($, args.trim()) }
     case 'doctor':
       return { text: doctorText(await doctorOf($)) }
     case 'init':
       return initCommand($, args)
   }
+}
+
+/** A run's whole log, as /theseus log says it: the run named, or the one under way when only one is. */
+async function logOf($: EngineInterface, named: string): Promise<string> {
+  const runs = await runLeftovers($)
+  const run = named === '' ? (runs.length === 1 ? runs[0] : undefined) : runs.find(one => one.ref === named || one.ref.endsWith(named) || one.branch === named)
+
+  if (run === undefined) return named === '' ? `Name the run: ${runs.map(one => one.ref).join(', ') || 'none is under way'}.` : `No run on ${named} is under way.`
+
+  const { events, unread } = parseLog(await runLog($, run.ref))
+
+  return [standingText(run.ref, run.phase as RunPhase, events, events.length, clockOf), ...(unread > 0 ? [`(${unread} lines of the log did not read)`] : [])].join('\n')
 }
 
 /** What /theseus help answers. */
@@ -85,13 +103,16 @@ const HELP = [
   ].flatMap(([usage, does]) => [`  /theseus ${usage}`.trimEnd(), `      ${does}`]),
 ].join('\n')
 
-/** What /theseus alone answers: the runs under way, and what failed. */
+/** What /theseus alone answers: each run under way from its log (where it stands, what moved it there, its last events), and what failed. */
 async function statusOf($: EngineInterface): Promise<string> {
   const runs = await runLeftovers($)
   const failed = troublesText()
+  const standings: string[] = []
+
+  for (const run of runs) standings.push(standingText(run.ref, run.phase as RunPhase, parseLog(await runLog($, run.ref)).events, 5, clockOf) + (run.pr !== '' ? `\n  Pull request: ${run.pr}` : ''))
 
   return [
-    runs.length === 0 ? 'No run is under way.' : runs.map(run => `${run.ref}: ${run.phase}${run.pr !== '' ? `, ${run.pr}` : ''}`).join('\n'),
+    runs.length === 0 ? 'No run is under way.' : standings.join('\n\n'),
     ...(failed.startsWith('No part') ? [] : ['', 'Failed this session:', failed]),
     '',
     '/theseus help lists what it does.',

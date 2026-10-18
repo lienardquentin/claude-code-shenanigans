@@ -80,7 +80,8 @@ flowchart LR
 
 | Command | What it does |
 |---|---|
-| `/theseus` | What is under way, and what failed this session. |
+| `/theseus` | Each run under way: where it stands, what moved it there, its last events; and what failed this session. |
+| `/theseus log [run]` | A run's whole history: every move, when, and what caused it (your command, Claude's call, the clock, an agent's turn, a press). |
 | `/theseus plan <issue \| idea>` | Plans an issue (`--again` plans afresh). An idea is a sentence: Claude grills you on it, opens its issue and plans it (`--auto` asks nothing). Alone, opens the plan. |
 | `/theseus build` | Builds the plan in force in a worktree (`--auto` goes on by itself). Alone, lists the runs under way. |
 | `/theseus build errand <issue>` | Builds a small issue in one change, with no plan. |
@@ -119,6 +120,7 @@ verification commands its plan states, or its issue's `## Verification` section.
 | `.theseus/plans/` | The planner's plans while it writes them. |
 | `.theseus/verify/trees/` | Throwaway checkouts the proof plays the commit in. |
 | `.theseus/spend.jsonl` | What each run's agents spent, a turn a line. |
+| `.theseus/runs/<run>.jsonl` | Each run's history, an event a line: what happened, when, and what caused it. |
 | `build/<issue>-<title>` | A run's branch, pushed only on submit. |
 | `~/.claude/plugins/store/theseus_*.json` | The plans and runs, kept across sessions. |
 

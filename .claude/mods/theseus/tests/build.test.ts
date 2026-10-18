@@ -545,6 +545,8 @@ const machine = (on: On) => {
     changed: 'beacons/gondor/app.py',
     // What the agents sent have cost, as .theseus/spend.jsonl keeps it
     spend: '',
+    // Each run's log under .theseus/runs/, by its path
+    logs: {} as Record<string, string>,
     // Each lane's worktree, by its folder: what it holds uncommitted, its HEAD, and where it left its run's branch. The
     // tip of the run's branch, which lanes land on, and how a lane's rebase onto it goes
     lanes: {} as Record<string, { dirty: string; head: string; forkedAt: string }>,
@@ -574,16 +576,18 @@ const machine = (on: On) => {
   on('env.get', () => ({ value: undefined }) as never)
   on('fs.write', (_, e) => {
     if (e.path === `${CWD}/.theseus/spend.jsonl`) world.spend = e.text
+    if (e.path.startsWith(`${CWD}/.theseus/runs/`)) world.logs[e.path] = e.text
 
     return { value: undefined } as never
   })
   // The project's file is the line format, in the project's folder alone
   on('fs.exists', (_, e) =>
-    /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
+    /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : e.path.startsWith(`${CWD}/.theseus/runs/`) ? ({ value: e.path in world.logs }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
   )
   on('fs.read', (_, e) => {
     if (e.path === `${CWD}/.claude/verify`) return { value: PROJECT } as never
     if (e.path === `${CWD}/.theseus/spend.jsonl`) return { value: world.spend } as never
+    if (e.path in world.logs) return { value: world.logs[e.path] } as never
     if (e.path.endsWith('/beacons/tests/test_gondor.py')) return { value: testFile() } as never
 
     throw new Error(`ENOENT: ${e.path}`)
@@ -906,6 +910,26 @@ describe('build', () => {
     expect(world.ran.some(line => line.startsWith('git switch'))).toBe(false)
     expect(world.marked).toEqual(['1 doing'])
     expect(world.spawned[0]).toMatchObject({ subagent_type: 'theseus:builder-light-1', description: 'Light builder 1: task 1, Keep when a beacon is lit', cwd: TREE })
+  })
+
+  test('logs each move of a run under .theseus/runs/, with what caused it, and says it in /theseus', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+
+    await call($, 'mcp__theseus__start_run')
+    await settle($, world)
+
+    const log = world.logs[`${CWD}/.theseus/runs/github-lienardquentin-claude-code-shenanigans-12.jsonl`] ?? ''
+    const events = log.trim().split('\n').map(line => JSON.parse(line) as { kind: string; cause: string; text: string })
+
+    expect(events[0]).toMatchObject({ kind: 'started', cause: 'tool' })
+    expect(events.find(event => event.kind === 'sent')).toMatchObject({ cause: 'tool', text: expect.stringMatching(/^Sent Light builder 1 on task 1: Keep when a beacon is lit$/) })
+    expect(events.find(event => event.kind === 'moved')).toMatchObject({ text: 'Ready for its next task → building' })
+    expect((await $.command.run({ command: 'theseus', args: '' } as never)).text).toMatch(/#12: building since [\d:]+(?: [AP]M)?, moved there by Claude's call\.\n[\s\S]*Sent Light builder 1 on task 1/)
+
+    // The pane shows the run's last events under its standing
+    await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'build' })
+    expect(await call($, 'mcp__theseus__pane', { pane: 'build' })).toMatch(/History\n\s*[\d:]+(?: [AP]M)? Started a plan on build\/12-[\s\S]*[\d:]+(?: [AP]M)? Sent Light builder 1 on task 1/)
   })
 
   test('offers Claude no tool that pushes or opens a pull request: the person is submitted', async ($, on) => {
