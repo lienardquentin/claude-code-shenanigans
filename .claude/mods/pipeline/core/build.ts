@@ -1063,11 +1063,28 @@ export const waitBeforeAbandon = (held: Run): string | undefined =>
     ? `The run on ${held.ref} is ${held.phase}: wait until ${held.phase === 'writing-tests' ? 'the test writer has shown the tests' : held.phase === 'reviewing' || held.phase === 'reviewing-branch' ? 'the reviewers have judged' : held.phase === 'proving' ? 'the proof is made' : `${held.current === null ? 'the builder' : BUILDERS[held.current.builder].title} is back`}, then abandon it.`
     : undefined
 
-/** What a run, or a lane of it, that is out waits on before the run may be abandoned; nothing when none waits. */
-export async function abandonWait(p: Ports, held: Run): Promise<string | undefined> {
-  const lanes = held.lane === undefined ? await lanesOf(p, held.ref) : []
+/** A worktree of the run's own, not the person's checkout; nothing for a run built where the person works. */
+const ownTreeOf = (held: Run, root: string): string | undefined => (held.tree !== undefined && held.tree !== '' && held.tree !== root ? held.tree : undefined)
 
-  return [held, ...lanes].map(waitBeforeAbandon).find(one => one !== undefined)
+/**
+ * Why a run may not be abandoned yet: it, or a lane of it, is out, or a worktree of theirs holds work that is the
+ * person's to keep or drop first. Nothing when it may: what the command says at once, before the clock gives it up.
+ */
+export async function abandonRefusal(p: Ports, held: Run): Promise<string | undefined> {
+  const lanes = held.lane === undefined ? await lanesOf(p, held.ref) : []
+  const waiting = [held, ...lanes].map(waitBeforeAbandon).find(one => one !== undefined)
+
+  if (waiting !== undefined) return waiting
+
+  const root = await p.machine.root()
+
+  for (const one of [...lanes, held]) {
+    const tree = ownTreeOf(one, root)
+
+    if (tree !== undefined && (await gitAt(p, ['status', '--porcelain'], tree)).out !== '') return `${tree} holds uncommitted changes: commit, stash or drop them there, then abandon the run.`
+  }
+
+  return undefined
 }
 
 /**
@@ -1080,9 +1097,9 @@ export async function abandon(p: Ports, ref: string): Promise<string> {
   if (held === null) return `No run on ${ref} is kept: there is nothing to abandon.`
 
   const lanes = held.lane === undefined ? await lanesOf(p, ref) : []
-  const waiting = await abandonWait(p, held)
+  const refused = await abandonRefusal(p, held)
 
-  if (waiting !== undefined) return waiting
+  if (refused !== undefined) return refused
 
   // Its lanes are given up first: each is a task of it, in a worktree of its own
   for (const lane of lanes) {
@@ -1092,13 +1109,10 @@ export async function abandon(p: Ports, ref: string): Promise<string> {
   }
 
   const root = await p.machine.root()
-  const isOwnTree = held.tree !== undefined && held.tree !== '' && held.tree !== root
+  const isOwnTree = ownTreeOf(held, root) !== undefined
   const said: string[] = [`The run on ${ref} is abandoned.`]
 
   if (isOwnTree) {
-    // A worktree with work in it is the person's to keep or drop first
-    if ((await gitAt(p, ['status', '--porcelain'], held.tree)).out !== '') return `${held.tree} holds uncommitted changes: commit, stash or drop them there, then abandon the run.`
-
     const removed = await gitAt(p, ['worktree', 'remove', held.tree], root)
 
     if (!removed.ok) return `The worktree ${held.tree} could not be removed: ${removed.out}`

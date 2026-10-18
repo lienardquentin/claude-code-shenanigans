@@ -1272,6 +1272,22 @@ describe('build', () => {
     expect(await call($, 'mcp__pipeline__start_run')).toMatch(/starts on github:.*#12/)
   })
 
+  test('is not abandoned while its worktree holds uncommitted changes, and the command says so itself', async ($, on) => {
+    const world = machine(on)
+    await start($, world)
+    await call($, 'mcp__pipeline__start_run')
+    await settle($, world)
+    await ends($, 'builder-light-1-1', 'Added lit_at.', world)
+    await settle($, world)
+    world.dirty = ' M beacons/gondor/app.py\n'
+
+    expect((await $.command.run({ command: 'build', args: 'abandon' } as never)).text).toBe(`${TREE} holds uncommitted changes: commit, stash or drop them there, then abandon the run.`)
+    await settle($, world)
+
+    expect(world.ran).not.toContain(`git worktree remove ${TREE}`)
+    expect(world.store[`run:${REF}`]).toBeDefined()
+  })
+
   test('has the test writer write the tests of a task that is not light first, in the worktree, and sends its builder to make them pass', async ($, on) => {
     const world = machine(on)
     world.plan = { ...structuredClone(PLAN), tasks: [{ ...structuredClone(PLAN.tasks[1]!), id: 1, dependsOn: [] }] }
