@@ -3,6 +3,10 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.2.2
+
+- A run's worktree is under `.theseus/trees` alone: `.fellowship/trees` is no longer one (#150).
+
 ## 0.2.1
 
 - The manifest names its author, homepage, repository, license (MIT) and keywords (#149).

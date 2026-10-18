@@ -6,9 +6,6 @@
 /** Where the build keeps its runs' worktrees, from the project's folder. */
 export const RUN_TREES = '.theseus/trees'
 
-// Where it kept them before it was renamed: a run set out then still works in one
-const OLD_TREES = '.fellowship/trees'
-
 /** The folder each agent a mod sent works in, by the agent's id: the `cwd` its spawn named. */
 export type Trees = Record<string, string>
 
@@ -26,7 +23,7 @@ export const isTree = (home: string, path: string): boolean => {
   const root = tidy(home)
   const tree = tidy(path)
 
-  return tree === root || [RUN_TREES, OLD_TREES].some(trees => tree.startsWith(`${root}/${trees}/`) && !tree.slice(root.length + trees.length + 2).includes('..'))
+  return tree === root || (tree.startsWith(`${root}/${RUN_TREES}/`) && !tree.slice(root.length + RUN_TREES.length + 2).includes('..'))
 }
 
 /**

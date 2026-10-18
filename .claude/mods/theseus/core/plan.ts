@@ -344,7 +344,7 @@ export type Built = { label: string; roots: readonly string[] }
 
 // Where a behaviour is proved: a test file, or the runs and requests the project keeps for its targets
 const isTestFile = (file: string): boolean => /(^|\/)tests?\//.test(file) || /(^|\/)test_[^/]+\.py$|[._-]test\.[cm]?[jt]sx?$|_test\.(go|rs)$/.test(file)
-const isKeptRuns = (file: string): boolean => ['.claude/theseus.toml', '.claude/verify', '.claude/recorder', '.claude/argonath', '.claude/anduril'].includes(file)
+const isKeptRuns = (file: string): boolean => ['.claude/theseus.toml', '.claude/verify', '.claude/recorder'].includes(file)
 
 /**
  * The tasks verify cannot prove on their own: each changes a target's source, but names neither a test nor a

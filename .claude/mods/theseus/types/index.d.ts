@@ -689,7 +689,7 @@ export type SentAgent = {
   stopped?: string
 }
 
-/** One turn of an agent the mod sent, as `.fellowship/spend.jsonl` keeps it a line each: what it cost, and for what. */
+/** One turn of an agent the mod sent, as `.theseus/spend.jsonl` keeps it a line each: what it cost, and for what. */
 export type SpentTurn = {
   role: AgentRole
   /** The issue it worked for, where its part knew it. */

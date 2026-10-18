@@ -1,6 +1,6 @@
 {
   "name": "recorder",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Keeps a record of every run of the command-line tool being written, whoever ran it: its arguments, how it exited, how long it took, what it consumed and what it wrote to each stream, in a pane and as tools Claude reads",
   "author": {
     "name": "lienardquentin",

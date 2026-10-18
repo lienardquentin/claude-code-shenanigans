@@ -5,12 +5,12 @@ import { differsIn, installedOf, lagText, sectionOfLag, versionOf } from '../hoo
 
 const CWD = '/proj'
 const CACHE = '/home/q/.claude/plugins/cache/theseus'
-// As the record stood on 2026-10-16: the recorder copied on the 14th, bombadil gone from the marketplace since f470415
+// As the record stood on 2026-10-16: the recorder copied on the 14th, oldtool gone from the marketplace since f470415
 const INSTALLED = JSON.stringify({
   version: 2,
   plugins: {
     'recorder@theseus': [{ installPath: `${CACHE}/recorder/0.1.0` }],
-    'bombadil@theseus': [{ installPath: `${CACHE}/bombadil/0.1.0` }],
+    'oldtool@theseus': [{ installPath: `${CACHE}/oldtool/0.1.0` }],
     'theseus@theseus': [{ installPath: `${CACHE}/theseus/0.1.0` }],
     'status-line@status-line-mods': [{ installPath: '/elsewhere' }],
   },
@@ -18,17 +18,17 @@ const INSTALLED = JSON.stringify({
 
 describe('the plugins installed from the marketplace', () => {
   test('are read from the install record, and nothing else is', () => {
-    expect(installedOf(INSTALLED).map(one => one.id)).toEqual(['recorder@theseus', 'bombadil@theseus', 'theseus@theseus'])
+    expect(installedOf(INSTALLED).map(one => one.id)).toEqual(['recorder@theseus', 'oldtool@theseus', 'theseus@theseus'])
     for (const text of ['', 'not json', 'null', '[]']) expect(installedOf(text)).toEqual([])
   })
 
   test('that lag are said with how each is brought level', () => {
     const text = lagText([
-      { plugin: 'bombadil@theseus', why: 'gone', installed: '' },
+      { plugin: 'oldtool@theseus', why: 'gone', installed: '' },
       { plugin: 'recorder@theseus', why: 'behind', installed: `${CACHE}/recorder/0.1.0` },
     ])
 
-    expect(text).toMatch(/- bombadil@theseus: installed, but no longer in \.claude\/mods\. Uninstall it \(claude plugin uninstall bombadil@theseus\)/)
+    expect(text).toMatch(/- oldtool@theseus: installed, but no longer in \.claude\/mods\. Uninstall it \(claude plugin uninstall oldtool@theseus\)/)
     expect(text).toMatch(/- recorder@theseus: its installed copy .* differs from \.claude\/mods\. \/reload-plugins reads it afresh/)
     expect(text).toMatch(/until claude plugin update recorder@theseus takes the new version/)
   })
@@ -92,9 +92,9 @@ describe('the plugins installed from the marketplace', () => {
 
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-    // Theseus's copy is its folder's: only the recorder, behind, and bombadil, gone, are said (what Claude is told of
+    // Theseus's copy is its folder's: only the recorder, behind, and oldtool, gone, are said (what Claude is told of
     // each is lagText's, above)
-    expect(toasts).toContain('Theseus: recorder, bombadil lag .claude/mods')
+    expect(toasts).toContain('Theseus: recorder, oldtool lag .claude/mods')
     expect(sectionOfLag()?.text).not.toMatch(/theseus@theseus/)
   })
 })

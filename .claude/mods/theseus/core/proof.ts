@@ -4,13 +4,10 @@ import type { ChangedRun, Outcome, ProofState, Radius, RunState, Target, TargetK
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
 
-/** What the project's list was called before: read where the project has not renamed it. */
-export const OLD_PROJECT_FILE = '.claude/argonath'
-
 /** Where the checkouts a look plays and proves in are kept, under the working directory: per machine, never committed. */
 export const HOME = '.theseus/verify'
 
-/** What a comment above a test says to mark it on a kept run: `pins: narsil show 999`. A mark written `sting:` still reads. */
+/** What a comment above a test says to mark it on a kept run: `pins: narsil show 999`. */
 export const MARK = 'pins:'
 
 /** A path with forward slashes and no trailing one, so two spellings of a folder compare equal. */
@@ -375,7 +372,7 @@ export const parseDiffText = (text: string): { summary: string; changed: { line:
 // How a test is declared, by the language it is written in: Rust, Python, Go, and a JavaScript runner's call
 const DECLARED = [/\bfn\s+(\w+)/, /\bdef\s+(\w+)/, /\bfunc\s+(\w+)/, /\b(?:test|it)\s*\(\s*['"`](.+?)['"`]\s*,/]
 
-const MARKED = new RegExp(`(?:${MARK}|sting:)\\s+(.+?)\\s*(?:\\*/|-->)?\\s*$`)
+const MARKED = new RegExp(`${MARK}\\s+(.+?)\\s*(?:\\*/|-->)?\\s*$`)
 
 /** The marks a test file holds: each run named in a comment, with the test declared next beneath it. */
 export const marksOf = (source: string): { line: string; test: string }[] => {

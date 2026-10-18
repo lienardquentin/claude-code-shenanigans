@@ -580,7 +580,7 @@ export async function endedBuild($: $, e: TurnEnded): Promise<void> {
 export async function sectionOfBuild($: $): Promise<Section | undefined> {
   const all = Object.values(await read($, quests)).filter(held => held.phase !== 'submitted')
 
-  return all.length === 0 ? undefined : { id: 'fellowship:run', text: sectionText(all) }
+  return all.length === 0 ? undefined : { id: 'theseus:run', text: sectionText(all) }
 }
 
 /** A builder the record lost (sent where its spawn answered no id), found by the run it is out on, and held to its task's files. */

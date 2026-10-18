@@ -13,7 +13,6 @@ type $ = EngineInterface
 export const SPEND_FILE = '.theseus/spend.jsonl'
 
 // Where the record was kept before: read until the first turn is recorded under the new name
-const OLD_SPEND_FILE = '.fellowship/spend.jsonl'
 
 // How many turns the record keeps, the oldest left out first: the engine reads a file whole, under 4 MiB
 const KEPT = 5_000
@@ -53,7 +52,7 @@ export const spendsIn = (text: string): SpentTurn[] =>
   })
 
 async function recordText($: $, root: string): Promise<string> {
-  for (const path of [`${root}/${SPEND_FILE}`, `${root}/${OLD_SPEND_FILE}`]) if (await $.fs.exists(path)) return String(await $.fs.read(path))
+  if (await $.fs.exists(`${root}/${SPEND_FILE}`)) return String(await $.fs.read(`${root}/${SPEND_FILE}`))
 
   return ''
 }

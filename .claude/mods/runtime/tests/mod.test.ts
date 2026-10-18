@@ -839,13 +839,6 @@ describe('runtime', () => {
     expect(await ask($, 'logs')).toMatch(/vite ready/)
   })
 
-  test('reads what a project watches from its file under the old name, .claude/palantir, until it is moved', { options: { attachments: '' } }, async ($, on) => {
-    const { world } = machine(on, { files: { [`${CWD}/.claude/palantir`]: 'web=local:logs/web.log@web\n', [`${CWD}/logs/web.log`]: 'vite ready in 310 ms\n' } })
-
-    world.cwd = `${CWD}/web`
-    expect(await ask($, 'status')).toMatch(/^web \(local \/home\/dev\/app\/logs\/web\.log\): up/)
-  })
-
   test('says the lines of what an action asked for, by their request id, and counts what other requests wrote', { options: { attachments: 'web=local:logs/web.log@web#3000; api=local:logs/api.log@api' } }, async ($, on) => {
     const said = (ms: number, level: string, msg: string, rid: string) => `2026-10-13T10:00:27.${ms}Z ${JSON.stringify({ level, msg, rid })}`
     const page = {

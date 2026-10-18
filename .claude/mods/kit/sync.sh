@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# The Middle-earth mods' kit: this folder is the one source of each helper they share. A plugin is installed alone,
+# The mods' kit: this folder is the one source of each helper they share. A plugin is installed alone,
 # so each mod carries its own copy under hooks/kit/; this script lays every file here over each copy a mod of the
 # marketplace holds. A mod takes up a kit file by copying it into its hooks/kit/ once; from then on it is kept here.
 #

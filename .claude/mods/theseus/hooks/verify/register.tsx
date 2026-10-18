@@ -24,7 +24,6 @@ import type { Handler, Machine } from '../../core/look'
 import {
   HOME,
   MARK,
-  OLD_PROJECT_FILE,
   isQuiet,
   owed,
   proved,
@@ -264,9 +263,9 @@ async function fileIn($: $, folder: string, file: string): Promise<string | unde
   return (await $.fs.exists(`${folder}/${file}`)) ? String(await $.fs.read(`${folder}/${file}`)) : undefined
 }
 
-/** The project's file in a folder, as Theseus reads it: the TOML one, else the line format under either of its names. */
+/** The project's file in a folder, as Theseus reads it: the TOML one, else the line format. */
 async function projectRead($: $, folder: string, cwd = folder): Promise<Project | undefined> {
-  return projectOf({ toml: await fileIn($, folder, CONFIG_FILE), lines: (await fileIn($, folder, LINES_FILE)) ?? (await fileIn($, folder, OLD_PROJECT_FILE)) }, cwd)
+  return projectOf({ toml: await fileIn($, folder, CONFIG_FILE), lines: await fileIn($, folder, LINES_FILE) }, cwd)
 }
 
 async function setUp($: $): Promise<Target[]> {

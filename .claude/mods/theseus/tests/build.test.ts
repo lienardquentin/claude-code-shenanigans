@@ -80,7 +80,7 @@ const JUDGED = {
   fail: JSON.stringify({ verdict: 'fail', seats: [seat('Correctness reviewer', 'pass'), seat('Security reviewer', 'fail', [{ severity: 'blocking', where: 'app.py:72', text: 'The archive error is swallowed whole.' }])] }),
 }
 
-// An issue as Elrond reads it, for an errand
+// An issue as the planner reads it, for an errand
 const ISSUE = { ref: 'github:lienardquentin/claude-code-shenanigans#21', url: 'https://github.com/lienardquentin/claude-code-shenanigans/issues/21', title: 'Quench answers 404 for an unknown beacon', body: 'It answers 500 today.', comments: [{ author: 'faramir', body: 'Seen on amon-din too.' }] }
 
 // What the review follow-up hands over of a pull request's review comments
@@ -422,7 +422,7 @@ describe('a review handed over', () => {
 })
 
 
-// --- The run, with Elrond, verify, Lothlórien and the reviewers as they are: what each reads is the machine's ------
+// --- The run, with the planner, verify, the test writer and the reviewers as they are: what each reads is the machine's ------
 
 /** What the project builds, as verify reads it: gondor, a service whose one kept request the change reaches, and anor, a frontend nothing proves. */
 const PROJECT = [
@@ -507,7 +507,7 @@ const machine = (on: On) => {
     gazing: [] as string[],
     submitted: [] as string[],
     toasts: [] as string[],
-    // Each task Elrond marked in a plan it keeps: `<id> <state>`
+    // Each task the planner marked in a plan it keeps: `<id> <state>`
     marked: [] as string[],
     store: {} as Record<string, unknown>,
     // The plan put in force at the start, and the kept plans of other issues by their ref
@@ -579,7 +579,7 @@ const machine = (on: On) => {
   })
   // The project's file is the line format, in the project's folder alone
   on('fs.exists', (_, e) =>
-    /\/\.claude\/(theseus\.toml|verify|argonath)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
+    /\/\.claude\/(theseus\.toml|verify)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
   )
   on('fs.read', (_, e) => {
     if (e.path === `${CWD}/.claude/verify`) return { value: PROJECT } as never
@@ -787,7 +787,7 @@ const machine = (on: On) => {
   on('store.set', (_, e) => {
     const given = e as unknown as { key: string; value: unknown }
 
-    // A task Elrond marked in a plan it keeps
+    // A task the planner marked in a plan it keeps
     if (given.key.startsWith('plan:')) {
       const was = (world.store[given.key] as typeof PLAN | undefined)?.tasks ?? []
 
@@ -835,7 +835,7 @@ const ends = ($: Engine, agentId: string, answer: string, world?: World) => {
   return $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', agentId } as never)
 }
 
-/** Puts the world's plan in force in Elrond, as kept from an earlier council, and keeps the others' plans beside it. */
+/** Puts the world's plan in force in the planner, as kept from an earlier plan, and keeps the others' plans beside it. */
 const inForce = async ($: Engine, world: World) => {
   for (const [ref, kept] of Object.entries(world.kept)) world.store[`plan:${ref}`] = structuredClone(kept)
   if (world.plan === null) return
@@ -1580,7 +1580,7 @@ describe('an errand', () => {
     expect(aboutOf(world.judged[0])).toMatch(/^The whole of issue github:.*#21, "Quench answers 404 for an unknown beacon", in one change, as an errand/)
     expect(gitIn(world, tree).find(line => line.startsWith('git commit -m'))).toMatch(/^git commit -m #21: Quench answers 404 for an unknown beacon\n\nThe whole of https:\/\/github\.com\/.*\/issues\/21 as an errand, built by Service builder/)
     // What the mods keep in the worktree (the recorder's builds, verify's trees) is none of the change
-    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).theseus :(exclude).pipeline :(exclude).recorder :(exclude).anduril :(exclude).elrond :(exclude).argonath :(exclude).fellowship :(exclude).lothlorien :(exclude).blackgate')
+    expect(gitIn(world, tree).find(line => line.startsWith('git add'))).toBe('git add -A -- . :(exclude).theseus :(exclude).pipeline :(exclude).recorder')
     expect(await call($, 'mcp__theseus__run', { ref: ISSUE.ref })).toMatch(/\(errand\)[\s\S]*: built/)
     expect(world.ran.some(line => line.startsWith('git push'))).toBe(false)
 
