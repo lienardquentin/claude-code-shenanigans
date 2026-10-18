@@ -2,9 +2,6 @@
 .claude/settings.local.json
 .claude/**/*.local.*
 
-# Working files of a ship-flow run (spec, tickets, run record)
-.scratch/
-
 # devspace's cache of what it has built and deployed
 .devspace/
 
