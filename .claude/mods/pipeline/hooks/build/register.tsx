@@ -8,7 +8,7 @@ import { budgetOf, fillOf } from '../../core/budget'
 import type { Budget, Quota } from '../../core/budget'
 import type { Ports, Spec } from '../../core/build'
 import { WARDING, runFromStore } from '../../core/run'
-import { errorText, forgeIn, gitRootOf, removeTree, isMergedFrom, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
+import { errorText, forgeIn, gitRootOf, isMergedFrom, offerTools, openPane, removeTree, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -19,6 +19,7 @@ import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spen
 import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
+import { inBackground, stumbled } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -160,7 +161,7 @@ async function drop($: $, ref: string): Promise<void> {
   await update($, quests, ({ [ref]: _gone, ...rest }) => rest)
   await update($, plans, ({ [ref]: _gone, ...rest }) => rest)
   await update($, working, ({ [ref]: _gone, ...rest }) => rest)
-  await $.store.delete(STORE_KEY(ref)).catch(() => undefined)
+  await $.store.delete(STORE_KEY(ref))
   await update($, selected, was => (was === ref ? '' : was))
 }
 
@@ -178,7 +179,7 @@ async function want($: $, ref: string, what: RunAsk, arg?: string): Promise<void
 
 async function tell($: $, text: string): Promise<void> {
   $.ui.toast(`Build: ${text}`)
-  await $.ui.notify(text, { title: 'Build' }).catch(() => undefined)
+  await $.ui.notify(text, { title: 'Build' }).catch(stumbled($, 'the build'))
 }
 
 
@@ -191,7 +192,7 @@ function portsOf($: $): Ports {
       keep: (ref, change) => keep($, ref, change),
       put: (held, made) => put($, held, made),
       setWork: async (ref, made) => void (await update($, plans, was => ({ ...was, [ref]: made }))),
-      stored: async ref => runFromStore(await $.store.get(STORE_KEY(ref)).catch(() => undefined)) ?? null,
+      stored: async ref => runFromStore(await $.store.get(STORE_KEY(ref))) ?? null,
       drop: ref => drop($, ref),
     },
     board: {
@@ -257,7 +258,7 @@ async function put($: $, held: Run, made: RunWork): Promise<void> {
 /** Shows a run in the pane. */
 async function show($: $, ref: string): Promise<void> {
   await update($, selected, () => ref)
-  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+  await openPane($, PANE, TITLE)
 }
 
 // The loop's steps, as the mod's hooks, its pane and its clock call them
@@ -305,8 +306,8 @@ function abandonRefusal($: $, held: Run): Promise<string | undefined> {
 export async function runLeftovers($: $): Promise<{ ref: string; kind: RunKind; branch: string; base: string; tree: string; pr: string; phase: string }[]> {
   const kept = Object.values(await read($, quests)).filter(held => held.lane === undefined)
 
-  for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('run:'))) {
-    const one = runFromStore(await $.store.get(key).catch(() => undefined))
+  for (const key of (await $.store.keys()).filter(one => one.startsWith('run:'))) {
+    const one = runFromStore(await $.store.get(key))
 
     if (one !== undefined && one !== null && one.lane === undefined && !kept.some(was => was.ref === one.ref)) kept.push(one)
   }
@@ -333,7 +334,7 @@ export async function forgetRun($: $, ref: string, pr: string): Promise<{ forgot
  */
 export async function askErrand($: $, issue: string): Promise<void> {
   await want($, '', 'errand', issue)
-  await $.ui.open({ id: PANE, title: TITLE }).catch(() => undefined)
+  await openPane($, PANE, TITLE)
 }
 
 /** Takes up the review comments the review follow-up handed over, on the pull request's own branch. Answers what was done, in a sentence. */
@@ -468,7 +469,7 @@ async function runOfAgent($: $, agentId: string, phase?: RunPhase): Promise<Run 
 
   if (byId !== undefined) return byId
 
-  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId && one.status === 'running')
+  const agent = (await $.agent.list()).find(one => one.id === agentId && one.status === 'running')
 
   return agent === undefined ? undefined : all.find(held => held.current?.agentId === '' && agent.type === typeOf(held.current.builder))
 }
@@ -536,12 +537,12 @@ export async function startBuild($: $): Promise<void> {
   await $.command.register({ name: 'build', description: 'Build a plan, an errand or a review task by task in a worktree: /build starts (--auto goes on by itself); errand <issue>; next, commit, submit, halt, abandon [run]' })
 
   // A host that registers no tools still starts the session
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 
-  await recallQuests($).catch(() => undefined)
+  await recallQuests($).catch(stumbled($, 'the build'))
   await recallSpent($).catch((error: unknown) => $.ui.toast(`Build: what the runs cost could not be read from ${SPEND_FILE}: ${errorText(error)}`))
 
-  $.clock.every(TICK_MS, () => void tick($).catch(() => undefined))
+  $.clock.every(TICK_MS, inBackground($, 'the build', () => tick($)))
 }
 
 /**
@@ -552,8 +553,8 @@ export async function startBuild($: $): Promise<void> {
 async function recallQuests($: $): Promise<void> {
   const held = await read($, quests)
 
-  for (const key of (await $.store.keys().catch(() => [])).filter(one => one.startsWith('run:'))) {
-    const kept = runFromStore(await $.store.get(key).catch(() => undefined))
+  for (const key of (await $.store.keys()).filter(one => one.startsWith('run:'))) {
+    const kept = runFromStore(await $.store.get(key))
 
     if (kept === undefined || kept === null || typeof kept.ref !== 'string' || held[kept.ref] !== undefined) continue
 
@@ -562,7 +563,7 @@ async function recallQuests($: $): Promise<void> {
     const quest: Run = { ...kept, kind: kept.kind ?? 'plan', phase }
 
     await update($, quests, all => ({ ...all, [quest.ref]: quest }))
-    await workOf($, quest).catch(() => undefined)
+    await workOf($, quest).catch(stumbled($, `the build (run ${quest.ref})`))
   }
 }
 

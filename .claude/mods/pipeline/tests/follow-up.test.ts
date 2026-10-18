@@ -200,6 +200,10 @@ const machine = (on: On, kept: Record<string, unknown> = {}) => {
 
   mock.store(on, kept)
   on('session.cwd', () => ({ value: CWD }) as never)
+  // A subscription with no quota window to read, as an API key has: the quota holds no run
+  on('session.usage', () => ({ value: { rateLimits: [] } }) as never)
+  // What the build writes for itself, as the ignore file of its trees' folder
+  on('fs.write', () => ({ value: undefined }) as never)
   // No run has cost anything yet: the build's record of it is not there
   on('fs.exists', () => ({ value: false }) as never)
   on('process.run', (_, e) => {

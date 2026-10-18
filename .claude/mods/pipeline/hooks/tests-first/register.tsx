@@ -8,10 +8,11 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clockOf, shortRef } from '../look'
-import { errorText, rootOf, toolFailed } from '../flow'
+import { errorText, offerTools, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
 import { TEST_WRITER, TEST_WRITER_LIGHT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
+import { stumbled } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -197,14 +198,14 @@ async function behold($: $, place: Place, held: TestsFirst, answer: string, ende
   await setVision($, place, () => made)
   $.ui.toast(`Tests first: ${made.state === 'shown' ? `${made.tests.length} red ${made.tests.length === 1 ? 'test' : 'tests'} show what is to come${(made.unrun ?? []).length > 0 ? `, ${(made.unrun ?? []).length} more cannot run here` : ''}` : made.state === 'empty' ? 'nothing to test' : `the tests could not be read: ${made.why}`}`)
 
-  if (made.by === 'command') await $.prompt.submit({ text: visionText(made, await isLocked($, place, made)) }).catch(() => undefined)
+  if (made.by === 'command') await $.prompt.submit({ text: visionText(made, await isLocked($, place, made)) }).catch(stumbled($, 'the test writer'))
 }
 
 /** Whether an agent is the test writer gazing on a vision: by the id its spawn answered, else, where it answered none, by its type. */
 async function isTestWriter($: $, held: TestsFirst | null, agentId: string): Promise<boolean> {
   if (held === null || held.state !== 'gazing') return false
 
-  return held.agentId !== '' ? agentId === held.agentId : (await $.agent.list().catch(() => [])).some(one => one.id === agentId && (one.type === AGENT_TYPE || one.type === SWIFT_TYPE) && one.status === 'running')
+  return held.agentId !== '' ? agentId === held.agentId : (await $.agent.list()).some(one => one.id === agentId && (one.type === AGENT_TYPE || one.type === SWIFT_TYPE) && one.status === 'running')
 }
 
 /** The vision the test writer gazes on, wherever it writes; nothing when the agent is not her. */
@@ -218,7 +219,7 @@ async function gazingFor($: $, agentId: string): Promise<{ place: Place; held: T
 async function whoIs($: $, agentId: string | undefined): Promise<string> {
   if (agentId === undefined) return 'the session'
 
-  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
+  const agent = (await $.agent.list()).find(one => one.id === agentId)
 
   return agent?.type ?? agentId
 }
@@ -309,7 +310,7 @@ export async function startTestsFirst($: $): Promise<void> {
   await $.command.register({ name: 'tests', description: 'The test writer writes the failing tests of what is to come: /tests <the behaviour>; /tests alone shows the tests written first' })
 
   // A host that registers no tools still starts the session
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 }
 
 /** A turn has ended: hers is what the tests written first shows. */

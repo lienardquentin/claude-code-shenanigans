@@ -234,7 +234,7 @@ export async function placeTree(p: Ports, branch: string, base: string | undefin
   const tree = p.machine.treePath(root, branch)
 
   // The folder ignores itself: no run's worktree is part of the project's checkout
-  await p.machine.write(`${root}/.pipeline/.gitignore`, '*\n').catch(() => undefined)
+  await p.machine.write(`${root}/.pipeline/.gitignore`, '*\n')
 
   const fetched = isFetched ? await ranAt(p, ['git', 'fetch', 'origin', branch], FETCH_TIMEOUT_MS, root) : undefined
   const exists = await gitAt(p, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], root)
@@ -305,7 +305,7 @@ export async function begin(p: Ports, spec: Spec, made: RunWork): Promise<string
 
   // Where the project names no target, the commands its plan or its issue states are the proof: with none, nothing
   // could prove a task. A review is the pull request's, which states none: it starts, and its proof says so
-  if (spec.kind !== 'review' && checks.length === 0 && (await p.parts.targetsKnown().catch(() => [])).length === 0) return noProofFor(spec)
+  if (spec.kind !== 'review' && checks.length === 0 && (await p.parts.targetsKnown()).length === 0) return noProofFor(spec)
 
   const placed = await placeTree(p, branch, resumed?.base ?? spec.base, spec.kind === 'review')
 
@@ -429,7 +429,7 @@ export async function errand(p: Ports, input: string, isAuto: boolean, isPersons
 
 /** Sends a builder on a task: marked doing, chosen by the try and the task, and spawned in the run's worktree. */
 export async function sendBuilder(p: Ports, held: Run, made: RunWork, task: RunTask, attempt: number, retry?: Retry): Promise<void> {
-  const brief = briefFor({ quest: held, plan: made, task, attempt, targets: await p.parts.targetsKnown().catch(() => []), ...(retry !== undefined ? { retry } : {}), testsToPass: held.testsToPass, standards: await p.parts.standardsText() })
+  const brief = briefFor({ quest: held, plan: made, task, attempt, targets: await p.parts.targetsKnown(), ...(retry !== undefined ? { retry } : {}), testsToPass: held.testsToPass, standards: await p.parts.standardsText() })
   const member = brief.builder
   const last = held.current
   // A task sent again keeps HEAD as it was when it was first sent: a commit made past the proof since stays one
@@ -507,7 +507,7 @@ export async function sendNext(p: Ports, ref: string): Promise<void> {
   }
 
   // No task starts while the quota is past where the person set the run to stop spending
-  const hold = holdOf(await p.clock.quota().catch(() => undefined), budgetIn(p))
+  const hold = holdOf(await p.clock.quota(), budgetIn(p))
 
   if (hold !== undefined) return holdFor(p, held, task, hold)
 
@@ -701,7 +701,7 @@ const oneProof = inTurn()
  * verification commands, run in its worktree.
  */
 async function proofOf(p: Ports, held: Run, written: readonly { file: string; name: string }[]): Promise<unknown> {
-  if ((await p.parts.targetsKnown().catch(() => [])).length > 0) return p.parts.proveFor(held.tree, written)
+  if ((await p.parts.targetsKnown()).length > 0) return p.parts.proveFor(held.tree, written)
 
   const checks = held.checks ?? []
 
@@ -776,7 +776,7 @@ export async function prove(p: Ports, ref: string): Promise<void> {
  * here, as tests first keeps it. A test a builder said cannot run here is judged as a change is, its reason with it.
  */
 export async function mirrorOf(p: Ports, held: Run): Promise<{ amendments: { file: string; why: string; by: string }[]; tampered: { file: string; lines: string[] }[]; unrun: { file: string; name: string }[] }> {
-  const shown = await p.parts.testsFirstIn(held.tree).catch(() => undefined)
+  const shown = await p.parts.testsFirstIn(held.tree)
   const unrun = shown?.unrun ?? []
   const said = unrun.flatMap(one => (one.by !== undefined ? [{ file: one.file, why: `${one.name} cannot run here, and is owed no passing: ${one.why}`, by: one.by }] : []))
 
@@ -1265,6 +1265,7 @@ export async function sail(p: Ports, ref: string): Promise<string> {
 
   await p.board.working(ref, `Pushing ${held.branch} and opening the pull request…`)
 
+  // What the run spent is a line of the pull request's body, never a reason to open none
   const { forge, request } = requestOf(held, made, await p.parts.spentOn(held).catch(() => ''))
   const opened = await openAt(p, forge, request, held.tree)
 

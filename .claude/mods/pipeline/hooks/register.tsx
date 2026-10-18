@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { SentAgent } from '../types'
 import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, listedRole, recall, refusalOf, registerAgents, registerOffers, remember, pumped, spawned } from './agents'
-import { errorText, rootOf, toolFailed } from './flow'
+import { offerTools, rootOf, toolFailed } from './flow'
 import { verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
 import { plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
@@ -12,6 +12,7 @@ import { cleanupView, registerCleanup, startCleanup } from './cleanup/register'
 import { issuesView, registerIssues, startIssues } from './issues/register'
 import { carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
+import { stumbled, troublesText } from './trouble'
 
 // The pipeline mod: one plugin, each of its parts a folder of its own (the issues pane lists the issues, plans, the
 // Build builds, the test writer writes tests first, verify prove and judge, the review follow-up reads review, the cleanup
@@ -32,8 +33,8 @@ const PANES = {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `build` the runs (/build), `tests-first` the tests written first (/tests), `verify` the proof of the change (/checks), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup). Call it when the person speaks of a pane or of something only it shows.',
-  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: Object.keys(PANES) } }, required: ['pane'] },
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. `issues` the open issues (/issues), `planner` the plan (/planner), `build` the runs (/build), `tests-first` the tests written first (/tests), `verify` the proof of the change (/checks), `follow-up` the review comments (/follow-up), `cleanup` what is merged (/cleanup), `troubles` what any part has failed at this session. Call it when the person speaks of a pane or of something only it shows, or when the pipeline seems stuck.',
+  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles'] } }, required: ['pane'] },
 } as const
 
 /**
@@ -52,24 +53,6 @@ async function lost($: EngineInterface, agentId: string): Promise<SentAgent | un
   await remember($, agentId, agent)
 
   return agent
-}
-
-// The last failure each part was found in: said once, and again only when it fails otherwise, so a part that keeps
-// failing alike is not said at every turn
-const stumbles = new Map<string, string>()
-
-/** What a part's failure comes to: a toast that says it, once while it fails alike. It answers nothing in the part's place. */
-function stumbled($: EngineInterface, part: string): (error: unknown) => undefined {
-  return error => {
-    const why = errorText(error)
-
-    if (stumbles.get(part) !== why) {
-      stumbles.set(part, why)
-      $.ui.toast(`Pipeline: ${part} stumbled: ${why.split('\n')[0] ?? why}`)
-    }
-
-    return undefined
-  }
 }
 
 /**
@@ -91,10 +74,7 @@ export const register: Register = (on, options) => {
     await recall($)
     await registerAgents($)
     await carryStores($).catch(stumbled($, 'the stores'))
-    // A host that registers no tools still starts the session
-    await $.tool.register(PANE_TOOL).catch(() => undefined)
-    await $.tool.register(FRAME_TOOL).catch(() => undefined)
-    await $.tool.register(PUMP_TOOL).catch(() => undefined)
+    await offerTools($, [PANE_TOOL, FRAME_TOOL, PUMP_TOOL])
 
     // A part the host refuses to start (a command name it holds) is said, and the parts after it start all the same
     await startPlanner($).catch(stumbled($, 'the planner'))
@@ -198,8 +178,11 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'mcp__pipeline__pane' }, async ($, e) => {
     const named = String((e as unknown as { pane?: unknown }).pane ?? '')
+
+    if (named === 'troubles') return { result: troublesText() }
+
     const view = named in PANES ? PANES[named as keyof typeof PANES] : undefined
 
-    return view === undefined ? { result: `There is no pane named ${named}: ${Object.keys(PANES).join(', ')}.` } : view.answer(() => $.ui.panes())
+    return view === undefined ? { result: `There is no pane named ${named}: ${[...Object.keys(PANES), 'troubles'].join(', ')}.` } : view.answer(() => $.ui.panes())
   }).catch((_$, _e, next) => toolFailed('pane', next.error))
 }

@@ -63,14 +63,14 @@ async function refreshed($: $): Promise<string> {
 
 /** Where each listed issue stands with the build and the planner, by its ref. */
 async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<string, string>> {
-  const quests = await runLeftovers($).catch(() => [])
+  const quests = await runLeftovers($)
   const found = new Map<string, string>()
 
   for (const issue of listed) {
     // A review run is a pull request's, never an issue's
     const quest = quests.find(one => one.ref === issue.ref && one.kind !== 'review' && one.phase !== 'submitted')
 
-    found.set(issue.ref, standingOf(quest, quest === undefined ? await planStanding($, issue.ref).catch(() => '') : ''))
+    found.set(issue.ref, standingOf(quest, quest === undefined ? await planStanding($, issue.ref) : ''))
   }
 
   return found

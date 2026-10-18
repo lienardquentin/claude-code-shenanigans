@@ -114,7 +114,7 @@ export async function lagging($: $): Promise<Lag[]> {
 let known: Lag[] = []
 
 export async function startLag($: $): Promise<void> {
-  known = await lagging($).catch(() => [])
+  known = await lagging($)
 
   if (known.length > 0) $.ui.toast(`Pipeline: ${known.map(lag => lag.plugin.replace(/@pipeline$/, '')).join(', ')} ${known.length === 1 ? 'lags' : 'lag'} .claude/mods`)
 }

@@ -11,7 +11,7 @@ import type { SendReviewer } from '../../core/review'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
-import { errorText, rootOf, shellIn, toolFailed } from '../flow'
+import { errorText, offerTools, rootOf, shellIn, toolFailed } from '../flow'
 import type { TargetFolders } from '../../core/run'
 import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
@@ -39,6 +39,7 @@ import {
   proofAnswer,
   proofBrief,
 } from '../../core/proof'
+import { inBackground, stumbled } from '../trouble'
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
@@ -127,6 +128,7 @@ const RUN_TIMEOUT_MS = 600_000
 function machineIn($: $, place: Place, list: readonly Target[]): Machine {
   return {
     shell: shellIn($, place.tree),
+    // A file that is not there reads as none: the look asks after files a change may have removed
     read: path => $.fs.read(path).catch(() => undefined),
     handle: (handler, job) => handled($, handler, job),
     keptRuns: (target, against) => keptRunsOf($, target, against, place),
@@ -324,7 +326,7 @@ async function look($: $, asked: Asked, only?: readonly string[]): Promise<Looke
 
   // The checkouts a handler or a proof makes are no part of the repo: the folder says so itself, before any is made
   const ignore = `${cwd}/${HOME}/.gitignore`
-  if (!(await $.fs.exists(ignore).catch(() => false))) await $.fs.write(ignore, '*\n').catch(() => undefined)
+  if (!(await $.fs.exists(ignore))) await $.fs.write(ignore, '*\n')
 
   // What each target's folders hold against HEAD, read once: a target the change did not reach is not played at all
   const changes = asked.against === 'HEAD' ? await changesIn(shellIn($, cwd), cwd, list) : new Map<string, string>()
@@ -487,7 +489,7 @@ async function rise($: $, made: Judgement): Promise<void> {
 
   await $.prompt
     .submit({ text: [judgementText(made, false), next].filter(one => one !== '').join('\n\n') })
-    .catch(() => undefined)
+    .catch(stumbled($, 'verify'))
 }
 
 /** The seat of a reviewer whose turn this is: by the id its spawn answered, else, where it answered none, by its type. */
@@ -497,7 +499,7 @@ async function seatOf($: $, held: Judgement, agentId: string): Promise<ReviewSea
 
   if (byId !== undefined) return byId
 
-  const agent = (await $.agent.list().catch(() => [])).find(one => one.id === agentId)
+  const agent = (await $.agent.list()).find(one => one.id === agentId)
 
   return agent === undefined ? undefined : reviewing.find(seat => seat.agentId === '' && agent.type === typeOf(seat.reviewer))
 }
@@ -582,7 +584,7 @@ async function fingerprints($: $): Promise<Map<string, string>> {
 
   if (roots.length === 0) return new Map()
 
-  const ran = await $.process.run(['sh', '-c', STANDING_SCRIPT, 'sh', ...roots], { cwd }).catch(() => undefined)
+  const ran = await $.process.run(['sh', '-c', STANDING_SCRIPT, 'sh', ...roots], { cwd }).catch(stumbled($, 'verify'))
 
   return ran === undefined || ran.exitCode !== 0 ? new Map() : standingByTarget(ran.stdout, list, cwd)
 }
@@ -690,11 +692,11 @@ export async function startVerify($: $): Promise<void> {
   await $.command.register({ name: 'checks', description: 'Open the pane of what the uncommitted change reached in each target the project builds, and which of it an integration test pins' })
 
   // A host that registers no tools still starts the session
-  for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
+  await offerTools($, TOOLS)
 
-  await setUp($).catch(() => [])
-  $.clock.every(BEAT_MS, () => void beat($).catch(() => undefined))
-  $.clock.every(OWED_MS, () => void settle($).catch(() => undefined))
+  await setUp($).catch(stumbled($, 'verify'))
+  $.clock.every(BEAT_MS, inBackground($, 'verify', () => beat($)))
+  $.clock.every(OWED_MS, inBackground($, 'verify', () => settle($)))
 }
 
 /** What Claude is told of the tests owed: one for each run that changed, and none beyond. */
@@ -757,7 +759,7 @@ export function registerVerify(on: On): void {
       const cwd = await homeOf($)
 
       for (const image of new Set(known.flatMap(target => (target.db === null ? [] : [target.db.image])))) {
-        await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/warm.py`, 'stop', cwd, image], { timeoutMs: 30_000 }).catch(() => undefined)
+        await $.process.run(['python3', `${tidy($.plugin.root)}/handlers/warm.py`, 'stop', cwd, image], { timeoutMs: 30_000 }).catch(stumbled($, `verify (stopping the ${image} database)`))
       }
     }
 
