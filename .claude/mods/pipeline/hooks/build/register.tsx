@@ -297,8 +297,8 @@ function resubmit($: $, ref: string): Promise<string> {
 function abandon($: $, ref: string): Promise<string> {
   return loop.abandon(portsOf($), ref)
 }
-function abandonWait($: $, held: Run): Promise<string | undefined> {
-  return loop.abandonWait(portsOf($), held)
+function abandonRefusal($: $, held: Run): Promise<string | undefined> {
+  return loop.abandonRefusal(portsOf($), held)
 }
 
 /** Every run kept, here or across sessions: what the cleanup watches. A lane is its run's, and is none of them. */
@@ -716,9 +716,10 @@ export function registerBuild(on: On): void {
     if (held === null) return { text: named === '' ? 'Name the run, by its ref or its branch: more than one is under way, or none.' : `No run on ${named} is under way.` }
 
     if (verb === 'abandon') {
-      const waiting = await abandonWait($, held)
+      // What would refuse it is said here, not found by the clock after the command has answered
+      const refused = await abandonRefusal($, held)
 
-      if (waiting !== undefined) return { text: waiting }
+      if (refused !== undefined) return { text: refused }
       await want($, held.ref, 'abandon')
 
       return { text: `The run on ${held.ref} is being abandoned: the pane says how it went.` }
