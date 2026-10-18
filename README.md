@@ -179,6 +179,15 @@ for mod in pipeline recorder runtime; do
 done
 ```
 
+To take a new version after pulling, update each plugin and restart Claude Code. Every change to a plugin bumps its
+`version` (see each plugin's `CHANGELOG.md`): an update leaves a plugin whose version did not change as it was.
+
+```
+for mod in pipeline recorder runtime; do
+  claude plugin update "$mod@pipeline"
+done
+```
+
 The plugins were named for The Lord of the Rings until #104 (`middle-earth`, `anduril`, `palantir`). A plugin's kept
 state belongs to its id, so on its first start `pipeline` carries the plans and runs the old `middle-earth` plugin kept
 into its own store, and each mod still reads a project's file under its old name (`.claude/argonath`,

@@ -1,7 +1,7 @@
 import { describe, expect, mock } from 'claude-code/testing'
 import { test } from './hook-test'
 
-import { installedOf, lagText } from '../hooks/lag'
+import { differsIn, installedOf, lagText, sectionOfLag, versionOf } from '../hooks/lag'
 
 const CWD = '/proj'
 const CACHE = '/home/q/.claude/plugins/cache/pipeline'
@@ -30,6 +30,25 @@ describe('the plugins installed from the marketplace', () => {
 
     expect(text).toMatch(/- bombadil@pipeline: installed, but no longer in \.claude\/mods\. Uninstall it \(claude plugin uninstall bombadil@pipeline\)/)
     expect(text).toMatch(/- recorder@pipeline: its installed copy .* differs from \.claude\/mods\. \/reload-plugins reads it afresh/)
+    expect(text).toMatch(/until claude plugin update recorder@pipeline takes the new version/)
+  })
+
+  test('that lag under the version they were installed at are told to bump it, since an update takes them for current', () => {
+    const text = lagText([{ plugin: 'pipeline@pipeline', why: 'behind', installed: `${CACHE}/pipeline/0.1.0`, sameVersion: '0.1.0' }])
+
+    expect(text).toMatch(/has the same version \(0\.1\.0\), so claude plugin update will not take it: bump the version in \.claude\/mods\/pipeline\/\.claude-plugin\/plugin\.json/)
+  })
+
+  test('differ in what they ship, not in the types the engine writes beside it', () => {
+    expect(differsIn(`Only in ${CACHE}/pipeline/0.1.0/.claude-plugin: types\n`)).toBe(false)
+    expect(differsIn(`Files ${CACHE}/pipeline/0.1.0/.claude-plugin/types/engine.d.ts and /proj/.claude/mods/pipeline/.claude-plugin/types/engine.d.ts differ\n`)).toBe(false)
+    expect(differsIn(`Only in /proj/.claude/mods/pipeline/core: budget.ts\n`)).toBe(true)
+    expect(differsIn('')).toBe(false)
+  })
+
+  test('carry the version their plugin.json names', () => {
+    expect(versionOf('{"name":"pipeline","version":"0.2.0"}')).toBe('0.2.0')
+    for (const text of ['', '{}', 'not json', '{"version":2}']) expect(versionOf(text)).toBeUndefined()
   })
 
   test('lag when gone from the folder, or copied from code it no longer holds, and are said once the session starts', async ($, on) => {
@@ -63,8 +82,10 @@ describe('the plugins installed from the marketplace', () => {
       const answer = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never
 
       if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
-      // the recorder's copy differs from its folder; the pipeline's is the same
-      if (line === `diff -rq ${CACHE}/recorder/0.1.0/hooks ${CWD}/.claude/mods/recorder/hooks`) return answer('Files differ\n', 1)
+      // the recorder's copy differs from its folder in core/ alone
+      if (line === `diff -rq -x tests -x __pycache__ -x node_modules ${CACHE}/recorder/0.1.0 ${CWD}/.claude/mods/recorder`) return answer(`Files ${CACHE}/recorder/0.1.0/core/proof.ts and ${CWD}/.claude/mods/recorder/core/proof.ts differ\n`, 1)
+      // the pipeline's differs only in the types the engine writes
+      if (line === `diff -rq -x tests -x __pycache__ -x node_modules ${CACHE}/pipeline/0.1.0 ${CWD}/.claude/mods/pipeline`) return answer(`Only in ${CACHE}/pipeline/0.1.0/.claude-plugin: types\n`, 1)
 
       return answer('')
     })
@@ -74,5 +95,6 @@ describe('the plugins installed from the marketplace', () => {
     // the pipeline's copy is its folder's: only the recorder, behind, and bombadil, gone, are said (what Claude is told of
     // each is lagText's, above)
     expect(toasts).toContain('Pipeline: recorder, bombadil lag .claude/mods')
+    expect(sectionOfLag()?.text).not.toMatch(/pipeline@pipeline/)
   })
 })
