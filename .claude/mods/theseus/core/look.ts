@@ -1,6 +1,7 @@
 import { testsDiffOf } from './change'
 import type { Ran, Shell } from './forge'
-import { PROJECT_FILE, affectedOf, gateOf, gated, isNarrowable, isProd, isTested, manifestsOf, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, radiusOf, requiredOf, weakenedOf, withLive } from './proof'
+import { CONFIG_FILE } from './config'
+import { affectedOf, gateOf, gated, isNarrowable, isProd, isTested, manifestsOf, markedTests, marksOf, narrowed, parseDiffText, parseLiveAnswer, parseProof, parseServiceAnswer, proved, radiusOf, requiredOf, weakenedOf, withLive } from './proof'
 import type { Changed, Radius, Target } from './proof'
 
 // A look at what a change did to each target it reached: what changed in what the target does, by the handler of
@@ -101,7 +102,7 @@ const cliChanged = async (machine: Machine, target: Target, against: string): Pr
  */
 const serviceChanged = async (machine: Machine, target: Target, look: Look): Promise<Found | string> => {
   if (target.app === '') return `${target.label} names no app: say it as service:module:app, gondor=service:gondor.app:app@beacons/gondor.`
-  if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one with a line in ${PROJECT_FILE}: $ ${target.label} GET /health`
+  if (target.requests.length === 0) return `No request of ${target.label} is kept to play. Keep one in the requests of [targets.${target.label}] in ${CONFIG_FILE}: requests = ["GET /health"]`
 
   // A run's worktree plays against the project's warm database, which the project's folder names
   const job = serviceJob(target, look.against, look.tree, look.project)
@@ -160,9 +161,9 @@ const lookAtOne = async (machine: Machine, target: Target, look: Look): Promise<
 
   // A proof runs only the tests marked on what changed, and those required: with none, there is nothing to run
   if (markedTests(made).length > 0 || required.length > 0) {
-    if (!isTested(target)) made = { ...made, unproved: `${target.label} names no tests to prove: ${target.label}.tests and ${target.label}.test in ${PROJECT_FILE}.` }
+    if (!isTested(target)) made = { ...made, unproved: `${target.label} names no tests to prove: tests and test of [targets.${target.label}] in ${CONFIG_FILE}.` }
     // A command that cannot be narrowed would run tests out of scope: it is not run at all
-    else if (!isNarrowable(target.test)) made = { ...made, unproved: `${target.label}.test in ${PROJECT_FILE} has no {tests} for the tests to run, so none is run: every test it holds would be, the ones out of scope with them. Name them as its runner takes them, -k "{tests: or }" for pytest, -- --exact {tests} for cargo.` }
+    else if (!isNarrowable(target.test)) made = { ...made, unproved: `The test of [targets.${target.label}] in ${CONFIG_FILE} has no {tests} for the tests to run, so none is run: every test it holds would be, the ones out of scope with them. Name them as its runner takes them, -k "{tests: or }" for pytest, -- --exact {tests} for cargo.` }
     else {
       await machine.say(`Running the tests of ${target.label} on ${look.against}'s source and on the working tree…`)
 

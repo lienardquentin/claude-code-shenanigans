@@ -112,7 +112,7 @@ alone), an issue that is no errand, a review comment only the person can answer.
 _Avoid_: Refuse, give up, bail
 
 **Kept run**:
-A command-line run (`$` line of `.claude/recorder`) or a service request (`$` line of `.claude/verify`) the project keeps,
+A command-line run (`$` line of `.claude/recorder`) or a service request (`requests` of a target in `.claude/theseus.toml`) the project keeps,
 played on HEAD's build and the working tree's to see what a change altered.
 _Avoid_: Fixture, golden, snapshot
 

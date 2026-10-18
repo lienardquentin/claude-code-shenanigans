@@ -1,6 +1,6 @@
 import type { Shell } from './forge'
 
-// A proof for a project that names no target in .claude/verify: the commands its plan or its issue states for checking
+// A proof for a project that names no target in .claude/theseus.toml: the commands its plan or its issue states for checking
 // the change, run in the run's worktree. Its radius and pinning are an upgrade the project opts into by naming targets.
 
 /**

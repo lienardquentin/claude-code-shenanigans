@@ -293,7 +293,7 @@ describe('a project that names no target', () => {
     const { ports, runs } = world(errandRun(), { targets: [], issue: ISSUE('Quench a beacon.') })
 
     runs.clear()
-    expect(await errand(ports, '#7', false, true)).toMatch(/^github:o\/r#7 is not started: the project names no target in \.claude\/verify, and the issue states no verification command.*Add a `## Verification` section/)
+    expect(await errand(ports, '#7', false, true)).toMatch(/^github:o\/r#7 is not started: the project names no target in \.claude\/theseus\.toml, and the issue states no verification command.*Add a `## Verification` section/)
     expect(runs.size).toBe(0)
   })
 

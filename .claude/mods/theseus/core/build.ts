@@ -713,10 +713,10 @@ async function proofOf(p: Ports, held: Run, written: readonly { file: string; na
 /** Why a run is not started where nothing could prove its tasks. */
 const noProofFor = (spec: Spec): string =>
   [
-    `${spec.ref} is not started: the project names no target in .claude/verify, and ${spec.kind === 'plan' ? 'its plan states' : 'the issue states'} no verification command, so nothing could prove its tasks.`,
+    `${spec.ref} is not started: the project names no target in .claude/theseus.toml, and ${spec.kind === 'plan' ? 'its plan states' : 'the issue states'} no verification command, so nothing could prove its tasks.`,
     spec.kind === 'plan'
-      ? 'Have the planner plan it again: it names the commands that check the change (its tests, its linter). Or name what the project builds in .claude/verify.'
-      : 'Add a `## Verification` section to the issue, a command a line (its tests, its linter), and `## Setup` for what a fresh worktree needs. Or name what the project builds in .claude/verify.',
+      ? 'Have the planner plan it again: it names the commands that check the change (its tests, its linter). Or name what the project builds in .claude/theseus.toml (/theseus init proposes it).'
+      : 'Add a `## Verification` section to the issue, a command a line (its tests, its linter), and `## Setup` for what a fresh worktree needs. Or name what the project builds in .claude/theseus.toml (/theseus init proposes it).',
   ].join(' ')
 
 /** What a builder's answer left unticked: each `- [ ]` item of a checklist it wrote. */

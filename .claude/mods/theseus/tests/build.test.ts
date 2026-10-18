@@ -577,7 +577,10 @@ const machine = (on: On) => {
 
     return { value: undefined } as never
   })
-  on('fs.exists', (_, e) => ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never)
+  // The project's file is the line format, in the project's folder alone
+  on('fs.exists', (_, e) =>
+    /\/\.claude\/(theseus\.toml|verify|argonath)$/.test(e.path) ? ({ value: e.path === `${CWD}/.claude/verify` }) as never : ({ value: (e.path !== `${CWD}/.theseus/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never,
+  )
   on('fs.read', (_, e) => {
     if (e.path === `${CWD}/.claude/verify`) return { value: PROJECT } as never
     if (e.path === `${CWD}/.theseus/spend.jsonl`) return { value: world.spend } as never

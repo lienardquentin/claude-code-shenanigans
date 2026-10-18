@@ -404,7 +404,7 @@ describe('verify', () => {
   test('says how to name targets to a Claude that asks where none are', async ($, on) => {
     machine(on, { [`${CWD}/.claude/verify`]: '' })
 
-    expect(await call($, 'mcp__theseus__radius')).toMatch(/Verify knows no target here.*gondor=service:gondor\.app:app/s)
+    expect(await call($, 'mcp__theseus__radius')).toMatch(/Verify knows no target here.*app = "gondor\.app:app"/s)
   })
 
   test('reads the project\'s targets from .claude/verify, and from .claude/argonath only where it has no .claude/verify', async ($, on) => {
@@ -416,6 +416,19 @@ describe('verify', () => {
     world.files[`${CWD}/.claude/argonath`] = 'deslop=cli@deslop'
 
     expect(await call($, 'mcp__theseus__radius', { target: 'nope' })).toBe('Verify knows no target named nope. It knows deslop.')
+  })
+
+  test('reads .claude/theseus.toml before the line format, and says what of it does not read, by its line', async ($, on) => {
+    const toasts: string[] = []
+    on('ui.toast', (_, e) => {
+      toasts.push(String((e as unknown as { text?: string }).text ?? e))
+
+      return { value: undefined } as never
+    })
+    machine(on, { [`${CWD}/.claude/theseus.toml`]: '[targets.anor]\nkind = "frontend"\nroots = ["beacons/anor"]\n\n[targets.quill]\nkind = "scroll"\nroots = ["quill"]\n', [`${CWD}/.claude/verify`]: PROJECT })
+
+    expect(await call($, 'mcp__theseus__radius', { target: 'nope' })).toBe('Verify knows no target named nope. It knows anor.')
+    expect(toasts).toContain('Theseus: the project file failed: .claude/theseus.toml:6: targets.quill.kind must be one of cli, service, frontend')
   })
 
   test('sends each target to the handler of its kind: a CLI to the recorder, a service to its requests, a frontend to its tests and checks alone', async ($, on) => {

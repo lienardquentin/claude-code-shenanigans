@@ -14,6 +14,7 @@ import { carryFolder, carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 import { stumbled, troublesText } from './trouble'
 import { doctorOf } from './doctor'
+import { initCommand } from './init'
 import { doctorText } from '../core/doctor'
 
 // Theseus: one plugin, each of its parts a folder of its own (the issues pane lists the issues, plans, the
@@ -45,6 +46,7 @@ const VERBS = {
   cleanup: { usage: 'cleanup [clean [branch | pr]]', does: 'what is kept of merged pull requests; clean removes it' },
   issues: { usage: 'issues', does: 'the open issues' },
   doctor: { usage: 'doctor', does: 'what Theseus needs here, and how to fix what is missing' },
+  init: { usage: 'init [--write] [--force]', does: 'propose .claude/theseus.toml from the project; --write writes it' },
 } as const
 
 /** What a verb of /theseus answers: each part's command, called by name, as the engine follows `$` into a call. */
@@ -66,6 +68,8 @@ async function answerOf($: EngineInterface, verb: keyof typeof VERBS, args: stri
       return issuesCommand($, args)
     case 'doctor':
       return { text: doctorText(await doctorOf($)) }
+    case 'init':
+      return initCommand($, args)
   }
 }
 
