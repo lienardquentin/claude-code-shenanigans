@@ -5,7 +5,7 @@ import { FRAMED, FRAME_TOOL, PUMP_TOOL, agentOf, cwdOf, guardRefusalNow, linkRef
 import { offerTools, rootOf, toolFailed } from './flow'
 import { verifyCommand, verifyView, endedVerify, pumpVerify, registerVerify, sectionOfVerify, startVerify } from './verify/register'
 import { followUpCommand, followUpView, registerFollowUp, startFollowUp } from './follow-up/register'
-import { planCommand, plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
+import { isStaleNotice, planCommand, plannerFound, plannerView, endedPlanner, pumpPlanner, registerPlanner, sectionOfPlanner, startPlanner } from './planner/register'
 import { buildCommand, endedBuild, buildView, graphCommand, graphView, historyText, runLeftovers, runLog, builderFound, pumpBuild, registerBuild, sectionOfBuild, setBudget, spentBuild, startBuild } from './build/register'
 import { endedTestsFirst, testsCommand, testWriterFound, lockRefusal, testsFirstView, registerTestsFirst, sectionOfTestsFirst, startTestsFirst } from './tests-first/register'
 import { cleanupCommand, cleanupView, registerCleanup, startCleanup } from './cleanup/register'
@@ -224,6 +224,16 @@ export const register: Register = (on, options) => {
       return next(e)
     }).catch((_$, e, next) => next(e))
   }
+
+  // The planner's notice of a plan, which waits for the session to be idle, is not delivered once Claude has read that
+  // plan or started its run: it would wake Claude after the work it announces is done
+  on('prompt.submit', async ($, e, next) => {
+    const origin = (e as { origin?: { kind?: string; name?: string } }).origin
+
+    if (origin?.kind === 'plugin' && origin.name === 'theseus' && isStaleNotice(String((e as { text?: unknown }).text ?? ''))) return { drop: "Theseus did not send the planner's notice: Claude had read the plan already." }
+
+    return next(e)
+  })
 
   // Claude is told what each part holds that bears on its work
   on('prompt.compose', async ($, e, next) => {

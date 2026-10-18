@@ -3,6 +3,12 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 1.0.1
+
+- The planner's notice of a plan Claude asked for, which waits for the session to be idle, is dropped once Claude has
+  read that plan or started its run: it woke Claude after the run it announced had ended, so Claude's last message
+  answered the notice instead of reporting the run (found by the `plan-auto` eval on 1.0.0).
+
 ## 1.0.0
 
 The first release meant for others (#159). Since the pipeline it was: one command, `/theseus`; a project file in
