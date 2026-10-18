@@ -179,7 +179,9 @@ def main():
             databases = warm.fresh(container, port, ["from", "to"])
         except warm.Cold as cold:
             answer["error"] = "its database could not be had: %s" % cold
-    url = lambda side: databases[side][1] if side in databases else ""
+
+    def url(side):
+        return databases[side][1] if side in databases else ""
 
     def before():
         code, sha, _ = git(home, "rev-parse", "--verify", "--quiet", job["from"] + "^{commit}")
