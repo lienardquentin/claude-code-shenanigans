@@ -1,5 +1,5 @@
 import type { Run } from '../../types'
-import { forgeOfUrl } from '../forge'
+import { forgeOfUrl, refOf } from '../forge'
 import { leakOf } from '../git'
 import { errorText } from '../kit'
 import { HOW_TO, BUILDERS, WARDING, afterWard, issueRefOf, parseJudgement, requestOf, wardModelFor, wardPurpose, whyNotSail } from '../run'
@@ -200,6 +200,9 @@ export async function sail(p: Ports, ref: string): Promise<string> {
 
     return ward(p, ref, judged)
   }
+
+  // A local issue has no forge: the run stands built and reviewed, for the person to push
+  if (refOf(held.ref)?.forge === 'local') return `${held.branch} is built and reviewed. Its issue is a local one, with no forge to open a pull request on: push it and open one where the code is kept (git push -u origin ${held.branch}).`
 
   await p.board.working(ref, `Pushing ${held.branch} and opening the pull request…`)
 

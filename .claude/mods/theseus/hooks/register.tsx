@@ -26,6 +26,13 @@ import type { RunPhase } from '../types'
 // clears what is merged). The parts call one another as functions; the agents they send are registered, kept and guarded in one place.
 // An event every part hears is hooked here once, and handed to each part in turn; a part hooks what is its own alone.
 
+/** The doctor as a tool of its own: behind ToolSearch, a name is all Claude sees of a tool, and the pane tool's says nothing of it. */
+const DOCTOR_TOOL = {
+  name: 'doctor',
+  description: 'Checks whether Theseus is set up to work in this repository: git, the forge CLI signed in, the project file, every program its commands need, the sandbox. Answers each check and the one step that fixes each miss. Call it when the person asks whether Theseus works or is set up here, or a run will not start.',
+  inputSchema: { type: 'object', properties: {} },
+} as const
+
 /** Each part's pane, by the name Claude asks it by: the verb of /theseus that opens it. */
 const PANES = {
   issues: issuesView,
@@ -175,7 +182,7 @@ export const register: Register = (on, options) => {
     await registerAgents($)
     await carryStores($).catch(reported($, 'the store carry'))
     await carryFolder($).catch(reported($, 'the folder carry'))
-    await offerTools($, [PANE_TOOL, FRAME_TOOL, PUMP_TOOL])
+    await offerTools($, [PANE_TOOL, FRAME_TOOL, PUMP_TOOL, DOCTOR_TOOL])
     await $.command.register({ name: 'theseus', description: 'Theseus: plan, build, test first, verify, follow up and clean up. /theseus help lists the verbs' }).catch(reported($, 'the /theseus command'))
 
     // A part the host refuses to start (a command name it holds) is said, and the parts after it start all the same
@@ -289,6 +296,8 @@ export const register: Register = (on, options) => {
 
     return { text: `/theseus does not know ${verb}.\n\n${HELP}` }
   })
+
+  on('tool.call', { tool: 'mcp__theseus__doctor' }, async $ => ({ result: doctorText(await doctorOf($)) })).catch((_$, _e, next) => toolFailed('doctor', next.error))
 
   on('tool.call', { tool: 'mcp__theseus__pane' }, async ($, e) => {
     const named = String((e as unknown as { pane?: unknown }).pane ?? '')

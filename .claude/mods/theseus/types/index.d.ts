@@ -608,7 +608,7 @@ export type FollowUpComment = {
 
 /** The pull or merge request a follow-up is open on. */
 export type FollowUpPr = {
-  forge: 'github' | 'gitlab'
+  forge: 'github' | 'gitlab' | 'local'
   /** The repository's path on its forge, `owner/repo`. */
   repo: string
   number: number

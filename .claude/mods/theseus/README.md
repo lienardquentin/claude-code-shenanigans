@@ -63,8 +63,9 @@ flowchart LR
   means; the questions only you can answer; and the risks. Nothing is built while a question is open, unless the run
   is `--auto`, which decides them itself and lists each under "Decided without the person" in the plan and the pull
   request.
-- **Tests first.** For each task that is not light, a test writer writes the failing tests of what is to come, runs
-  them to show they fail, and they are locked: a builder that changes one must say why.
+- **Tests first.** For each task of a plan that is not light, a test writer writes the failing tests of what is to
+  come, runs them to show they fail, and they are locked: a builder that changes one must say why. An errand, one
+  small change, goes to its builder straight, who writes its tests with it.
 - **Build.** A builder sized to the task makes the tests pass in the run's worktree: Haiku for a light task, Sonnet
   knowing the target's kind for a standard one, Opus for a heavy one. Each retry goes a rung up, Opus at high effort
   last. Tasks that share no file are built side by side in lanes.

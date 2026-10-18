@@ -89,4 +89,14 @@ describe('the doctor', () => {
 
     expect(blocking(checks)).toEqual([{ name: 'git repository', state: 'broken', found: '/proj is not in one', fix: 'Start Claude Code inside the git repository Theseus works on' }])
   })
+
+  test('warns on Linux when the sandbox cannot confine the agents, and checks nothing of it elsewhere', async () => {
+    const linux = machine(['git', 'gh'], { ...ORIGIN, 'uname -s': { exitCode: 0, stdout: 'Linux\n' } })
+    const checks = await examine(linux, project({ configFile: '' }))
+
+    expect(checks.find(check => check.name === 'sandbox')).toMatchObject({ state: 'warn', found: 'bwrap and socat not on the PATH: the agents Theseus sends run their commands unconfined' })
+    expect(blocking(checks)).toEqual([])
+    expect((await examine(machine(['git', 'gh', 'bwrap', 'socat'], { ...ORIGIN, 'uname -s': { exitCode: 0, stdout: 'Linux\n' } }), project({ configFile: '' }))).find(check => check.name === 'sandbox')).toMatchObject({ state: 'ok' })
+    expect((await examine(machine(['git', 'gh'], { ...ORIGIN, 'uname -s': { exitCode: 0, stdout: 'Darwin\n' } }), project({ configFile: '' }))).find(check => check.name === 'sandbox')).toBeUndefined()
+  })
 })
