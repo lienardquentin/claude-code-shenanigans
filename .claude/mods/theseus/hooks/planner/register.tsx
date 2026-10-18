@@ -6,7 +6,7 @@ import { HOW_TO, MARK, ideaPrompt, acceptRisk, askRisk, risksFor, sortedRisks, u
 import { refText } from '../../core/forge'
 import type { Issue, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
-import { forgeIn, isMergedFrom, movedTo, offerTools, openPane, rootOf, shellIn, toolFailed } from '../flow'
+import { forgeIn, isMergedFrom, offerTools, openPane, rootOf, shellIn, toolFailed } from '../flow'
 import * as core from '../../core/planner'
 import type { PlannerPorts } from '../../core/planner'
 import { targetsKnown } from '../verify/register'
@@ -256,7 +256,6 @@ export async function plannerFound($: $, agentId: string): Promise<SentAgent | u
 
 /** The planner at the session's start: its command, its tools, and the clock that sends what a press asked for. */
 export async function startPlanner($: $): Promise<void> {
-  await $.command.register({ name: 'planner', description: 'Now /theseus plan (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -335,8 +334,6 @@ export function registerPlanner(on: On): void {
     return { result: state === undefined ? 'state is one of todo, doing, done.' : await markTask($, Number(given.id), state, typeof given.ref === 'string' ? given.ref : '') }
   }).catch((_$, _e, next) => toolFailed('task', next.error))
 
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'planner' }, async ($, e) => movedTo('/planner', '/theseus plan', await planCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

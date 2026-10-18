@@ -3,6 +3,17 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 1.0.0
+
+The first release meant for others (#159). Since the pipeline it was: one command, `/theseus`; a project file in
+TOML with a schema; a doctor; a run's history, graph, web view and report; a threat model and a guard that follows
+links; local issues; and an eval suite every release is held to.
+
+- `/issues`, `/planner`, `/build`, `/tests`, `/checks`, `/follow-up` and `/cleanup` are gone: `/theseus <verb>` is the
+  one command. The panes are read only by their names (`plan`, `tests`), no longer `planner` and `tests-first`.
+- The plans and runs of the `pipeline` plugin are still carried over on a first start, and `.pipeline/` moved to
+  `.theseus/`; that goes in the next major version.
+
 ## 0.12.1
 
 - The builder's and the reviewers' prompts say what the tools' words mean: a kept run, a changed run, pinned, bare

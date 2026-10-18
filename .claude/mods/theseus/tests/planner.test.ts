@@ -490,7 +490,7 @@ describe('planner', () => {
     expect(plan).toMatch(/○ 1\. Keep when a beacon is lit[\s\S]*   Risk \[high\]: Two quenches race in Postgres Mitigation: Use the DELETE rowcount\n○ 2/)
 
     const pane = await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'planner' })
-    expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toMatch(/Risks\s+1 high · 2 medium[\s\S]*! HIGH  Two quenches race in Postgres\s+Mitigation: Use the DELETE rowcount\s+Threatens task 1\s+\[Accept\]\s+\[Make it a task\]\s+\[Ask about it\]/)
+    expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toMatch(/Risks\s+1 high · 2 medium[\s\S]*! HIGH  Two quenches race in Postgres\s+Mitigation: Use the DELETE rowcount\s+Threatens task 1\s+\[Accept\]\s+\[Make it a task\]\s+\[Ask about it\]/)
 
     // Indexes are the plan's own, whatever order the pane draws them in
     await pane.press({ key: 'task-risk-1' })
@@ -523,7 +523,7 @@ describe('planner', () => {
     await ends($, 'planner-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
 
     await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 30 } as never, requestId: 'planner' })
-    const drawn = await call($, 'mcp__theseus__pane', { pane: 'planner' })
+    const drawn = await call($, 'mcp__theseus__pane', { pane: 'plan' })
     // The text read off a button is trimmed: a row that is not opened gives back the two cells before its mark
     const rows = [...drawn.matchAll(/\[((?:▸ )?[○◐●] \d\.[^\]]*)\]/g)].map(found => (found[1] ?? '').replace(/^(?!▸)/, '  '))
 
@@ -542,7 +542,7 @@ describe('planner', () => {
       await ends($, 'planner-1', ['```json', JSON.stringify({ ...LAID, questions: [], risks: [] }), '```'].join('\n'))
 
       const pane = await $.ui.mount({ plugin: 'theseus', surface, component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'planner' })
-      expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toMatch(/\[s Start with the build\]\*\s+\[a Start, auto\][\s\S]*\[b Build here myself\]/)
+      expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toMatch(/\[s Start with the build\]\*\s+\[a Start, auto\][\s\S]*\[b Build here myself\]/)
 
       // The press only asks: the build's clock starts on the plan in force, by its issue, as runs on other
       // issues may be under way beside it
@@ -562,10 +562,10 @@ describe('planner', () => {
 
       const pane = await $.ui.mount({ plugin: 'theseus', surface, component: 'Pane', props: { bodyColumns: 100 } as never, requestId: 'planner' })
 
-      expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toMatch(/Questions\s+● 0 of 2 answered[\s\S]*\? Q1  Is an unlit beacon 0 or null\?\s*\[null\]\* suggested\s*\[0\]\s*Or your own: \[\][\s\S]*\? Q2  Which log level\?\s*Your answer: \[\]/)
-      expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toContain('[r Revise the plan]\nThe planner plans the issue again.')
+      expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toMatch(/Questions\s+● 0 of 2 answered[\s\S]*\? Q1  Is an unlit beacon 0 or null\?\s*\[null\]\* suggested\s*\[0\]\s*Or your own: \[\][\s\S]*\? Q2  Which log level\?\s*Your answer: \[\]/)
+      expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toContain('[r Revise the plan]\nThe planner plans the issue again.')
       // What stops the build starting is said, as its refusal counts it: Start is no longer the main action
-      const blocked = await call($, 'mcp__theseus__pane', { pane: 'planner' })
+      const blocked = await call($, 'mcp__theseus__pane', { pane: 'plan' })
       expect(blocked).toMatch(/● 0\/2 done {2}● 2 questions to answer/)
       expect(blocked).toMatch(/\[s Start with the build\] \[a Start, auto\]\nFirst 2 questions to answer, below\./)
 
@@ -573,7 +573,7 @@ describe('planner', () => {
       await pane.input({ key: 'own-1', text: 'info, as quench logs' })
 
       expect(await call($, 'mcp__theseus__plan')).toContain('- Is an unlit beacon 0 or null?\n  → null\n- Which log level?\n  → info, as quench logs')
-      expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toMatch(/● 2 of 2 answered[\s\S]*✓ Q1  Is an unlit beacon 0 or null\?\s*→ null\s+\[change\][\s\S]*\[r Revise the plan\]\*\s+The planner plans again with 2 answers/)
+      expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toMatch(/● 2 of 2 answered[\s\S]*✓ Q1  Is an unlit beacon 0 or null\?\s*→ null\s+\[change\][\s\S]*\[r Revise the plan\]\*\s+The planner plans again with 2 answers/)
 
       // The press only asks: outside a hook, where the council would sit unheld, Claude is asked to call for it, once
       await pane.press({ key: 'revise' })
@@ -594,7 +594,7 @@ describe('planner', () => {
       // What landed outside a press is drawn on the next frame
       await world.clock.advance(100)
       await pane.drawn()
-      expect(await call($, 'mcp__theseus__pane', { pane: 'planner' })).toMatch(/Decided\s+2 answers the planner plans with, and asks no more[\s\S]*✓ Which log level\?\s+→ info, as quench logs\s+\[change\][\s\S]*\? Q1  Seconds or minutes\?/)
+      expect(await call($, 'mcp__theseus__pane', { pane: 'plan' })).toMatch(/Decided\s+2 answers the planner plans with, and asks no more[\s\S]*✓ Which log level\?\s+→ info, as quench logs\s+\[change\][\s\S]*\? Q1  Seconds or minutes\?/)
 
       // A third revision is handed every answer so far, the earlier rounds' with this one's
       await pane.input({ key: 'own-0', text: 'seconds' })

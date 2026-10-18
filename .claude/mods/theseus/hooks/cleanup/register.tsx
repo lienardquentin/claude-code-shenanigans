@@ -8,7 +8,7 @@ import { paneView } from '../kit/pane-text'
 import { keyed, shortRef } from '../look'
 import { forgeOfHost } from '../../core/forge'
 import { UNMODDED } from '../../core/change'
-import { errorText, forgeIn, movedTo, offerTools, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
+import { errorText, forgeIn, offerTools, pullStateOf, removeTree, rootOf, toolFailed } from '../flow'
 import { closeFollowUp, followUpLeftovers } from '../follow-up/register'
 import { forgetPlan } from '../planner/register'
 import { forgetRun, runLeftovers } from '../build/register'
@@ -258,7 +258,6 @@ async function tick($: $): Promise<void> {
 
 /** The cleanup at the session's start: its command, its tool, and the clock that watches the forge and does what a command asked. */
 export async function startCleanup($: $): Promise<void> {
-  await $.command.register({ name: 'cleanup', description: 'Now /theseus cleanup (this name goes in the next release)' })
 
   await offerTools($, TOOLS)
 
@@ -285,8 +284,6 @@ export function registerCleanup(on: On): void {
   on('tool.call', { tool: 'mcp__theseus__leftovers' }, async $ => ({ result: leftoversText(await watch($)) })).catch((_$, _e, next) => toolFailed('leftovers', next.error))
 
   // Cleaning up deletes branches and has every part forget: no tool offers it to Claude, and the person cleans up
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'cleanup' }, async ($, e) => movedTo('/cleanup', '/theseus cleanup', await cleanupCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

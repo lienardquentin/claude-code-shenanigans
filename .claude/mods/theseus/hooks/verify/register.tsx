@@ -11,7 +11,7 @@ import type { SendReviewer } from '../../core/review'
 import { table } from '../kit/table'
 import type { TableCell } from '../kit/table'
 import { treeOf } from '../kit/trees'
-import { errorText, movedTo, offerTools, rootOf, shellIn, toolFailed } from '../flow'
+import { errorText, offerTools, rootOf, shellIn, toolFailed } from '../flow'
 import type { TargetFolders } from '../../core/run'
 import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
@@ -716,7 +716,6 @@ export async function judgementFor($: $, tree: string, asked: ReviewAsk = {}): P
 
 /** Verify at the session's start: its command, its tools, the project's targets, the band's glow, and the clock that looks at what a turn edited. */
 export async function startVerify($: $): Promise<void> {
-  await $.command.register({ name: 'checks', description: 'Now /theseus verify (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -839,8 +838,6 @@ export function registerVerify(on: On): void {
     return { result: got.held === null ? 'The reviewers have judged no change yet: they judge one once every changed run is pinned.' : judgementText(got.held, got.isStale) }
   }).catch((_$, _e, next) => toolFailed('review', next.error))
 
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'checks' }, async ($, e) => movedTo('/checks', '/theseus verify', await verifyCommand($, e.args)))
 
 
   // The mark glows while a run that changed is not pinned, and is dark otherwise

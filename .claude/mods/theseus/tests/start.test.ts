@@ -4,7 +4,7 @@ import { test } from './hook-test'
 const CWD = '/proj'
 
 describe('the session start', () => {
-  test('starts every part, and says the one whose command the host refuses', async ($, on) => {
+  test('starts every part though the host refuses the command, and says so', async ($, on) => {
     const toasts: string[] = []
     const tools: string[] = []
     const commands: string[] = []
@@ -19,7 +19,7 @@ describe('the session start', () => {
     on('command.register', (_, e) => {
       const name = String((e as unknown as { name: string }).name)
 
-      if (name === 'checks') throw new Error('$.command.register: "/theseus verify" refused: it is the built-in /theseus verify')
+      if (name === 'theseus') throw new Error('$.command.register: "/theseus" refused: a built-in holds the name')
       commands.push(name)
 
       return { value: undefined } as never
@@ -50,9 +50,9 @@ describe('the session start', () => {
 
     await $.session.start({ source: 'startup', cwd: CWD } as never)
 
-    // the parts after verify started all the same: the build's, the cleanup's
-    expect(tools).toEqual(expect.arrayContaining(['start_run', 'leftovers']))
-    expect(commands).toEqual(expect.arrayContaining(['build', 'follow-up', 'cleanup', 'issues']))
-    expect(toasts.filter(toast => toast.startsWith('Theseus: '))).toEqual([expect.stringMatching(/^Theseus: verify failed: /)])
+    // every part started all the same: its tools are there, and the refusal is said
+    expect(tools).toEqual(expect.arrayContaining(['start_run', 'leftovers', 'radius', 'make_plan', 'doctor']))
+    expect(commands).toEqual([])
+    expect(toasts.filter(toast => toast.startsWith('Theseus: '))).toEqual([expect.stringMatching(/^Theseus: the \/theseus command failed: /)])
   })
 })

@@ -67,10 +67,9 @@ describe('/theseus', () => {
   )
 
   test(
-    'keeps the commands it had before for one release, each saying its new spelling',
+    'is the one command: the seven it replaced are gone',
     started(async $ => {
-      expect(await run($, 'cleanup', '')).toMatch(/^\/cleanup is \/theseus cleanup now\.\n\n[\s\S]*Asking the forge again/)
-      expect(await run($, 'checks', '')).toMatch(/^\/checks is \/theseus verify now\./)
+      await expect($.command.run({ command: 'cleanup', args: '' } as never)).rejects.toThrow()
     }),
   )
 

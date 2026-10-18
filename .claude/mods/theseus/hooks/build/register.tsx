@@ -8,7 +8,7 @@ import { budgetOf, fillOf } from '../../core/budget'
 import type { Budget, Quota } from '../../core/budget'
 import type { Ports, Spec } from '../../core/build'
 import { WARDING, runFromStore } from '../../core/run'
-import { errorText, forgeIn, gitRootOf, isMergedFrom, movedTo, offerTools, openPane, removeTree, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
+import { errorText, forgeIn, gitRootOf, isMergedFrom, offerTools, openPane, removeTree, rootOf, sendBack, shellIn, toolFailed, treePathOf } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
@@ -645,7 +645,6 @@ export async function spentBuild($: $, agent: SentAgent, e: { durationMs: number
 
 /** The build at the session's start: its command, its tools, and the clock that does what was asked of a run. */
 export async function startBuild($: $): Promise<void> {
-  await $.command.register({ name: 'build', description: 'Now /theseus build (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -950,8 +949,6 @@ export function registerBuild(on: On): void {
   // Pushing and opening the pull request reach outside the machine: no tool offers them to Claude. The person is submitted with
   // /theseus build submit or the pane, or opted into it up front with --auto. What sends an agent is done in the command,
   // where the agent is held: it answers once the agent is out (submitting, once the pull request is open)
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'build' }, async ($, e) => movedTo('/build', '/theseus build', await buildCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
