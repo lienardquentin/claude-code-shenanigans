@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pipeline Run View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a run header, then the graph beside a detail drawer, then the replay scrubber over the event log */
+:root {
+  --bg: #F2F4F7; --surface: #FFFFFF; --surface-2: #E8ECF2; --line: #D2D9E3; --fg: #17202B; --muted: #5A6677;
+  --accent: #2B59C3; --accent-soft: #DCE5F8;
+  --ok: #1D7C53; --ok-soft: #D6EDE2; --fail: #C0392B; --fail-soft: #F6DDD9; --wait: #9C6409; --wait-soft: #F5E7CC;
+  --shadow: 0 1px 2px rgba(23, 32, 43, .06), 0 4px 14px rgba(23, 32, 43, .06);
+  --ui: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E131A; --surface: #151C26; --surface-2: #1C2532; --line: #2A3544; --fg: #E5EAF1; --muted: #93A0B3;
+  --accent: #7097F2; --accent-soft: #1C2A4A;
+  --ok: #4BBF8A; --ok-soft: #14332A; --fail: #F0705E; --fail-soft: #3C1C18; --wait: #E2A443; --wait-soft: #392A12;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .25); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0E131A; --surface: #151C26; --surface-2: #1C2532; --line: #2A3544; --fg: #E5EAF1; --muted: #93A0B3;
+  --accent: #7097F2; --accent-soft: #1C2A4A;
+  --ok: #4BBF8A; --ok-soft: #14332A; --fail: #F0705E; --fail-soft: #3C1C18; --wait: #E2A443; --wait-soft: #392A12;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .25); color-scheme: dark }
+
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--ui); }
+[hidden] { display: none !important }
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 18px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 14px }
+button, select, input { font: inherit; color: inherit }
+button { cursor: pointer }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.mono { font-family: var(--mono); font-size: 12px }
+.muted { color: var(--muted) }
+.num { font-variant-numeric: tabular-nums }
+
+.proto { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted) }
+.proto b { font-weight: 600; color: var(--fg); letter-spacing: .06em; text-transform: uppercase; font-size: 11px;
+  background: var(--surface-2); border-radius: 4px; padding: 2px 6px }
+
+header.run { display: grid; gap: 10px }
+.run-top { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center }
+.run-top h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; letter-spacing: -.01em }
+.run-top h1 .ref { color: var(--muted); font-weight: 500 }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px 3px 8px;
+  font-size: 12px; font-weight: 600; white-space: nowrap }
+.pill i { width: 8px; height: 8px; border-radius: 50%; background: currentColor }
+.pill.running { background: var(--accent-soft); color: var(--accent) }
+.pill.running i { animation: beat 1.6s ease-in-out infinite }
+.pill.waiting { background: var(--wait-soft); color: var(--wait) }
+.pill.done { background: var(--ok-soft); color: var(--ok) }
+.pill.failed { background: var(--fail-soft); color: var(--fail) }
+.pill.stopped, .pill.queued { background: var(--surface-2); color: var(--muted) }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--muted); font-size: 13px }
+.facts b { color: var(--fg); font-weight: 600 }
+.spacer { flex: 1 }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line) }
+.tabs button { background: none; border: 0; padding: 8px 12px; color: var(--muted); font-weight: 500;
+  border-bottom: 2px solid transparent; margin-bottom: -1px }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent) }
+
+.btn { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; font-weight: 500 }
+.btn:hover:not(:disabled) { border-color: var(--muted) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn.danger { color: var(--fail) }
+
+.run-view { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start }
+@media (max-width: 960px) { .run-view { grid-template-columns: minmax(0, 1fr) } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0 }
+
+/* Graph */
+.graph { position: relative; overflow: auto; height: 520px; border-radius: 10px;
+  background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 18px 18px }
+.canvas { position: relative; margin: 24px }
+.canvas svg { position: absolute; inset: 0; overflow: visible; pointer-events: none }
+.edge-base { fill: none; stroke: var(--line); stroke-width: 2 }
+.edge-done { fill: none; stroke: var(--ok); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1;
+  transition: stroke-dashoffset .7s cubic-bezier(.4, 0, .2, 1) }
+.edge-done.on { stroke-dashoffset: 0 }
+.edge-flow { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 7; opacity: 0;
+  transition: opacity .3s }
+.edge-flow.on { opacity: 1; animation: march .9s linear infinite }
+.edge-flow.wait { stroke: var(--wait) }
+
+.node { position: absolute; text-align: left; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); display: grid; gap: 7px; align-content: start;
+  transition: border-color .4s, transform .15s, background-color .4s }
+.node:hover { transform: translateY(-1px) }
+.node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow) }
+.node.running { border-color: var(--accent); animation: breathe 2.4s ease-in-out infinite }
+.node.waiting { border-color: var(--wait) }
+.node.queued { background: var(--surface-2); box-shadow: none }
+.node.queued .n-title { color: var(--muted) }
+.n-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted) }
+.n-head .id { font-weight: 700; color: var(--fg); font-family: var(--mono); font-size: 12px }
+.chip { font-family: var(--mono); font-size: 11px; background: var(--surface-2); border-radius: 4px; padding: 1px 6px; color: var(--muted) }
+.n-title { font-weight: 600; font-size: 13.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden }
+.n-foot { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); min-height: 16px }
+.n-foot .why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.n-foot .why.wait { color: var(--wait) }
+.n-foot .why.fail { color: var(--fail) }
+.attempt { font-size: 11px; font-weight: 600; color: var(--wait); background: var(--wait-soft); border-radius: 4px; padding: 0 5px }
+
+.glyph { width: 16px; height: 16px; border-radius: 50%; flex: none; display: grid; place-items: center; position: relative }
+.glyph.queued { border: 2px dashed var(--line) }
+.glyph.running { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite }
+.glyph.waiting { border: 2px solid var(--wait) }
+.glyph.waiting::after { content: ""; width: 2px; height: 5px; background: var(--wait); position: absolute; top: 2px; border-radius: 1px }
+.glyph.done { background: var(--ok); animation: pop .35s cubic-bezier(.3, 1.6, .5, 1) }
+.glyph.done::after { content: ""; width: 7px; height: 4px; border: 2px solid var(--surface); border-top: 0; border-right: 0;
+  transform: rotate(-45deg) translate(1px, -1px) }
+.glyph.failed { background: var(--fail) }
+.glyph.failed::after { content: "!"; color: var(--surface); font-weight: 800; font-size: 11px; line-height: 1 }
+
+.strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px }
+.seg { display: grid; gap: 3px }
+.seg .bar { height: 6px; border-radius: 3px; background: var(--surface-2); position: relative; overflow: hidden; transition: background-color .4s }
+.seg .lab { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .02em }
+.seg.done .bar { background: var(--ok) }
+.seg.failed .bar { background: var(--fail) }
+.seg.failed .lab { color: var(--fail); font-weight: 600 }
+.seg.running .bar { background: var(--accent-soft) }
+.seg.running .bar::after { content: ""; position: absolute; inset: 0; width: 45%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: sweep 1.3s ease-in-out infinite }
+.seg.running .lab { color: var(--accent); font-weight: 600 }
+.seg.waiting .bar { background: repeating-linear-gradient(-45deg, var(--wait-soft) 0 4px, var(--wait) 4px 6px) }
+
+/* Drawer */
+.drawer { display: grid; gap: 0; max-height: 640px; overflow: auto }
+.drawer section { padding: 14px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; min-width: 0 }
+.drawer section:last-child { border-bottom: 0 }
+.drawer h2 { margin: 0; font-size: 16px; font-weight: 600; text-wrap: balance; line-height: 1.3 }
+.drawer h3 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted) }
+.reason { border-radius: 8px; padding: 8px 10px; font-size: 13px }
+.reason.wait { background: var(--wait-soft); color: var(--wait) }
+.reason.fail { background: var(--fail-soft); color: var(--fail) }
+.reason.run { background: var(--accent-soft); color: var(--accent) }
+.reason.ok { background: var(--ok-soft); color: var(--ok) }
+table.phases { width: 100%; border-collapse: collapse; font-size: 13px }
+table.phases td { padding: 4px 0; border-bottom: 1px dashed var(--line) }
+table.phases tr:last-child td { border-bottom: 0 }
+table.phases td.r { text-align: right; color: var(--muted) }
+.st { display: inline-flex; align-items: center; gap: 7px }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none }
+.dot.done { background: var(--ok) } .dot.failed { background: var(--fail) } .dot.running { background: var(--accent); animation: beat 1.4s infinite }
+.dot.waiting { background: var(--wait) }
+.list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none }
+.list li { display: grid; gap: 2px; font-size: 13px; min-width: 0 }
+.list .k { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere }
+.diff { font-family: var(--mono); font-size: 12px; color: var(--ok); overflow-wrap: anywhere }
+.check { display: flex; gap: 8px; align-items: baseline; font-size: 13px }
+.check .dot { transform: translateY(-1px) }
+.finding { border-left: 3px solid var(--wait); padding-left: 8px }
+.log { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px;
+  line-height: 1.6; max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere }
+.log .ph { color: var(--muted) }
+.log .new { animation: fadein .5s }
+.actions { display: flex; flex-wrap: wrap; gap: 8px }
+
+/* Scrubber and events */
+.replay { padding: 12px 16px; display: grid; gap: 10px }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center }
+.controls .clock { font-family: var(--mono); font-size: 13px }
+.play { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--accent); color: var(--surface);
+  display: grid; place-items: center }
+.play svg { width: 14px; height: 14px; fill: currentColor }
+.track { position: relative; height: 34px }
+.track .band, .track .tick, .track .fill { position: absolute; top: 13px; height: 8px; border-radius: 4px }
+.track .rail { position: absolute; left: 0; right: 0; top: 13px; height: 8px; border-radius: 4px; background: var(--surface-2) }
+.track .fill { left: 0; background: var(--accent-soft) }
+.track .band { background: repeating-linear-gradient(-45deg, var(--wait-soft) 0 4px, var(--wait) 4px 6px); opacity: .8 }
+.track .tick { width: 3px; background: var(--fail); top: 9px; height: 16px; border-radius: 2px }
+.track .done-tick { position: absolute; top: 11px; width: 2px; height: 12px; background: var(--ok); opacity: .7 }
+.track input { position: absolute; inset: 0; width: 100%; margin: 0; background: transparent; -webkit-appearance: none; appearance: none }
+.track input::-webkit-slider-runnable-track { height: 34px; background: transparent }
+.track input::-moz-range-track { height: 34px; background: transparent }
+.track input::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 30px; margin-top: 2px; border-radius: 2px; background: var(--fg); border: 0 }
+.track input::-moz-range-thumb { width: 4px; height: 30px; border-radius: 2px; background: var(--fg); border: 0 }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted) }
+.legend span { display: inline-flex; gap: 6px; align-items: center }
+.legend i { width: 12px; height: 8px; border-radius: 2px; display: inline-block }
+.events { margin: 0; padding: 0; list-style: none; max-height: 220px; overflow: auto; border-top: 1px solid var(--line) }
+.events li { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 10px; padding: 6px 16px;
+  border-bottom: 1px solid var(--line); font-size: 13px; align-items: baseline }
+.events li:last-child { border-bottom: 0 }
+.events li.fresh { animation: flash 1.2s }
+.events .cause { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--surface-2); border-radius: 4px; padding: 1px 6px; white-space: nowrap }
+.events .t { font-family: var(--mono); font-size: 12px; color: var(--muted) }
+.events .fail { color: var(--fail) } .events .wait { color: var(--wait) } .events .ok { color: var(--ok) }
+
+/* History */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px }
+.tile { padding: 12px 14px; display: grid; gap: 2px }
+.tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums }
+.tile .l { font-size: 12px; color: var(--muted) }
+.table-wrap { overflow-x: auto }
+table.hist { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px }
+table.hist th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--line) }
+table.hist td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top }
+table.hist tr:last-child td { border-bottom: 0 }
+table.hist td.r, table.hist th.r { text-align: right }
+table.hist tr.link { cursor: pointer } table.hist tr.link:hover td { background: var(--surface-2) }
+.sub { font-size: 12px; color: var(--muted) }
+
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); opacity: 0;
+  background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 8px; font-size: 13px; transition: .25s; pointer-events: none;
+  max-width: calc(100% - 32px) }
+.toast.on { opacity: 1; transform: translate(-50%, 0) }
+
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes beat { 50% { opacity: .35 } }
+@keyframes breathe { 50% { box-shadow: 0 0 0 5px var(--accent-soft), var(--shadow) } }
+@keyframes sweep { from { transform: translateX(-100%) } to { transform: translateX(230%) } }
+@keyframes march { to { stroke-dashoffset: -24 } }
+@keyframes pop { from { transform: scale(.4) } }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px) } }
+@keyframes flash { from { background: var(--accent-soft) } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important }
+}
+</style>
+
+<div class="wrap">
+  <div class="proto"><b>Prototype</b> An example run, replayed from its event log. Nothing here talks to a real pipeline.</div>
+
+  <header class="run">
+    <div class="run-top">
+      <h1><span class="ref">#54</span> Beacons burn out after a watch</h1>
+      <span class="pill" id="runPill"><i></i><span></span></span>
+      <span class="spacer"></span>
+      <button class="btn danger" id="stopRun">Stop run</button>
+    </div>
+    <div class="facts num" id="facts"></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tabRun" aria-selected="true">Run</button>
+    <button role="tab" id="tabHist" aria-selected="false">History</button>
+  </nav>
+
+  <div id="viewRun" class="run-view">
+    <div style="display:grid;gap:14px;min-width:0">
+      <div class="panel graph" id="graph"><div class="canvas" id="canvas"><svg id="edges"></svg></div></div>
+      <div class="panel">
+        <div class="replay">
+          <div class="controls">
+            <button class="play" id="play" aria-label="Pause"></button>
+            <span class="clock num" id="clock"></span>
+            <span class="spacer"></span>
+            <label class="muted" for="speed">Speed</label>
+            <select id="speed" class="btn">
+              <option value="10">10×</option>
+              <option value="30" selected>30×</option>
+              <option value="90">90×</option>
+            </select>
+          </div>
+          <div class="track" id="track"><div class="rail"></div><div class="fill" id="fill"></div>
+            <input type="range" id="scrub" min="0" step="1" aria-label="Replay position"></div>
+          <div class="legend">
+            <span><i style="background:var(--fail)"></i>Failed step</span>
+            <span><i style="background:repeating-linear-gradient(-45deg, var(--wait-soft) 0 3px, var(--wait) 3px 5px)"></i>Waiting for quota</span>
+            <span><i style="background:var(--ok)"></i>Task committed</span>
+          </div>
+        </div>
+        <ul class="events" id="events" aria-label="Event log"></ul>
+      </div>
+    </div>
+    <aside class="panel drawer" id="drawer" aria-live="polite"></aside>
+  </div>
+
+  <div id="viewHist" hidden style="display:grid;gap:14px"></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<script>
+// The run, as the event log of #154 would hold it: each node's steps, with when they started and ended
+const PH = { tests: 'Tests first', build: 'Build', prove: 'Prove', review: 'Review', commit: 'Commit', wait: 'Waiting', plan: 'Plan', submit: 'Pull request' }
+const PHASES = ['tests', 'build', 'prove', 'review', 'commit']
+const START = 13 * 3600 + 12 * 60
+const QUOTA = 'The 5-hour window is 91% full (limit 90%). The run starts no task until it resets at 13:48.'
+
+const NODES = {
+  issue: { kind: 'issue', label: 'Issue', title: '#54 Beacons burn out after a watch' },
+  plan: { kind: 'plan', label: 'Plan', title: '5 tasks in 2 lanes' },
+  t1: { kind: 'task', label: 'T1', target: 'gondor', title: 'Keep when a beacon was lit and how long its watch lasts', deps: [] },
+  t2: { kind: 'task', label: 'T2', target: 'gondor', title: 'Quench beacons whose watch has run out', deps: ['t1'] },
+  t3: { kind: 'task', label: 'T3', target: 'gondor', title: 'GET /beacons says how long each has left', deps: ['t1'] },
+  t4: { kind: 'task', label: 'T4', target: 'anor', title: 'Anor counts down on each lit beacon', deps: ['t3'] },
+  t5: { kind: 'task', label: 'T5', target: 'gondor', title: 'The chronicle records a burn-out', deps: ['t2'] },
+  pr: { kind: 'pr', label: 'Pull request', title: '#162 Beacons burn out after a watch' },
+}
+const EDGES = [['issue', 'plan'], ['plan', 't1'], ['t1', 't2'], ['t1', 't3'], ['t3', 't4'], ['t2', 't5'], ['t4', 'pr'], ['t5', 'pr']]
+
+const S = (p, s, e, extra = {}) => ({ p, s, e, ok: true, n: 1, ...extra })
+const SEGS = {
+  issue: [],
+  plan: [S('plan', 0, 240)],
+  t1: [S('tests', 240, 420), S('build', 420, 900), S('prove', 900, 1010), S('review', 1010, 1130), S('commit', 1130, 1140)],
+  t2: [S('tests', 1140, 1290), S('build', 1290, 1680), S('prove', 1680, 1760, { ok: false, why: 'mypy newly fails on watch.py:41' }),
+    S('build', 1760, 1900, { n: 2 }), S('prove', 1900, 1990, { n: 2 }), S('review', 1990, 2110), S('commit', 2110, 2120)],
+  t3: [S('tests', 1140, 1260), S('build', 1260, 1560), S('prove', 1560, 1650), S('review', 1650, 1790), S('commit', 1790, 1800)],
+  t4: [S('wait', 1800, 2160, { why: QUOTA }), S('tests', 2160, 2300), S('build', 2300, 2640), S('prove', 2640, 2700), S('review', 2700, 2820), S('commit', 2820, 2830)],
+  t5: [S('wait', 2120, 2160, { why: QUOTA }), S('tests', 2160, 2280), S('build', 2280, 2520), S('prove', 2520, 2600), S('review', 2600, 2740), S('commit', 2740, 2750)],
+  pr: [S('submit', 2830, 2880)],
+}
+const END = 2880
+// Tokens a second of each step spends: a proof runs commands, not a model
+const RATE = { plan: 220, tests: 180, build: 260, prove: 0, review: 150, commit: 0, wait: 0, submit: 40 }
+const USD_PER_TOKEN = 9 / 1e6
+
+const DETAIL = {
+  issue: { about: 'A lit beacon should burn out once its watch is over, and say how long it has left.' },
+  plan: { about: 'The planner split the issue into 5 tasks. T2 and T3 can run side by side once T1 is committed.',
+    decided: ['A watch lasts 8 hours unless a beacon says otherwise: the issue names no length.', 'A burn-out is chronicled like a quench, by "the watch" rather than a keeper.'] },
+  t1: { tests: ['test_lighting_keeps_when_it_was_lit', 'test_a_watch_lasts_eight_hours_by_default'],
+    proofs: [{ runs: [{ run: 'GET /beacons/amon-din', change: '+ "lit_at": "2026-10-18T13:…"', pin: 'test_lighting_keeps_when_it_was_lit' }],
+      checks: [['ruff + mypy', true], ['deslop', true], ['beacons tests', true, '48 passed']] }],
+    review: { findings: [] }, commit: 'a41c9e2' },
+  t2: { tests: ['test_a_beacon_past_its_watch_is_quenched', 'test_a_beacon_within_its_watch_stays_lit'],
+    proofs: [
+      { runs: [], note: 'No kept run reaches the clock job: its tests prove it.',
+        checks: [['ruff + mypy', false, 'watch.py:41: Unsupported operand types for + ("datetime" and "int")'], ['deslop', true], ['beacons tests', true, '52 passed']] },
+      { runs: [], note: 'No kept run reaches the clock job: its tests prove it.',
+        checks: [['ruff + mypy', true], ['deslop', true], ['beacons tests', true, '52 passed']] }],
+    review: { findings: [{ where: 'beacons/gondor/watch.py:28', text: 'The job reads every beacon each minute; filtering on lit_at would read only the lit ones.' }] }, commit: 'c7d2f10' },
+  t3: { tests: ['test_beacons_list_says_time_left'],
+    proofs: [{ runs: [
+      { run: 'GET /beacons', change: '+ "burns_out_at": "…"', pin: 'test_beacons_list_says_time_left' },
+      { run: 'GET /beacons/amon-din', change: '+ "burns_out_at": "…"', pin: 'test_beacons_list_says_time_left' }],
+      checks: [['ruff + mypy', true], ['deslop', true], ['beacons tests', true, '49 passed']] }],
+    review: { findings: [] }, commit: '5e09b3b' },
+  t4: { tests: ['countdown shows the hours and minutes left', 'a quenched beacon shows no countdown'],
+    proofs: [{ runs: [], note: 'A frontend has no kept runs: its own tests prove it.', checks: [['deslop', true], ['anor tests', true, '31 passed']] }],
+    review: { findings: [] }, commit: '9b1f6aa' },
+  t5: { tests: ['test_burn_out_is_chronicled'],
+    proofs: [{ runs: [], note: 'No kept run reads the chronicle: its tests prove it.', checks: [['ruff + mypy', true], ['deslop', true], ['beacons tests', true, '54 passed']] }],
+    review: { findings: [{ where: 'beacons/gondor/chronicle.py:63', text: 'The entry says "went out" where the others say "burned out".' }] }, commit: 'e2a7c55' },
+  pr: { about: 'Each task\'s commit, how long it took, the reviewers\' minor findings and what the run spent, as the PR body lists them.' },
+}
+
+const LOG = {
+  plan: { plan: ['Reading issue #54 and its comments', 'Reading beacons/gondor/models.py, routes.py', 'Lane A: T1 → T2 → T5', 'Lane B: T3 → T4 (after T1)', 'Plan written: 5 tasks'] },
+  t1: {
+    tests: ['Writing beacons/tests/test_watch.py', 'pins: GET /beacons/amon-din', 'uv run pytest beacons/tests/test_watch.py', '2 failed, as expected: Beacon has no lit_at', 'Locked beacons/tests/test_watch.py'],
+    build: ['Adding lit_at and watch_hours to Beacon', 'Writing migration 0007_beacon_watch', 'uv run pytest -q beacons/tests/test_watch.py', '2 passed', 'Context: 31% of 200k'],
+    prove: ['Playing 17 kept requests on HEAD and the working tree', '1 answer changed: GET /beacons/amon-din', 'Pinned by test_lighting_keeps_when_it_was_lit', 'Checks: ruff, mypy, deslop pass'],
+    review: ['Correctness reviewer: no finding', 'Security reviewer: no finding'], commit: ['a41c9e2 Keep when a beacon was lit and how long its watch lasts'] },
+  t2: {
+    tests: ['Writing beacons/tests/test_burn_out.py', 'uv run pytest beacons/tests/test_burn_out.py', '2 failed, as expected', 'Locked beacons/tests/test_burn_out.py'],
+    build: ['Writing beacons/gondor/watch.py', 'Scheduling the job every minute', 'uv run pytest -q beacons/tests/test_burn_out.py', '2 passed', 'Context: 38% of 200k'],
+    build2: ['Proof failed: mypy on watch.py:41', 'lit_at + watch_hours → lit_at + timedelta(hours=watch_hours)', 'uv run mypy beacons/gondor', 'Success: no issues found'],
+    prove: ['Playing 17 kept requests on HEAD and the working tree', 'No answer changed', 'Checks: mypy newly fails', 'watch.py:41: Unsupported operand types for + ("datetime" and "int")'],
+    prove2: ['Playing 17 kept requests on HEAD and the working tree', 'No answer changed', 'Checks: ruff, mypy, deslop pass'],
+    review: ['Correctness reviewer: 1 minor finding', 'Security reviewer: no finding'], commit: ['c7d2f10 Quench beacons whose watch has run out'] },
+  t3: {
+    tests: ['Writing beacons/tests/test_time_left.py', 'pins: GET /beacons, GET /beacons/amon-din', '1 failed, as expected', 'Locked beacons/tests/test_time_left.py'],
+    build: ['Adding burns_out_at to BeaconOut', 'uv run pytest -q beacons/tests/test_time_left.py', '1 passed', 'Context: 27% of 200k'],
+    prove: ['Playing 17 kept requests on HEAD and the working tree', '2 answers changed: GET /beacons, GET /beacons/amon-din', 'Both pinned by test_beacons_list_says_time_left', 'Checks: ruff, mypy, deslop pass'],
+    review: ['Correctness reviewer: no finding', 'Security reviewer: no finding'], commit: ['5e09b3b GET /beacons says how long each has left'] },
+  t4: {
+    wait: ['Quota check: 5-hour window at 91%', 'Waiting for the window to reset at 13:48'],
+    tests: ['Writing beacons/anor/tests/countdown.spec.ts', '2 failed, as expected', 'Locked beacons/anor/tests/countdown.spec.ts'],
+    build: ['Writing components/BeaconCountdown.vue', 'npm --prefix beacons/anor test', '31 passed', 'Context: 34% of 200k'],
+    prove: ['A frontend has no kept runs', 'anor tests: 31 passed', 'deslop: pass'],
+    review: ['Correctness reviewer: no finding', 'Security reviewer: no finding'], commit: ['9b1f6aa Anor counts down on each lit beacon'] },
+  t5: {
+    wait: ['Quota check: 5-hour window at 91%', 'Waiting for the window to reset at 13:48'],
+    tests: ['Writing beacons/tests/test_chronicle_burn_out.py', '1 failed, as expected', 'Locked'],
+    build: ['Chronicling a burn-out from watch.py', 'uv run pytest -q', '54 passed', 'Context: 22% of 200k'],
+    prove: ['Playing 17 kept requests', 'No answer changed', 'Checks pass'],
+    review: ['Correctness reviewer: 1 minor finding', 'Security reviewer: no finding'], commit: ['e2a7c55 The chronicle records a burn-out'] },
+  pr: { submit: ['Pushing pipeline/54-beacons-burn-out', 'Writing the PR body: 5 tasks, 2 minor findings, spend', 'Opened #162'] },
+}
+
+// The view model at a moment: what every renderer would read, derived from the log alone
+const at = (id, t) => SEGS[id].filter(s => s.s <= t)
+function nodeState(id, t) {
+  const node = NODES[id]
+  if (node.kind === 'issue') return { status: 'done' }
+  const segs = SEGS[id], started = at(id, t)
+  if (started.length === 0) {
+    const waitingOn = (node.deps ?? []).filter(d => nodeState(d, t).status !== 'done').map(d => NODES[d].label)
+    return { status: 'queued', why: waitingOn.length ? `Waits for ${waitingOn.join(', ')}` : id === 'pr' ? 'Waits for every task' : 'Queued' }
+  }
+  const cur = started.find(s => t < s.e)
+  const attempt = Math.max(...started.map(s => s.n))
+  if (cur) return { status: cur.p === 'wait' ? 'waiting' : 'running', phase: cur.p, why: cur.p === 'wait' ? 'Waiting for quota' : `${PH[cur.p]}${cur.n > 1 ? ' again' : ''}`, attempt, cur }
+  return { status: 'done', attempt }
+}
+function phaseState(id, p, t) {
+  const segs = at(id, t).filter(s => s.p === p)
+  if (segs.length === 0) return nodeState(id, t).status === 'waiting' && p === 'tests' ? 'waiting' : 'pending'
+  const last = segs[segs.length - 1]
+  return t < last.e ? 'running' : last.ok ? 'done' : 'failed'
+}
+const spent = (id, t) => at(id, t).reduce((sum, s) => sum + (Math.min(t, s.e) - s.s) * RATE[s.p], 0)
+const elapsedOf = (id, t) => { const st = at(id, t); return st.length ? Math.min(t, st[st.length - 1].e) - st[0].s : 0 }
+function runState(t) {
+  if (t >= END) return { status: 'done', text: 'Pull request opened' }
+  const states = Object.keys(NODES).map(id => nodeState(id, t))
+  if (states.some(s => s.status === 'running')) return { status: 'running', text: 'Running' }
+  if (states.some(s => s.status === 'waiting')) return { status: 'waiting', text: 'Waiting for quota' }
+  return { status: 'running', text: 'Running' }
+}
+
+// The log as events, each with what caused it
+const EVENTS = []
+for (const [id, segs] of Object.entries(SEGS)) for (const s of segs) {
+  const who = NODES[id].label
+  if (s.p === 'wait') {
+    EVENTS.push({ t: s.s, id, cls: 'wait', text: `${who} · Waiting: 5-hour window 91% full`, cause: 'clock' })
+    EVENTS.push({ t: s.e, id, cls: '', text: `${who} · Window reset, resuming`, cause: 'clock' })
+    continue
+  }
+  const startCause = s.p === 'plan' ? 'command' : s.p === 'tests' && id !== 't1' ? 'clock' : 'hook'
+  EVENTS.push({ t: s.s, id, cls: '', text: `${who} · ${PH[s.p]}${s.n > 1 ? ' (attempt ' + s.n + ')' : ''} started`, cause: startCause })
+  const endCause = s.p === 'commit' || s.p === 'submit' ? 'tool' : 'hook'
+  const endText = !s.ok ? `${PH[s.p]} failed: ${s.why}` : s.p === 'commit' ? `committed ${DETAIL[id].commit}` : s.p === 'submit' ? 'opened #162' : `${PH[s.p]} done`
+  EVENTS.push({ t: s.e, id, cls: !s.ok ? 'fail' : s.p === 'commit' || s.p === 'submit' ? 'ok' : '', text: `${who} · ${endText}`, cause: endCause })
+}
+EVENTS.sort((a, b) => a.t - b.t)
+
+// Formatting
+const pad = n => String(n).padStart(2, '0')
+const clockAt = t => { const x = START + Math.floor(t); return `${pad(Math.floor(x / 3600))}:${pad(Math.floor(x / 60) % 60)}:${pad(x % 60)}` }
+const dur = s => s < 60 ? `${Math.floor(s)}s` : `${Math.floor(s / 60)}m ${pad(Math.floor(s % 60))}s`
+const tok = n => n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
+const usd = n => `$${n.toFixed(2)}`
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+// State of the page
+let t = 1640, playing = true, speed = 30, selected = 't2', drawerKey = '', eventsKey = -1
+const $ = id => document.getElementById(id)
+const els = {}
+
+function toast(text) {
+  const el = $('toast'); el.textContent = text; el.classList.add('on')
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('on'), 2600)
+}
+const dispatch = (action, id) => toast(`Prototype: this would send “${action} ${NODES[id]?.label ?? 'run'}” to the core dispatcher.`)
+
+// Graph: laid out once by ELK, then only its classes and text change
+function nodeSize(id) { return NODES[id].kind === 'task' ? { width: 272, height: 124 } : { width: 196, height: 84 } }
+async function buildGraph() {
+  const elk = new ELK()
+  const laid = await elk.layout({
+    id: 'run',
+    layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '56', 'elk.spacing.nodeNode': '30', 'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF' },
+    children: Object.keys(NODES).map(id => ({ id, ...nodeSize(id) })),
+    edges: EDGES.map(([a, b]) => ({ id: `${a}-${b}`, sources: [a], targets: [b] })),
+  })
+  const canvas = $('canvas'), svg = $('edges')
+  canvas.style.width = `${laid.width}px`; canvas.style.height = `${laid.height}px`
+  svg.setAttribute('width', laid.width); svg.setAttribute('height', laid.height)
+  for (const e of laid.edges) {
+    const sec = e.sections[0]
+    const pts = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint]
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ')
+    const make = cls => { const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); p.setAttribute('class', cls); svg.appendChild(p); return p }
+    make('edge-base')
+    const done = make('edge-done'); done.setAttribute('pathLength', '1')
+    const flow = make('edge-flow')
+    const [a, b] = e.id.split('-')
+    els[`edge:${e.id}`] = { a, b, done, flow }
+  }
+  for (const n of laid.children) {
+    const node = NODES[n.id]
+    const el = document.createElement('button')
+    el.className = 'node'; el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; el.style.width = `${n.width}px`; el.style.height = `${n.height}px`
+    el.setAttribute('aria-label', `${node.label}: ${node.title}`)
+    el.innerHTML = `<div class="n-head"><span class="glyph"></span><span class="id">${esc(node.label)}</span>${node.target ? `<span class="chip">${node.target}</span>` : ''}<span class="spacer"></span><span class="attempt" hidden></span><span class="num el"></span></div>
+      <div class="n-title">${esc(node.title)}</div>
+      ${node.kind === 'task' ? `<div class="strip">${PHASES.map(p => `<div class="seg" data-p="${p}"><div class="bar"></div><div class="lab">${PH[p]}</div></div>`).join('')}</div>` : ''}
+      <div class="n-foot"><span class="why"></span></div>`
+    el.addEventListener('click', () => { selected = n.id; drawerKey = ''; render() })
+    canvas.appendChild(el)
+    els[n.id] = { el, glyph: el.querySelector('.glyph'), elapsed: el.querySelector('.el'), why: el.querySelector('.why'),
+      attempt: el.querySelector('.attempt'), segs: [...el.querySelectorAll('.seg')] }
+  }
+}
+
+function renderGraph() {
+  for (const id of Object.keys(NODES)) {
+    const ui = els[id]; if (!ui) continue
+    const st = nodeState(id, t)
+    ui.el.className = `node ${st.status}${selected === id ? ' sel' : ''}`
+    ui.glyph.className = `glyph ${st.status}`
+    ui.elapsed.textContent = NODES[id].kind === 'issue' ? '' : elapsedOf(id, t) ? dur(elapsedOf(id, t)) : ''
+    ui.attempt.hidden = !(st.attempt > 1); ui.attempt.textContent = `attempt ${st.attempt}`
+    const failedNow = NODES[id].kind === 'task' && PHASES.some(p => phaseState(id, p, t) === 'failed')
+    let why = st.why ?? ''
+    if (st.status === 'done') why = id === 'issue' ? 'Open on GitHub' : id === 'plan' ? 'Planned' : id === 'pr' ? 'Opened, waiting for review' : `Committed ${DETAIL[id].commit}`
+    if (failedNow && st.status === 'running') why = `Proof failed: ${SEGS[id].find(s => !s.ok).why}`
+    ui.why.textContent = why
+    ui.why.className = `why${st.status === 'waiting' ? ' wait' : failedNow && st.status !== 'done' ? ' fail' : ''}`
+    for (const seg of ui.segs) seg.className = `seg ${phaseState(id, seg.dataset.p, t)}`
+  }
+  for (const [key, e] of Object.entries(els)) {
+    if (!key.startsWith('edge:')) continue
+    const from = nodeState(e.a, t).status, to = nodeState(e.b, t).status
+    e.done.classList.toggle('on', from === 'done' && to === 'done')
+    e.flow.classList.toggle('on', from === 'done' && (to === 'running' || to === 'waiting'))
+    e.flow.classList.toggle('wait', to === 'waiting')
+  }
+}
+
+function renderHeader() {
+  const run = runState(t)
+  const pill = $('runPill'); pill.className = `pill ${run.status}`; pill.lastElementChild.textContent = run.text
+  const ids = Object.keys(NODES)
+  const tokens = ids.reduce((sum, id) => sum + spent(id, t), 0)
+  const tasks = ids.filter(id => NODES[id].kind === 'task')
+  const committed = tasks.filter(id => nodeState(id, t).status === 'done').length
+  $('facts').innerHTML = [
+    `<span><b>${committed} of ${tasks.length}</b> tasks committed</span>`,
+    `<span>Elapsed <b>${dur(Math.min(t, END))}</b></span>`,
+    `<span><b>${tok(tokens)}</b> tokens · <b>${usd(tokens * USD_PER_TOKEN)}</b> est.</span>`,
+    `<span class="mono">pipeline/54-beacons-burn-out</span>`,
+    `<span>Started 13:12 · <span class="mono">/pipeline build #54 --auto</span></span>`,
+  ].join('')
+  $('stopRun').disabled = t >= END
+}
+
+function proofBlock(id) {
+  const d = DETAIL[id]; if (!d.proofs) return ''
+  const done = at(id, t).filter(s => s.p === 'prove' && t >= s.e)
+  if (done.length === 0) return ''
+  const seg = done[done.length - 1], proof = d.proofs[seg.n - 1]
+  return `<section><h3>Proof${d.proofs.length > 1 ? ` · attempt ${seg.n}` : ''}</h3>
+    ${proof.runs.length ? `<ul class="list">${proof.runs.map(r => `<li><span class="k">${esc(r.run)}</span><span class="diff">${esc(r.change)}</span><span class="sub">pinned by <span class="mono">${esc(r.pin)}</span></span></li>`).join('')}</ul>` : `<div class="sub">${esc(proof.note)}</div>`}
+    <div style="display:grid;gap:4px">${proof.checks.map(([name, ok, note]) => `<div class="check"><span class="dot ${ok ? 'done' : 'failed'}"></span><span><b>${esc(name)}</b>${note ? ` <span class="${ok ? 'sub' : 'mono'}" style="${ok ? '' : 'color:var(--fail)'}">${esc(note)}</span>` : ''}</span></div>`).join('')}</div></section>`
+}
+
+function logBlock(id) {
+  const lines = []
+  for (const s of at(id, t)) {
+    const src = LOG[id]?.[s.n > 1 ? `${s.p}${s.n}` : s.p] ?? []
+    const shown = t >= s.e ? src.length : Math.max(1, Math.ceil(src.length * (t - s.s) / (s.e - s.s)))
+    lines.push(`<span class="ph">── ${PH[s.p]}${s.n > 1 ? ` · attempt ${s.n}` : ''} · ${clockAt(s.s)}</span>`)
+    src.slice(0, shown).forEach((l, i) => lines.push(`<span${t < s.e && i === shown - 1 ? ' class="new"' : ''}>${esc(l)}</span>`))
+  }
+  return lines.length ? `<section><h3>Output</h3><div class="log" id="log">${lines.join('\n')}</div></section>` : ''
+}
+
+function renderDrawer() {
+  const id = selected, node = NODES[id], st = nodeState(id, t), d = DETAIL[id]
+  const logLen = at(id, t).map(s => t >= s.e ? 'x' : Math.ceil(4 * (t - s.s) / (s.e - s.s))).join(',')
+  const key = [id, st.status, st.phase, st.attempt, logLen, PHASES.map(p => phaseState(id, p, t)).join(), Math.floor(elapsedOf(id, t) / 5)].join('|')
+  if (key === drawerKey) return
+  drawerKey = key
+  const failedSeg = SEGS[id].find(s => !s.ok && s.e <= t)
+  const reason = st.status === 'waiting' ? `<div class="reason wait">${esc(st.cur.why)}</div>`
+    : failedSeg && st.status === 'running' ? `<div class="reason fail">Proof failed: ${esc(failedSeg.why)}. The builder is fixing it (attempt ${st.attempt}).</div>`
+    : st.status === 'running' ? `<div class="reason run">${esc(PH[st.phase])} is running · ${dur(t - st.cur.s)}</div>`
+    : st.status === 'queued' ? `<div class="reason" style="background:var(--surface-2);color:var(--muted)">${esc(st.why)}</div>`
+    : node.kind === 'task' ? `<div class="reason ok">Committed ${d.commit} after ${dur(elapsedOf(id, t))}</div>` : ''
+  const parts = [`<section><div class="n-head"><span class="glyph ${st.status}"></span><span class="id">${esc(node.label)}</span>${node.target ? `<span class="chip">${node.target}</span>` : ''}</div><h2>${esc(node.title)}</h2>${reason}</section>`]
+  if (node.kind === 'task') {
+    parts.push(`<section><h3>Steps</h3><table class="phases num">${at(id, t).map(s => {
+      const state = t < s.e ? (s.p === 'wait' ? 'waiting' : 'running') : s.ok ? 'done' : 'failed'
+      return `<tr><td><span class="st"><span class="dot ${state}"></span>${PH[s.p]}${s.n > 1 ? ` <span class="attempt">attempt ${s.n}</span>` : ''}</span></td><td class="r mono">${clockAt(s.s)}</td><td class="r">${dur(Math.min(t, s.e) - s.s)}</td><td class="r">${RATE[s.p] ? tok((Math.min(t, s.e) - s.s) * RATE[s.p]) : '—'}</td></tr>`
+    }).join('') || '<tr><td class="muted">Nothing has started yet.</td></tr>'}</table></section>`)
+    if (phaseState(id, 'tests', t) === 'done') parts.push(`<section><h3>Tests written first</h3><ul class="list">${d.tests.map(x => `<li class="k">${esc(x)}</li>`).join('')}</ul></section>`)
+    parts.push(proofBlock(id))
+    if (phaseState(id, 'review', t) === 'done') parts.push(`<section><h3>Review</h3><div class="check"><span class="dot done"></span>Correctness: pass</div><div class="check"><span class="dot done"></span>Security: pass</div>${d.review.findings.map(f => `<div class="finding"><div class="mono">${esc(f.where)}</div><div>${esc(f.text)}</div><div class="sub">Minor: listed in the pull request</div></div>`).join('')}</section>`)
+  } else {
+    parts.push(`<section><h3>About</h3><div>${esc(d.about)}</div>${d.decided && st.status === 'done' ? `<h3 style="margin-top:6px">Decided without the person</h3><ul class="list">${d.decided.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>`)
+  }
+  parts.push(logBlock(id))
+  const canRetry = node.kind === 'task' && (st.status === 'done' || !!failedSeg)
+  const canStop = st.status === 'running' || st.status === 'waiting'
+  parts.push(`<section><h3>Actions</h3><div class="actions">
+    <button class="btn" data-act="retry" ${canRetry ? '' : 'disabled'}>Retry</button>
+    <button class="btn" data-act="skip" ${st.status === 'queued' || st.status === 'waiting' ? '' : 'disabled'}>Skip</button>
+    <button class="btn danger" data-act="stop" ${canStop ? '' : 'disabled'}>Stop</button></div></section>`)
+  const drawer = $('drawer')
+  drawer.innerHTML = parts.join('')
+  drawer.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => dispatch(b.dataset.act, id)))
+  const log = $('log'); if (log) log.scrollTop = log.scrollHeight
+}
+
+function renderEvents() {
+  const shown = EVENTS.filter(e => e.t <= t)
+  if (shown.length === eventsKey) return
+  const grew = shown.length > eventsKey && eventsKey >= 0
+  const fresh = grew ? shown.length - eventsKey : 0
+  eventsKey = shown.length
+  $('events').innerHTML = shown.slice().reverse().map((e, i) => `<li class="${i < fresh ? 'fresh' : ''}"><span class="t">${clockAt(e.t)}</span><span class="${e.cls}">${esc(e.text)}</span><span class="cause">${e.cause}</span></li>`).join('')
+}
+
+function renderScrub() {
+  $('scrub').value = Math.floor(t)
+  $('fill').style.width = `${(Math.min(t, END) / END) * 100}%`
+  $('clock').textContent = `${clockAt(t)} · ${dur(Math.min(t, END))} of ${dur(END)}`
+  $('play').innerHTML = playing ? '<svg viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1"/><rect x="8.5" y="1" width="3.5" height="12" rx="1"/></svg>' : '<svg viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z"/></svg>'
+  $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play')
+}
+
+function render() { renderHeader(); renderGraph(); renderDrawer(); renderEvents(); renderScrub() }
+
+function buildTrack() {
+  const track = $('track'), pct = x => `${(x / END) * 100}%`
+  for (const segs of Object.values(SEGS)) for (const s of segs) {
+    if (s.p === 'wait') { const b = document.createElement('div'); b.className = 'band'; b.style.left = pct(s.s); b.style.width = pct(s.e - s.s); track.insertBefore(b, $('scrub')) }
+    if (!s.ok) { const k = document.createElement('div'); k.className = 'tick'; k.style.left = pct(s.e); k.title = s.why; track.insertBefore(k, $('scrub')) }
+    if (s.p === 'commit') { const k = document.createElement('div'); k.className = 'done-tick'; k.style.left = pct(s.e); track.insertBefore(k, $('scrub')) }
+  }
+  $('scrub').max = END
+}
+
+// History: example runs, with this one first
+const PAST = [
+  { ref: '#35', title: 'Every lighting says who lit it', status: 'done', when: 'Oct 17 · 21:04', took: '1h 06m', cost: 7.90, tasks: '6 / 6', pr: '#139' },
+  { ref: '#68', title: 'CI: run the tests on every pull request', status: 'failed', why: 'Prove: narsil check newly fails (clippy)', when: 'Oct 17 · 16:40', took: '38m', cost: 4.12, tasks: '2 / 4' },
+  { ref: '#141', title: 'Pipeline mod tests drop the old names', status: 'done', when: 'Oct 17 · 11:15', took: '27m', cost: 2.35, tasks: '3 / 3', pr: '#142' },
+  { ref: '#106', title: 'Try a run on a real GitLab project', status: 'stopped', why: 'Stopped by you during Build', when: 'Oct 16 · 22:02', took: '12m', cost: 1.02, tasks: '0 / 2' },
+  { ref: '#32', title: 'nuxt-flow pane', status: 'failed', why: 'Prove: anor tests fail on the change', when: 'Oct 16 · 15:31', took: '51m', cost: 6.48, tasks: '3 / 5' },
+  { ref: '#15', title: 'Pixel picture upgrade', status: 'done', when: 'Oct 15 · 18:47', took: '19m', cost: 1.66, tasks: '2 / 2', pr: '#120' },
+]
+function renderHistory() {
+  const run = runState(t), ids = Object.keys(NODES)
+  const tokens = ids.reduce((s, id) => s + spent(id, t), 0)
+  const tasks = ids.filter(id => NODES[id].kind === 'task')
+  const current = { ref: '#54', title: 'Beacons burn out after a watch', status: run.status, why: run.status === 'waiting' ? 'Waiting for quota' : '', when: 'Oct 18 · 13:12', took: dur(Math.min(t, END)), cost: tokens * USD_PER_TOKEN, tasks: `${tasks.filter(id => nodeState(id, t).status === 'done').length} / ${tasks.length}`, pr: t >= END ? '#162' : '', live: true }
+  const label = { done: 'Pull request', failed: 'Failed', stopped: 'Stopped', running: 'Running', waiting: 'Waiting' }
+  $('viewHist').innerHTML = `
+    <div class="tiles">
+      <div class="panel tile"><span class="v">7</span><span class="l">Runs since Oct 15</span></div>
+      <div class="panel tile"><span class="v">3 of 6</span><span class="l">Finished runs that opened a pull request</span></div>
+      <div class="panel tile"><span class="v">32m</span><span class="l">Median duration</span></div>
+      <div class="panel tile"><span class="v">Prove</span><span class="l">Where runs fail most: 2 of 2 failures</span></div>
+    </div>
+    <div class="panel table-wrap"><table class="hist num"><thead><tr><th>Issue</th><th>Status</th><th>Started</th><th class="r">Took</th><th class="r">Tasks</th><th class="r">Est. cost</th><th>PR</th></tr></thead>
+    <tbody>${[current, ...PAST].map(r => `<tr class="${r.live ? 'link' : ''}" ${r.live ? 'tabindex="0" id="liveRow"' : ''}>
+      <td><b>${r.ref}</b> ${esc(r.title)}${r.live ? ' <span class="chip">this run</span>' : ''}</td>
+      <td><span class="pill ${r.status}"><i></i>${label[r.status]}</span>${r.why ? `<div class="sub" style="margin-top:4px">${esc(r.why)}</div>` : ''}</td>
+      <td class="muted">${r.when}</td><td class="r">${r.took}</td><td class="r">${r.tasks}</td><td class="r">${usd(r.cost)}</td><td class="mono">${r.pr || '—'}</td></tr>`).join('')}</tbody></table></div>
+    <div class="sub">Rows other than this run are example data.</div>`
+  const live = $('liveRow'); if (live) { const go = () => tab('run'); live.addEventListener('click', go); live.addEventListener('keydown', e => { if (e.key === 'Enter') go() }) }
+}
+
+function tab(which) {
+  $('tabRun').setAttribute('aria-selected', which === 'run'); $('tabHist').setAttribute('aria-selected', which === 'hist')
+  $('viewRun').hidden = which !== 'run'; $('viewHist').hidden = which !== 'hist'
+  if (which === 'hist') renderHistory()
+  try { localStorage.setItem('pipeline-tab', which) } catch {}
+}
+
+// Wiring
+$('play').addEventListener('click', () => { if (t >= END) t = 0; playing = !playing; renderScrub() })
+$('speed').addEventListener('change', e => { speed = Number(e.target.value) })
+$('scrub').addEventListener('input', e => { t = Number(e.target.value); drawerKey = ''; render() })
+$('stopRun').addEventListener('click', () => dispatch('stop', 'run'))
+$('tabRun').addEventListener('click', () => tab('run'))
+$('tabHist').addEventListener('click', () => tab('hist'))
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' && !['INPUT', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName)) { e.preventDefault(); $('play').click() }
+})
+
+let last = performance.now(), lastHist = 0
+function frame(now) {
+  const dt = Math.min(0.25, (now - last) / 1000); last = now
+  if (playing) { t = Math.min(END, t + dt * speed); if (t >= END) playing = false; render(); if (!$('viewHist').hidden && now - lastHist > 1000) { lastHist = now; renderHistory() } }
+  requestAnimationFrame(frame)
+}
+
+buildTrack()
+buildGraph().then(() => {
+  render()
+  try { if (localStorage.getItem('pipeline-tab') === 'hist') tab('hist') } catch {}
+  requestAnimationFrame(frame)
+}).catch(error => {
+  $('graph').innerHTML = `<div style="padding:16px" class="muted">The graph could not be laid out: ${esc(error.message ?? error)}</div>`
+  render()
+})
+</script>
