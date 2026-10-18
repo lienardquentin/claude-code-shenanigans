@@ -5,7 +5,7 @@ import { test } from './hook-test'
 const CWD = '/proj'
 
 /** A session with nothing under way: no run, no plan, no project file. */
-const started = (body: (...args: Parameters<TestBody>) => Promise<void>): TestBody => async ($, on) => {
+const started = (body: (...args: Parameters<TestBody>) => Promise<void>, failing: Record<string, string> = {}): TestBody => async ($, on) => {
   mock.clock(on, { now: 1_800_000_000_000 })
   on('store.get', () => ({ value: undefined }) as never)
   on('store.set', () => ({ value: undefined }) as never)
@@ -23,7 +23,11 @@ const started = (body: (...args: Parameters<TestBody>) => Promise<void>): TestBo
   on('fs.read', (_, e) => {
     throw new Error(`ENOENT: ${e.path}`)
   })
-  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.join(' ') === 'git rev-parse --show-toplevel' ? `${CWD}\n` : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never)
+  on('process.run', (_, e) => {
+    const line = e.argv.join(' ')
+
+    return { value: { exitCode: line in failing ? 1 : 0, stdout: line === 'git rev-parse --show-toplevel' ? `${CWD}\n` : line === `git -C ${CWD} remote get-url origin` ? 'git@github.com:o/r.git\n' : '', stderr: failing[line] ?? '', isStdoutTruncated: false, isStderrTruncated: false } } as never
+  })
 
   await $.session.start({ source: 'startup', cwd: CWD } as never)
   await body($, on)
@@ -68,5 +72,16 @@ describe('/theseus', () => {
       expect(await run($, 'cleanup', '')).toMatch(/^\/cleanup is \/theseus cleanup now\.\n\n[\s\S]*Looking again/)
       expect(await run($, 'checks', '')).toMatch(/^\/checks is \/theseus verify now\./)
     }),
+  )
+
+  test(
+    'doctor says what Theseus needs here, and build starts no run while something it needs is missing',
+    started(
+      async $ => {
+        expect(await run($, 'theseus', 'doctor')).toMatch(/^Theseus is missing one thing it needs here[\s\S]*✗ gh sign-in: not logged in\n    gh auth login --hostname github\.com/)
+        expect(await run($, 'theseus', 'build --auto')).toBe('Theseus cannot start a run here: gh sign-in (gh auth login --hostname github.com). /theseus doctor lists every check.')
+      },
+      { 'gh auth status --hostname github.com': 'not logged in' },
+    ),
   )
 })

@@ -3,6 +3,16 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.5.0
+
+- `/theseus doctor` (#147) checks what Theseus needs on this machine and in this project, each only when the project
+  needs it: git and the repository, the origin remote and the forge's CLI signed in to its host, `.claude/verify`,
+  python3 for the proof's handlers, every program a target's commands start, Docker for a target with a database,
+  kubectl and its context for a live stage, the recorder for a command-line target, and installed copies that lag.
+  Each miss names the one step that fixes it; Theseus runs no installer. Claude reads it through the pane tool
+  (`doctor`).
+- `/theseus build` starts no run, errand or review while something it needs is missing, and names what.
+
 ## 0.4.0
 
 - One command, `/theseus <verb>` (#151): `plan`, `build`, `tests`, `verify`, `follow-up`, `cleanup`, `issues`,

@@ -13,6 +13,8 @@ import { issuesCommand, issuesView, registerIssues, startIssues } from './issues
 import { carryFolder, carryStores } from './stores'
 import { sectionOfLag, startLag } from './lag'
 import { stumbled, troublesText } from './trouble'
+import { doctorOf } from './doctor'
+import { doctorText } from '../core/doctor'
 
 // Theseus: one plugin, each of its parts a folder of its own (the issues pane lists the issues, plans, the
 // Build builds, the test writer writes tests first, verify prove and judge, the review follow-up reads review, the cleanup
@@ -42,6 +44,7 @@ const VERBS = {
   'follow-up': { usage: 'follow-up <pr> | answer [--auto] | close', does: "answer a pull request's review and failing checks" },
   cleanup: { usage: 'cleanup [clean [branch | pr]]', does: 'what is kept of merged pull requests; clean removes it' },
   issues: { usage: 'issues', does: 'the open issues' },
+  doctor: { usage: 'doctor', does: 'what Theseus needs here, and how to fix what is missing' },
 } as const
 
 /** What a verb of /theseus answers: each part's command, called by name, as the engine follows `$` into a call. */
@@ -61,6 +64,8 @@ async function answerOf($: EngineInterface, verb: keyof typeof VERBS, args: stri
       return cleanupCommand($, args)
     case 'issues':
       return issuesCommand($, args)
+    case 'doctor':
+      return { text: doctorText(await doctorOf($)) }
   }
 }
 
@@ -92,8 +97,8 @@ async function statusOf($: EngineInterface): Promise<string> {
 const PANE_TOOL = {
   name: 'pane',
   description:
-    'Reads one of the side panes as text: what it shows the person right now, or last showed. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
-  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles'] } }, required: ['pane'] },
+    'Reads one of the side panes as text: what it shows the person right now, or last showed. Each is opened by /theseus and its name: `issues` the open issues, `plan` the plan, `build` the runs, `tests` the tests written first, `verify` the proof of the change, `follow-up` the review comments, `cleanup` what is merged; `troubles` what any part has failed at this session, `doctor` what Theseus needs here and what is missing. Call it when the person speaks of a pane or of something only it shows, or when Theseus seems stuck.',
+  inputSchema: { type: 'object', properties: { pane: { type: 'string', enum: [...Object.keys(PANES), 'troubles', 'doctor'] } }, required: ['pane'] },
 } as const
 
 /**
@@ -253,6 +258,7 @@ export const register: Register = (on, options) => {
     const named = String((e as unknown as { pane?: unknown }).pane ?? '')
 
     if (named === 'troubles') return { result: troublesText() }
+    if (named === 'doctor') return { result: doctorText(await doctorOf($)) }
 
     const pane = OLD_PANES[named] ?? named
 

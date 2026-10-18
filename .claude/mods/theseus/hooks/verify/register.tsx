@@ -269,6 +269,11 @@ async function setUp($: $): Promise<Target[]> {
   return list
 }
 
+/** The targets .claude/verify names, read afresh, as the doctor checks what they need. */
+export async function targetsRead($: $): Promise<Target[]> {
+  return setUp($)
+}
+
 /**
  * The targets of a place, their folders in that place. The project's own are read afresh, or, `isKnown`, as last read.
  * A run's worktree is looked at as the project's folder names its targets: what a target runs on the machine unasked
