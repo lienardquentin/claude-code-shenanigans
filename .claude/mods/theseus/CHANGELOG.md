@@ -3,6 +3,12 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.6.1
+
+- The manifest names its author, homepage, repository, license (MIT) and keywords (#149).
+- A README of its own: what Theseus does, a quickstart, how a run goes, its commands, options and files, and what to
+  do when something goes wrong.
+
 ## 0.6.0
 
 - The project file is `.claude/theseus.toml` (#148), specified in `docs/config.md`, with a JSON Schema

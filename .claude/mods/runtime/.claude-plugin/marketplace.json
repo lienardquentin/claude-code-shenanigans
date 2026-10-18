@@ -1,5 +1,13 @@
 {
   "name": "runtime-mods",
-  "owner": { "name": "quent" },
-  "plugins": [{ "name": "runtime", "source": "./" }]
+  "description": "The runtime alone: watches the running app and tells Claude what its edits broke",
+  "owner": {
+    "name": "quent"
+  },
+  "plugins": [
+    {
+      "name": "runtime",
+      "source": "./"
+    }
+  ]
 }

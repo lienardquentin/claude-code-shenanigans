@@ -1,7 +1,22 @@
 {
   "name": "theseus",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Takes an issue, or a pull request's review, to committed and reviewed work: it plans the issue, writes the tests first, builds it task by task in a worktree of its own, proves and reviews each change, answers review, and cleans up what is merged",
+  "author": {
+    "name": "lienardquentin",
+    "url": "https://github.com/lienardquentin"
+  },
+  "homepage": "https://github.com/lienardquentin/claude-code-shenanigans/tree/main/.claude/mods/theseus",
+  "repository": "https://github.com/lienardquentin/claude-code-shenanigans",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "issues",
+    "pull-requests",
+    "tdd",
+    "verification",
+    "code-review"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "fiveHourPercent": {
