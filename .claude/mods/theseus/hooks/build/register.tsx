@@ -493,7 +493,7 @@ async function namedQuest($: $, named = ''): Promise<Run | null> {
   return all[shown] ?? (Object.values(all).length === 1 ? (Object.values(all)[0] ?? null) : null)
 }
 
-const sectionText = (all: readonly Run[]): string =>
+export const buildSectionText = (all: readonly Run[]): string =>
   [
     `The build mod is implementing ${all.length === 1 ? 'an issue' : `${all.length} issues`}, each task by task in a git worktree of its own by builder subagents, each change test-checked, reviewed and committed alone:`,
     ...all.map(held => `- ${held.ref} (${held.kind}): ${held.phase}, in ${held.tree}`),
@@ -580,7 +580,7 @@ export async function endedBuild($: $, e: TurnEnded): Promise<void> {
 export async function sectionOfBuild($: $): Promise<Section | undefined> {
   const all = Object.values(await read($, quests)).filter(held => held.phase !== 'submitted')
 
-  return all.length === 0 ? undefined : { id: 'theseus:run', text: sectionText(all) }
+  return all.length === 0 ? undefined : { id: 'theseus:run', text: buildSectionText(all) }
 }
 
 /** A builder the record lost (sent where its spawn answered no id), found by the run it is out on, and held to its task's files. */

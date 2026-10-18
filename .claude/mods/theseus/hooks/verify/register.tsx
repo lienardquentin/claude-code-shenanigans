@@ -247,14 +247,20 @@ let configErrors: readonly string[] = []
 /** What of the project's file does not read, a `file:line: why` each, as last read; the line format's warning apart. */
 export const projectErrors = (): { errors: string[]; warnings: string[] } => ({ errors: configErrors.filter(one => !isMigrationWarning(one)), warnings: configErrors.filter(isMigrationWarning) })
 
-const sectionText = (list: readonly Target[], cwd: string): string => {
+/**
+ * What Claude is told of verify at each turn. Until a turn touches a target, one line: which targets, and the three
+ * steps after an edit of one. Once one is touched, the steps in full, with the reviewers the change is owed.
+ */
+export const verifySectionText = (list: readonly Pick<Target, 'label' | 'kind' | 'roots'>[], cwd: string, isTouched: boolean, owedTo: readonly Review[]): string => {
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
+
+  if (!isTouched) return `Theseus verifies edits of ${list.map(({ label, roots }) => `${label} (${roots.map(within).join(', ')})`).join(', ')}: after editing one, call mcp__theseus__radius, write a \`${MARK} <run>\` test for each changed run it lists, then mcp__theseus__prove.`
 
   return [
     `Verify checks changes to ${list.map(({ label, kind, roots }) => `\`${label}\` (${kind}, ${roots.map(within).join(', ')})`).join(', ')}.`,
     `After changing one, call mcp__theseus__radius: for each bare run it lists, write one integration test that makes that run and asserts its new answer, \`${MARK} <the run as listed>\` on the line above it; none for a run that did not change.`,
     'Then mcp__theseus__prove: the change is settled when every changed run is pinned and nothing is broken.',
-    ...(reviews.length > 0 ? [`Then reviewers judge it when the turn ends (${dealt(reviews).map(seat => seat.reviews.join(', ')).join(', ')}); fix what they find blocking.`] : []),
+    ...(owedTo.length > 0 ? [`Then reviewers judge it when the turn ends (${dealt(owedTo).map(seat => seat.reviews.join(', ')).join(', ')}); fix what they find blocking.`] : []),
   ].join(' ')
 }
 
@@ -722,7 +728,7 @@ export async function startVerify($: $): Promise<void> {
 
 /** What Claude is told of the tests owed: one for each run that changed, and none beyond. */
 export async function sectionOfVerify($: $): Promise<Section | undefined> {
-  return known.length === 0 ? undefined : { id: 'verify:radius', text: sectionText(known, await homeOf($)) }
+  return known.length === 0 ? undefined : { id: 'verify:radius', text: verifySectionText(known, await homeOf($), (await read($, touched)).length > 0, reviews) }
 }
 
 /** A turn has ended: a reviewer's answer is its findings; the session's own owes what it edited a look. */

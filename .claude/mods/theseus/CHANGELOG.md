@@ -3,6 +3,12 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.7.1
+
+- What Theseus adds to Claude's context at each turn is measured and held to budgets by a test (#152). Until a
+  turn touches a target, verify says one line (about 60 tokens, from about 150): which targets, and the three steps
+  after an edit; the full steps and the reviewers come once a target is touched. The README lists each cost.
+
 ## 0.7.0
 
 - The names from before #104 are no longer read (#150): `.claude/argonath`, `.fellowship/trees` and
