@@ -19,6 +19,7 @@ import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spen
 import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
+import { startRefusal } from '../doctor'
 import { inBackground, stumbled } from '../trouble'
 
 type $ = EngineInterface
@@ -603,6 +604,13 @@ export async function buildCommand($: $, args: string): Promise<{ text: string }
   const named = plain[1] ?? ''
 
   await $.ui.open({ id: PANE, title: TITLE })
+
+  // A run is not started where something it needs is missing; the runs under way are still shown
+  if (verb === 'errand' || verb === 'start' || (verb === '' && (isAuto || Object.keys(await read($, quests)).length === 0))) {
+    const refused = await startRefusal($)
+
+    if (refused !== undefined) return { text: refused }
+  }
 
   if (verb === 'errand') {
     if (named === '') return { text: 'Name the issue: /theseus build errand <issue> (--auto opens its pull request by itself).' }

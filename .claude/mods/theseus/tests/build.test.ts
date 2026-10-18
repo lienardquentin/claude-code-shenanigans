@@ -571,6 +571,7 @@ const machine = (on: On) => {
   on('session.cwd', () => ({ value: CWD }) as never)
   // A subscription with no quota window to read, as an API key has: the quota holds no run
   on('session.usage', () => ({ value: { rateLimits: [] } }) as never)
+  on('env.get', () => ({ value: undefined }) as never)
   on('fs.write', (_, e) => {
     if (e.path === `${CWD}/.theseus/spend.jsonl`) world.spend = e.text
 
