@@ -16,7 +16,7 @@ import { paneView } from '../kit/pane-text'
 import { clip, clockOf, homePath, keyed, shortRef } from '../look'
 import { askToPump, inFrame, remember, spawnIn, stopAgent, typeOf } from '../agents'
 import { SPEND_FILE, costLine, costText, record, spendOf, spends } from '../spend'
-import { markTask, planFor, readIssue, takeSetOut } from '../planner/register'
+import { markTask, planFor, readIssue, settlePlanAlone, takeSetOut } from '../planner/register'
 import { writeTestsFor, testsFirstIn } from '../tests-first/register'
 import { judgementFor, proveFor, standardsText, targetsKnown } from '../verify/register'
 
@@ -220,6 +220,7 @@ function portsOf($: $): Ports {
       targetsKnown: () => targetsKnown($),
       standardsText: () => standardsText($),
       isMergedFrom: (url, branch) => isMergedFrom($, url, branch),
+      settleAlone: ref => settlePlanAlone($, ref),
     },
     machine: {
       root: () => rootOf($),

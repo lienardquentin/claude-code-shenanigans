@@ -81,6 +81,8 @@ export type Forge = {
   readReview: (repo: string, number: number) => Promise<Review | string>
   /** Opens a pull request from a branch already pushed: its URL. */
   openRequest: (request: NewRequest) => Promise<{ url: string } | string>
+  /** Opens an issue in a repository: its URL and number. */
+  openIssue: (repo: Repo, title: string, body: string) => Promise<{ url: string; number: number } | string>
   /** Replies to a review thread of pull request `number` in the repository the shell runs in. */
   replyToThread: (number: number, thread: string, reply: string) => Promise<Ran>
   /** Marks a review thread resolved. */
@@ -521,6 +523,16 @@ export const parseGitlabReview = (request: string, discussions: string, repo: st
   }
 }
 
+/** The issue a CLI opened, by the address it printed (`/issues/12`, `/-/issues/12` on GitLab); why there is none. */
+const openedIssue = (opened: Ran, cli: 'gh' | 'glab'): { url: string; number: number } | string => {
+  const url = printedUrl(opened.stdout)
+  const number = Number(/\/issues\/(\d+)/.exec(url)?.[1] ?? NaN)
+
+  if (opened.exitCode !== 0) return `The issue could not be opened: ${cli} said ${(opened.stderr || opened.stdout).trim() || 'nothing'}`
+
+  return Number.isInteger(number) ? { url, number } : `${cli} opened the issue, but printed no address of it that reads: ${opened.stdout.trim().slice(0, 200)}`
+}
+
 /** GitHub, through `gh`. */
 export const github = (shell: Shell): Forge => ({
   kind: 'github',
@@ -571,6 +583,12 @@ export const github = (shell: Shell): Forge => ({
     const opened = await shell.run(['gh', 'pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body], { timeoutMs: SLOW_TIMEOUT_MS })
 
     return opened.exitCode === 0 ? { url: printedUrl(opened.stdout) } : `The pull request could not be opened: gh said ${(opened.stderr || opened.stdout).trim() || 'nothing'}`
+  },
+
+  async openIssue(repo, title, body) {
+    const opened = await shell.run(['gh', 'issue', 'create', '--repo', repoFlag(repo), '--title', title, '--body', body], { timeoutMs: SLOW_TIMEOUT_MS })
+
+    return openedIssue(opened, 'gh')
   },
 
   replyToThread: (_number, thread, reply) =>
@@ -640,6 +658,12 @@ export const gitlab = (shell: Shell): Forge => ({
     const opened = await shell.run(['glab', 'mr', 'create', '--source-branch', branch, '--target-branch', base, '--title', title, '--description', body, '--yes'], { timeoutMs: SLOW_TIMEOUT_MS })
 
     return opened.exitCode === 0 ? { url: printedUrl(opened.stdout) } : `The pull request could not be opened: glab said ${(opened.stderr || opened.stdout).trim() || 'nothing'}`
+  },
+
+  async openIssue(repo, title, body) {
+    const opened = await shell.run(['glab', 'issue', 'create', '--repo', repoFlag(repo), '--title', title, '--description', body, '--yes'], { timeoutMs: SLOW_TIMEOUT_MS })
+
+    return openedIssue(opened, 'glab')
   },
 
   replyToThread: (number, thread, reply) => shell.run(['glab', 'api', '-X', 'POST', `projects/:id/merge_requests/${number}/discussions/${thread}/notes`, '-f', `body=${reply}`]),

@@ -88,6 +88,8 @@ export type IssuePlan = {
   risks: PlanRisk[]
   /** Risks the person accepted as they are: carried into every revision, and raised no more. */
   accepted: string[]
+  /** What an auto run decided without the person: each question it answered itself and each risk it accepted, a line each. */
+  alone?: string[]
   /** The commands that check the whole change, run from the repository's root: the proof where the project names no target. */
   verification?: string[]
   /** What a fresh worktree needs before it is built in: installed dependencies, generated files. */
@@ -168,6 +170,8 @@ export type RunWork = {
   decided: { text: string; answer: string }[]
   risks: { text: string; severity: 'high' | 'medium' | 'low'; mitigation: string; tasks: number[]; wantsTask: boolean }[]
   accepted: string[]
+  /** What an auto run decided without the person, a line each. */
+  alone?: string[]
   /** The plan's verification and setup commands, where the planner stated them. */
   verification?: string[]
   setup?: string[]

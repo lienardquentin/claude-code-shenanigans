@@ -200,3 +200,22 @@ describe('a review', () => {
     ])
   })
 })
+
+describe('an issue opened from an idea', () => {
+  test('is opened on the forge of the origin, and known by the address its CLI printed', async () => {
+    const on = shell([[/^gh issue create/, ok('Creating issue in o/r\n\nhttps://github.com/lienardquentin/claude-code-shenanigans/issues/140\n')]])
+
+    expect(await github(on.fake).openIssue(GITHUB, 'Quench a beacon', 'Body.')).toEqual({ url: `https://github.com/${REPO}/issues/140`, number: 140 })
+    expect(on.ran).toEqual([['gh', 'issue', 'create', '--repo', REPO, '--title', 'Quench a beacon', '--body', 'Body.']])
+
+    const lab = shell([[/^glab issue create/, ok('https://git.corp.io/g/sub/p/-/issues/9\n')]])
+
+    expect(await gitlab(lab.fake).openIssue(GITLAB, 'T', 'B')).toEqual({ url: 'https://git.corp.io/g/sub/p/-/issues/9', number: 9 })
+    expect(lab.ran).toEqual([['glab', 'issue', 'create', '--repo', 'https://git.corp.io/g/sub/p', '--title', 'T', '--description', 'B', '--yes']])
+  })
+
+  test('says what the CLI said where it could not open it', async () => {
+    expect(await github(shell([[/^gh issue create/, failed('HTTP 403: no permission')]]).fake).openIssue(GITHUB, 'T', 'B')).toBe('The issue could not be opened: gh said HTTP 403: no permission')
+  })
+})
+

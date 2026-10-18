@@ -323,6 +323,22 @@ describe('planner', () => {
     expect(await call($, 'mcp__pipeline__make_plan', { issue: '#13' })).toMatch(/already on .*#12/)
   })
 
+  test('hands Claude an idea to grill the person on, open as an issue and plan; a bare word names an issue, not an idea', async ($, on) => {
+    const world = machine(on)
+
+    expect((await $.command.run({ command: 'planner', args: 'beacons that glow when lit' } as never)).text).toBe('Claude grills you on the idea, then opens its issue and has the planner plan it.')
+    await world.clock.advance(1)
+    expect(world.submitted[0]).toMatch(/^The person starts the pipeline from an idea rather than an issue\. The idea is theirs, below\.\n\n<idea>\nbeacons that glow when lit\n<\/idea>/)
+    expect(world.submitted[0]).toMatch(/mcp__pipeline__open_issue/)
+
+    expect((await $.command.run({ command: 'planner', args: '--auto beacons that glow' } as never)).text).toMatch(/^Claude works the idea into an issue alone/)
+    await world.clock.advance(1)
+    expect(world.submitted[1]).toMatch(/Decided without the person/)
+
+    // a bare word is no idea: it is read as an issue, and says why it is none
+    expect((await $.command.run({ command: 'planner', args: 'glow' } as never)).text).not.toMatch(/grills/)
+  })
+
   test('lays the plan the planner answers, and no other agent\'s, and wakes the Claude that convened it with it', async ($, on) => {
     const world = machine(on)
     await call($, 'mcp__pipeline__make_plan', { issue: '#12' })

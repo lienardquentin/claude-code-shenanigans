@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { Run, RunTask } from '../types'
+import type { IssuePlan, Run, RunTask } from '../types'
+import { settledAlone } from '../core/plan'
+import { prBody, parsePlan } from '../core/run'
 import { builderEnded, measure, prove, sendNext, wakeHeld } from '../core/build'
 import { holdOf } from '../core/budget'
 import { refusalOf } from '../hooks/agents'
@@ -10,7 +12,7 @@ import { canMove } from '../core/phases'
 import type { Ran } from '../core/forge'
 import type { Quota } from '../core/budget'
 import type { TargetFolders } from '../core/run'
-import { errand } from '../core/build'
+import { errand, setOut } from '../core/build'
 import { verificationOf, setupOf } from '../core/verification'
 
 // The build's loop on plain fakes of its ports: no engine, no `$`, only what each port was asked and answered
@@ -43,7 +45,8 @@ const errandRun = (over: Partial<Run> = {}): Run => ({
 })
 
 /** A world of fakes: the runs held, what was said and asked, the agents sent, and git as a few answers. */
-function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?: Quota; targets?: TargetFolders[]; issue?: unknown; failing?: string } = {}) {
+function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?: Quota; targets?: TargetFolders[]; issue?: unknown; failing?: string; plan?: IssuePlan } = {}) {
+  let plan = answers.plan ?? null
   const runs = new Map<string, Run>([[run.ref, run]])
   const said: string[] = []
   const wanted: string[] = []
@@ -117,7 +120,7 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?
       stop: async (agentId, why) => void stopped.push(`${agentId}: ${why}`),
     },
     parts: {
-      planFor: async () => null,
+      planFor: async () => plan,
       markTask: async () => '',
       readIssue: async () => (answers.issue ?? { error: 'none here' }) as never,
       writeTestsFor: async () => '',
@@ -127,6 +130,11 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?
       targetsKnown: async () => answers.targets ?? [{ label: 'gondor', kind: 'service', roots: ['beacons/gondor'] }],
       standardsText: async () => '',
       isMergedFrom: async () => false,
+      settleAlone: async () => {
+        plan = plan === null ? null : settledAlone(plan)
+
+        return plan
+      },
     },
     machine: {
       root: async () => '/proj',
@@ -316,6 +324,47 @@ describe('a project that names no target', () => {
     expect(failing.runs.get(ref)?.proofLine).toBe('`uv run pytest -q` fails (exit 1)')
     expect(failing.runs.get(ref)?.proof).toMatch(/assert 3 == 2/)
     expect(failing.sent).toHaveLength(2)
+  })
+})
+
+describe('an auto run on a plan left open', () => {
+  const PLAN: IssuePlan = {
+    ref: 'github:o/r#7',
+    url: 'https://github.com/o/r/issues/7',
+    title: 'Quench',
+    summary: 'Quench a beacon.',
+    approach: 'One route.',
+    tasks: [{ ...TASK, dependsOn: [], weight: 'standard' }],
+    questions: [{ text: 'Is an unlit beacon 0 or null?', options: ['null', '0'], answer: '' }],
+    decided: [],
+    risks: [{ text: 'A beacon quenched twice', severity: 'low', mitigation: '', tasks: [1], wantsTask: false }],
+    accepted: [],
+    at: 0,
+  }
+
+  test("answers the planner's questions and accepts its risks alone, and lists each", () => {
+    const settled = settledAlone(PLAN)
+
+    expect(settled.questions[0]?.answer).toBe('null')
+    expect(settled.risks).toEqual([])
+    expect(settled.accepted).toEqual(['A beacon quenched twice'])
+    expect(settled.alone).toEqual(["Is an unlit beacon 0 or null? → null (the planner's recommended answer)", 'Accepted as it is (low): A beacon quenched twice'])
+  })
+
+  test('is not started unless auto, and lists what it decided in the pull request', async () => {
+    const stepwise = world(errandRun(), { plan: PLAN })
+
+    stepwise.runs.clear()
+    expect(await setOut(stepwise.ports, false, PLAN.ref)).toMatch(/is not settled: 1 unanswered question; 1 undecided risk .*, or start it auto to have it settle them alone\.$/)
+
+    const auto = world(errandRun(), { plan: PLAN })
+
+    auto.runs.clear()
+    expect(await setOut(auto.ports, true, PLAN.ref)).toMatch(/^The build starts on github:o\/r#7.* It settled alone what the plan left open \(1 unanswered question; 1 undecided risk/)
+
+    const made = parsePlan(settledAlone(PLAN))
+
+    expect(typeof made === 'object' && made !== null && prBody({ kind: 'plan', ref: PLAN.ref, commits: [] }, made)).toMatch(/## Decided without the person\n\nThis run went on by itself: what it decided that the person was not asked, for them to check\.\n\n- Is an unlit beacon 0 or null\? → null/)
   })
 })
 

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Planning, IssuePlan, RiskSeverity, PlanTaskState, SentAgent } from '../../types'
-import { HOW_TO, MARK, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, answered, answersOf, decidedOf, reopened, beginText, parseRef, planText, ready, tally } from '../../core/plan'
+import { HOW_TO, MARK, ideaPrompt, acceptRisk, askRisk, risksFor, sortedRisks, unaccept, wantTask, answered, answersOf, decidedOf, reopened, beginText, parseRef, planText, ready, tally } from '../../core/plan'
 import { refText } from '../../core/forge'
 import type { Issue, Repo } from '../../core/forge'
 import { badge } from '../kit/badge'
@@ -18,6 +18,9 @@ import { PLANNER, askToPump, inFrame, remember, spawnIn, typeOf } from '../agent
 
 type $ = EngineInterface
 type On = Parameters<Register>[0]
+
+// An idea is a sentence: a bare word is an issue mistyped, or none
+const isIdea = (input: string): boolean => /\s/.test(input.trim())
 
 const PANE = 'planner'
 const TITLE = 'Planner'
@@ -91,6 +94,12 @@ const TOOLS = [
       },
       required: ['issue'],
     },
+  },
+  {
+    name: 'open_issue',
+    description:
+      "Opens an issue in this repository (GitHub or GitLab, by its origin), and answers its ref and URL. Only to open the issue the person's idea became, as /planner <idea> asks: its body says what is wanted and why, how to tell it is done, and its ## Verification commands.",
+    inputSchema: { type: 'object', properties: { title: { type: 'string', description: 'Under 70 characters.' }, body: { type: 'string', description: 'The issue in Markdown.' } }, required: ['title', 'body'] },
   },
   {
     name: 'read_issue',
@@ -189,6 +198,9 @@ export function markTask($: $, id: number, state: PlanTaskState, ref = ''): Prom
 export function readIssue($: $, input: string): Promise<({ ref: string } & Issue) | { error: string }> {
   return core.readIssue(portsOf($), input)
 }
+export function settlePlanAlone($: $, ref: string): Promise<IssuePlan | null> {
+  return core.settleAlone(portsOf($), ref)
+}
 
 /** Whether an agent's turn is the planner's: by the id its spawn answered, else, where it answered none, by the type it runs as. */
 async function isPlanner($: $, sitting: Planning, agentId: string): Promise<boolean> {
@@ -243,7 +255,7 @@ export async function plannerFound($: $, agentId: string): Promise<SentAgent | u
 
 /** The planner at the session's start: its command, its tools, and the clock that sends what a press asked for. */
 export async function startPlanner($: $): Promise<void> {
-  await $.command.register({ name: 'planner', description: 'Plan a GitHub or GitLab issue as tasks: /planner <issue> plans it (add --again to plan afresh); /planner alone opens the plan' })
+  await $.command.register({ name: 'planner', description: 'Plan a GitHub or GitLab issue as tasks: /planner <issue> plans it (--again to plan afresh); /planner <idea> grills you on an idea, opens its issue and plans it (--auto asks nothing); /planner alone opens the plan' })
 
   // A host that registers no tools still starts the session
   for (const tool of TOOLS) await $.tool.register(tool).catch(() => undefined)
@@ -273,6 +285,13 @@ export function registerPlanner(on: On): void {
     return { result: done.plan === undefined ? done.text : `${done.text}\n\n${planText(done.plan)}` }
   }).catch((_$, _e, next) => toolFailed('make_plan', next.error))
 
+  on('tool.call', { tool: 'mcp__pipeline__open_issue' }, async ($, e) => {
+    const given = e as unknown as { title?: unknown; body?: unknown }
+    const opened = await core.openIssue(portsOf($), typeof given.title === 'string' ? given.title : '', typeof given.body === 'string' ? given.body : '')
+
+    return { result: typeof opened === 'string' ? opened : `Opened ${opened.ref}: ${opened.url}. Plan it with mcp__pipeline__make_plan on ${opened.ref}.` }
+  }).catch((_$, _e, next) => toolFailed('open_issue', next.error))
+
   on('tool.call', { tool: 'mcp__pipeline__read_issue' }, async ($, e) => ({ result: JSON.stringify(await readIssue($, String((e as unknown as { issue?: unknown }).issue ?? ''))) })).catch((_$, _e, next) => toolFailed('read_issue', next.error))
 
   on('tool.call', { tool: 'mcp__pipeline__plan' }, async ($, e) => {
@@ -292,7 +311,8 @@ export function registerPlanner(on: On): void {
 
   on('command.run', { command: 'planner' }, async ($, e) => {
     const isAgain = /(^|\s)--again(\s|$)/.test(e.args)
-    const input = e.args.replace(/(^|\s)--again(?=\s|$)/, ' ').trim()
+    const isAuto = /(^|\s)--auto(\s|$)/.test(e.args)
+    const input = e.args.replace(/(^|\s)--(again|auto)(?=\s|$)/g, ' ').trim()
 
     await $.ui.open({ id: PANE, title: TITLE })
 
@@ -300,6 +320,14 @@ export function registerPlanner(on: On): void {
       const held = await current($)
 
       return { text: held === null ? HOW_TO : `${held.ref}: ${held.title}, ${tally(held)}.` }
+    }
+
+    // A sentence that names no issue is an idea: Claude grills the person on it, opens its issue, and plans that. The
+    // prompt waits on the session being idle, which it is not inside the command's own hook
+    if (isIdea(input) && typeof parseRef(input, await originOf($)) === 'string') {
+      $.clock.after(0, () => void $.prompt.submit({ text: ideaPrompt(input, isAuto) }).catch(() => undefined))
+
+      return { text: isAuto ? 'Claude works the idea into an issue alone, opens it, and has the planner plan it.' : 'Claude grills you on the idea, then opens its issue and has the planner plan it.' }
     }
 
     return { text: (await makePlan($, input, 'command', isAgain)).text }
