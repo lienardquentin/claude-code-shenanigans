@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 import type { TestBody } from 'claude-code/testing'
 
 import { refOf } from '../core/forge'
@@ -317,11 +318,11 @@ describe('a builder', () => {
 
   test("is sent with the tests written first to make pass, and those that cannot run here apart, owed no passing", () => {
     const made = plan()
-    const vision = { taskId: 1, tests: [{ file: 'orcrist/tests/cli.rs', name: 'mtime_untouched' }], unrun: [{ file: 'orcrist/tests/cli.rs', name: 'owner_check', why: 'needs root' }], red: 'mtime changed' }
+    const vision = { taskId: 1, tests: [{ file: 'deslop/tests/cli.rs', name: 'mtime_untouched' }], unrun: [{ file: 'deslop/tests/cli.rs', name: 'owner_check', why: 'needs root' }], red: 'mtime changed' }
     const prompt = builderPrompt(QUEST, made, made.tasks[0]!, 'builder-light-1', undefined, vision)
 
-    expect(prompt).toMatch(/Make them pass\.[\s\S]*- orcrist\/tests\/cli\.rs: mtime_untouched/)
-    expect(prompt).toMatch(/cannot run here: locked as its others are, and owed no passing\.[\s\S]*\n- orcrist\/tests\/cli\.rs: owner_check, needs root/)
+    expect(prompt).toMatch(/Make them pass\.[\s\S]*- deslop\/tests\/cli\.rs: mtime_untouched/)
+    expect(prompt).toMatch(/cannot run here: locked as its others are, and owed no passing\.[\s\S]*\n- deslop\/tests\/cli\.rs: owner_check, needs root/)
   })
 
   test("is sent with the project's standards to build to, and with none when the project names none", () => {
@@ -380,7 +381,7 @@ describe('a builder', () => {
 
     expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', task)).toBe(true)
     expect(isModSource(CWD, '.claude/mods/build/hooks/run.ts', task)).toBe(true)
-    expect(isModSource(CWD, '/proj/.claude/argonath', task)).toBe(false)
+    expect(isModSource(CWD, '/proj/.claude/verify', task)).toBe(false)
     expect(isModSource(CWD, '/proj/.claude/mods/verify/handlers/live.py', { files: ['.claude/mods/verify/handlers/live.py'] })).toBe(false)
   })
 
@@ -575,7 +576,7 @@ const machine = (on: On) => {
   })
   on('fs.exists', (_, e) => ({ value: (e.path !== `${CWD}/.pipeline/spend.jsonl` && e.path !== `${CWD}/.fellowship/spend.jsonl`) || world.spend !== '' }) as never)
   on('fs.read', (_, e) => {
-    if (e.path === `${CWD}/.claude/argonath`) return { value: PROJECT } as never
+    if (e.path === `${CWD}/.claude/verify`) return { value: PROJECT } as never
     if (e.path === `${CWD}/.pipeline/spend.jsonl`) return { value: world.spend } as never
     if (e.path.endsWith('/beacons/tests/test_gondor.py')) return { value: testFile() } as never
 
@@ -597,7 +598,7 @@ const machine = (on: On) => {
     if (script.includes('git rev-parse HEAD')) return answer(`${world.lanes[cwd]?.head ?? world.head}\n${world.edits}\n`)
     if (script.includes('New files:')) return answer('diff --git a/beacons/gondor/app.py\n+    burned_for = 3\n\nNew files:\n')
     if (script.includes('git status --porcelain=v1')) return answer('')
-    if (script.includes('git diff HEAD')) return answer(`diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    burned_for = 3\n${world.proofs[0] === 'unhandled' ? 'diff --git a/beacons/anor/App.vue b/beacons/anor/App.vue\n+<p/>\n' : ''}\n--argonath-untracked--\n`)
+    if (script.includes('git diff HEAD')) return answer(`diff --git a/beacons/gondor/app.py b/beacons/gondor/app.py\n+    burned_for = 3\n${world.proofs[0] === 'unhandled' ? 'diff --git a/beacons/anor/App.vue b/beacons/anor/App.vue\n+<p/>\n' : ''}\n--untracked--\n`)
     if (handler.endsWith('service.py')) {
       world.proving = next(world.proofs) ?? 'pinned'
       world.jobs.service.push(JSON.parse(given.init?.stdin ?? '{}') as Record<string, unknown>)

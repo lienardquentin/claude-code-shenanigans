@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 import type { TestBody } from 'claude-code/testing'
 
 import { firstUrl } from '../core/forge'
@@ -182,7 +183,7 @@ describe('cleanup', () => {
     const world = machine(on)
     await $.session.start({} as never)
 
-    // #36 went CONFLICTING when main reworked .claude/argonath under it, and nothing said so
+    // #36 went CONFLICTING when main reworked .claude/verify under it, and nothing said so
     world.mergeable = 'CONFLICTING'
     await world.clock.advance(31_000)
     const told = () => world.toasts.filter(toast => /in conflict with its base/.test(toast))

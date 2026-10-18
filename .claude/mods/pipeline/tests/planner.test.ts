@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock } from 'claude-code/testing'
+import { test } from './hook-test'
 import type { TestBody } from 'claude-code/testing'
 
 import { issueApiArgv, parseIssue, parseRemote, refText } from '../core/forge'
@@ -134,7 +135,7 @@ describe('a plan', () => {
       ...about,
       summary: '',
       approach: '',
-      tasks: [task(1, ['beacons/gondor/archive.py']), task(2, ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py', '.claude/argonath']), task(3, ['beacons/tests/test_gondor.py']), task(4, ['beacons/README.md']), task(5, ['./narsil/src/main.rs', 'narsil/tests/cli.rs'])],
+      tasks: [task(1, ['beacons/gondor/archive.py']), task(2, ['beacons/gondor/app.py', 'beacons/tests/test_gondor.py', '.claude/verify']), task(3, ['beacons/tests/test_gondor.py']), task(4, ['beacons/README.md']), task(5, ['./narsil/src/main.rs', 'narsil/tests/cli.rs'])],
       questions: [],
       decided: [],
       risks: [],
