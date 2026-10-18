@@ -4,9 +4,6 @@ import type { ChangedRun, Outcome, ProofState, Radius, RunState, Target, TargetK
 // What a project builds and how each is tested, which target an edit is of, what a handler said changed, which test
 // is marked on which run, and how a test ended on each side. Text in, text out: nothing here touches the machine.
 
-/** The project's own list of what it builds, beside its other Claude files. */
-export const PROJECT_FILE = '.claude/verify'
-
 /** What the project's list was called before: read where the project has not renamed it. */
 export const OLD_PROJECT_FILE = '.claude/argonath'
 

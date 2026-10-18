@@ -1,6 +1,6 @@
 # What a change must not hold
 
-Theseus's reviewers judge every settled change by this file (`standards=` in `.claude/verify`), and a builder
+Theseus's reviewers judge every settled change by this file (`standards` in `.claude/theseus.toml`), and a builder
 writes to it. Each entry is about what the change does, not about code it leaves as it was.
 
 ## Blocking

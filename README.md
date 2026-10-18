@@ -163,7 +163,8 @@ The workflow mods are one marketplace, `theseus`, kept in
   `/theseus plan <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
   planned (`--auto` asks nothing, and lists what it decided in the issue). An auto run settles a plan's open questions
   and risks itself, and the plan and the pull request list them under "Decided without the person".
-  Verify proves each change against the targets a project names in `.claude/verify`; a project that names none is
+  Verify proves each change against the targets a project names in `.claude/theseus.toml` (`/theseus init` proposes
+  one, and [docs/config.md](docs/config.md) says what each key does); a project that names none is
   proved by the verification commands its plan states, or its issue's `## Verification` section (and `## Setup` for a
   fresh worktree). A run with neither is not started.
   A run starts no task while the 5-hour quota window is past 90%: it waits, and goes on by itself once the window

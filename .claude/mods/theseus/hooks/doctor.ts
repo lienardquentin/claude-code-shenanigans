@@ -4,7 +4,8 @@ import { blocking, examine } from '../core/doctor'
 import type { Check } from '../core/doctor'
 import { rootOf } from './flow'
 import { installedOf, lagging } from './lag'
-import { targetsRead } from './verify/register'
+import { CONFIG_FILE, LINES_FILE } from '../core/config'
+import { projectErrors, targetsRead } from './verify/register'
 
 // The doctor, through the engine: what it runs, and what it is told of the project.
 // A helper that takes `$` is a function declaration: past an import, the engine follows `$` into no other kind.
@@ -25,9 +26,9 @@ export async function doctorOf($: $): Promise<Check[]> {
     },
     {
       root,
-      hasConfig: await $.fs.exists(`${root}/.claude/verify`),
+      configFile: (await $.fs.exists(`${root}/${CONFIG_FILE}`)) ? CONFIG_FILE : (await $.fs.exists(`${root}/${LINES_FILE}`)) ? LINES_FILE : '',
       targets: await targetsRead($),
-      configErrors: [],
+      ...(({ errors, warnings }) => ({ configErrors: errors, configWarnings: warnings }))(projectErrors()),
       installed: installedOf(String(record)).map(one => one.id),
       lags: (await lagging($)).map(lag => `${lag.plugin} ${lag.why === 'gone' ? 'is installed but gone from .claude/mods' : 'differs from .claude/mods'}`),
     },

@@ -3,6 +3,16 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.6.0
+
+- The project file is `.claude/theseus.toml` (#148), specified in `docs/config.md`, with a JSON Schema
+  (`schema/theseus.schema.json`) editors check it against. Every error names its line: an unknown key, a value of the
+  wrong type, a missing required key. Errors are said once, listed by `/theseus doctor`, and stop a run.
+- `/theseus init` proposes the file from the project's manifests (Cargo binaries, FastAPI apps, JavaScript apps with
+  tests), or from `.claude/verify`; `/theseus init --write` writes it.
+- `.claude/verify` is still read where no TOML file is, with a warning, for one release; it now says by its line each
+  line that reads as nothing and each setting of a target it does not name, which it dropped silently before.
+
 ## 0.5.0
 
 - `/theseus doctor` (#147) checks what Theseus needs on this machine and in this project, each only when the project

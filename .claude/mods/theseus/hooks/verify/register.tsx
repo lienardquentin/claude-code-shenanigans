@@ -17,18 +17,16 @@ import type { Section, TurnEnded } from '../flow'
 import { agentOf, askToPump, inFrame, remember, roleOf, spawnIn, treesOf, typeOf } from '../agents'
 import type { Review } from '../../core/proof'
 import { UNREADABLE, changeText, changesIn, fingerprintOf, sizeOf } from '../../core/change'
+import { CONFIG_FILE, LINES_FILE, isMigrationWarning, projectOf } from '../../core/config'
+import type { Project } from '../../core/config'
 import { lookAt } from '../../core/look'
 import type { Handler, Machine } from '../../core/look'
 import {
   HOME,
   MARK,
   OLD_PROJECT_FILE,
-  PROJECT_FILE,
   isQuiet,
   owed,
-  parseProject,
-  parseReviews,
-  parseStandards,
   proved,
   radiusLine,
   radiusText,
@@ -64,17 +62,22 @@ const treeJudgements = atom({ plugin: 'theseus', key: 'verifyTreeJudgements' } a
 
 /** How to have targets known, said where none are. */
 export const HOW_TO = [
-  `Verify knows no target here. Name each thing the project builds in ${PROJECT_FILE}, a line each:`,
+  `Verify knows no target here. /theseus init proposes ${CONFIG_FILE} from the project, or name each thing it builds there:`,
   '',
-  '    narsil=cli@narsil',
-  '    narsil.tests=narsil/tests',
-  '    narsil.test=cargo test --manifest-path narsil/Cargo.toml --test cli',
+  '    [targets.narsil]',
+  '    kind = "cli"',
+  '    roots = ["narsil"]',
+  '    tests = ["narsil/tests"]',
+  '    test = "cargo test --manifest-path narsil/Cargo.toml -- --exact {tests}"',
   '',
-  '    gondor=service:gondor.app:app@beacons/gondor',
-  '    gondor.python=beacons',
-  '    $ gondor GET /health',
+  '    [targets.gondor]',
+  '    kind = "service"',
+  '    app = "gondor.app:app"',
+  '    roots = ["beacons/gondor"]',
+  '    python = "beacons"',
+  '    requests = ["GET /health"]',
   '',
-  'Its kind and the folders of its source, then its tests and the command that runs them. A CLI\'s runs are kept by the recorder, a service\'s requests here. Then /verify.',
+  "Its kind and the folders of its source, then its tests and the command that runs them. A CLI's runs are kept by the recorder, a service's requests here. docs/config.md says what each key does.",
 ].join('\n')
 
 /**
@@ -239,6 +242,11 @@ let known: readonly Target[] = []
 let reviews: readonly Review[] = []
 // The files of standards the reviewers judge by, from the project's folder
 let standards: readonly string[] = []
+// What of the project's file did not read, as last read: said once, and kept for the doctor
+let configErrors: readonly string[] = []
+
+/** What of the project's file does not read, a `file:line: why` each, as last read; the line format's warning apart. */
+export const projectErrors = (): { errors: string[]; warnings: string[] } => ({ errors: configErrors.filter(one => !isMigrationWarning(one)), warnings: configErrors.filter(isMigrationWarning) })
 
 const sectionText = (list: readonly Target[], cwd: string): string => {
   const within = (path: string) => (path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path)
@@ -251,25 +259,34 @@ const sectionText = (list: readonly Target[], cwd: string): string => {
   ].join(' ')
 }
 
-/** The project's list of what it builds, in a folder: under its name, else under the name it had before. */
-async function projectText($: $, folder: string): Promise<string> {
-  return $.fs.read(`${folder}/${PROJECT_FILE}`).catch(() => $.fs.read(`${folder}/${OLD_PROJECT_FILE}`).catch(() => ''))
+/** A file of a folder, or nothing where it is not there. */
+async function fileIn($: $, folder: string, file: string): Promise<string | undefined> {
+  return (await $.fs.exists(`${folder}/${file}`)) ? String(await $.fs.read(`${folder}/${file}`)) : undefined
+}
+
+/** The project's file in a folder, as Theseus reads it: the TOML one, else the line format under either of its names. */
+async function projectRead($: $, folder: string, cwd = folder): Promise<Project | undefined> {
+  return projectOf({ toml: await fileIn($, folder, CONFIG_FILE), lines: (await fileIn($, folder, LINES_FILE)) ?? (await fileIn($, folder, OLD_PROJECT_FILE)) }, cwd)
 }
 
 async function setUp($: $): Promise<Target[]> {
   const cwd = await homeOf($)
-  const text = await projectText($, cwd)
-  const list = parseProject(text, cwd)
+  const project = await projectRead($, cwd)
+  const list = project?.targets ?? []
+  const errors = project?.errors ?? []
 
   known = list
-  reviews = parseReviews(text)
-  standards = parseStandards(text)
+  reviews = project?.reviews ?? []
+  standards = project?.standards ?? []
+  // What does not read is said once a time it changes, and kept where /theseus doctor and the troubles read it
+  if (errors.length > 0 && errors.join('\n') !== configErrors.join('\n')) stumbled($, 'the project file')(new Error(errors.join('\n')))
+  configErrors = errors
   await update($, targets, () => list)
 
   return list
 }
 
-/** The targets .claude/verify names, read afresh, as the doctor checks what they need. */
+/** The targets the project's file names, read afresh, as the doctor checks what they need. */
 export async function targetsRead($: $): Promise<Target[]> {
   return setUp($)
 }
@@ -284,9 +301,9 @@ export async function targetsRead($: $): Promise<Target[]> {
 async function targetsIn($: $, place: Place, isKnown = false): Promise<Target[]> {
   if (place.isHome) return isKnown ? read($, targets) : setUp($)
 
-  const own = parseProject(await projectText($, place.tree), place.tree)
+  const own = (await projectRead($, place.tree))?.targets ?? []
 
-  return parseProject(await projectText($, await homeOf($)), place.tree).map(target => ({
+  return ((await projectRead($, await homeOf($), place.tree))?.targets ?? []).map(target => ({
     ...target,
     requests: [...target.requests, ...(own.find(one => one.label === target.label)?.requests ?? []).filter(line => !target.requests.includes(line))],
   }))

@@ -128,7 +128,7 @@ export const PLANNER_SYSTEM = [
   '}',
   '```',
   `Weigh each task by what it asks of whoever builds it, which says who is sent to build it. The weight is exactly one of three words: \`light\` for ${WEIGHT_MEANS.light}; \`standard\` for ${WEIGHT_MEANS.standard}; \`heavy\` for ${WEIGHT_MEANS.heavy}.`,
-  'Name in verification the commands that check the change as this repository runs them (read its README, its CI config, its package scripts), and in setup what a fresh git worktree of it needs first: where the project names no target in .claude/verify, those commands are the proof of every task.',
+  'Name in verification the commands that check the change as this repository runs them (read its README, its CI config, its package scripts), and in setup what a fresh git worktree of it needs first: where the project names no target in .claude/theseus.toml, those commands are the proof of every task.',
   'Rate each risk by what it would cost this change: high, it could break behaviour, lose data or block the work; medium, it could cost rework or a failed review; low, a nuisance. Name the tasks it threatens by id, and a mitigation the person could choose.',
   'Once it is written, your final answer is one line and nothing else: "The plan is laid: N tasks, M questions." The planner part reads the file and shows the plan to the person. Anything worth saying goes in the plan: a doubt in questions, a danger in risks. Only if the write is refused, answer the plan as a single fenced json block instead.',
 ].join('\n')
@@ -344,7 +344,7 @@ export type Built = { label: string; roots: readonly string[] }
 
 // Where a behaviour is proved: a test file, or the runs and requests the project keeps for its targets
 const isTestFile = (file: string): boolean => /(^|\/)tests?\//.test(file) || /(^|\/)test_[^/]+\.py$|[._-]test\.[cm]?[jt]sx?$|_test\.(go|rs)$/.test(file)
-const isKeptRuns = (file: string): boolean => ['.claude/verify', '.claude/recorder', '.claude/argonath', '.claude/anduril'].includes(file)
+const isKeptRuns = (file: string): boolean => ['.claude/theseus.toml', '.claude/verify', '.claude/recorder', '.claude/argonath', '.claude/anduril'].includes(file)
 
 /**
  * The tasks verify cannot prove on their own: each changes a target's source, but names neither a test nor a
@@ -453,7 +453,7 @@ export const planText = (plan: IssuePlan): string =>
     ...(plan.risks.length > 0 ? ['', 'Risks, the worst first:', ...sortedRisks(plan).map(({ risk }) => riskText(risk))] : []),
     ...(plan.accepted.length > 0 ? ['', 'Risks the person accepted as they are:', ...plan.accepted.map(one => `- ${one}`)] : []),
     ...((plan.alone ?? []).length > 0 ? ['', 'Decided without the person (by an auto run):', ...(plan.alone ?? []).map(one => `- ${one}`)] : []),
-    ...((plan.verification ?? []).length > 0 ? ['', 'Verified by (where the project names no target in .claude/verify):', ...(plan.verification ?? []).map(one => `- ${one}`)] : []),
+    ...((plan.verification ?? []).length > 0 ? ['', 'Verified by (where the project names no target in .claude/theseus.toml):', ...(plan.verification ?? []).map(one => `- ${one}`)] : []),
     ...((plan.setup ?? []).length > 0 ? ['', 'A fresh worktree is set up by:', ...(plan.setup ?? []).map(one => `- ${one}`)] : []),
   ].join('\n')
 

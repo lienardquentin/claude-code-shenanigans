@@ -20,11 +20,12 @@ export type DoctorPorts = {
 export type Project = {
   /** The project's folder. */
   root: string
-  /** Whether .claude/verify is there, and what it names. */
-  hasConfig: boolean
+  /** The project's file Theseus read, from the project's folder: empty when there is none. */
+  configFile: string
   targets: readonly Target[]
-  /** What could not be read of the project's config, a line each. */
+  /** What could not be read of the project's file, a line each, and what of it is only warned of. */
   configErrors: readonly string[]
+  configWarnings: readonly string[]
   /** The plugins installed, by id (`recorder@theseus`). */
   installed: readonly string[]
   /** What the lag check says of the installed copies, a line each; none when they are what the folder holds. */
@@ -108,11 +109,12 @@ export async function examine(p: DoctorPorts, project: Project): Promise<Check[]
   checks.push({ name: 'git repository', state: 'ok', found: top.stdout.trim(), fix: '' }, ...(await forgeChecks(p, project.root)))
 
   checks.push(
-    !project.hasConfig
-      ? { name: '.claude/verify', state: 'warn', found: 'none', fix: "Without it a change is proved by its plan's verification commands alone: /theseus init writes one from the project" }
+    project.configFile === ''
+      ? { name: 'project file', state: 'warn', found: 'none', fix: "Without .claude/theseus.toml a change is proved by its plan's verification commands alone: /theseus init proposes one from the project" }
       : project.configErrors.length > 0
-        ? { name: '.claude/verify', state: 'broken', found: project.configErrors.join('; '), fix: 'Fix each line named, as docs/config.md describes it' }
-        : { name: '.claude/verify', state: 'ok', found: `${project.targets.length} ${project.targets.length === 1 ? 'target' : 'targets'}`, fix: '' },
+        ? { name: project.configFile, state: 'broken', found: project.configErrors.join('; '), fix: 'Fix each line named, as docs/config.md describes it' }
+        : { name: project.configFile, state: 'ok', found: `${project.targets.length} ${project.targets.length === 1 ? 'target' : 'targets'}`, fix: '' },
+    ...project.configWarnings.map((warning): Check => ({ name: project.configFile, state: 'warn', found: warning.replace(/^[^:]+: /, ''), fix: '/theseus init --write writes .claude/theseus.toml from it' })),
   )
 
   if (project.targets.length > 0) {
@@ -125,7 +127,7 @@ export async function examine(p: DoctorPorts, project: Project): Promise<Check[]
     const isBuiltIn = ['sh', 'bash', 'cd', 'test', '[', 'true', 'false', 'exec', 'env'].includes(program)
 
     if (isBuiltIn) continue
-    checks.push((await isThere(p, program)) ? { name: program, state: 'ok', found: `for ${where.join(', ')}`, fix: '' } : { name: program, state: 'missing', found: `not on the PATH, needed by ${where.join(', ')}`, fix: `Install ${program}, or name another command in .claude/verify` })
+    checks.push((await isThere(p, program)) ? { name: program, state: 'ok', found: `for ${where.join(', ')}`, fix: '' } : { name: program, state: 'missing', found: `not on the PATH, needed by ${where.join(', ')}`, fix: `Install ${program}, or name another command in ${project.configFile}` })
   }
 
   if (project.targets.some(target => target.db !== null)) {

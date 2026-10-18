@@ -15,7 +15,7 @@ describe('a proof of a task', () => {
   test("stops the run where verify could not look, as no builder can mend that", () => {
     expect(afterProof(proof({ isSettled: false, isUnlooked: true, line: 'Verify could not look at gondor (no app)' }), { taskId: 2 }, [])).toEqual({
       kind: 'stop',
-      why: 'Verify could not look at gondor (no app). No builder can mend that: set the target right in .claude/verify, then put task 2 up for verification again.',
+      why: 'Verify could not look at gondor (no app). No builder can mend that: set the target right in .claude/theseus.toml, then put task 2 up for verification again.',
     })
   })
 
