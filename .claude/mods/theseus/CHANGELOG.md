@@ -3,6 +3,20 @@
 Each release bumps `version` in `.claude-plugin/plugin.json`: `claude plugin update` takes a plugin whose version has
 not changed for up to date, whatever its files hold.
 
+## 0.12.0
+
+- An eval suite (#156, `evals/`): five cases that give Claude, with Theseus loaded, what a person asks, in a sandbox
+  holding a small project, and grade what came of it. `evals/run.sh` runs them, keeps the report on the machine, keeps a
+  line a case in `evals/history/`, and fails on a case that passed before and fails now, or a suite a quarter dearer.
+- Local issues: `.theseus/issues/<n>.md`, named `local:<n>` (or `#<n>` in a repository with no remote), read, listed and
+  opened with no forge. A run on one is built and reviewed, and stops before the push.
+- Fixed, found by the evals: a project with no targets could never settle a change, as its verification commands
+  asked the engine for a fifteen-minute timeout it refuses (it allows ten); and a command that cannot be started now
+  stops the run at once rather than sending its builder back to mend code that was right.
+- `mcp__theseus__run` ends with the run's last events, so a run built says what its proofs and reviewers found.
+- `mcp__theseus__doctor`: the doctor as a tool Claude finds by its name. The doctor also warns on Linux when the
+  sandbox cannot confine the agents (no bubblewrap or socat).
+
 ## 0.11.0
 
 - `docs/security.md` says what each agent may touch, what the guard enforces, what the project's file makes Theseus

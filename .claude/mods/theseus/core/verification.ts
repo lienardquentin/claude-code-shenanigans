@@ -24,7 +24,8 @@ export const verificationOf = (body: string): string[] => commandsOf(body, 'Veri
 export const setupOf = (body: string): string[] => commandsOf(body, 'Setup')
 
 // How long one command is given, and how much of what it wrote is kept to show
-const COMMAND_TIMEOUT_MS = 15 * 60 * 1000
+// The longest the engine lets a command run: a longer timeout is refused before the command starts
+export const COMMAND_TIMEOUT_MS = 10 * 60 * 1000
 const KEPT_OUTPUT = 4_000
 
 /** What came of running commands in a folder, one after the other: each ran, or the first that failed, with what it wrote. */
@@ -44,8 +45,14 @@ export const runCommands = async (shell: Shell, commands: readonly string[]): Pr
   return { ok: true, ran: commands.length }
 }
 
-/** The proof the commands make, as the build reads any proof: settled when every one passed; else what failed, for the builder. */
-export const checksVerdict = (ran: CommandsRan, commands: readonly string[]): { verdict: 'settled' | 'unsettled'; line: string; text: string } =>
+/**
+ * The proof the commands make, as the build reads any proof: settled when every one passed; what failed, for the
+ * builder; or unlooked where a command could not be started at all (exit -1), which says nothing of the change and no
+ * builder can mend: the run stops for the person.
+ */
+export const checksVerdict = (ran: CommandsRan, commands: readonly string[]): { verdict: 'settled' | 'unsettled' | 'unlooked'; line: string; text: string } =>
   ran.ok
     ? { verdict: 'settled', line: `the ${commands.length} verification ${commands.length === 1 ? 'command passes' : 'commands pass'}`, text: `Every verification command passed:\n${commands.map(one => `- ${one}`).join('\n')}` }
-    : { verdict: 'unsettled', line: `\`${ran.command}\` fails (exit ${ran.exitCode})`, text: `The verification command \`${ran.command}\` failed (exit ${ran.exitCode}). What it wrote:\n\n${ran.output}` }
+    : ran.exitCode === -1
+      ? { verdict: 'unlooked', line: `\`${ran.command}\` could not be started: ${ran.output.split('\n')[0] ?? ''}`, text: `The verification command \`${ran.command}\` could not be started, so nothing was proved of the change. ${ran.output}` }
+      : { verdict: 'unsettled', line: `\`${ran.command}\` fails (exit ${ran.exitCode})`, text: `The verification command \`${ran.command}\` failed (exit ${ran.exitCode}). What it wrote:\n\n${ran.output}` }

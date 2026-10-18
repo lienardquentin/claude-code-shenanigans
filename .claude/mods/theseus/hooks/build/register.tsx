@@ -98,7 +98,7 @@ const TOOLS = [
     name: 'start_errand',
     description:
       "Implements a small issue without a plan, as an errand: in a git worktree of its own, a builder subagent builds the whole issue in one change, verify checks its integration tests, a reviewer subagent reviews it, and it is committed; the pull request then waits for the person's go (or opens by itself with auto). The builder hands back an issue that needs a decision or more than one change, for /theseus plan to plan. Call it when the person asks for an issue to be done as an errand, or quickly without a plan.",
-    inputSchema: { type: 'object', properties: { issue: { type: 'string', description: 'The issue: its URL, owner/repo#12, or #12 for this repository.' }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
+    inputSchema: { type: 'object', properties: { issue: { type: 'string', description: "The issue: its URL, owner/repo#12, #12 for this repository's own, or local:12 for .theseus/issues/12.md (a repository with no remote takes #12 as local)." }, auto: { type: 'boolean', description: 'Open the pull request by itself once committed. Only when the person asked for it.' } }, required: ['issue'] },
   },
   {
     name: 'run',
@@ -910,7 +910,10 @@ export function registerBuild(on: On): void {
     for (const held of all) {
       const made = await workOf($, held)
 
-      texts.push(runText(held, typeof made === 'string' ? ((await read($, plans))[held.ref] ?? null) : made, costText(spentOn(held, root, turns))))
+      const events = parseLog(await runLog($, held.ref)).events.filter(event => event.kind !== 'working')
+
+      // Its last events say what its proofs and its reviewers found, a commit wiping the run's own lines of them
+      texts.push([runText(held, typeof made === 'string' ? ((await read($, plans))[held.ref] ?? null) : made, costText(spentOn(held, root, turns))), ...(events.length > 0 ? ['', 'Its last events:', ...events.slice(-8).map(event => `- ${clockOf(event.at)} ${event.text}`)] : [])].join('\n'))
     }
 
     return { result: texts.join('\n\n―――\n\n') }

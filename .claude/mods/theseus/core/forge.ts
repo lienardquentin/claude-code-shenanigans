@@ -2,7 +2,8 @@
 // CLI's answer reads. Nothing here touches the engine: commands run through the Shell a caller hands over, so the
 // same code serves the mod and a runner outside Claude Code.
 
-export type ForgeKind = 'github' | 'gitlab'
+/** A forge, or `local`: issues kept as files in the project, with no pull request and no review. */
+export type ForgeKind = 'github' | 'gitlab' | 'local'
 
 /** A repository on a forge: `server` is its host, `repo` its path (`owner/name`, or `group/sub/project` on GitLab). */
 export type Repo = { forge: ForgeKind; server: string; repo: string }
@@ -73,8 +74,8 @@ export type NewRequest = { branch: string; base: string; title: string; body: st
 /** The calls the workflow makes of a forge. Each answers why, in a sentence, where the forge could not be asked. */
 export type Forge = {
   kind: ForgeKind
-  /** The CLI it is reached through. */
-  cli: 'gh' | 'glab'
+  /** The CLI it is reached through; none for local issues. */
+  cli: 'gh' | 'glab' | 'none'
   /** The repository's open issues, the most recently updated first. */
   listIssues: (repo: Repo) => Promise<IssueSummary[] | string>
   /** An issue and its thread, through the CLI, else the REST API. `origin` is the repository the work is in. */
@@ -166,6 +167,10 @@ export const parseIssueRef = (input: string, origin?: Repo): IssueRef | string =
 
   if (said === '') return 'No issue is named.'
 
+  const kept = /^local:(?:issues)?#?(\d+)$/.exec(said)
+
+  if (kept !== null) return { forge: 'local', server: LOCAL_SERVER, repo: 'issues', number: Number(kept[1]) }
+
   const url = /^https?:\/\/([^/]+)\/(.+?)\/(-\/)?(?:issues|work_items)\/(\d+)(?:[/?#].*)?$/.exec(said)
 
   if (url !== null) {
@@ -192,7 +197,8 @@ export const parseIssueRef = (input: string, origin?: Repo): IssueRef | string =
   const bare = /^#?(\d+)$/.exec(said)
 
   if (bare !== null) {
-    if (origin === undefined) return `#${bare[1]} names an issue of this repository, whose git remote could not be read.`
+    // A repository with no remote keeps its issues as files: #3 is .theseus/issues/3.md
+    if (origin === undefined) return { forge: 'local', server: LOCAL_SERVER, repo: 'issues', number: Number(bare[1]) }
 
     return { ...origin, number: Number(bare[1]) }
   }
@@ -201,13 +207,14 @@ export const parseIssueRef = (input: string, origin?: Repo): IssueRef | string =
 }
 
 /** An issue written short, the key its plan is kept under: `github:owner/repo#12`, the host added when it is not the forge's own. */
-export const refText = ({ forge, server, repo, number }: IssueRef): string => `${forge}:${server === `${forge}.com` ? '' : `${server}/`}${repo}#${number}`
+export const refText = ({ forge, server, repo, number }: IssueRef): string => (forge === 'local' ? `local:issues#${number}` : `${forge}:${server === `${forge}.com` ? '' : `${server}/`}${repo}#${number}`)
 
 /** The issue a ref names, as `refText` writes it: `github:owner/repo#12`, `gitlab:git.corp.io/g/p#3`. */
 export const refOf = (ref: string): IssueRef | undefined => {
-  const found = /^(github|gitlab):(.+)#(\d+)$/.exec(ref.trim())
+  const found = /^(github|gitlab|local):(.+)#(\d+)$/.exec(ref.trim())
 
   if (found === null) return undefined
+  if (found[1] === 'local') return { forge: 'local', server: LOCAL_SERVER, repo: 'issues', number: Number(found[3]) }
 
   const forge = found[1] as ForgeKind
   const path = found[2] ?? ''
@@ -735,7 +742,72 @@ export const gitlab = (shell: Shell): Forge => ({
 })
 
 /** The forge of a kind, its commands run through a shell. */
-export const forgeOf = (kind: ForgeKind, shell: Shell): Forge => (kind === 'github' ? github(shell) : gitlab(shell))
+/** Where the project keeps its local issues, a Markdown file each named by its number: `.theseus/issues/3.md`. */
+export const LOCAL_ISSUES = '.theseus/issues'
+export const LOCAL_SERVER = 'local'
+
+const NO_FORGE = 'Local issues have no forge: no pull request, no review, no check.'
+
+/** A local issue as its file says it: its title the first line (`# …` or plain), its body the rest. */
+export const localIssueOf = (number: number, text: string): Issue => {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const at = lines.findIndex(line => line.trim() !== '')
+  const title = (lines[at] ?? '').replace(/^#+\s*/, '').trim()
+
+  return { title: title || `Issue ${number}`, body: lines.slice(at + 1).join('\n').trim(), url: `${LOCAL_ISSUES}/${number}.md`, state: 'open', labels: [], author: 'you', isOutside: false, comments: [], leftOut: 0 }
+}
+
+/**
+ * Issues kept as files in the project, for work with no forge (an eval, a repository with no remote, a try): read
+ * and opened under .theseus/issues/, always the person's own. A run on one is built and reviewed, and stops before the
+ * push: there is no pull request to open.
+ */
+export const local = (shell: Shell): Forge => ({
+  kind: 'local',
+  cli: 'none',
+
+  async listIssues() {
+    const listed = await shell.run(['sh', '-c', `for f in ${LOCAL_ISSUES}/*.md; do [ -f "$f" ] && printf '%s\\0' "$f" && cat "$f" && printf '\\0'; done; true`])
+    const parts = listed.stdout.split('\0')
+    const issues: IssueSummary[] = []
+
+    for (let at = 0; at + 1 < parts.length; at += 2) {
+      const number = Number(/(\d+)\.md$/.exec(parts[at] ?? '')?.[1])
+
+      if (!Number.isInteger(number)) continue
+      const issue = localIssueOf(number, parts[at + 1] ?? '')
+
+      issues.push({ number, title: issue.title, url: issue.url, labels: [], author: 'you', updatedAt: '', body: issue.body })
+    }
+
+    return issues.sort((one, other) => other.number - one.number)
+  },
+
+  async readIssue(ref) {
+    const read = await shell.run(['cat', `${LOCAL_ISSUES}/${ref.number}.md`])
+
+    return read.exitCode === 0 ? localIssueOf(ref.number, read.stdout) : `No local issue ${ref.number}: write it in ${LOCAL_ISSUES}/${ref.number}.md, its title on the first line.`
+  },
+
+  pullState: async () => NO_FORGE,
+  mergedFrom: async () => '',
+  currentRequest: async () => NO_FORGE,
+  readReview: async () => NO_FORGE,
+  openRequest: async request => `${request.branch} is built and reviewed. Local issues have no forge to open a pull request on: push it and open one where the code is kept (git push -u origin ${request.branch}).`,
+  failingChecks: async () => NO_FORGE,
+
+  async openIssue(_repo, title, body) {
+    const made = await shell.run(['sh', '-c', `mkdir -p ${LOCAL_ISSUES} && n=1 && while [ -e ${LOCAL_ISSUES}/$n.md ]; do n=$((n+1)); done && printf '# %s\\n\\n%s\\n' "$1" "$2" > ${LOCAL_ISSUES}/$n.md && echo $n`, 'sh', title, body])
+    const number = Number(made.stdout.trim())
+
+    return made.exitCode === 0 && Number.isInteger(number) ? { url: `${LOCAL_ISSUES}/${number}.md`, number } : `The issue could not be written in ${LOCAL_ISSUES}: ${made.stderr.trim()}`
+  },
+
+  replyToThread: async () => ({ exitCode: 1, stdout: '', stderr: NO_FORGE }),
+  resolveThread: async () => ({ exitCode: 1, stdout: '', stderr: NO_FORGE }),
+})
+
+export const forgeOf = (kind: ForgeKind, shell: Shell): Forge => (kind === 'github' ? github(shell) : kind === 'gitlab' ? gitlab(shell) : local(shell))
 
 /**
  * Where a pull request stands, by its URL, as its forge says; or why that is not known (no URL, the CLI failed, its

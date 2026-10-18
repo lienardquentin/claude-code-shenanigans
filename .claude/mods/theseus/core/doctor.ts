@@ -168,6 +168,19 @@ export async function examine(p: DoctorPorts, project: Project): Promise<Check[]
     )
   }
 
+  // Claude Code confines an agent's shell commands with bubblewrap and socat on Linux: without them, the agents Theseus
+  // sends run their commands unconfined, the guard's spelling checks the last fence
+  if ((await p.run(['uname', '-s'])).stdout.trim() === 'Linux') {
+    const missing = []
+
+    for (const program of ['bwrap', 'socat']) if (!(await isThere(p, program))) missing.push(program)
+    checks.push(
+      missing.length === 0
+        ? { name: 'sandbox', state: 'ok', found: 'bubblewrap and socat', fix: '' }
+        : { name: 'sandbox', state: 'warn', found: `${missing.join(' and ')} not on the PATH: the agents Theseus sends run their commands unconfined`, fix: 'Install them (sudo apt install bubblewrap socat, or your distribution\'s packages) and keep Claude Code\'s sandbox on' },
+    )
+  }
+
   for (const lag of project.lags) checks.push({ name: 'installed copy', state: 'warn', found: lag, fix: 'claude plugin update theseus@theseus, then restart Claude Code' })
 
   return checks

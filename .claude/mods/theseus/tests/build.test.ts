@@ -948,6 +948,9 @@ describe('build', () => {
     await $.ui.mount({ plugin: 'theseus', surface: 'terminal', component: 'Pane', props: { bodyColumns: 120 } as never, requestId: 'build' })
     expect(await call($, 'mcp__theseus__pane', { pane: 'build' })).toMatch(/History\n\s*[\d:]+(?: [AP]M)? Started a plan on build\/12-[\s\S]*[\d:]+(?: [AP]M)? Sent Light builder 1 on task 1/)
 
+    // The run tool says its last events: what its proofs and reviewers found, once a commit has wiped the run's own lines
+    expect(await call($, 'mcp__theseus__run')).toMatch(/Its last events:\n[\s\S]*- [\d:]+(?: [AP]M)? Sent Light builder 1 on task 1: Keep when a beacon is lit/)
+
     // The graph says each task and its steps, and the history the run, under way
     expect((await $.command.run({ command: 'theseus', args: 'graph' } as never)).text).toMatch(/1\. Keep when a beacon is lit\n\s+– tests  ◐ build  · prove  · review  · commit · Light builder 1[\s\S]*Abandon the run: \/theseus build abandon github:/)
     expect((await $.command.run({ command: 'theseus', args: 'history' } as never)).text).toMatch(/^under way\s+github:lienardquentin\/claude-code-shenanigans#12 · 0 tasks committed/)

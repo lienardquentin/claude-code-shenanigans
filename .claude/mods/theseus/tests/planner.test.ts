@@ -51,7 +51,8 @@ describe('an issue named', () => {
     expect(parseRef('gl:g/sub/p#4')).toEqual({ forge: 'gitlab', server: 'gitlab.com', repo: 'g/sub/p', number: 4 })
     expect(parseRef('o/r#5', ORIGIN)).toEqual({ forge: 'github', server: 'github.com', repo: 'o/r', number: 5 })
     expect(parseRef('#9', ORIGIN)).toEqual({ ...ORIGIN, number: 9 })
-    expect(parseRef('9')).toMatch(/git remote could not be read/)
+    // With no remote to read, a bare number is a local issue's
+    expect(parseRef('9')).toEqual({ forge: 'local', server: 'local', repo: 'issues', number: 9 })
     expect(parseRef('the beacons one')).toMatch(/names no issue/)
   })
 

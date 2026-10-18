@@ -1,0 +1,29 @@
+schema_version: "1.0"
+name: doctor
+description: Asked in plain words whether Theseus is set up, Claude reads the doctor and reports what is missing and how to fix it.
+tags: [cheap, setup]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    Is Theseus set up to work in this repository? Check, and tell me in two or three sentences what is missing and how I fix it.
+  max_turns: 8
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, ToolSearch, mcp__theseus__doctor, mcp__theseus__pane]
+runs: 1
+graders:
+  - type: tool_used
+    name: asks Theseus's doctor
+    tool: mcp__theseus__doctor
+    min: 1
+  - type: regex
+    name: the doctor warns of no origin remote
+    target: trace
+    pattern: "origin remote: none"
+  - type: regex
+    name: the doctor warns of no project file
+    target: trace
+    pattern: "project file: none"
+  - type: llm
+    name: the answer names both, and how to fix them
+    criteria: The final answer says the repository has no git remote (origin) and no Theseus project file (.claude/theseus.toml), and gives a way to fix each (add a remote; /theseus init).
