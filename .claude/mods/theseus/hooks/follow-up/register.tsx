@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { FollowUpComment, FollowUp, FollowUpPhase } from '../../types'
 import { HOW_TO, WEIGHER_MODEL, commentShown, followUpText, handedOf, parseWeights, reviewRef, weighPrompt, checkComments } from './follow-up'
 import { parsePullRef, parseRemote } from '../../core/forge'
-import { errorText, forgeIn, git, isMergedFrom, movedTo, offerTools, openPane, toolFailed } from '../flow'
+import { errorText, forgeIn, git, isMergedFrom, offerTools, openPane, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
@@ -196,7 +196,6 @@ async function alone<T>($: $, act: () => Promise<T>): Promise<T> {
 
 /** The review follow-up at the session's start: its command, its tools, and the clock that does what a command asked. */
 export async function startFollowUp($: $): Promise<void> {
-  await $.command.register({ name: 'follow-up', description: 'Now /theseus follow-up (this name goes in the next release)' })
 
   await offerTools($, TOOLS)
 
@@ -240,8 +239,6 @@ export function registerFollowUp(on: On): void {
   }).catch((_$, _e, next) => toolFailed('review_comments', next.error))
 
   // Reading the forge and handing over take a while: the command answers at once, and the clock does them
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'follow-up' }, async ($, e) => movedTo('/follow-up', '/theseus follow-up', await followUpCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

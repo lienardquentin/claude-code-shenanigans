@@ -8,7 +8,7 @@ import { badge } from '../kit/badge'
 import type { Tone } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clockOf, shortRef } from '../look'
-import { errorText, movedTo, offerTools, rootOf, toolFailed } from '../flow'
+import { errorText, offerTools, rootOf, toolFailed } from '../flow'
 import type { Section, TurnEnded } from '../flow'
 import { isTree, treeOf } from '../kit/trees'
 import { TEST_WRITER, TEST_WRITER_LIGHT, agentOf, remember, spawnIn, treesOf, typeOf } from '../agents'
@@ -307,7 +307,6 @@ export const testsFirstSectionText = (held: TestsFirst): string =>
 
 /** tests first at the session's start: its command and its tools. */
 export async function startTestsFirst($: $): Promise<void> {
-  await $.command.register({ name: 'tests', description: 'Now /theseus tests (this name goes in the next release)' })
 
   // A host that registers no tools still starts the session
   await offerTools($, TOOLS)
@@ -389,8 +388,6 @@ export function registerTestsFirst(on: On): void {
     return { result: await amend($, place, file, String(given.why ?? ''), await whoIs($, e.agentId), String(given.test ?? '').trim()) }
   }).catch((_$, _e, next) => toolFailed('amend_test', next.error))
 
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'tests' }, async ($, e) => movedTo('/tests', '/theseus tests', await testsCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

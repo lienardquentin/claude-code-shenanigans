@@ -45,9 +45,6 @@ const PANES = {
   cleanup: cleanupView,
 } as const
 
-/** The names the panes had before /theseus, still read for one release. */
-const OLD_PANES: Record<string, keyof typeof PANES> = { planner: 'plan', 'tests-first': 'tests' }
-
 /** Each verb of /theseus that a part answers, and what it does. */
 const VERBS = {
   plan: { usage: 'plan <issue | idea> [--again] [--auto]', does: 'plan an issue, or grill an idea into one; alone, the plan' },
@@ -306,7 +303,7 @@ export const register: Register = (on, options) => {
     if (named === 'doctor') return { result: doctorText(await doctorOf($)) }
     if (named === 'history') return { result: await historyText($) }
 
-    const pane = OLD_PANES[named] ?? named
+    const pane = named
 
     const view = pane in PANES ? PANES[pane as keyof typeof PANES] : undefined
 

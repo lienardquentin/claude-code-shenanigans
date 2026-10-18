@@ -6,7 +6,7 @@ import { HOW_TO, listedOf, standingOf } from './listed'
 import { parseRemote } from '../../core/forge'
 import { askPlanner, planStanding } from '../planner/register'
 import { askErrand, runLeftovers } from '../build/register'
-import { errorText, forgeIn, git, movedTo } from '../flow'
+import { errorText, forgeIn, git } from '../flow'
 import { badge } from '../kit/badge'
 import { paneView } from '../kit/pane-text'
 import { clip, keyed } from '../look'
@@ -78,7 +78,6 @@ async function standings($: $, listed: readonly ListedIssue[]): Promise<Map<stri
 
 /** The issues pane at the session's start: its command. The issues are read once the pane is opened. */
 export async function startIssues($: $): Promise<void> {
-  await $.command.register({ name: 'issues', description: 'Now /theseus issues (this name goes in the next release)' })
 }
 
 /** `/theseus issues`: Opens the open issues. */
@@ -89,8 +88,6 @@ export async function issuesCommand($: $, _args: string): Promise<{ text: string
 }
 
 export function registerIssues(on: On): void {
-  // The command it had before /theseus, kept for one release: it says its new spelling
-  on('command.run', { command: 'issues' }, async ($, e) => movedTo('/issues', '/theseus issues', await issuesCommand($, e.args)))
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
