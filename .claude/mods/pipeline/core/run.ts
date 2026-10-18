@@ -145,6 +145,7 @@ const taskOf = (task: Record<string, unknown>): Task => ({
   ...(typeof task.where === 'string' ? { where: task.where } : {}),
   ...(typeof task.url === 'string' ? { url: task.url } : {}),
   ...(typeof task.thread === 'string' && task.thread !== '' ? { thread: task.thread } : {}),
+  ...(typeof task.note === 'string' && task.note !== '' ? { note: task.note } : {}),
 })
 
 /** The plan the planner keeps, or as JSON text: `null` when none is in force, a sentence when the answer is not a plan. */
@@ -632,13 +633,25 @@ const errandOpening = (last: Run['commits'][number] | undefined): string[] => {
   return [...(answer !== '' ? [answer, ''] : []), ...(proof !== '' ? [`The the proof: ${proof}.`, ''] : [])]
 }
 
-export const prBody = (quest: Pick<Run, 'kind' | 'ref' | 'commits'>, plan: Plan): string =>
+/** A task's lines in a pull request: its commit, who built it and how long it took, then what it changed beyond its files and left unticked. */
+const taskLines = (one: RunCommit): string[] => [
+  `- ${one.sha === '' ? 'no change' : one.sha.slice(0, 7)} ${one.taskId}. ${one.title} (${one.by}${one.took !== undefined ? `, ${Math.max(1, Math.round(one.took / 60_000))} min` : ''})`,
+  ...((one.outside ?? []).length > 0 ? [`  - changed beyond its files: ${(one.outside ?? []).join(', ')}`] : []),
+  ...((one.unticked ?? []).length > 0 ? [`  - left unticked: ${(one.unticked ?? []).join('; ')}`] : []),
+]
+
+/** What a run's work holds that was not built, and why: a task handed back to the person, with what it said. */
+const notBuilt = (plan: Plan): string[] => plan.tasks.filter(task => task.state === 'asked').map(task => `- ${task.id}. ${task.title}: handed back${task.note !== undefined && task.note !== '' ? `, ${task.note}` : ''}`)
+
+export const prBody = (quest: Pick<Run, 'kind' | 'ref' | 'commits'>, plan: Plan, spent = ''): string =>
   [
     // An errand's pull request opens on what its builder said of the change, and on what verify proved of it
     ...(quest.kind === 'errand' ? errandOpening(quest.commits.at(-1)) : []),
     ...(plan.summary !== '' ? [plan.summary, ''] : []),
     ...(plan.approach !== '' ? [plan.approach, ''] : []),
-    ...(quest.kind === 'plan' ? ['## Tasks', '', ...quest.commits.map(one => `- ${one.sha === '' ? 'no change' : one.sha.slice(0, 7)} ${one.taskId}. ${one.title} (${one.by})`)] : []),
+    ...(quest.kind === 'plan' ? ['## Tasks', '', ...quest.commits.flatMap(taskLines)] : []),
+    ...(quest.kind === 'errand' ? quest.commits.flatMap(one => [...(one.outside ?? []).length > 0 ? [`Changed beyond the files the issue named: ${(one.outside ?? []).join(', ')}.`, ''] : [], ...((one.unticked ?? []).length > 0 ? ['Left unticked by its builder:', ...(one.unticked ?? []).map(item => `- ${item}`), ''] : [])]) : []),
+    ...(notBuilt(plan).length > 0 ? ['', '## Not built', '', ...notBuilt(plan)] : []),
     ...((plan.alone ?? []).length > 0
       ? ['', '## Decided without the person', '', 'This run went on by itself: what it decided that the person was not asked, for them to check.', '', ...(plan.alone ?? []).map(one => `- ${one}`)]
       : []),
@@ -648,6 +661,7 @@ export const prBody = (quest: Pick<Run, 'kind' | 'ref' | 'commits'>, plan: Plan)
     ...(quest.commits.some(one => (one.unproven ?? []).length > 0)
       ? ['', '## Not proven', '', 'What no integration test proves, for verify has no handler for it: the reviewers judged it alone.', '', ...quest.commits.filter(one => (one.unproven ?? []).length > 0).map(one => `- task ${one.taskId}: ${(one.unproven ?? []).join(', ')}`)]
       : []),
+    ...(spent !== '' ? ['', '## Spent', '', spent] : []),
     '',
     quest.kind === 'errand' ? 'Built as an errand by the build, proven and reviewed.' : 'Planned by the planner, built task by task by the build, each change proven and reviewed.',
     '',
@@ -657,9 +671,9 @@ export const prBody = (quest: Pick<Run, 'kind' | 'ref' | 'commits'>, plan: Plan)
   ].join('\n')
 
 /** The pull request that closes a run's issue, from its branch onto its base, and the forge it is opened on. */
-export const requestOf = (quest: Pick<Run, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: Plan): { forge: ForgeKind; request: NewRequest } => ({
+export const requestOf = (quest: Pick<Run, 'kind' | 'ref' | 'branch' | 'base' | 'commits'>, plan: Plan, spent = ''): { forge: ForgeKind; request: NewRequest } => ({
   forge: refOf(plan.ref)?.forge ?? 'github',
-  request: { branch: quest.branch, base: quest.base, title: plan.title, body: prBody(quest, plan) },
+  request: { branch: quest.branch, base: quest.base, title: plan.title, body: prBody(quest, plan, spent) },
 })
 
 const KIND_LINE: Record<RunKind, string> = { plan: 'plan', errand: 'errand', review: 'review' }

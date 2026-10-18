@@ -130,6 +130,7 @@ function world(run: Run, answers: { proof?: unknown; judgement?: unknown; quota?
       targetsKnown: async () => answers.targets ?? [{ label: 'gondor', kind: 'service', roots: ['beacons/gondor'] }],
       standardsText: async () => '',
       isMergedFrom: async () => false,
+      spentOn: async () => 'Spent: 4 turns, 3 min, 120k tokens in (90k cached), 8k out.',
       settleAlone: async () => {
         plan = plan === null ? null : settledAlone(plan)
 
@@ -334,7 +335,7 @@ describe('an auto run on a plan left open', () => {
     title: 'Quench',
     summary: 'Quench a beacon.',
     approach: 'One route.',
-    tasks: [{ ...TASK, dependsOn: [], weight: 'standard' }],
+    tasks: [{ ...TASK, dependsOn: [], weight: 'standard', state: 'todo' as const }],
     questions: [{ text: 'Is an unlit beacon 0 or null?', options: ['null', '0'], answer: '' }],
     decided: [],
     risks: [{ text: 'A beacon quenched twice', severity: 'low', mitigation: '', tasks: [1], wantsTask: false }],
@@ -365,6 +366,17 @@ describe('an auto run on a plan left open', () => {
     const made = parsePlan(settledAlone(PLAN))
 
     expect(typeof made === 'object' && made !== null && prBody({ kind: 'plan', ref: PLAN.ref, commits: [] }, made)).toMatch(/## Decided without the person\n\nThis run went on by itself: what it decided that the person was not asked, for them to check\.\n\n- Is an unlit beacon 0 or null\? → null/)
+  })
+})
+
+describe('the pull request a plan opens', () => {
+  test('says of each task how long it took, what it changed beyond its files and left unticked, what was not built, and what the run spent', () => {
+    const plan = parsePlan({ ref: 'github:o/r#7', url: 'u', title: 'Quench', summary: 'S.', approach: 'A.', tasks: [{ ...TASK, state: 'done' }, { ...TASK, id: 2, title: 'A question', state: 'asked', note: 'which unit?' }] })
+    const body = typeof plan === 'object' && plan !== null ? prBody({ kind: 'plan', ref: 'github:o/r#7', commits: [{ taskId: 1, title: 'Quench a beacon', sha: 'abcdef1234', by: 'CLI builder', minor: [], took: 240_000, outside: ['README.md'], unticked: ['the docs'] }] }, plan, 'Spent: 4 turns.') : ''
+
+    expect(body).toMatch(/- abcdef1 1\. Quench a beacon \(CLI builder, 4 min\)\n  - changed beyond its files: README\.md\n  - left unticked: the docs/)
+    expect(body).toMatch(/## Not built\n\n- 2\. A question: handed back, which unit\?/)
+    expect(body).toMatch(/## Spent\n\nSpent: 4 turns\./)
   })
 })
 

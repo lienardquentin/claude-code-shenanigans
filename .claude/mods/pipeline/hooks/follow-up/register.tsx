@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FollowUpComment, FollowUp, FollowUpPhase } from '../../types'
-import { HOW_TO, WEIGHER_MODEL, commentShown, followUpText, handedOf, parseWeights, reviewRef, weighPrompt } from './follow-up'
+import { HOW_TO, WEIGHER_MODEL, commentShown, followUpText, handedOf, parseWeights, reviewRef, weighPrompt, checkComments } from './follow-up'
 import { parsePullRef, parseRemote } from '../../core/forge'
 import { errorText, forgeIn, git, isMergedFrom, toolFailed } from '../flow'
 import { badge } from '../kit/badge'
@@ -81,6 +81,9 @@ async function open($: $, input: string): Promise<string> {
 
   if (typeof parsed === 'string') return parsed
 
+  // The pull request's failing checks ask for a change alongside its comments
+  const checks = await forgeIn($, named.forge).failingChecks(named.repo, named.number).catch((error: unknown) => errorText(error))
+
   await update($, followUp, (): FollowUp => ({ pr: parsed.pr, comments: [], phase: 'weighing', at: Date.now() }))
   await update($, working, () => `The weigher weighs ${parsed.comments.length} ${parsed.comments.length === 1 ? 'comment' : 'comments'}…`)
 
@@ -97,11 +100,12 @@ async function open($: $, input: string): Promise<string> {
   const outside = all.filter(one => one.isOutside === true && one.kind !== 'settled').length
   const said = [
     ...parsed.unread,
+    ...(typeof checks === 'string' ? [`the checks could not be read (${checks})`] : []),
     ...(typeof weighing === 'string' ? [`the comments could not be weighed (${weighing}): each is a question for you`] : unweighed > 0 ? [`${unweighed} ${unweighed === 1 ? 'comment was' : 'comments were'} not weighed, and ${unweighed === 1 ? 'is a question' : 'are questions'} for you`] : []),
     ...(outside > 0 ? [`${outside} ${outside === 1 ? 'comment is' : 'comments are'} from outside the repository, and ${outside === 1 ? 'is a question' : 'are questions'} for you, never built`] : []),
   ]
   // What asks nothing more (a question answered against the change, a review's summary, a comment taken back) is left out
-  const comments: FollowUpComment[] = all.flatMap(one => (one.kind === 'settled' ? [] : [{ ...one, kind: one.kind }]))
+  const comments: FollowUpComment[] = [...all.flatMap(one => (one.kind === 'settled' ? [] : [{ ...one, kind: one.kind }])), ...checkComments(typeof checks === 'string' ? [] : checks)]
   const settled = all.length - comments.length
 
   await keep($, was => ({ ...was, comments, phase: 'ready' }))
@@ -110,8 +114,9 @@ async function open($: $, input: string): Promise<string> {
 
   const changes = comments.filter(one => one.kind === 'change').length
   const questions = comments.length - changes
+  const failing = typeof checks === 'string' ? 0 : checks.length
 
-  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}. /follow-up answer hands them to the build.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
+  return `The review follow-up opens on ${parsed.pr.repo}#${parsed.pr.number}, "${parsed.pr.title}", on ${parsed.pr.branch}: ${comments.length === 0 ? 'no open review comment.' : `${changes} ${changes === 1 ? 'comment asks' : 'comments ask'} for a change, ${questions} ${questions === 1 ? 'is a question' : 'are questions'} for the person${settled > 0 ? `, ${settled} ${settled === 1 ? 'is' : 'are'} settled` : ''}${failing > 0 ? ` (${failing} of the changes ${failing === 1 ? 'is a failing check' : 'are failing checks'})` : ''}. /follow-up answer hands them to the build.`}${said.length > 0 ? ` Mind: ${said.join('; ')}.` : ''}`
 }
 
 /** Hands the comments that ask for a change to the build, which builds them on the pull request's branch. */

@@ -195,7 +195,7 @@ describe('the follow-up', () => {
 /** Stands for the machine, the forge, the weigher and the engine beneath the mod; `kept` is what the store holds at the start. */
 const machine = (on: On, kept: Record<string, unknown> = {}) => {
   // What the weigher answers, and each prompt it was sent
-  const world = { tools: [] as string[], ran: [] as string[], toasts: [] as string[], weights: WEIGHTS, isWeighing: true, github: GITHUB, weighed: [] as string[], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
+  const world = { tools: [] as string[], ran: [] as string[], toasts: [] as string[], weights: WEIGHTS, isWeighing: true, github: GITHUB, checks: '[]', weighed: [] as string[], clock: mock.clock(on, { now: 1_800_000_000_000 }) }
 
   mock.store(on, kept)
   on('session.cwd', () => ({ value: CWD }) as never)
@@ -209,6 +209,7 @@ const machine = (on: On, kept: Record<string, unknown> = {}) => {
     if (line === 'git rev-parse --show-toplevel') return answer(`${CWD}\n`)
     if (line === 'git remote get-url origin') return answer('git@github.com:lienardquentin/claude-code-shenanigans.git\n')
     if (e.argv[0] === 'gh' && e.argv[1] === 'api') return answer(world.github)
+    if (e.argv[0] === 'gh' && e.argv[1] === 'pr' && e.argv[2] === 'checks') return answer(world.checks)
     if (e.argv[0] === 'gh' && e.argv[1] === 'pr') return answer('{"number": 40}')
 
     return answer('')
@@ -333,6 +334,19 @@ describe('follow-up', () => {
     expect(quest).toMatch(/Rename quench_one[\s\S]*log the 409/)
     expect(quest).not.toMatch(/Why 409/)
     expect(await call($, 'mcp__pipeline__review_comments')).toMatch(/: handed\.\n2 comments ask for a change, handed to the build as review:.*#40[\s\S]*1 is a question for the person/)
+  })
+
+  test("takes a failing check of the pull request up as a change, the end of its log with it", async ($, on) => {
+    const world = machine(on)
+    world.checks = JSON.stringify([{ name: 'pytest', bucket: 'fail', link: 'https://github.com/o/r/actions/runs/7/job/88' }, { name: 'ruff', bucket: 'pass', link: '' }])
+    await $.session.start({} as never)
+
+    expect(await call($, 'mcp__pipeline__open_review', { pr: '#40' })).toMatch(/: 3 comments ask for a change, 1 is a question for the person \(1 of the changes is a failing check\)\./)
+    expect(world.ran).toContain('gh run view --repo lienardquentin/claude-code-shenanigans --job 88 --log-failed')
+
+    await call($, 'mcp__pipeline__answer_review', { auto: true })
+
+    expect(await call($, 'mcp__pipeline__run', { ref: `review:${REPO}#40` })).toMatch(/The check "pytest" fails/)
   })
 
   test('builds nothing on a guess: a comment the weigher left out, or from outside the repository, is a question for the person', async ($, on) => {

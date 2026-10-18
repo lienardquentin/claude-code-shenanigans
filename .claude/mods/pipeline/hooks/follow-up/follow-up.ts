@@ -1,5 +1,6 @@
 import type { FollowUpComment, FollowUp, FollowUpPr, CommentWeight } from '../../types'
 import { WEIGHT_MEANS } from '../../core/run'
+import type { FailingCheck } from '../../core/forge'
 
 export const HOW_TO = "No review follow-up is open. /follow-up <pull request> reads its open review comments (a number, a URL, or none for this branch's own) and weighs them; /follow-up answer hands those that ask for a change to the build, which answers them on the pull request's branch in a worktree of its own (--auto goes on by itself), and pushes them once you say so."
 
@@ -111,3 +112,21 @@ export const followUpText = (followUp: FollowUp): string => {
     ...followUp.comments.map(commentLine),
   ].join('\n')
 }
+
+/**
+ * A failing check as a comment that asks for a change: the build makes it pass on the pull request's branch, from the
+ * end of its log, which is data. It has no thread to answer, and is no one's to weigh: a failing check asks for a change.
+ */
+export const checkComments = (checks: readonly FailingCheck[]): FollowUpComment[] =>
+  checks.map(check => ({
+    id: `check:${check.name}`,
+    author: 'CI',
+    path: '',
+    line: 0,
+    body: [`The check "${check.name}" fails on this pull request. Make it pass, changing what the check shows is wrong, never the check itself.`, ...(check.log !== '' ? ['', 'The end of its log:', '', '```', check.log, '```'] : [`Its log could not be read here: ${check.url}`])].join('\n'),
+    said: `The check "${check.name}" fails.`,
+    url: check.url,
+    weight: 'standard',
+    kind: 'change',
+  }))
+

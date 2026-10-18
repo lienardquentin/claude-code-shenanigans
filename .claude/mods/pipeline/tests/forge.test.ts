@@ -219,3 +219,26 @@ describe('an issue opened from an idea', () => {
   })
 })
 
+describe('the failing checks of a pull request', () => {
+  test("are read on GitHub from gh pr checks, each failed job's log with it, whatever gh answers of the failure", async () => {
+    const on = shell([
+      [/^gh pr checks/, { exitCode: 1, stdout: JSON.stringify([{ name: 'pytest', bucket: 'fail', link: 'https://github.com/o/r/actions/runs/7/job/88' }, { name: 'lint', bucket: 'pass', link: 'x' }]), stderr: '' }],
+      [/^gh run view/, ok('E   assert 3 == 2\n')],
+    ])
+
+    expect(await github(on.fake).failingChecks(REPO, 40)).toEqual([{ name: 'pytest', url: 'https://github.com/o/r/actions/runs/7/job/88', log: 'E   assert 3 == 2' }])
+    expect(on.ran[1]).toEqual(['gh', 'run', 'view', '--repo', REPO, '--job', '88', '--log-failed'])
+  })
+
+  test("are read on GitLab as the failed jobs of the merge request's last pipeline, each with its trace", async () => {
+    const lab = shell([
+      [/merge_requests\/9\/pipelines$/, ok([{ id: 501 }, { id: 400 }])],
+      [/pipelines\/501\/jobs/, ok([{ id: 77, name: 'test', web_url: 'https://git.corp.io/g/sub/p/-/jobs/77' }])],
+      [/jobs\/77\/trace$/, ok('FAILED tests/test_x.py\n')],
+    ])
+
+    expect(await gitlab(lab.fake).failingChecks('g/sub/p', 9)).toEqual([{ name: 'test', url: 'https://git.corp.io/g/sub/p/-/jobs/77', log: 'FAILED tests/test_x.py' }])
+    expect(lab.ran[0]).toEqual(['glab', 'api', 'projects/g%2Fsub%2Fp/merge_requests/9/pipelines'])
+  })
+})
+

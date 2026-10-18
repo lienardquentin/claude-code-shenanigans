@@ -201,6 +201,9 @@ The workflow mods are one marketplace, `pipeline`, kept in
   the build builds in a worktree of its own (`/build`), the test writer writes tests first (`/tests`), verify proves
   and reviews each change (`/checks`), the review follow-up reads review (`/follow-up`) and the cleanup clears what is
   merged (`/cleanup`). Its tools are `mcp__pipeline__*`; `mcp__pipeline__pane` reads any of its panes by name.
+  A pull request says of each task its commit, how long it took, what it changed beyond its files and what its builder
+  left unticked, then what was not built, the reviewers' minor findings and what the run spent. `/follow-up` takes a
+  pull request's failing checks (GitHub checks, GitLab pipeline jobs) up as changes, beside its review comments.
   `/planner <idea>` starts from a sentence instead of an issue: Claude grills you on it, opens the issue and has it
   planned (`--auto` asks nothing, and lists what it decided in the issue). An auto run settles a plan's open questions
   and risks itself, and the plan and the pull request list them under "Decided without the person".

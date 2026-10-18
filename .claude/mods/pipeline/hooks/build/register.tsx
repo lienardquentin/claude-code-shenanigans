@@ -221,6 +221,11 @@ function portsOf($: $): Ports {
       standardsText: () => standardsText($),
       isMergedFrom: (url, branch) => isMergedFrom($, url, branch),
       settleAlone: ref => settlePlanAlone($, ref),
+      spentOn: async held => {
+        const root = await rootOf($)
+
+        return costText(spentOn(held, root, await spends($, root)))
+      },
     },
     machine: {
       root: () => rootOf($),
