@@ -75,7 +75,7 @@ the release away, and `devspace run cluster-down` the cluster.
 | `GET /palantiri` | The seeing-stones Gondor knows of |
 | `GET /palantiri/{stone}/gaze` | What the stone shows |
 | `POST /muster?spears=2000` | Sends the Red Arrow: asks Rohan (`POST /riders/muster`) for that many spears |
-| `GET /health` | Whether the realm stands |
+| `GET /health` | Whether the realm stands, how many beacons are lit (`lit`) and how many it keeps (`beacons`) |
 
 Rohan also has `GET /riders`, its éoreds and their spears.
 

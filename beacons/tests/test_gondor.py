@@ -29,7 +29,16 @@ def client():
 
 # pins: gondor GET /health
 def test_health(client):
-    assert client.get("/health").json() == {"realm": "gondor", "stands": True, "lit": 0}
+    assert client.get("/health").json() == {"realm": "gondor", "stands": True, "lit": 0, "beacons": len(realm.BEACONS)}
+
+
+def test_health_keeps_the_beacons_count_when_the_archives_are_shut(client, monkeypatch):
+    async def burning() -> list[str]:
+        raise archive.Shut("the archives are shut, and none can say what burns")
+
+    monkeypatch.setattr(archive, "burning", burning)
+
+    assert client.get("/health").json() == {"realm": "gondor", "stands": True, "lit": None, "beacons": len(realm.BEACONS)}
 
 
 def test_beacons_start_dark_and_come_in_chain_order(client):

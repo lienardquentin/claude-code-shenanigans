@@ -73,7 +73,7 @@ async def health():
     except archive.Shut:
         lit = None
 
-    return {"realm": "gondor", "stands": True, "lit": lit}
+    return {"realm": "gondor", "stands": True, "lit": lit, "beacons": len(realm.BEACONS)}
 
 
 @app.get("/beacons")
